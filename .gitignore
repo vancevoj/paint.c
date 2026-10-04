@@ -3,3 +3,6 @@ build*/
 *.obj
 pc_tests_*
 /logs/
+/out/
+/.cache/
+compile_commands.json

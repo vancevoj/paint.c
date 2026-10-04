@@ -1,35 +1,45 @@
-# Reference core for the portable Paint.NET-class editor ("pcanvas").
+# paint.c - a native C17 raster editor with the Paint.NET 5.1 workflow.
+# Root file: options, shared settings and add_subdirectory only. Lanes own
+# their subdirectory CMakeLists.txt (docs/TASKS.md).
 cmake_minimum_required(VERSION 3.20)
-project(pcanvas_refcore C)
+project(paintc VERSION 0.1.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-option(PC_SANITIZE "Build with AddressSanitizer + UBSan (GCC/Clang)" OFF)
+option(PC_SANITIZE    "Build with AddressSanitizer + UBSan (GCC/Clang)" OFF)
+option(PC_TSAN        "Build with ThreadSanitizer (GCC/Clang)" OFF)
+option(PC_HEADLESS    "Build only the headless libraries and tests (no SDL)" OFF)
+option(PC_VENDOR_SDL  "Always build SDL3 from source instead of using a system copy" OFF)
+option(PC_BUILD_TESTS "Build test executables" ON)
 
-add_library(pc_core STATIC
-    src/pc_mem.c src/pc_blend.c src/pc_tile.c src/pc_doc.c
-    src/pc_hist.c src/pc_txn.c src/pc_fill.c)
-target_include_directories(pc_core PUBLIC include)
+include(PcCommon)     # pc_warnings(), sanitizer flags
+include(PcDeps)       # pinned third-party dependencies (FetchContent)
 
-add_executable(pc_tests tests/pc_tests.c)
-target_link_libraries(pc_tests PRIVATE pc_core)
-
-if(MSVC)
-  target_compile_options(pc_core PRIVATE /W4 /WX)
-  target_compile_options(pc_tests PRIVATE /W4)
-else()
-  set(PC_WARN -Wall -Wextra -Wpedantic -Wshadow -Wstrict-prototypes -Werror)
-  target_compile_options(pc_core PRIVATE ${PC_WARN})
-  target_compile_options(pc_tests PRIVATE ${PC_WARN})
-  target_link_libraries(pc_tests PRIVATE m)
-  if(PC_SANITIZE)
-    set(PC_SAN -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
-    target_compile_options(pc_core PUBLIC ${PC_SAN})
-    target_link_options(pc_core PUBLIC ${PC_SAN})
+add_subdirectory(src/core)
+foreach(lane fx codec)
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/${lane}/CMakeLists.txt)
+    add_subdirectory(src/${lane})
   endif()
+endforeach()
+
+if(NOT PC_HEADLESS)
+  pc_dep_sdl3()
+  foreach(lane pal ui gfx app)
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/${lane}/CMakeLists.txt)
+      add_subdirectory(src/${lane})
+    endif()
+  endforeach()
 endif()
 
-enable_testing()
-add_test(NAME pc_tests COMMAND pc_tests --quick)
+if(PC_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
+
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/CMakeLists.txt)
+  add_subdirectory(tools)
+endif()
