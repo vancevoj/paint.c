@@ -1,4 +1,4 @@
-PortableCanvas (working name)
+paint.c (formerly the PortableCanvas working name)
 
 This product contains code derived from Paint.NET 3.36. The blend formulas and the
 integer compositing semantics in src/pc_blend.c re-implement, in C, the UserBlendOps of

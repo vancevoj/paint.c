@@ -1,16 +1,19 @@
 # STATUS
 
 ## Current state
-- Reference core v0.1 imported from the handoff. All suites pass (docs/logs).
-- No platform, GPU, UI or codec code exists yet.
+- Core v0.1 (tiles, docs, txn, history, blend, fill) moved to src/core; suites pass.
+- Contracts frozen for wave 1: pc_par.h, pc_surf.h (+ impl), pc_comp.h (reference impl), pc_codec.h (+ registry, buffers, readers), fx_abi.h, fx_util.h, fx_builtin.h, pal.h (header only).
+- Build: CMake + Ninja, system or vendored SDL3 3.4.18, vendored zlib 1.3.2. Glob-based lanes.
 
 ## In progress
-- None.
+- Wave 1 (see docs/TASKS.md).
 
 ## Blocked
-- Golden-corpus work (T-L7-02 and parity checks in L4 and L5) waits on OD-11.
+- None (owner directive, ADR-008/009).
 
 ## Next
-- Wave 0, T-L0-01. Then Wave 1 per docs/TASKS.md.
+- Wave 2: app shell and canvas.
 
 ## Log
+- 2026-10-04 T-L0-01 restructure done (full suite 20,488,758 checks pass; quick suite pass).
+- 2026-10-04 contracts and ADR-001..012 recorded; project renamed paint.c.

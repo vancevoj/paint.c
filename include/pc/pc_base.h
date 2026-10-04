@@ -15,8 +15,15 @@ typedef enum pc_status {
     PC_ERR_NOMEM   = -1,  /* allocation failed; state left unchanged */
     PC_ERR_ARG     = -2,  /* invalid argument */
     PC_ERR_STATE   = -3,  /* operation not valid in current state */
-    PC_ERR_LIMIT   = -4   /* a hard limit (dimension, count) was exceeded */
+    PC_ERR_LIMIT   = -4,  /* a hard limit (dimension, count) was exceeded */
+    PC_ERR_FORMAT  = -5,  /* malformed or corrupt input data */
+    PC_ERR_UNSUPPORTED = -6, /* valid input using an unsupported feature */
+    PC_ERR_IO      = -7,  /* file system or device error (pal layer) */
+    PC_ERR_CANCELLED = -8 /* the operation was cancelled; state unchanged */
 } pc_status;
+
+/* Short English description of a status code. Never NULL. Any thread. */
+const char *pc_status_str(pc_status s);
 
 /* ---- hard limits --------------------------------------------------------- */
 #define PC_MAX_DIM 65535u            /* per-side pixel limit for documents */
