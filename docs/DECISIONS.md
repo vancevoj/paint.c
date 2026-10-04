@@ -21,6 +21,8 @@ recorded here; lane agents still never decide OWNER items on their own.
 | ADR-010 | Codec registry and built-in effect list are **generated from file names** (src/codec/fmt_<id>.c, src/fx/**/fxm_<name>.c); tests are one executable per tests/<lane>/test_*.c. | Parallel lanes add files without touching shared CMake or registry files. |
 | ADR-011 | Formats: add **GIF** (Paint.NET supports it; the plan omitted it). AVIF, HEIC and JPEG XL are optional later work behind system libraries. | Paint.NET 5.1 file-type parity. |
 | ADR-012 | Status codes extended (PC_ERR_FORMAT, PC_ERR_UNSUPPORTED, PC_ERR_IO, PC_ERR_CANCELLED) and pc_status_str added to pc_base.h. New core headers pc_par.h, pc_surf.h, pc_comp.h, pc_codec.h; new include/fx/fx_abi.h, fx_util.h, fx_builtin.h; include/pal/pal.h. | Contracts frozen before the parallel waves start (X-21). |
+| ADR-013 | Display strings: menu items, tool names, effect and parameter names use the same short functional names as Paint.NET (needed for workflow parity, not copyrightable). All longer text (tooltips, status hints, dialog descriptions, help) is paint.c's own wording; nothing is copied from Paint.NET's .resx or docs (P-02). | Parity of muscle memory without reusing protected assets. |
+| ADR-014 | Document size limit stays PC_MAX_DIM = 65535 per side (Paint.NET 5.1 allows 262,144). Listed as a parity gap in PARITY.md. | Tile grid and fingerprint math are verified at 65535; raising it later is an ADR plus tests. |
 
 ## Owner decisions (defaults stay in effect until the owner answers)
 | ID | Question | Default in effect | Affects | Owner answer |

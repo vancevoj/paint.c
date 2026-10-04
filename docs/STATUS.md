@@ -17,3 +17,4 @@
 ## Log
 - 2026-10-04 T-L0-01 restructure done (full suite 20,488,758 checks pass; quick suite pass).
 - 2026-10-04 contracts and ADR-001..012 recorded; project renamed paint.c.
+- 2026-10-04 W1-L7 inventory merged: docs/inventory (MENUS, TOOLS, WINDOWS, SHORTCUTS, FILES, VIEW, PARITY with 1469 rows). Values tagged I need a 5.1.12 check.
