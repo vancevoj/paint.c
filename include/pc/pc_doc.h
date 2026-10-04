@@ -34,6 +34,14 @@ typedef struct pc_doc {
     uint32_t   next_layer_id;
     uint32_t   open_txns;                   /* INV-TXN-EXCLUSIVE: 0 or 1 */
     uint64_t   gen;
+    /* Selection (semantics and API in pc_sel.h, lane L1a). sel_grid holds
+     * tiles_x*tiles_y A8 (bpp 1) coverage tiles, NULL = coverage 0; the grid
+     * itself may be NULL until first used. sel_active == false means nothing
+     * is selected, which tools and effects treat as "the whole canvas".
+     * Published selection tiles are immutable like layer tiles. */
+    pc_tile  **sel_grid;
+    bool       sel_active;
+    uint64_t   sel_gen;                     /* bumps on any selection change */
 } pc_doc;
 
 pc_doc   *pc_doc_create(uint32_t w, uint32_t h);
