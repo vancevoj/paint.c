@@ -1,0 +1,10 @@
+toolchains: gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0; zig 0.16.0; cmake version 4.4.4
+flags: -std=c17 -Wall -Wextra -Wpedantic -Wshadow -Wstrict-prototypes -Werror -Iinclude -O2 -c (every source file, compile only)
+x86_64-windows-gnu: compile OK
+aarch64-windows-gnu: compile OK
+aarch64-macos: compile OK
+x86_64-macos: compile OK
+x86_64-linux-musl: compile OK
+x86_64-linux-musl static binary, quick suite: ALL TESTS PASSED
+-Wconversion -Wsign-conversion warnings in src/: 0
+max line length (src, include, tests): 105

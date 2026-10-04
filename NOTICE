@@ -1,0 +1,31 @@
+PortableCanvas (working name)
+
+This product contains code derived from Paint.NET 3.36. The blend formulas and the
+integer compositing semantics in src/pc_blend.c re-implement, in C, the UserBlendOps of
+Paint.NET 3.36, which were released under the MIT License reproduced below.
+
+Paint.NET
+Copyright (C) dotPDN LLC, Rick Brewster, Chris Crosetto, Tom Jackson, Michael Kelsey,
+Brandon Ortiz, Craig Taylor, Chris Trevino, and Luke Walker.
+Portions Copyright (C) Microsoft Corporation. All Rights Reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice shall be included in all copies
+or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+The Paint.NET 3.36 license excludes its logo and icon artwork, its resource assets
+(.resources, .resx and .png files, menu and status text) and the GPC library from the
+MIT grant. None of that material is used here, and it must never be added.
