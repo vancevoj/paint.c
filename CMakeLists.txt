@@ -2,6 +2,12 @@
 # Root file: options, shared settings and add_subdirectory only. Lanes own
 # their subdirectory CMakeLists.txt (docs/TASKS.md).
 cmake_minimum_required(VERSION 3.20)
+# Apple clang without an SDK searches /usr/local/include before every
+# -isystem path, so Homebrew headers (jpeg, lcms2, webp) shadow the vendored
+# ones. Pin the default SDK unless the caller chose one (docs/BUILDING.md).
+if(CMAKE_HOST_APPLE AND NOT CMAKE_OSX_SYSROOT AND NOT DEFINED ENV{SDKROOT})
+  set(CMAKE_OSX_SYSROOT macosx CACHE STRING "macOS SDK")
+endif()
 project(paintc VERSION 0.1.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 17)
