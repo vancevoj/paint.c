@@ -6,7 +6,11 @@
  * quantize in plain RGB and nearly transparent colors stop mattering. The
  * Octree and the variance-based Median Cut produce initial clusters; both
  * are refined by up to KMEANS_ITERS Lloyd (k-means) passes over the
- * histogram. Nearest-color search sorts the palette along its widest axis
+ * histogram. Clusters are split and assigned in that (gamma-encoded) space,
+ * but merged in linear light like Paint.NET 5.1.5 (R 5.1.5): every mean is
+ * the alpha-weighted average of the sRGB-decoded channels, encoded back to
+ * sRGB with exact integer tables (k_lin, k_mid), so a mix of dark and light
+ * colors is not biased dark. Nearest-color search sorts the palette along its widest axis
  * and prunes by axis distance; ties go to the lowest palette index, so the
  * result never depends on search order.
  *
@@ -44,6 +48,79 @@ static uint32_t hash32(uint32_t x)
 
 static int32_t clamp255(int32_t v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }
 
+/* ---- linear light --------------------------------------------------------- */
+/* k_lin[v] = round(sRGB-decode(v / 255) * 2^20); k_mid[i] = the same for
+ * the code (i + 0.5), so k_lin[i] < k_mid[i] < k_lin[i + 1] (generated with
+ * the IEC 61966-2-1 curve; see docs/codecs/own.md). */
+static const uint32_t k_lin[256] = {
+    0u, 318u, 637u, 955u, 1273u, 1591u, 1910u, 2228u, 2546u, 2864u,
+    3183u, 3509u, 3855u, 4220u, 4605u, 5009u, 5433u, 5878u, 6343u, 6828u,
+    7335u, 7863u, 8413u, 8984u, 9578u, 10193u, 10832u, 11492u, 12176u, 12883u,
+    13614u, 14368u, 15145u, 15947u, 16773u, 17624u, 18499u, 19399u, 20324u, 21274u,
+    22250u, 23251u, 24278u, 25331u, 26410u, 27516u, 28648u, 29807u, 30993u, 32205u,
+    33445u, 34713u, 36008u, 37331u, 38681u, 40060u, 41467u, 42903u, 44367u, 45860u,
+    47381u, 48932u, 50512u, 52121u, 53760u, 55428u, 57127u, 58855u, 60613u, 62402u,
+    64221u, 66071u, 67951u, 69862u, 71805u, 73778u, 75783u, 77819u, 79886u, 81985u,
+    84117u, 86280u, 88475u, 90702u, 92962u, 95254u, 97579u, 99937u, 102328u, 104751u,
+    107208u, 109698u, 112222u, 114779u, 117370u, 119994u, 122653u, 125345u, 128072u, 130833u,
+    133628u, 136458u, 139323u, 142222u, 145156u, 148125u, 151130u, 154169u, 157244u, 160355u,
+    163501u, 166683u, 169900u, 173154u, 176443u, 179769u, 183131u, 186530u, 189964u, 193436u,
+    196944u, 200489u, 204072u, 207691u, 211347u, 215041u, 218772u, 222540u, 226346u, 230190u,
+    234071u, 237991u, 241948u, 245944u, 249978u, 254050u, 258161u, 262310u, 266498u, 270724u,
+    274990u, 279294u, 283637u, 288020u, 292442u, 296903u, 301404u, 305944u, 310523u, 315143u,
+    319802u, 324502u, 329241u, 334021u, 338840u, 343700u, 348601u, 353542u, 358523u, 363546u,
+    368609u, 373713u, 378858u, 384044u, 389271u, 394539u, 399849u, 405201u, 410594u, 416028u,
+    421504u, 427022u, 432582u, 438184u, 443828u, 449515u, 455243u, 461014u, 466827u, 472683u,
+    478582u, 484523u, 490507u, 496534u, 502604u, 508717u, 514873u, 521072u, 527315u, 533601u,
+    539930u, 546303u, 552720u, 559181u, 565685u, 572234u, 578826u, 585462u, 592143u, 598868u,
+    605637u, 612451u, 619309u, 626211u, 633159u, 640151u, 647188u, 654270u, 661397u, 668569u,
+    675786u, 683048u, 690356u, 697709u, 705108u, 712552u, 720042u, 727577u, 735159u, 742786u,
+    750459u, 758178u, 765944u, 773755u, 781613u, 789517u, 797468u, 805465u, 813509u, 821599u,
+    829736u, 837920u, 846151u, 854429u, 862753u, 871125u, 879545u, 888011u, 896525u, 905086u,
+    913695u, 922351u, 931055u, 939807u, 948606u, 957453u, 966349u, 975292u, 984283u, 993323u,
+    1002411u, 1011547u, 1020731u, 1029964u, 1039246u, 1048576u
+};
+static const uint32_t k_mid[255] = {
+    159u, 477u, 796u, 1114u, 1432u, 1750u, 2069u, 2387u, 2705u, 3024u,
+    3343u, 3680u, 4035u, 4410u, 4804u, 5219u, 5653u, 6108u, 6583u, 7079u,
+    7597u, 8135u, 8696u, 9278u, 9883u, 10510u, 11159u, 11832u, 12527u, 13246u,
+    13988u, 14754u, 15543u, 16357u, 17196u, 18058u, 18946u, 19858u, 20796u, 21759u,
+    22747u, 23761u, 24801u, 25867u, 26960u, 28079u, 29224u, 30396u, 31596u, 32822u,
+    34076u, 35357u, 36666u, 38003u, 39367u, 40760u, 42181u, 43631u, 45110u, 46617u,
+    48153u, 49718u, 51313u, 52937u, 54590u, 56274u, 57987u, 59730u, 61504u, 63308u,
+    65142u, 67007u, 68903u, 70830u, 72787u, 74776u, 76797u, 78848u, 80932u, 83047u,
+    85194u, 87373u, 89585u, 91828u, 94104u, 96413u, 98754u, 101128u, 103535u, 105976u,
+    108449u, 110956u, 113496u, 116070u, 118678u, 121319u, 123995u, 126704u, 129448u, 132226u,
+    135039u, 137886u, 140768u, 143685u, 146636u, 149623u, 152645u, 155702u, 158795u, 161923u,
+    165087u, 168287u, 171522u, 174794u, 178102u, 181446u, 184826u, 188242u, 191696u, 195186u,
+    198712u, 202276u, 205877u, 209514u, 213189u, 216901u, 220651u, 224438u, 228263u, 232126u,
+    236026u, 239965u, 243942u, 247956u, 252009u, 256101u, 260231u, 264399u, 268606u, 272852u,
+    277137u, 281461u, 285824u, 290226u, 294667u, 299148u, 303669u, 308229u, 312828u, 317468u,
+    322147u, 326866u, 331626u, 336425u, 341265u, 346145u, 351066u, 356027u, 361029u, 366072u,
+    371156u, 376280u, 381446u, 386652u, 391900u, 397189u, 402520u, 407892u, 413306u, 418761u,
+    424258u, 429797u, 435378u, 441001u, 446666u, 452374u, 458123u, 463915u, 469750u, 475627u,
+    481547u, 487510u, 493515u, 499563u, 505655u, 511789u, 517967u, 524188u, 530452u, 536760u,
+    543111u, 549506u, 555945u, 562428u, 568954u, 575524u, 582139u, 588797u, 595500u, 602247u,
+    609038u, 615874u, 622755u, 629680u, 636649u, 643664u, 650723u, 657828u, 664977u, 672172u,
+    679411u, 686697u, 694027u, 701403u, 708824u, 716291u, 723804u, 731362u, 738966u, 746617u,
+    754313u, 762055u, 769844u, 777678u, 785559u, 793487u, 801460u, 809481u, 817548u, 825662u,
+    833822u, 842029u, 850284u, 858585u, 866933u, 875329u, 883772u, 892262u, 900799u, 909384u,
+    918017u, 926697u, 935425u, 944200u, 953024u, 961895u, 970814u, 979782u, 988797u, 997861u,
+    1006973u, 1016133u, 1025342u, 1034599u, 1043905u
+};
+
+/* The sRGB code of a linear value L (k_lin units): the number of midpoints
+ * at or below L. */
+static uint8_t lin_encode(uint64_t l)
+{
+    uint32_t lo = 0, hi = 255;
+    while (lo < hi) {
+        uint32_t mid = (lo + hi) / 2u;
+        if ((uint64_t)k_mid[mid] <= l) lo = mid + 1u; else hi = mid;
+    }
+    return (uint8_t)lo;
+}
+
 /* Premultiplied integer coordinates of a straight color. */
 static void px_coords(pc_px32 p, int32_t c[4])
 {
@@ -53,20 +130,20 @@ static void px_coords(pc_px32 p, int32_t c[4])
     c[3] = (int32_t)p.a;
 }
 
-/* Straight 8-bit color from premultiplied sums (s[0..3]) over weight w. */
-static pc_px32 px_from_sums(const double s[4], double w)
+/* Straight 8-bit color from linear-light sums over w pixels: s[0..2] are
+ * sums of alpha * k_lin[channel], s[3] the sum of alpha. Integer only. */
+static pc_px32 px_from_lin(const uint64_t s[4], uint64_t w)
 {
     pc_px32 p;
-    double a = w > 0.0 ? s[3] / w : 0.0;
-    int32_t ai = clamp255((int32_t)(a + 0.5));
-    p.a = (uint8_t)ai;
-    if (s[3] <= 0.0 || ai == 0) {
+    uint64_t a = w ? (s[3] + w / 2u) / w : 0u;
+    p.a = (uint8_t)(a > 255u ? 255u : a);
+    if (s[3] == 0u || p.a == 0u) {
         p.b = p.g = p.r = 0;
         return p;
     }
-    p.b = (uint8_t)clamp255((int32_t)(s[0] * 255.0 / s[3] + 0.5));
-    p.g = (uint8_t)clamp255((int32_t)(s[1] * 255.0 / s[3] + 0.5));
-    p.r = (uint8_t)clamp255((int32_t)(s[2] * 255.0 / s[3] + 0.5));
+    p.b = lin_encode((s[0] + s[3] / 2u) / s[3]);
+    p.g = lin_encode((s[1] + s[3] / 2u) / s[3]);
+    p.r = lin_encode((s[2] + s[3] / 2u) / s[3]);
     return p;
 }
 
@@ -149,13 +226,14 @@ typedef struct qent {
     uint32_t key;          /* posterized BGRA */
     uint32_t pad;
     uint64_t cnt;          /* 0 = empty slot */
-    uint64_t sum[4];       /* exact channel sums b, g, r, a */
+    uint64_t sum[4];       /* exact sums of a * k_lin[b], a * k_lin[g], a * k_lin[r], a */
 } qent;
 
 typedef struct qpoint {
-    pc_px32  col;          /* straight mean color */
+    pc_px32  col;          /* straight mean color (linear-light mean) */
     int32_t  c[4];         /* premultiplied coordinates */
     uint64_t w;
+    uint64_t ls[4];        /* the entry's linear-light sums (qent.sum) */
 } qpoint;
 
 struct pc_quant {
@@ -288,8 +366,10 @@ pc_status pc_quant_add(pc_quant *q, const pc_px32 *px, size_t n)
             q->have_last = true;
         }
         q->tab[s].cnt++;
-        q->tab[s].sum[0] += p.b; q->tab[s].sum[1] += p.g;
-        q->tab[s].sum[2] += p.r; q->tab[s].sum[3] += p.a;
+        q->tab[s].sum[0] += (uint64_t)p.a * k_lin[p.b];
+        q->tab[s].sum[1] += (uint64_t)p.a * k_lin[p.g];
+        q->tab[s].sum[2] += (uint64_t)p.a * k_lin[p.r];
+        q->tab[s].sum[3] += p.a;
     }
     return PC_OK;
 }
@@ -490,7 +570,7 @@ static int32_t octree_palette(const qpoint *pts, uint32_t n, uint32_t k, bool al
             nd = ch;
         }
         t.nodes[nd].cnt += pts[i].w;
-        for (int j = 0; j < 4; j++) t.nodes[nd].sum[j] += pts[i].w * (uint64_t)pts[i].c[j];
+        for (int j = 0; j < 4; j++) t.nodes[nd].sum[j] += pts[i].ls[j];
     }
     cand = (ocand *)malloc((size_t)t.n_nodes * sizeof *cand);
     if (!cand) goto fail;
@@ -547,10 +627,8 @@ static int32_t octree_palette(const qpoint *pts, uint32_t n, uint32_t k, bool al
     }
     for (uint32_t i = 0; i < t.n_nodes && m < k; i++) {
         const onode *p = &t.nodes[i];
-        double s[4];
         if (p->dead || p->chbase >= 0 || p->cnt == 0) continue;
-        for (int j = 0; j < 4; j++) s[j] = (double)p->sum[j];
-        out[m++] = px_from_sums(s, (double)p->cnt);
+        out[m++] = px_from_lin(p->sum, p->cnt);
     }
     free(cand);
     free(t.nodes);
@@ -581,15 +659,13 @@ static void kmeans(const qpoint *pts, uint32_t n, pc_px32 *cols, uint32_t k, uin
             if (it == 0 || assign[i] != (uint8_t)j) changed = true;
             assign[i] = (uint8_t)j;
             acc[j].w += pts[i].w;
-            for (int c = 0; c < 4; c++) acc[j].s[c] += pts[i].w * (uint64_t)pts[i].c[c];
+            for (int c = 0; c < 4; c++) acc[j].s[c] += pts[i].ls[c];
         }
         for (uint32_t j = 0; j < k; j++) wts[j] = acc[j].w;
         if (!changed) break;
         for (uint32_t j = 0; j < k; j++) {
             if (acc[j].w) {
-                double s[4];
-                for (int c = 0; c < 4; c++) s[c] = (double)acc[j].s[c];
-                cols[j] = px_from_sums(s, (double)acc[j].w);
+                cols[j] = px_from_lin(acc[j].s, acc[j].w);
             } else {
                 /* empty cluster: move it onto the worst represented point */
                 uint64_t worst = 0;
@@ -662,13 +738,11 @@ pc_status pc_quant_build(pc_quant *q, uint32_t max_colors, pc_quant_algo algo)
         const qent *e = &q->tab[i];
         pc_px32 c;
         if (!e->cnt) continue;
-        c.b = (uint8_t)((e->sum[0] + e->cnt / 2u) / e->cnt);
-        c.g = (uint8_t)((e->sum[1] + e->cnt / 2u) / e->cnt);
-        c.r = (uint8_t)((e->sum[2] + e->cnt / 2u) / e->cnt);
-        c.a = (uint8_t)((e->sum[3] + e->cnt / 2u) / e->cnt);
+        c = px_from_lin(e->sum, e->cnt);     /* exact for a single color */
         pts[np].col = c;
         px_coords(c, pts[np].c);
         pts[np].w = e->cnt;
+        memcpy(pts[np].ls, e->sum, sizeof pts[np].ls);
         np++;
     }
     if (np > 1u) qsort(pts, np, sizeof *pts, cmp_point);   /* canonical order */
@@ -692,12 +766,12 @@ pc_status pc_quant_build(pc_quant *q, uint32_t max_colors, pc_quant_algo algo)
             if (!boxes) { st = PC_ERR_NOMEM; goto done; }
             m = (int32_t)median_cut(pts, np, k, boxes, tmp);
             for (int32_t b = 0; b < m; b++) {
-                double s[4] = { 0, 0, 0, 0 }, w = 0.0;
+                uint64_t s[4] = { 0, 0, 0, 0 }, w = 0;
                 for (uint32_t i = boxes[b].lo; i < boxes[b].hi; i++) {
-                    w += (double)pts[i].w;
-                    for (int c = 0; c < 4; c++) s[c] += (double)pts[i].w * (double)pts[i].c[c];
+                    w += pts[i].w;
+                    for (int c = 0; c < 4; c++) s[c] += pts[i].ls[c];
                 }
-                cols[b] = px_from_sums(s, w);
+                cols[b] = px_from_lin(s, w);
             }
             /* restore canonical order for the refinement */
             qsort(pts, np, sizeof *pts, cmp_point);
