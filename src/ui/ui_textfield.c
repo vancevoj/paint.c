@@ -74,6 +74,16 @@ static size_t replace(char *buf, size_t cap, size_t a, size_t b, const char *ins
     return a + out;
 }
 
+/* Pen x where the text starts: aligned while it fits, otherwise scrolled
+ * (focused fields keep the caret in view through e->scroll). */
+static float origin_x(ui_rect inner, int align, float w, bool focused, float scroll)
+{
+    if (focused && w > (float)inner.w - 2.0f) return (float)inner.x - scroll;
+    if (align == UI_ALIGN_RIGHT) return (float)(inner.x + inner.w) - w - (focused ? 1.0f : 0.0f);
+    if (align == UI_ALIGN_CENTER) return (float)inner.x + floorf(((float)inner.w - w) * 0.5f);
+    return (float)inner.x;
+}
+
 uint32_t ui_edit_field(ui_ctx *ctx, ui_id id, ui_rect r, char *buf, size_t cap, uint32_t flags,
                        const char *placeholder, int align)
 {
@@ -87,7 +97,7 @@ uint32_t ui_edit_field(ui_ctx *ctx, ui_id id, ui_rect r, char *buf, size_t cap, 
     uint32_t res = 0;
     bool disabled = (flags & UI_DISABLED) != 0, ro = (flags & UI_EDIT_READONLY) != 0;
     ui_interaction in;
-    bool focused;
+    bool focused, arrived = false;
     size_t len;
     float text_w, tx;
     if (!buf || cap == 0) return 0;
@@ -97,7 +107,10 @@ uint32_t ui_edit_field(ui_ctx *ctx, ui_id id, ui_rect r, char *buf, size_t cap, 
     focused = in.focused && !disabled;
     if (in.hovered) ui_set_cursor(ctx, UI_CURSOR_TEXT);
 
-    /* focus transitions */
+    /* focus transitions: the shared editor state belongs to one field at a
+     * time; losing it since the last frame (even if focus came straight
+     * back) reports DEACTIVATED */
+    if (st && st->i[0] && !(focused && e->id == id)) res |= UI_EDIT_DEACTIVATED;
     if (focused && e->id != id) {
         e->id = id;
         e->scroll = 0.0f;
@@ -110,23 +123,22 @@ uint32_t ui_edit_field(ui_ctx *ctx, ui_id id, ui_rect r, char *buf, size_t cap, 
         if (e->orig && e->orig_cap >= len + 1u) memcpy(e->orig, buf, len + 1u);
         if ((flags & UI_EDIT_SELECT_ALL) || !in.pressed) { e->anchor = 0; e->cursor = len; }
         else e->anchor = e->cursor = len;
+        arrived = true;
     }
-    if (st) {
-        if (st->i[0] && !focused) res |= UI_EDIT_DEACTIVATED;
-        st->i[0] = focused ? 1 : 0;
-    }
+    if (st) st->i[0] = focused ? 1 : 0;
     if (focused) {
         if (e->cursor > len) e->cursor = len;
         if (e->anchor > len) e->anchor = len;
     }
     text_w = ui_text_width(f, fs, buf, len);
-    if (align == UI_ALIGN_RIGHT && !focused) tx = (float)(inner.x + inner.w) - text_w;
-    else if (align == UI_ALIGN_CENTER && !focused)
-        tx = (float)inner.x + floorf(((float)inner.w - text_w) * 0.5f);
-    else tx = (float)inner.x - (focused ? e->scroll : 0.0f);
+    tx = origin_x(inner, align, text_w, focused, focused ? e->scroll : 0.0f);
 
-    /* mouse */
-    if (focused && (in.pressed || (in.held && e->drag))) {
+    /* mouse: the press that focuses a select-all field keeps the selection;
+     * later presses place the caret, drag to select, double click a word */
+    if (focused && in.pressed && arrived && (flags & UI_EDIT_SELECT_ALL)) {
+        e->drag = false;
+        e->blink0 = ctx->now;
+    } else if (focused && (in.pressed || (in.held && e->drag))) {
         size_t pos = ui_text_hit(f, fs, buf, len, in.mouse.x - tx);
         if (in.pressed) {
             if (in.double_clicked) {
@@ -143,7 +155,7 @@ uint32_t ui_edit_field(ui_ctx *ctx, ui_id id, ui_rect r, char *buf, size_t cap, 
         }
         e->blink0 = ctx->now;
     }
-    if (!in.held) e->drag = false;
+    if (!in.held && e->id == id) e->drag = false;   /* shared editor: only its owner */
 
     /* keyboard */
     if (focused) {
@@ -285,7 +297,8 @@ uint32_t ui_edit_field(ui_ctx *ctx, ui_id id, ui_rect r, char *buf, size_t cap, 
             int32_t fb = ui_px_line(ctx, 2.0f);
             ui_push_clip(ctx, r);
             ui_draw_rrect_ex(ctx, ui_rect_make(r.x, r.y + r.h - fb, r.w, fb),
-                             (ui_corners){ 0, 0, ctx->px.radius, ctx->px.radius }, p->accent);
+                             ui_corners_make(0.0f, 0.0f, ctx->px.radius, ctx->px.radius),
+                             p->accent);
             ui_pop_clip(ctx);
         }
     }
@@ -303,13 +316,9 @@ uint32_t ui_edit_field(ui_ctx *ctx, ui_id id, ui_rect r, char *buf, size_t cap, 
         if (e->scroll > ui_maxf(0.0f, text_w + compw - vis))
             e->scroll = ui_maxf(0.0f, text_w + compw - vis);
         if (e->scroll < 0.0f) e->scroll = 0.0f;
-        tx = (float)inner.x - e->scroll;
-    } else if (align == UI_ALIGN_RIGHT) {
-        tx = (float)(inner.x + inner.w) - text_w;
-    } else if (align == UI_ALIGN_CENTER) {
-        tx = (float)inner.x + floorf(((float)inner.w - text_w) * 0.5f);
+        tx = origin_x(inner, align, text_w + compw, true, e->scroll);
     } else {
-        tx = (float)inner.x;
+        tx = origin_x(inner, align, text_w, false, 0.0f);
     }
     {
         int32_t base = ui_text_baseline(ctx, f, fs, r);

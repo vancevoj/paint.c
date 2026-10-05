@@ -242,6 +242,7 @@ struct ui_ctx {
     ui_id          focus_root;
     bool           focus_visible;
     bool           focus_seen;
+    bool           focus_scroll;    /* Tab moved focus: scroll it into view */
     int32_t        focus_move;      /* Tab requested: +1 / -1 */
     ui_id          focus_list[UI_MAX_FOCUS];
     ui_id          focus_roots[UI_MAX_FOCUS];
@@ -309,6 +310,7 @@ struct ui_ctx {
     ui_path        scratch_path;
     ui_path        scratch_stroke;
     uint8_t       *scratch;         /* coverage scratch for sprites */
+    uint8_t        gamma[256];      /* glyph coverage curve */
     size_t         scratch_cap;
 
     ui_wheel_tex   wheels[UI_WHEEL_CACHE];
@@ -367,6 +369,8 @@ void     ui_cache_put(ui_ctx *ctx, uint64_t key, const ui_sprite *sp);
 uint8_t *ui_scratch(ui_ctx *ctx, size_t n);       /* zeroed scratch buffer */
 
 /* ui_draw.c */
+void ui_gamma_init(uint8_t table[256]);
+void ui_draw_elevation(ui_ctx *ctx, ui_rect r, float radius, int level);
 void ui_dl_reset(ui_dl *dl);
 void ui_dl_free(ui_dl *dl);
 void ui_draw_sprite(ui_ctx *ctx, const ui_sprite *sp, float x, float y, ui_color c);
@@ -410,6 +414,10 @@ void ui_layout_root(ui_ctx *ctx, ui_rect r, int32_t pad, int32_t kind, ui_id id)
 void ui_layout_close(ui_ctx *ctx);                /* pop without committing */
 ui_layout *ui_layout_top(ui_ctx *ctx);
 void ui_layout_extend(ui_ctx *ctx, ui_rect r);    /* grow the content extent */
+int32_t ui_layout_avail_w(const ui_ctx *ctx);     /* width of the next cell */
+/* ui_layout_next for fixed-size widgets: in column mode they keep their
+ * natural width (left aligned) instead of spanning the container. */
+ui_rect ui_layout_next_natural(ui_ctx *ctx, int32_t pref_w, int32_t pref_h);
 
 /* ui_popup.c */
 void ui_popups_frame_begin(ui_ctx *ctx);

@@ -52,11 +52,12 @@ ui_ctx *ui_create(SDL_Renderer *r, SDL_Window *w)
     ctx->auto_cursor = w != NULL;
     ctx->applied_cursor = UI_CURSOR_COUNT;
     ui_theme_init(&ctx->theme, UI_THEME_LIGHT, ui_theme_default_accent());
+    ui_gamma_init(ctx->gamma);
     ctx->own_reg = ui_font_load_builtin(UI_FONT_REGULAR);
     ctx->own_bold = ui_font_load_builtin(UI_FONT_SEMIBOLD);
     ctx->font_reg = ctx->own_reg;
     ctx->font_bold = ctx->own_bold;
-    ui_path_init(&ctx->scratch_path, 0.1f);
+    ui_path_init(&ctx->scratch_path, 0.02f);   /* sprites are cached: be precise */
     ui_path_init(&ctx->scratch_stroke, 0.1f);
     ctx->in.mx = ctx->in.my = -1e6f;
     ctx->fin = ctx->in;
@@ -605,13 +606,13 @@ static void begin_hover(ui_ctx *ctx)
     }
 }
 
-static void begin_tab(ui_ctx *ctx)
+/* Move keyboard focus one step (Tab, or Shift+Tab backwards) through the
+ * focusable widgets of the previous frame inside the active scope (the top
+ * modal dialog, else the root that holds the focus). */
+static void tab_once(ui_ctx *ctx, uint32_t mods)
 {
-    uint32_t mods = 0;
     ui_id scope;
     int32_t cur = -1, cnt = 0, first = -1, last = -1, pick = -1;
-    if (ctx->npopups > 0) return;
-    if (!ui_key_take_any(ctx, SDLK_TAB, &mods)) return;
     scope = ctx->top_modal ? ctx->top_modal : (ctx->focus ? ctx->focus_root : UI_BASE_ROOT_ID);
     for (int32_t i = 0; i < ctx->prev_nfocus; i++) {
         if (ctx->prev_focus_roots[i] != scope) continue;
@@ -636,6 +637,20 @@ static void begin_tab(ui_ctx *ctx)
         ctx->focus = ctx->prev_focus_list[pick];
         ctx->focus_root = ctx->prev_focus_roots[pick];
         ctx->focus_visible = true;
+        ctx->focus_scroll = true;
+    }
+}
+
+/* Every queued Tab press counts; Ctrl+Tab and other chords stay with the
+ * app (document switching). */
+static void begin_tab(ui_ctx *ctx)
+{
+    if (ctx->npopups > 0) return;
+    for (int32_t i = 0; i < ctx->fin.nkeys; i++) {
+        ui_key_press *k = &ctx->fin.keys[i];
+        if (k->used || k->key != SDLK_TAB || (k->mods & ~UI_MOD_SHIFT) != 0) continue;
+        k->used = true;
+        tab_once(ctx, k->mods);
     }
 }
 
@@ -680,6 +695,7 @@ void ui_begin_frame(ui_ctx *ctx, const ui_frame_info *fi)
 
     ctx->nfocus = 0;
     ctx->focus_seen = false;
+    ctx->focus_scroll = false;
     ctx->hover_cand = 0;
     ctx->last_id = 0;
     ctx->last_hovered = false;
@@ -954,6 +970,11 @@ ui_interaction ui_interact(ui_ctx *ctx, ui_id id, ui_rect r, uint32_t flags)
     if ((flags & UI_INTERACT_FOCUSABLE) && !disabled) {
         ui_focus_register(ctx, id);
         res.focused = ctx->focus == id;
+        if (res.focused && ctx->focus_scroll) {
+            /* Tab moved here: bring the widget into view in its scroll region */
+            ctx->focus_scroll = false;
+            ui_scroll_to_rect(ctx, r);
+        }
         if (res.focused && !(flags & UI_INTERACT_NO_KEYS) &&
             (ui_key_take(ctx, SDLK_SPACE, 0) || ui_key_take(ctx, SDLK_RETURN, 0) ||
              ui_key_take(ctx, SDLK_KP_ENTER, 0))) {
@@ -1029,8 +1050,7 @@ void ui_tooltip_draw(ui_ctx *ctx)
     if (y + h > ctx->fi.height - 4) y = (int32_t)ctx->tip_pos.y - h - ui_px(ctx, 30.0f);
     r = ui_rect_make(x, y, w, h);
     ui_root_begin(ctx, UI_TIP_ROOT_ID, UI_ROOT_TOOLTIP, ui_rect_make(0, 0, 0, 0), false);
-    ui_draw_shadow(ctx, ui_rect_offset(r, 0, ui_px(ctx, 2.0f)), ctx->px.radius,
-                   ctx->px.shadow * 0.6f, p->shadow);
+    ui_draw_elevation(ctx, r, ctx->px.radius, 1);
     ui_draw_rrect(ctx, r, ctx->px.radius, p->tooltip);
     ui_draw_rrect_outline(ctx, r, ctx->px.radius, ctx->px.border, p->border);
     ui_draw_text_box(ctx, ctx->font_reg, fs, ui_rect_inset(r, padx, 0), UI_ALIGN_LEFT, 0,

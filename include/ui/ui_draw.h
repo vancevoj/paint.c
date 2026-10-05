@@ -43,6 +43,13 @@ static inline ui_corners ui_corners_all(float r)
     c.tl = r; c.tr = r; c.br = r; c.bl = r;
     return c;
 }
+/* Radii of the top left, top right, bottom right and bottom left corners. */
+static inline ui_corners ui_corners_make(float tl, float tr, float br, float bl)
+{
+    ui_corners c;
+    c.tl = tl; c.tr = tr; c.br = br; c.bl = bl;
+    return c;
+}
 
 /* ---- clipping (intersecting stack, at most 64 deep) ---------------------- */
 void    ui_push_clip(ui_ctx *ctx, ui_rect r);

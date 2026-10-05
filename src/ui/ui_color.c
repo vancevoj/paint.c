@@ -44,7 +44,7 @@ bool ui_color_swatch(ui_ctx *ctx, const char *id_str, ui_color c, uint32_t flags
     const ui_palette *p = &ctx->theme.pal;
     ui_id id = ui_get_id(ctx, id_str);
     int32_t s = ctx->px.control_h;
-    ui_rect r = ui_layout_next(ctx, s, s), sw;
+    ui_rect r = ui_layout_next_natural(ctx, s, s), sw;
     ui_interaction in = ui_interact(ctx, id, r, UI_INTERACT_FOCUSABLE);
     sw = ui_rect_inset(r, ui_px(ctx, 3.0f), ui_px(ctx, 3.0f));
     if (flags & UI_SWATCH_SELECTED)
@@ -142,11 +142,8 @@ bool ui_color_wheel(ui_ctx *ctx, const char *id_str, ui_color_edit *ce, float si
                     uint32_t flags)
 {
     ui_id id = ui_get_id(ctx, id_str);
-    ui_layout *l = ui_layout_top(ctx);
     ui_state *st = ui_state_get(ctx, id);
-    int32_t size = size_dip > 0.0f
-                       ? ui_px(ctx, size_dip)
-                       : (l->ncells > 0 ? l->widths[l->cell < l->ncells ? l->cell : 0] : l->rect.w);
+    int32_t size = size_dip > 0.0f ? ui_px(ctx, size_dip) : ui_layout_avail_w(ctx);
     ui_rect r, wr;
     ui_interaction in;
     ui_hsv old = ce->hsv, h = ce->hsv;
@@ -337,10 +334,11 @@ bool ui_color_channel(ui_ctx *ctx, const char *id_str, int ch, ui_color_edit *ce
     }
     if (in.focused) {
         double d = 0.0;
-        if (ui_key_take(ctx, SDLK_RIGHT, 0) || ui_key_take(ctx, SDLK_UP, 0)) d = 1.0;
-        if (ui_key_take(ctx, SDLK_LEFT, 0) || ui_key_take(ctx, SDLK_DOWN, 0)) d = -1.0;
-        if (ui_key_take(ctx, SDLK_RIGHT, UI_MOD_SHIFT)) d = 10.0;
-        if (ui_key_take(ctx, SDLK_LEFT, UI_MOD_SHIFT)) d = -10.0;
+        /* every queued press counts (key repeat can outpace frames) */
+        while (ui_key_take(ctx, SDLK_RIGHT, 0) || ui_key_take(ctx, SDLK_UP, 0)) d += 1.0;
+        while (ui_key_take(ctx, SDLK_LEFT, 0) || ui_key_take(ctx, SDLK_DOWN, 0)) d -= 1.0;
+        while (ui_key_take(ctx, SDLK_RIGHT, UI_MOD_SHIFT)) d += 10.0;
+        while (ui_key_take(ctx, SDLK_LEFT, UI_MOD_SHIFT)) d -= 10.0;
         if (d != 0.0) { chan_set(ce, ch, ui_clampd(v + d, 0.0, mx)); changed = true; }
     }
     gradient_bar(ctx, bar, ce, ch);
@@ -425,34 +423,25 @@ bool ui_color_hex(ui_ctx *ctx, const char *id_str, ui_color_edit *ce)
     return changed;
 }
 
-bool ui_color_picker(ui_ctx *ctx, const char *id_str, ui_color_edit *ce, uint32_t flags)
+static bool picker_swatch_hex(ui_ctx *ctx, ui_color_edit *ce)
 {
-    ui_size cells[2];
+    ui_size c2[2];
+    ui_rect sw;
+    bool changed;
+    c2[0] = ui_size_fr(1.0f);
+    c2[1] = ui_size_fr(1.0f);
+    ui_layout_row(ctx, 0.0f, 2, c2);
+    sw = ui_layout_next(ctx, 0, ctx->px.control_h);
+    draw_swatch(ctx, sw, ce->rgba, true, ctx->px.radius);
+    ui_draw_rrect_outline(ctx, sw, ctx->px.radius, ctx->px.border, ctx->theme.pal.border_strong);
+    changed = ui_color_hex(ctx, "##hex", ce);
+    ui_layout_column(ctx);
+    return changed;
+}
+
+static bool picker_channels(ui_ctx *ctx, ui_color_edit *ce, uint32_t flags)
+{
     bool changed = false;
-    float wheel = 176.0f;
-    ui_push_id(ctx, id_str);
-    cells[0] = ui_size_px(wheel);
-    cells[1] = ui_size_fr(1.0f);
-    ui_layout_row(ctx, 0.0f, 2, cells);
-    ui_layout_begin(ctx, 0.0f);
-    changed |=
-        ui_color_wheel(ctx, "##wheel", ce, wheel, (flags & UI_PICKER_RING) ? UI_WHEEL_RING : 0u);
-    {
-        ui_size c2[2];
-        ui_rect sw;
-        c2[0] = ui_size_fr(1.0f);
-        c2[1] = ui_size_fr(1.0f);
-        ui_layout_space(ctx, 4.0f);
-        ui_layout_row(ctx, 0.0f, 2, c2);
-        sw = ui_layout_next(ctx, 0, ctx->px.control_h);
-        draw_swatch(ctx, sw, ce->rgba, true, ctx->px.radius);
-        ui_draw_rrect_outline(ctx, sw, ctx->px.radius, ctx->px.border,
-                              ctx->theme.pal.border_strong);
-        changed |= ui_color_hex(ctx, "##hex", ce);
-        ui_layout_column(ctx);
-    }
-    ui_layout_end(ctx);
-    ui_layout_begin(ctx, 0.0f);
     ui_layout_set_spacing(ctx, 2.0f);
     for (int ch = 0; ch < UI_CHAN_COUNT; ch++) {
         char key[8];
@@ -461,8 +450,40 @@ bool ui_color_picker(ui_ctx *ctx, const char *id_str, ui_color_edit *ce, uint32_
         snprintf(key, sizeof key, "##c%d", ch);
         changed |= ui_color_channel(ctx, key, ch, ce);
     }
-    ui_layout_end(ctx);
-    ui_layout_column(ctx);
+    return changed;
+}
+
+bool ui_color_picker(ui_ctx *ctx, const char *id_str, ui_color_edit *ce, uint32_t flags)
+{
+    bool changed = false;
+    float wheel = 176.0f;
+    uint32_t wf = (flags & UI_PICKER_RING) ? UI_WHEEL_RING : 0u;
+    ui_push_id(ctx, id_str);
+    if (ui_layout_avail_w(ctx) >= ui_px(ctx, wheel + 236.0f)) {
+        /* wide: wheel, swatch and hex on the left, channel sliders right */
+        ui_size cells[2];
+        cells[0] = ui_size_px(wheel);
+        cells[1] = ui_size_fr(1.0f);
+        ui_layout_row(ctx, 0.0f, 2, cells);
+        ui_layout_begin(ctx, 0.0f);
+        changed |= ui_color_wheel(ctx, "##wheel", ce, wheel, wf);
+        ui_layout_space(ctx, 4.0f);
+        changed |= picker_swatch_hex(ctx, ce);
+        ui_layout_end(ctx);
+        ui_layout_begin(ctx, 0.0f);
+        changed |= picker_channels(ctx, ce, flags);
+        ui_layout_end(ctx);
+        ui_layout_column(ctx);
+    } else {
+        /* narrow: everything stacked */
+        ui_layout_begin(ctx, 0.0f);
+        changed |= ui_color_wheel(ctx, "##wheel", ce, wheel, wf);
+        ui_layout_space(ctx, 4.0f);
+        changed |= picker_swatch_hex(ctx, ce);
+        ui_layout_space(ctx, 2.0f);
+        changed |= picker_channels(ctx, ce, flags);
+        ui_layout_end(ctx);
+    }
     ui_pop_id(ctx);
     return changed;
 }
@@ -473,7 +494,7 @@ int ui_color_pair(ui_ctx *ctx, const char *id_str, ui_color primary, ui_color se
     const ui_palette *p = &ctx->theme.pal;
     ui_id id = ui_get_id(ctx, id_str);
     int32_t S = ui_px(ctx, 56.0f), sq = ui_px(ctx, 34.0f), ic = ui_px(ctx, 16.0f);
-    ui_rect r = ui_layout_next(ctx, S, S);
+    ui_rect r = ui_layout_next_natural(ctx, S, S);
     ui_rect prim = ui_rect_make(r.x, r.y, sq, sq),
             sec = ui_rect_make(r.x + S - sq, r.y + S - sq, sq, sq);
     ui_rect swap_r = ui_rect_make(r.x + S - ic - 1, r.y, ic + 1, ic + 1);
@@ -521,9 +542,8 @@ int ui_palette_grid(ui_ctx *ctx, const char *id_str, const ui_color *colors, int
 {
     const ui_palette *p = &ctx->theme.pal;
     ui_id id = ui_get_id(ctx, id_str);
-    ui_layout *l = ui_layout_top(ctx);
     int32_t cell = ui_px(ctx, cell_dip > 0.0f ? cell_dip : 16.0f), gap = ui_px_line(ctx, 2.0f);
-    int32_t avail = l->ncells > 0 ? l->widths[l->cell < l->ncells ? l->cell : 0] : l->rect.w;
+    int32_t avail = ui_layout_avail_w(ctx);
     int32_t cols = ui_maxi(1, (avail + gap) / (cell + gap)), rows = (n + cols - 1) / cols;
     ui_rect r = ui_layout_next(ctx, cols * (cell + gap) - gap, rows * (cell + gap) - gap);
     int clicked = -1;

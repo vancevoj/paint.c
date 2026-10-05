@@ -137,10 +137,9 @@ void ui_text_wrapped(ui_ctx *ctx, const char *text, uint32_t flags)
     const ui_palette *p = &ctx->theme.pal;
     ui_font *f = (flags & UI_LABEL_BOLD) ? ctx->font_bold : ctx->font_reg;
     float fs = (flags & UI_LABEL_SMALL) ? ctx->px.font_small : ctx->px.font;
-    ui_layout *l = ui_layout_top(ctx);
     ui_font_metrics m;
     size_t n = strlen(text);
-    int32_t w = l->ncells > 0 ? l->widths[l->cell < l->ncells ? l->cell : 0] : l->rect.w;
+    int32_t w = ui_layout_avail_w(ctx);
     int lines;
     ui_rect r;
     ui_color c = (flags & UI_LABEL_DIM) ? p->text_dim : p->text;
@@ -170,7 +169,7 @@ bool ui_button_ex(ui_ctx *ctx, const char *label, ui_icon icon, uint32_t flags)
         w = (int32_t)ceilf(tw) + 2 * pad + (icon ? isz + gap : 0);
         if (!(flags & UI_BUTTON_FLAT) && n > 0 && w < ui_px(ctx, 72.0f)) w = ui_px(ctx, 72.0f);
     }
-    r = ui_layout_next(ctx, w, h);
+    r = ui_layout_next_natural(ctx, w, h);
     in = ui_interact(ctx, id, r, UI_INTERACT_FOCUSABLE | (disabled ? UI_INTERACT_DISABLED : 0u));
     ui_draw_button_face(ctx, r, flags, in.hovered, in.held && in.hovered, disabled);
     if (flags & (UI_BUTTON_PRIMARY | UI_BUTTON_DANGER))
@@ -209,7 +208,7 @@ static bool square_button(ui_ctx *ctx, const char *id_str, ui_icon icon, bool se
     ui_id id = ui_get_id(ctx, id_str);
     int32_t h = ctx->px.control_h;
     bool disabled = (extra & UI_DISABLED) != 0;
-    ui_rect r = ui_layout_next(ctx, h, h);
+    ui_rect r = ui_layout_next_natural(ctx, h, h);
     ui_interaction in = ui_interact(ctx, id, r, UI_INTERACT_FOCUSABLE |
                                                     (disabled ? UI_INTERACT_DISABLED : 0u));
     ui_color line = disabled ? p->text_disabled : (selected ? p->accent_text : p->icon);
@@ -245,7 +244,7 @@ int ui_split_button(ui_ctx *ctx, const char *id_str, ui_icon icon, bool selected
     const ui_palette *p = &ctx->theme.pal;
     ui_id id = ui_get_id(ctx, id_str);
     int32_t h = ctx->px.control_h, aw = ui_px(ctx, 14.0f);
-    ui_rect r = ui_layout_next(ctx, h + aw, h), main_r = r, arrow_r;
+    ui_rect r = ui_layout_next_natural(ctx, h + aw, h), main_r = r, arrow_r;
     ui_interaction a, b;
     int result = 0;
     arrow_r = ui_cut_right(&main_r, aw);
@@ -253,11 +252,11 @@ int ui_split_button(ui_ctx *ctx, const char *id_str, ui_icon icon, bool selected
     if (a.hovered || a.held) ui_draw_button_face(ctx, r, UI_BUTTON_FLAT, true, false, false);
     b = ui_interact(ctx, id ^ 0xA77u, arrow_r, 0);
     if (selected) {
-        ui_draw_rrect_ex(ctx, main_r, (ui_corners){ ctx->px.radius, 0, 0, ctx->px.radius },
+        ui_draw_rrect_ex(ctx, main_r, ui_corners_make(ctx->px.radius, 0.0f, 0.0f, ctx->px.radius),
                          p->selection);
     }
     if (b.hovered || b.held)
-        ui_draw_rrect_ex(ctx, arrow_r, (ui_corners){ 0, ctx->px.radius, ctx->px.radius, 0 },
+        ui_draw_rrect_ex(ctx, arrow_r, ui_corners_make(0.0f, ctx->px.radius, ctx->px.radius, 0.0f),
                          p->hover);
     if (a.held && a.hovered) ui_draw_rrect(ctx, main_r, ctx->px.radius, p->hover);
     ui_draw_icon(ctx, icon, main_r, ctx->px.icon, selected ? p->accent_text : p->icon,
@@ -276,7 +275,7 @@ static ui_rect labeled_row(ui_ctx *ctx, const char *s, size_t n, int32_t lead)
 {
     int32_t gap = n ? ui_px(ctx, 8.0f) : 0;
     int32_t w = lead + gap + (int32_t)ceilf(ui_text_width(ctx->font_reg, ctx->px.font, s, n));
-    return ui_layout_next(ctx, w, ctx->px.control_h);
+    return ui_layout_next_natural(ctx, w, ctx->px.control_h);
 }
 
 bool ui_checkbox(ui_ctx *ctx, const char *label, bool *v)
@@ -384,10 +383,13 @@ bool ui_radio_group(ui_ctx *ctx, const char *id_str, int *v, const char *const *
     if (horizontal) ui_layout_column(ctx);
     if (group_focus) {
         int nv = *v;
-        if (ui_key_take(ctx, SDLK_DOWN, 0) || ui_key_take(ctx, SDLK_RIGHT, 0)) nv = *v + 1;
-        else if (ui_key_take(ctx, SDLK_UP, 0) || ui_key_take(ctx, SDLK_LEFT, 0)) nv = *v - 1;
-        if (nv < 0) nv = n - 1;
-        if (nv >= n) nv = 0;
+        for (;;) {                       /* every queued arrow press, wrapping */
+            if (ui_key_take(ctx, SDLK_DOWN, 0) || ui_key_take(ctx, SDLK_RIGHT, 0)) nv++;
+            else if (ui_key_take(ctx, SDLK_UP, 0) || ui_key_take(ctx, SDLK_LEFT, 0)) nv--;
+            else break;
+            if (nv < 0) nv = n - 1;
+            if (nv >= n) nv = 0;
+        }
         if (nv != *v) {
             *v = nv;
             changed = true;

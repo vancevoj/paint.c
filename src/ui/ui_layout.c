@@ -177,6 +177,15 @@ ui_rect ui_layout_next(ui_ctx *ctx, int32_t pref_w, int32_t pref_h)
     return peek(ctx, l, pref_w, pref_h, true);
 }
 
+ui_rect ui_layout_next_natural(ui_ctx *ctx, int32_t pref_w, int32_t pref_h)
+{
+    ui_layout *l = ui_layout_top(ctx);
+    bool column = l->ncells == 0 && !l->has_next;
+    ui_rect r = ui_layout_next(ctx, pref_w, pref_h);
+    if (column && pref_w > 0 && pref_w < r.w) r.w = pref_w;
+    return r;
+}
+
 void ui_layout_set_next(ui_ctx *ctx, ui_rect r)
 {
     ui_layout *l = ui_layout_top(ctx);
@@ -209,6 +218,14 @@ ui_rect ui_layout_rest(const ui_ctx *ctx)
 }
 
 ui_rect ui_layout_content(const ui_ctx *ctx) { return ctx->lay[ctx->lay_depth - 1].rect; }
+
+int32_t ui_layout_avail_w(const ui_ctx *ctx)
+{
+    const ui_layout *l = &ctx->lay[ctx->lay_depth - 1];
+    if (l->has_next) return l->next.w;
+    if (l->ncells > 0) return l->widths[l->cell < l->ncells ? l->cell : 0];
+    return l->rect.w;
+}
 
 void ui_layout_push(ui_ctx *ctx, ui_rect r, float pad_dip)
 {

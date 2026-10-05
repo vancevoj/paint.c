@@ -29,7 +29,7 @@ struct ui_gallery {
     int32_t        brush, width_i, radius_i;
     double         strength, zoom, angle, slider_v;
     ui_vec2        center;
-    ui_color_edit  color;
+    ui_color_edit  color, color2;
     ui_color       primary, secondary;
     ui_color       palette[N_PALETTE];
     bool           layer_vis[N_LAYERS];
@@ -196,10 +196,12 @@ ui_gallery *ui_gallery_create(SDL_Renderer *r)
     g->angle = 45.0;
     g->slider_v = 0.35;
     g->center = ui_vec2_make(0.25f, -0.2f);
-    g->primary = ui_rgb_hex(0x1F5FAF);
+    g->primary = ui_rgb_hex(0x2E8BC9);
     g->secondary = ui_rgb_hex(0xFFFFFF);
     g->color.hsv.h = 0;
-    ui_color_edit_set_rgba(&g->color, ui_rgba(0x2E, 0x8B, 0xC9, 0xFF));
+    ui_color_edit_set_rgba(&g->color, g->primary);
+    g->color2.hsv.h = 0;
+    ui_color_edit_set_rgba(&g->color2, ui_rgba(0xE0, 0x7A, 0x2F, 0xFF));
     for (int i = 0; i < N_PALETTE; i++) {
         ui_hsv h;
         h.h = (float)(i % 12) * 30.0f;
@@ -218,7 +220,7 @@ ui_gallery *ui_gallery_create(SDL_Renderer *r)
     g->p_layers =
         (ui_panel_state){ 8.0f, 8.0f, 296.0f, 262.0f, UI_ANCHOR_END, UI_ANCHOR_START, true };
     g->p_colors =
-        (ui_panel_state){ 8.0f, 8.0f, 296.0f, 448.0f, UI_ANCHOR_END, UI_ANCHOR_END, true };
+        (ui_panel_state){ 8.0f, 8.0f, 296.0f, 476.0f, UI_ANCHOR_END, UI_ANCHOR_END, true };
     snprintf(g->dlg_w, sizeof g->dlg_w, "1920");
     g->dlg_width = 1920;
     g->dlg_height = 1080;
@@ -515,8 +517,11 @@ static void doc_tabs(ui_gallery *g, ui_ctx *ctx, ui_rect r)
 
 static void group_buttons(ui_gallery *g, ui_ctx *ctx)
 {
-    ui_size c3[3] = { ui_size_auto(), ui_size_auto(), ui_size_auto() };
+    ui_size c3[3];
     ui_size c7[8];
+    c3[0] = ui_size_auto();
+    c3[1] = ui_size_auto();
+    c3[2] = ui_size_auto();
     ui_group_begin(ctx, "Buttons");
     ui_layout_row(ctx, 0.0f, 3, c3);
     ui_button_ex(ctx, "Apply", UI_ICON_NONE, UI_BUTTON_PRIMARY);
@@ -556,7 +561,9 @@ static void group_choices(ui_gallery *g, ui_ctx *ctx)
 
 static void group_text(ui_gallery *g, ui_ctx *ctx)
 {
-    ui_size c2[2] = { ui_size_px(64.0f), ui_size_fr(1.0f) };
+    ui_size c2[2];
+    c2[0] = ui_size_px(64.0f);
+    c2[1] = ui_size_fr(1.0f);
     ui_group_begin(ctx, "Text entry");
     ui_layout_row(ctx, 0.0f, 2, c2);
     ui_label_ex(ctx, "Name", UI_LABEL_DIM);
@@ -590,6 +597,13 @@ static void group_angle(ui_gallery *g, ui_ctx *ctx)
     ui_angle(ctx, "##angle", &g->angle, -180.0, 180.0);
     ui_layout_space(ctx, 4.0f);
     ui_point_picker(ctx, "##center", &g->center, g->thumbs[0], 112.0f);
+    ui_group_end(ctx);
+}
+
+static void group_picker(ui_gallery *g, ui_ctx *ctx)
+{
+    ui_group_begin(ctx, "Color picker (ring)");
+    ui_color_picker(ctx, "##picker", &g->color2, UI_PICKER_RING | UI_PICKER_NO_ALPHA);
     ui_group_end(ctx);
 }
 
@@ -684,7 +698,10 @@ static void history_row(ui_ctx *ctx, void *ud, int32_t i, ui_rect row, uint32_t 
 static void panel_history(ui_gallery *g, ui_ctx *ctx)
 {
     ui_rect rest, foot;
-    ui_size c2[3] = { ui_size_px(28.0f), ui_size_px(28.0f), ui_size_fr(1.0f) };
+    ui_size c2[3];
+    c2[0] = ui_size_px(28.0f);
+    c2[1] = ui_size_px(28.0f);
+    c2[2] = ui_size_fr(1.0f);
     if (!ui_panel_begin(ctx, "History", &g->p_history, UI_PANEL_CLOSABLE | UI_PANEL_RESIZABLE))
         return;
     rest = ui_layout_rest(ctx);
@@ -782,8 +799,15 @@ static void panel_layers(ui_gallery *g, ui_ctx *ctx)
 
 static void panel_colors(ui_gallery *g, ui_ctx *ctx)
 {
-    ui_size c2[2] = { ui_size_px(64.0f), ui_size_fr(1.0f) };
+    ui_size c2[2], c3[3];
+    ui_color *slot;
+    bool changed = false;
     int act;
+    c2[0] = ui_size_px(64.0f);
+    c2[1] = ui_size_fr(1.0f);
+    c3[0] = ui_size_px(16.0f);
+    c3[1] = ui_size_px(96.0f);
+    c3[2] = ui_size_fr(1.0f);
     if (!ui_panel_begin(ctx, "Colors", &g->p_colors, UI_PANEL_CLOSABLE)) return;
     ui_layout_row(ctx, 0.0f, 2, c2);
     ui_layout_begin(ctx, 0.0f);
@@ -796,9 +820,12 @@ static void panel_colors(ui_gallery *g, ui_ctx *ctx)
     if (act == UI_PAIR_RESET) { g->primary = ui_rgb_hex(0); g->secondary = ui_rgb_hex(0xFFFFFF); }
     if (act == UI_PAIR_SELECT_PRIMARY) g->active_slot = 0;
     if (act == UI_PAIR_SELECT_SECONDARY) g->active_slot = 1;
+    /* the editor always shows the active slot */
+    slot = g->active_slot ? &g->secondary : &g->primary;
+    if (act != UI_PAIR_NONE) ui_color_edit_set_rgba(&g->color, *slot);
     ui_layout_end(ctx);
     ui_layout_begin(ctx, 0.0f);
-    ui_color_wheel(ctx, "##wheel", &g->color, 150.0f, 0);
+    changed |= ui_color_wheel(ctx, "##wheel", &g->color, 150.0f, 0);
     ui_layout_end(ctx);
     ui_layout_column(ctx);
     ui_layout_set_spacing(ctx, 2.0f);
@@ -806,8 +833,14 @@ static void panel_colors(ui_gallery *g, ui_ctx *ctx)
         char key[8];
         if (ch == UI_CHAN_RED || ch == UI_CHAN_ALPHA) ui_layout_space(ctx, 4.0f);
         snprintf(key, sizeof key, "##ch%d", ch);
-        ui_color_channel(ctx, key, ch, &g->color);
+        changed |= ui_color_channel(ctx, key, ch, &g->color);
     }
+    ui_layout_space(ctx, 4.0f);
+    ui_layout_row(ctx, 0.0f, 3, c3);
+    ui_label_ex(ctx, "#", UI_LABEL_DIM);
+    changed |= ui_color_hex(ctx, "##hex", &g->color);
+    ui_layout_column(ctx);
+    if (changed) *slot = g->color.rgba;
     ui_panel_end(ctx);
 }
 
@@ -816,8 +849,10 @@ static void dialog(ui_gallery *g, ui_ctx *ctx)
 {
     static const char *const resample[] = { "Best Quality", "Bicubic", "Bilinear",
                                             "Nearest Neighbor", "Supersampling" };
-    ui_size c2[2] = { ui_size_px(120.0f), ui_size_fr(1.0f) };
+    ui_size c2[2];
     uint32_t r;
+    c2[0] = ui_size_px(120.0f);
+    c2[1] = ui_size_fr(1.0f);
     if (!g->show_dialog) return;
     ui_dialog_begin(ctx, "Resize Image", 400.0f, 0.0f);
     ui_layout_row(ctx, 0.0f, 2, c2);
@@ -878,7 +913,10 @@ void ui_gallery_frame(ui_gallery *g, ui_ctx *ctx)
     /* showcase between the left and right panel columns */
     {
         ui_rect content = ws;
-        ui_size c3[3] = { ui_size_fr(1.0f), ui_size_fr(1.0f), ui_size_fr(1.0f) };
+        ui_size c3[3];
+        c3[0] = ui_size_fr(1.0f);
+        c3[1] = ui_size_fr(1.0f);
+        c3[2] = ui_size_fr(1.0f);
         content.x += ui_px(ctx, 212.0f);
         content.w -= ui_px(ctx, 212.0f + 312.0f);
         ui_scroll_begin(ctx, "##showcase", content, UI_SCROLL_NO_BG);
@@ -893,6 +931,7 @@ void ui_gallery_frame(ui_gallery *g, ui_ctx *ctx)
         ui_layout_begin(ctx, 0.0f);
         group_sliders(g, ctx);
         group_angle(g, ctx);
+        group_picker(g, ctx);
         ui_layout_end(ctx);
         ui_layout_begin(ctx, 0.0f);
         group_tabs(g, ctx);

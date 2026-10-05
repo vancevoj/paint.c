@@ -404,7 +404,7 @@ static pc_status check_glyf(ui_font *f)
         bool ok;
         gc.comp_start[g] = gc.ncomps;
         if (!check_record(f, &gc, g, &ok)) goto out;
-        gc.own_ok[g] = ok ? 1u : 0u;
+        gc.own_ok[g] = (uint8_t)(ok ? 1u : 0u);
     }
     gc.comp_start[ng] = gc.ncomps;
     /* state: 0 new, 1 on stack, 2 valid, 3 invalid. Iterative DFS. */

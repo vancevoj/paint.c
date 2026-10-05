@@ -37,10 +37,10 @@ ui_list_result ui_list(ui_ctx *ctx, const char *id_str, ui_rect r, int32_t count
     /* keyboard */
     if (lin.focused && count > 0) {
         int32_t page = ui_maxi(1, view.h / rh - 1), s = *selected;
-        if (ui_key_take(ctx, SDLK_DOWN, 0)) s = s < 0 ? 0 : s + 1;
-        if (ui_key_take(ctx, SDLK_UP, 0)) s = s < 0 ? 0 : s - 1;
-        if (ui_key_take(ctx, SDLK_PAGEDOWN, 0)) s += page;
-        if (ui_key_take(ctx, SDLK_PAGEUP, 0)) s -= page;
+        while (ui_key_take(ctx, SDLK_DOWN, 0)) s = s < 0 ? 0 : ui_mini(s + 1, count - 1);
+        while (ui_key_take(ctx, SDLK_UP, 0)) s = s < 0 ? 0 : ui_maxi(s - 1, 0);
+        while (ui_key_take(ctx, SDLK_PAGEDOWN, 0)) s = ui_mini(s + page, count - 1);
+        while (ui_key_take(ctx, SDLK_PAGEUP, 0)) s = ui_maxi(s - page, 0);
         if (ui_key_take(ctx, SDLK_HOME, 0)) s = 0;
         if (ui_key_take(ctx, SDLK_END, 0)) s = count - 1;
         if (s < 0) s = 0;
@@ -186,8 +186,10 @@ bool ui_tabs(ui_ctx *ctx, const char *id_str, int32_t *active, const char *const
         x += w;
     }
     if (sin.focused) {
-        if (ui_key_take(ctx, SDLK_RIGHT, 0) && *active < n - 1) (*active)++;
-        if (ui_key_take(ctx, SDLK_LEFT, 0) && *active > 0) (*active)--;
+        while (ui_key_take(ctx, SDLK_RIGHT, 0))
+            if (*active < n - 1) (*active)++;
+        while (ui_key_take(ctx, SDLK_LEFT, 0))
+            if (*active > 0) (*active)--;
     }
     if (*active != old) ctx->want_frame = true;
     return *active != old;
@@ -275,7 +277,9 @@ ui_doc_tabs_result ui_doc_tabs(ui_ctx *ctx, const char *id_str, ui_rect r, const
                            sel || in.hovered ? p->field : p->panel);
             ui_draw_circle(ctx, c, (float)ui_px(ctx, 3.5f), p->modified);
         }
-        show_close = sel || in.hovered;
+        /* pointer inside the tab, not "hovered": the close button itself
+         * takes the hover, and hiding it then would make it flicker */
+        show_close = sel || (ui_mouse_in(ctx, tr) && ui_root_hovered(ctx) && !ctx->active);
         cr = ui_rect_make(tr.x + tr.w - ui_px(ctx, 22.0f),
                           tr.y + (thumbs_only ? ui_px(ctx, 2.0f) : (th - ui_px(ctx, 20.0f)) / 2),
                           ui_px(ctx, 20.0f), ui_px(ctx, 20.0f));

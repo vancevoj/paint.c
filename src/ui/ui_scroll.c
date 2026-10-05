@@ -83,13 +83,13 @@ void ui_scroll_begin(ui_ctx *ctx, const char *id_str, ui_rect r, uint32_t flags)
     if (st) { st->f[0] = sy; st->f[1] = sx; }
     ui_push_id(ctx, id_str);
     ui_push_clip(ctx, view);
-    l = &ctx->lay[ctx->lay_depth];
     ui_layout_root(
         ctx,
         ui_rect_make(view.x - (int32_t)sx, view.y - (int32_t)sy,
                      (flags & UI_SCROLL_HORIZONTAL) ? ui_maxi(view.w, (int32_t)content_w) : view.w,
                      ui_maxi(view.h, (int32_t)content_h)),
         0, UI_LAY_SCROLL, id);
+    l = ui_layout_top(ctx);
     l->view = view;
     l->sid = id;
     l->sflags = flags;

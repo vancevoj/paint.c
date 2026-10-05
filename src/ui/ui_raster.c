@@ -575,7 +575,7 @@ pc_status ui_raster_fill(const ui_path *p, int rule, bool aa, uint8_t *dst, int3
                 run += cover[x];
                 v = area[x] + run;
                 if (v < 0.0f) v = -v;
-                c8 = v >= 1.0f ? 255u : (uint8_t)(v * 255.0f + 0.5f);
+                c8 = (uint8_t)(v >= 1.0f ? 255.0f : v * 255.0f + 0.5f);
                 if (c8 || mode == UI_RASTER_SET) row[x] = combine(row[x], c8, mode);
             }
             memset(area, 0, ((size_t)w + 2u) * sizeof(float));

@@ -429,98 +429,145 @@ void ui_draw_rrect_outline(ui_ctx *ctx, ui_rect r, float radius, int32_t t, ui_c
 }
 
 /* ---- shadows ------------------------------------------------------------- */
-static void box_blur(float *a, float *tmp, int32_t n, int32_t rad)
+/* Three box blur passes (close to a Gaussian) over a w x h float image,
+ * zero outside. tmp holds max(w, h) floats. */
+static void box_blur(float *a, float *tmp, int32_t w, int32_t h, int32_t rad)
 {
     float inv = 1.0f / (float)(2 * rad + 1);
     for (int pass = 0; pass < 3; pass++) {
-        for (int32_t y = 0; y < n; y++) {           /* horizontal */
-            float *row = a + (size_t)y * (size_t)n, acc = 0.0f;
-            for (int32_t x = -rad; x <= rad; x++) acc += (x >= 0 && x < n) ? row[x] : 0.0f;
-            for (int32_t x = 0; x < n; x++) {
+        for (int32_t y = 0; y < h; y++) {           /* horizontal */
+            float *row = a + (size_t)y * (size_t)w, acc = 0.0f;
+            for (int32_t x = -rad; x <= rad; x++) acc += (x >= 0 && x < w) ? row[x] : 0.0f;
+            for (int32_t x = 0; x < w; x++) {
                 int32_t xa = x + rad + 1, xr = x - rad;
                 tmp[x] = acc * inv;
-                if (xa < n) acc += row[xa];
+                if (xa < w) acc += row[xa];
                 if (xr >= 0) acc -= row[xr];
             }
-            memcpy(row, tmp, (size_t)n * sizeof(float));
+            memcpy(row, tmp, (size_t)w * sizeof(float));
         }
-        for (int32_t x = 0; x < n; x++) {           /* vertical */
+        for (int32_t x = 0; x < w; x++) {           /* vertical */
             float acc = 0.0f;
             for (int32_t y = -rad; y <= rad; y++)
-                acc += (y >= 0 && y < n) ? a[(size_t)y * (size_t)n + (size_t)x] : 0.0f;
-            for (int32_t y = 0; y < n; y++) {
+                acc += (y >= 0 && y < h) ? a[(size_t)y * (size_t)w + (size_t)x] : 0.0f;
+            for (int32_t y = 0; y < h; y++) {
                 int32_t ya = y + rad + 1, yr = y - rad;
                 tmp[y] = acc * inv;
-                if (ya < n) acc += a[(size_t)ya * (size_t)n + (size_t)x];
-                if (yr >= 0) acc -= a[(size_t)yr * (size_t)n + (size_t)x];
+                if (ya < h) acc += a[(size_t)ya * (size_t)w + (size_t)x];
+                if (yr >= 0) acc -= a[(size_t)yr * (size_t)w + (size_t)x];
             }
-            for (int32_t y = 0; y < n; y++) a[(size_t)y * (size_t)n + (size_t)x] = tmp[y];
+            for (int32_t y = 0; y < h; y++) a[(size_t)y * (size_t)w + (size_t)x] = tmp[y];
         }
     }
 }
 
-static bool shadow_sprite(ui_ctx *ctx, float radius, int32_t B, ui_sprite *sp, int32_t *Rout)
+/* Blurred rounded rectangle of size sw x sh (radius in px) placed 2B pixels
+ * inside a (sw + 4B) x (sh + 4B) sprite. The blur is three box passes of
+ * radius rad, whose combined reach (3 rad) stays inside the 2B margin. */
+static bool shadow_sprite(ui_ctx *ctx, uint64_t key, float radius, int32_t B, int32_t rad,
+                          int32_t sw, int32_t sh, ui_sprite *sp)
 {
-    int32_t R = (int32_t)ceilf(radius), N = 2 * R + 1 + 4 * B, rad = ui_maxi(1, (B + 1) / 2);
-    uint32_t rq = (uint32_t)(radius * 4.0f + 0.5f);
-    uint64_t key = ((uint64_t)UI_KEY_SHADOW << 56) | ((uint64_t)rq << 16) | (uint64_t)B;
+    int32_t W = sw + 4 * B, H = sh + 4 * B;
     float *a, *tmp;
     uint8_t *cov;
     ui_path *p = &ctx->scratch_path;
     bool ok;
-    *Rout = R;
     if (ui_cache_get(ctx, key, sp)) return sp->w > 0;
-    if (N > 400) return false;
-    cov = ui_scratch(ctx, (size_t)N * (size_t)N);
-    a = (float *)malloc((size_t)N * (size_t)N * sizeof(float));
-    tmp = (float *)malloc((size_t)N * sizeof(float));
+    if (W > UI_ATLAS_DIM - 1 || H > UI_ATLAS_DIM - 1) return false;
+    cov = ui_scratch(ctx, (size_t)W * (size_t)H);
+    a = (float *)malloc((size_t)W * (size_t)H * sizeof(float));
+    tmp = (float *)malloc((size_t)ui_maxi(W, H) * sizeof(float));
     if (!cov || !a || !tmp) { free(a); free(tmp); return false; }
     ui_path_reset(p);
-    ui_path_rrect(p, (float)(2 * B), (float)(2 * B), (float)(2 * R + 1), (float)(2 * R + 1),
-                  radius);
-    ok = ui_raster_fill(p, UI_FILL_NONZERO, true, cov, N, N, N, UI_RASTER_SET) == PC_OK;
+    ui_path_rrect(p, (float)(2 * B), (float)(2 * B), (float)sw, (float)sh, radius);
+    ok = ui_raster_fill(p, UI_FILL_NONZERO, true, cov, W, H, W, UI_RASTER_SET) == PC_OK;
     if (ok) {
-        for (int32_t i = 0; i < N * N; i++) a[i] = (float)cov[i] / 255.0f;
-        box_blur(a, tmp, N, rad);
-        for (int32_t i = 0; i < N * N; i++) {
+        for (int32_t i = 0; i < W * H; i++) a[i] = (float)cov[i] / 255.0f;
+        box_blur(a, tmp, W, H, rad);
+        for (int32_t i = 0; i < W * H; i++) {
             float v = a[i] * 255.0f + 0.5f;
-            cov[i] = v >= 255.0f ? 255u : (uint8_t)v;
+            cov[i] = (uint8_t)(v >= 255.0f ? 255.0f : v);
         }
-        ok = make_sprite(ctx, key, cov, N, N, sp);
+        ok = make_sprite(ctx, key, cov, W, H, sp);
     }
     free(a);
     free(tmp);
     return ok;
 }
 
+/* One axis of a shadow nine-slice: either the sprite covers the extent 1:1
+ * (exact) or it splits into two corner parts of c texels and one middle
+ * texel stretched across the rest. */
+typedef struct shadow_axis {
+    int32_t n, src[3], srcw[3], dst[3], dstw[3];
+} shadow_axis;
+
+static void shadow_axis_make(shadow_axis *a, int32_t lo, int32_t len, int32_t S, int32_t c,
+                             bool exact)
+{
+    if (exact) {
+        a->n = 1;
+        a->src[0] = 0; a->srcw[0] = S; a->dst[0] = lo; a->dstw[0] = len;
+        return;
+    }
+    a->n = 3;
+    a->src[0] = 0; a->srcw[0] = c; a->dst[0] = lo; a->dstw[0] = c;
+    a->src[1] = c; a->srcw[1] = 1; a->dst[1] = lo + c; a->dstw[1] = len - 2 * c;
+    a->src[2] = S - c; a->srcw[2] = c; a->dst[2] = lo + len - c; a->dstw[2] = c;
+}
+
 void ui_draw_shadow(ui_ctx *ctx, ui_rect r, float radius, float blur, ui_color c)
 {
     ui_sprite sp;
-    int32_t B = (int32_t)ceilf(blur * 0.5f), R, C, N, x0, y0, x1, y1;
+    int32_t B = (int32_t)ceilf(blur * 0.5f), rad, R, C, N, ext_w, ext_h, sw, sh;
+    bool exact_x, exact_y;
+    uint32_t rq;
+    uint64_t key;
+    shadow_axis ax, ay;
     if (ui_rect_empty(r) || c.a == 0 || B < 1) return;
+    if (B > 64) B = 64;
+    rad = ui_maxi(1, (B + 1) / 2);
     radius = clamp_radius(r, radius);
-    if ((float)ui_mini(r.w, r.h) < 2.0f * ceilf(radius) + 1.0f) radius = 0.0f;
-    if (!shadow_sprite(ctx, radius, B, &sp, &R)) return;
-    C = R + 2 * B;
-    N = sp.w;
-    x0 = r.x - 2 * B; y0 = r.y - 2 * B; x1 = r.x + r.w + 2 * B; y1 = r.y + r.h + 2 * B;
-    /* corners */
-    sprite_part(ctx, &sp, 0, 0, C, C, (float)x0, (float)y0, (float)(x0 + C), (float)(y0 + C), c);
-    sprite_part(ctx, &sp, N - C, 0, C, C, (float)(x1 - C), (float)y0, (float)x1, (float)(y0 + C),
-                c);
-    sprite_part(ctx, &sp, 0, N - C, C, C, (float)x0, (float)(y1 - C), (float)(x0 + C), (float)y1,
-                c);
-    sprite_part(ctx, &sp, N - C, N - C, C, C, (float)(x1 - C), (float)(y1 - C), (float)x1,
-                (float)y1, c);
-    /* edges (one texel stretched) */
-    sprite_part(ctx, &sp, C, 0, 1, C, (float)(x0 + C), (float)y0, (float)(x1 - C), (float)(y0 + C),
-                c);
-    sprite_part(ctx, &sp, C, N - C, 1, C, (float)(x0 + C), (float)(y1 - C), (float)(x1 - C),
-                (float)y1, c);
-    sprite_part(ctx, &sp, 0, C, C, 1, (float)x0, (float)(y0 + C), (float)(x0 + C), (float)(y1 - C),
-                c);
-    sprite_part(ctx, &sp, N - C, C, C, 1, (float)(x1 - C), (float)(y0 + C), (float)x1,
-                (float)(y1 - C), c);
+    R = (int32_t)ceilf(radius);
+    rq = (uint32_t)(radius * 4.0f + 0.5f) & 0x3FFFu;
+    /* Nine-slice sprite: the corner part C reaches from 2B outside the shape
+     * to where the blurred profile is flat inside it, so the stretched
+     * middle texels match an infinitely long edge and the center is solid.
+     * An axis shorter than the nine-slice uses a sprite of its exact size. */
+    C = 2 * B + R + 3 * rad;
+    N = 2 * C + 1;
+    ext_w = r.w + 4 * B;
+    ext_h = r.h + 4 * B;
+    exact_x = ext_w < N;
+    exact_y = ext_h < N;
+    sw = exact_x ? r.w : N - 4 * B;
+    sh = exact_y ? r.h : N - 4 * B;
+    if (sw > 0x1FFFF || sh > 0x1FFFF) return;
+    key = ((uint64_t)UI_KEY_SHADOW << 56) | ((uint64_t)rq << 41) | ((uint64_t)B << 34) |
+          ((uint64_t)sw << 17) | (uint64_t)sh;
+    if (!shadow_sprite(ctx, key, radius, B, rad, sw, sh, &sp)) return;
+    shadow_axis_make(&ax, r.x - 2 * B, ext_w, sw + 4 * B, C, exact_x);
+    shadow_axis_make(&ay, r.y - 2 * B, ext_h, sh + 4 * B, C, exact_y);
+    for (int32_t j = 0; j < ay.n; j++)
+        for (int32_t i = 0; i < ax.n; i++)
+            sprite_part(ctx, &sp, ax.src[i], ay.src[j], ax.srcw[i], ay.srcw[j], (float)ax.dst[i],
+                        (float)ay.dst[j], (float)(ax.dst[i] + ax.dstw[i]),
+                        (float)(ay.dst[j] + ay.dstw[j]), c);
+}
+
+/* Two-layer drop shadow for floating surfaces: a tight contact shadow plus
+ * a soft key shadow that grows with the elevation level (1 panels and
+ * tooltips, 2 popups, 3 dialogs). */
+void ui_draw_elevation(ui_ctx *ctx, ui_rect r, float radius, int level)
+{
+    ui_color sh = ctx->theme.pal.shadow, key = sh;
+    float lv = (float)(level < 1 ? 1 : (level > 3 ? 3 : level));
+    float a = (float)sh.a * (0.75f + 0.25f * lv);
+    key.a = (uint8_t)(a > 255.0f ? 255.0f : a);
+    ui_draw_shadow(ctx, ui_rect_offset(r, 0, ui_px(ctx, 1.0f)), radius, (float)ui_px(ctx, 3.0f),
+                   ui_color_fade(sh, 0.7f));
+    ui_draw_shadow(ctx, ui_rect_offset(r, 0, ui_px(ctx, 2.0f * lv)), radius,
+                   ctx->px.shadow * (0.5f + 0.5f * lv), key);
 }
 
 /* ---- gradients and checkerboard ------------------------------------------ */
@@ -569,20 +616,30 @@ static SDL_Texture *checker_tex(ui_ctx *ctx, ui_color a, ui_color b)
 
 void ui_draw_checker(ui_ctx *ctx, ui_rect r, int32_t cell, ui_color a, ui_color b)
 {
-    SDL_Texture *t;
-    float uw, vh;
+    int32_t nx, ny;
     if (ui_rect_empty(r)) return;
     if (cell < 1) cell = 1;
-    t = checker_tex(ctx, a, b);
-    if (!t) { ui_draw_rect(ctx, r, a); return; }
-    uw = (float)r.w / (float)(2 * cell);
-    vh = (float)r.h / (float)(2 * cell);
-    if (uw <= 1.0f && vh <= 1.0f) {
-        /* keep at least one coordinate outside [0, 1] so SDL picks wrap mode */
-        uw = uw < 1.0f ? uw : 1.0f;
+    nx = (r.w + cell - 1) / cell;
+    ny = (r.h + cell - 1) / cell;
+    if ((int64_t)nx * (int64_t)ny > 8192) {
+        /* very large areas: one quad with wrapping texture coordinates */
+        SDL_Texture *t = checker_tex(ctx, a, b);
+        if (!t) { ui_draw_rect(ctx, r, a); return; }
+        quad_tex(ctx, t, (int32_t)SDL_SCALEMODE_NEAREST, (float)r.x, (float)r.y,
+                 (float)(r.x + r.w), (float)(r.y + r.h), 0.0f, 0.0f,
+                 (float)r.w / (float)(2 * cell), (float)r.h / (float)(2 * cell),
+                 ui_rgba(255, 255, 255, 255));
+        return;
     }
-    quad_tex(ctx, t, (int32_t)SDL_SCALEMODE_NEAREST, (float)r.x, (float)r.y, (float)(r.x + r.w),
-             (float)(r.y + r.h), 0.0f, 0.0f, uw, vh, ui_rgba(255, 255, 255, 255));
+    /* Solid cells cut to r: exact on every backend (no texture wrapping or
+     * sub-texel source rectangles) and batched with the other shapes. */
+    for (int32_t j = 0; j < ny; j++) {
+        int32_t y0 = r.y + j * cell, y1 = ui_mini(y0 + cell, r.y + r.h);
+        for (int32_t i = 0; i < nx; i++) {
+            int32_t x0 = r.x + i * cell, x1 = ui_mini(x0 + cell, r.x + r.w);
+            quad_solid(ctx, (float)x0, (float)y0, (float)x1, (float)y1, ((i + j) & 1) ? b : a);
+        }
+    }
 }
 
 /* ---- antialiased strokes and polygons ------------------------------------ */
@@ -820,17 +877,14 @@ void ui_draw_callback(ui_ctx *ctx, ui_draw_fn fn, void *ud)
 }
 
 /* ---- glyphs and text ----------------------------------------------------- */
-static uint8_t g_gamma[256];
-static bool g_gamma_ready;
-
-static void gamma_init(void)
+/* Coverage gamma for glyphs: slightly heavier stems, closer to the weight
+ * of hinted system text at small sizes. Filled once per context. */
+void ui_gamma_init(uint8_t table[256])
 {
-    if (g_gamma_ready) return;
     for (int i = 0; i < 256; i++) {
         float v = powf((float)i / 255.0f, 0.82f) * 255.0f + 0.5f;
-        g_gamma[i] = v >= 255.0f ? 255u : (uint8_t)v;
+        table[i] = (uint8_t)(v >= 255.0f ? 255.0f : v);
     }
-    g_gamma_ready = true;
 }
 
 bool ui_glyph_sprite(ui_ctx *ctx, const ui_font *face, float size, uint32_t gid, int sub,
@@ -866,8 +920,7 @@ bool ui_glyph_sprite(ui_ctx *ctx, const ui_font *face, float size, uint32_t gid,
     cov = ui_scratch(ctx, (size_t)w * (size_t)h);
     if (!cov || ui_raster_fill(p, UI_FILL_NONZERO, true, cov, w, h, w, UI_RASTER_SET) != PC_OK)
         return false;
-    gamma_init();
-    for (int32_t i = 0; i < w * h; i++) cov[i] = g_gamma[cov[i]];
+    for (int32_t i = 0; i < w * h; i++) cov[i] = ctx->gamma[cov[i]];
     if (!make_sprite(ctx, key, cov, w, h, sp)) return false;
     sp->ox = (int16_t)bx;
     sp->oy = (int16_t)by;

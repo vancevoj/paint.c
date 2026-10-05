@@ -241,7 +241,10 @@ static inline ui_size ui_size_auto(void)
  * previous frame). height_dip 0 uses each widget's natural height. The
  * pattern repeats until the next ui_layout_row or ui_layout_column. */
 void    ui_layout_row(ui_ctx *ctx, float height_dip, int n, const ui_size *cells);
-/* Back to one widget per line, full width (the default). */
+/* Back to one widget per line (the default). Fill widgets (fields,
+ * sliders, combos, lists, separators, labels) span the container width;
+ * buttons, check boxes, radios, switches, swatches and the angle dial keep
+ * their natural width, left aligned. */
 void    ui_layout_column(ui_ctx *ctx);
 /* Claim the next cell. Widgets call this with their natural size in px. */
 ui_rect ui_layout_next(ui_ctx *ctx, int32_t pref_w, int32_t pref_h);

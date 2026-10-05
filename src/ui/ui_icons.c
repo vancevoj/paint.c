@@ -333,7 +333,10 @@ pc_status ui_icon_raster_rgba(ui_icon id, int size, ui_color line, ui_color acce
     uint8_t *cov;
     size_t n;
     pc_status st;
-    const ui_color tones[UI_ICON_LAYERS] = { soft, accent, line };
+    ui_color tones[UI_ICON_LAYERS];
+    tones[UI_ICON_LAYER_SOFT] = soft;
+    tones[UI_ICON_LAYER_ACCENT] = accent;
+    tones[UI_ICON_LAYER_LINE] = line;
     if (size < UI_ICON_MIN_PX || size > UI_ICON_MAX_PX || !rgba) return PC_ERR_ARG;
     n = (size_t)size * (size_t)size;
     cov = (uint8_t *)malloc(n * UI_ICON_LAYERS);
@@ -350,9 +353,9 @@ pc_status ui_icon_raster_rgba(ui_icon id, int size, ui_color line, ui_color acce
             a = ca + a * (1.0f - ca);
         }
         rgba[4 * i + 3] = (uint8_t)(a * 255.0f + 0.5f);
-        rgba[4 * i + 0] = a > 0.0f ? (uint8_t)(r / a + 0.5f) : 0u;
-        rgba[4 * i + 1] = a > 0.0f ? (uint8_t)(g / a + 0.5f) : 0u;
-        rgba[4 * i + 2] = a > 0.0f ? (uint8_t)(b / a + 0.5f) : 0u;
+        rgba[4 * i + 0] = (uint8_t)(a > 0.0f ? r / a + 0.5f : 0.0f);
+        rgba[4 * i + 1] = (uint8_t)(a > 0.0f ? g / a + 0.5f : 0.0f);
+        rgba[4 * i + 2] = (uint8_t)(a > 0.0f ? b / a + 0.5f : 0.0f);
     }
     free(cov);
     return PC_OK;

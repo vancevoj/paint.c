@@ -6,6 +6,25 @@
 #include <string.h>
 
 /* ---- dialogs ------------------------------------------------------------- */
+/* Dialog rectangle from the measured content height (0 while unknown: the
+ * first frame lays out hidden) and the user's drag offset. */
+static ui_rect dialog_rect(const ui_ctx *ctx, const ui_state *st, int32_t W, int32_t H,
+                           int32_t th)
+{
+    bool hidden = H == 0;
+    ui_rect r = ui_rect_make((ctx->fi.width - W) / 2 + (int32_t)st->f[0],
+                             (ctx->fi.height - (hidden ? ui_px(ctx, 200.0f) : H)) / 2 +
+                                 (int32_t)st->f[1],
+                             W, hidden ? ui_px(ctx, 2000.0f) : H);
+    if (!hidden) {
+        if (r.x + r.w > ctx->fi.width) r.x = ctx->fi.width - r.w;
+        if (r.y + th > ctx->fi.height) r.y = ctx->fi.height - th;
+        if (r.x < 0) r.x = 0;
+        if (r.y < 0) r.y = 0;
+    }
+    return r;
+}
+
 bool ui_dialog_begin(ui_ctx *ctx, const char *title, float w_dip, float h_dip)
 {
     const ui_palette *p = &ctx->theme.pal;
@@ -14,22 +33,15 @@ bool ui_dialog_begin(ui_ctx *ctx, const char *title, float w_dip, float h_dip)
     size_t n;
     const char *s = ui_label_text(title, &n);
     int32_t W = ui_px(ctx, w_dip), th = ctx->px.title_h, H, pad = ui_px(ctx, 16.0f);
+    int32_t ci = ui_px(ctx, 4.0f);
     bool hidden;
-    ui_rect r, bar, close_r;
+    ui_rect r, close_r;
     ui_interaction tin, cin;
     if (!st) return false;
     H = h_dip > 0.0f ? ui_px(ctx, h_dip) : (st->i[0] > 0 ? th + st->i[0] : 0);
     hidden = H == 0;
     if (W > ctx->fi.width - 16) W = ctx->fi.width - 16;
-    r = ui_rect_make((ctx->fi.width - W) / 2 + (int32_t)st->f[0],
-                     (ctx->fi.height - (hidden ? ui_px(ctx, 200.0f) : H)) / 2 + (int32_t)st->f[1],
-                     W, hidden ? ui_px(ctx, 2000.0f) : H);
-    if (!hidden) {
-        if (r.x + r.w > ctx->fi.width) r.x = ctx->fi.width - r.w;
-        if (r.y + th > ctx->fi.height) r.y = ctx->fi.height - th;
-        if (r.x < 0) r.x = 0;
-        if (r.y < 0) r.y = 0;
-    }
+    r = dialog_rect(ctx, st, W, H, th);
     ctx->dlg_id = id;
     ctx->dlg_result = 0;
     ctx->dlg_buttons_def = 0;
@@ -40,31 +52,34 @@ bool ui_dialog_begin(ui_ctx *ctx, const char *title, float w_dip, float h_dip)
         ctx->autofocus_root = id;
         ctx->want_frame = true;
     }
-    ui_draw_rect(ctx, ui_rect_make(0, 0, ctx->fi.width, ctx->fi.height), p->backdrop);
-    ui_draw_shadow(ctx, ui_rect_offset(r, 0, ui_px(ctx, 6.0f)), ctx->px.radius_large,
-                   ctx->px.shadow * 2.0f, p->shadow);
-    ui_draw_rrect(ctx, r, ctx->px.radius_large, p->panel);
-    ui_draw_rrect_outline(ctx, r, ctx->px.radius_large, ctx->px.border, p->border);
-    bar = ui_rect_make(r.x, r.y, r.w, th);
+    /* interactions first (against the rectangle the user sees), then draw at
+     * the updated position so a dragged dialog never lags a frame behind */
     close_r = ui_rect_make(r.x + r.w - th, r.y, th, th);
-    ui_draw_text_box(ctx, ctx->font_bold, ctx->px.font_title,
-                     ui_rect_make(r.x + pad, r.y, r.w - pad - th, th), UI_ALIGN_LEFT,
-                     UI_TEXT_ELLIPSIS, p->text, s, n);
-    tin = ui_interact(ctx, id ^ 0x7171u, ui_rect_make(bar.x, bar.y, bar.w - th, bar.h), 0);
+    tin = ui_interact(ctx, id ^ 0x7171u, ui_rect_make(r.x, r.y, r.w - th, th), 0);
     if (tin.pressed) { st->f[2] = st->f[0]; st->f[3] = st->f[1]; }
     if (tin.held) {
         st->f[0] = st->f[2] + (tin.mouse.x - tin.press_pos.x);
         st->f[1] = st->f[3] + (tin.mouse.y - tin.press_pos.y);
         ctx->want_frame = true;
     }
-    cin = ui_interact(ctx, id ^ 0xC105u, ui_rect_inset(close_r, ui_px(ctx, 4.0f), ui_px(ctx, 4.0f)),
-                      0);
+    cin = ui_interact(ctx, id ^ 0xC105u, ui_rect_inset(close_r, ci, ci), 0);
+    if (cin.clicked) ctx->dlg_result = UI_DLG_CANCEL | 0x80000000u;
+    if (tin.held) {
+        r = dialog_rect(ctx, st, W, H, th);
+        close_r = ui_rect_make(r.x + r.w - th, r.y, th, th);
+    }
+    ui_draw_rect(ctx, ui_rect_make(0, 0, ctx->fi.width, ctx->fi.height), p->backdrop);
+    ui_draw_elevation(ctx, r, ctx->px.radius_large, 3);
+    ui_draw_rrect(ctx, r, ctx->px.radius_large, p->panel);
+    ui_draw_rrect_outline(ctx, r, ctx->px.radius_large, ctx->px.border, p->border);
+    ui_draw_text_box(ctx, ctx->font_bold, ctx->px.font_title,
+                     ui_rect_make(r.x + pad, r.y, r.w - pad - th, th), UI_ALIGN_LEFT,
+                     UI_TEXT_ELLIPSIS, p->text, s, n);
     if (cin.hovered)
-        ui_draw_rrect(ctx, ui_rect_inset(close_r, ui_px(ctx, 4.0f), ui_px(ctx, 4.0f)),
-                      ctx->px.radius, cin.held ? p->danger : ui_color_fade(p->danger, 0.85f));
+        ui_draw_rrect(ctx, ui_rect_inset(close_r, ci, ci), ctx->px.radius,
+                      cin.held ? p->danger : ui_color_fade(p->danger, 0.85f));
     ui_draw_icon(ctx, UI_ICON_CLOSE, close_r, ui_px(ctx, 14.0f),
                  cin.hovered ? p->text_on_accent : p->text_dim, p->text_dim);
-    if (cin.clicked) ctx->dlg_result = UI_DLG_CANCEL | 0x80000000u;
     ui_layout_root(ctx, ui_rect_make(r.x, r.y + th, r.w, r.h - th), pad, UI_LAY_PUSH, id);
     ui_layout_top(ctx)->rect.y -= pad / 2;
     ui_layout_top(ctx)->cy -= pad / 2;
@@ -283,7 +298,9 @@ bool ui_panel_begin(ui_ctx *ctx, const char *title, ui_panel_state *st, uint32_t
     size_t n;
     const char *s;
     int32_t th = ui_px(ctx, 28.0f), pad = (flags & UI_PANEL_NO_PAD) ? 0 : ctx->px.pad_small;
-    ui_interaction tin;
+    ui_interaction tin, ci;
+    ui_rect cr;
+    bool closable = (flags & UI_PANEL_CLOSABLE) != 0;
     if (!st || !st->open) return false;
     id = ui_get_id(ctx, title);
     ps = ui_state_get(ctx, id);
@@ -294,21 +311,14 @@ bool ui_panel_begin(ui_ctx *ctx, const char *title, ui_panel_state *st, uint32_t
     if (st->h < 40.0f) st->h = 40.0f;
     r = panel_px_rect(ctx, st, area);
     ui_root_begin(ctx, id, UI_ROOT_PANEL, r, false);
-    ui_draw_shadow(ctx, ui_rect_offset(r, 0, ui_px(ctx, 2.0f)), ctx->px.radius_large,
-                   ctx->px.shadow * 0.75f, p->shadow);
-    ui_draw_rrect(ctx, r, ctx->px.radius_large, p->panel);
-    ui_draw_rrect_outline(ctx, r, ctx->px.radius_large, ctx->px.border, p->border);
+    /* interactions against the rectangle shown last frame; drawing follows
+     * at the updated rectangle so moves and resizes never lag a frame */
     bar = ui_rect_make(r.x, r.y, r.w, th);
-    ui_draw_text_box(ctx, ctx->font_bold, ctx->px.font_small,
-                     ui_rect_make(r.x + ui_px(ctx, 10.0f), r.y, r.w - ui_px(ctx, 10.0f) - th, th),
-                     UI_ALIGN_LEFT, UI_TEXT_ELLIPSIS, p->text_dim, s, n);
-    if (flags & UI_PANEL_CLOSABLE) {
-        ui_rect cr = ui_rect_inset(ui_rect_make(r.x + r.w - th, r.y, th, th), ui_px(ctx, 4.0f),
-                                   ui_px(ctx, 4.0f));
-        ui_interaction ci = ui_interact(ctx, id ^ 0xC105u, cr, 0);
-        if (ci.hovered) ui_draw_rrect(ctx, cr, ctx->px.radius, p->hover);
-        ui_draw_icon(ctx, UI_ICON_CLOSE, cr, ui_px(ctx, 12.0f), p->text_dim, p->text_dim);
-        if (ci.clicked) st->open = false;
+    memset(&ci, 0, sizeof ci);
+    if (closable) {
+        cr = ui_rect_inset(ui_rect_make(r.x + r.w - th, r.y, th, th), ui_px(ctx, 4.0f),
+                           ui_px(ctx, 4.0f));
+        ci = ui_interact(ctx, id ^ 0xC105u, cr, 0);
         bar.w -= th;
     }
     /* move by the title bar, with snapping */
@@ -369,6 +379,19 @@ bool ui_panel_begin(ui_ctx *ctx, const char *title, ui_panel_state *st, uint32_t
     }
     r = panel_px_rect(ctx, st, area);
     ctx->roots[ctx->cur_root].rect = r;
+    ui_draw_elevation(ctx, r, ctx->px.radius_large, 1);
+    ui_draw_rrect(ctx, r, ctx->px.radius_large, p->panel);
+    ui_draw_rrect_outline(ctx, r, ctx->px.radius_large, ctx->px.border, p->border);
+    ui_draw_text_box(ctx, ctx->font_bold, ctx->px.font_small,
+                     ui_rect_make(r.x + ui_px(ctx, 10.0f), r.y, r.w - ui_px(ctx, 10.0f) - th, th),
+                     UI_ALIGN_LEFT, UI_TEXT_ELLIPSIS, p->text_dim, s, n);
+    if (closable) {
+        cr = ui_rect_inset(ui_rect_make(r.x + r.w - th, r.y, th, th), ui_px(ctx, 4.0f),
+                           ui_px(ctx, 4.0f));
+        if (ci.hovered) ui_draw_rrect(ctx, cr, ctx->px.radius, p->hover);
+        ui_draw_icon(ctx, UI_ICON_CLOSE, cr, ui_px(ctx, 12.0f), p->text_dim, p->text_dim);
+        if (ci.clicked) st->open = false;
+    }
     ui_layout_root(ctx, ui_rect_make(r.x, r.y + th, r.w, r.h - th), pad, UI_LAY_PUSH, id);
     ui_push_clip(ctx, ui_rect_make(r.x, r.y + th, r.w, r.h - th));
     ui_push_id(ctx, title);

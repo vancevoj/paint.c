@@ -124,11 +124,11 @@ void ui_popups_frame_begin(ui_ctx *ctx)
     }
     top = &ctx->popups[ctx->npopups - 1];
     if (top->kind == 2) return;
-    if (ui_key_take(ctx, SDLK_DOWN, 0)) {
+    while (ui_key_take(ctx, SDLK_DOWN, 0)) {
         top->nav = nav_step(top, top->nav, 1);
         top->keyboard = true;
     }
-    if (ui_key_take(ctx, SDLK_UP, 0)) {
+    while (ui_key_take(ctx, SDLK_UP, 0)) {
         top->nav = nav_step(top, top->nav < 0 ? 0 : top->nav, -1);
         top->keyboard = true;
     }
@@ -209,6 +209,8 @@ static bool popup_begin_id(ui_ctx *ctx, ui_id id, int32_t kind)
     if (d >= ctx->npopups || ctx->popups[d].id != id) return false;
     p = &ctx->popups[d];
     p->kind = kind;
+    if (kind == 0 && p->keyboard && p->nav < 0 && p->prev_nitems > 0)
+        p->nav = nav_step(p, -1, 1);        /* opened by keyboard: highlight item 1 */
     p->nitems = 0;
     p->pref_w = 0;
     hidden = p->w == 0 || p->h == 0;
@@ -217,8 +219,7 @@ static bool popup_begin_id(ui_ctx *ctx, ui_id id, int32_t kind)
         r = ui_rect_make(r.x, r.y, ui_maxi(p->min_w, ui_px(ctx, 120.0f)), ui_px(ctx, 400.0f));
     p->rect = r;
     ui_root_begin(ctx, id, UI_ROOT_POPUP, r, hidden);
-    ui_draw_shadow(ctx, ui_rect_offset(r, 0, ui_px(ctx, 3.0f)), ctx->px.radius_large,
-                   ctx->px.shadow, pal->shadow);
+    ui_draw_elevation(ctx, r, ctx->px.radius_large, 2);
     ui_draw_rrect(ctx, r, ctx->px.radius_large,
                   ctx->theme.kind == UI_THEME_DARK ? pal->raised : pal->field);
     ui_draw_rrect_outline(ctx, r, ctx->px.radius_large, ctx->px.border, pal->border);
@@ -388,6 +389,12 @@ void ui_menubar_end(ui_ctx *ctx)
             if (p) { p->keyboard = true; p->nav = -1; }
         }
     }
+    /* F10 opens the first menu for keyboard navigation (Windows convention) */
+    if (ctx->npopups == 0 && ctx->mb_n > 0 && ui_key_take(ctx, SDLK_F10, 0)) {
+        ui_popup *p = open_at(ctx, 0, title_popup_id(ctx->mb_titles[0]), ctx->mb_title_rects[0],
+                              UI_POPUP_BELOW, ctx->mb_id);
+        if (p) { p->keyboard = true; p->nav = -1; }
+    }
     ctx->mb_switch = 0;
     ctx->mb_active = false;
 }
@@ -496,8 +503,11 @@ void ui_menu_separator(ui_ctx *ctx)
 {
     const ui_palette *pal = &ctx->theme.pal;
     ui_rect r = ui_layout_next(ctx, 0, ui_px(ctx, 9.0f));
+    /* dark popups use the raised face, where the panel separator vanishes */
+    ui_color c = ctx->theme.kind == UI_THEME_DARK ? ui_color_lerp(pal->raised, pal->text, 0.12f)
+                                                  : pal->separator;
     ui_draw_rect(ctx, ui_rect_make(r.x + ui_px(ctx, 4.0f), r.y + r.h / 2, r.w - ui_px(ctx, 8.0f),
-                                   ctx->px.border), pal->separator);
+                                   ctx->px.border), c);
 }
 
 /* ---- combo box ----------------------------------------------------------- */
@@ -530,23 +540,22 @@ bool ui_combo(ui_ctx *ctx, const char *id_str, int *index, const char *const *it
     }
     if (in.focused && !open && n > 0) {
         uint32_t mods = 0;
+        int ni = *index;
         if (ui_key_take(ctx, SDLK_DOWN, UI_MOD_ALT) || ui_key_take(ctx, SDLK_F4, 0) ||
             ui_key_take(ctx, SDLK_RETURN, 0) || ui_key_take(ctx, SDLK_SPACE, 0)) {
             ui_popup *p = open_at(ctx, d, pid, r, UI_POPUP_BELOW, 0);
             if (p) { p->nav = *index; p->min_w = r.w; p->keyboard = true; }
             open = true;
-        } else if (ui_key_take_any(ctx, SDLK_DOWN, &mods) && *index < n - 1) {
-            (*index)++;
-            changed = true;
-        } else if (ui_key_take_any(ctx, SDLK_UP, &mods) && *index > 0) {
-            (*index)--;
-            changed = true;
-        } else if (ui_key_take(ctx, SDLK_HOME, 0) && *index != 0) {
-            *index = 0;
-            changed = true;
-        } else if (ui_key_take(ctx, SDLK_END, 0) && *index != n - 1) {
-            *index = n - 1;
-            changed = true;
+        } else {
+            /* closed combo: arrows step through the items directly */
+            while (ui_key_take_any(ctx, SDLK_DOWN, &mods)) ni = ni < n - 1 ? ni + 1 : ni;
+            while (ui_key_take_any(ctx, SDLK_UP, &mods)) ni = ni > 0 ? ni - 1 : 0;
+            if (ui_key_take(ctx, SDLK_HOME, 0)) ni = 0;
+            if (ui_key_take(ctx, SDLK_END, 0)) ni = n - 1;
+            if (ni != *index) {
+                *index = ni;
+                changed = true;
+            }
         }
     }
     ui_draw_button_face(ctx, r, 0, in.hovered, in.held && in.hovered, false);

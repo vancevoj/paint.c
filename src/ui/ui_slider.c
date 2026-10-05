@@ -56,12 +56,13 @@ static bool slider_rect(ui_ctx *ctx, ui_id id, ui_rect r, double *v, double min,
     if (in.focused && !disabled) {
         double st = step > 0.0 ? step : (max - min) / 100.0;
         uint32_t mods = 0;
-        if (ui_key_take_any(ctx, SDLK_RIGHT, &mods) || ui_key_take_any(ctx, SDLK_UP, &mods))
-            *v += (mods & UI_MOD_SHIFT) ? st * 10.0 : st;
-        if (ui_key_take_any(ctx, SDLK_LEFT, &mods) || ui_key_take_any(ctx, SDLK_DOWN, &mods))
-            *v -= (mods & UI_MOD_SHIFT) ? st * 10.0 : st;
-        if (ui_key_take(ctx, SDLK_PAGEUP, 0)) *v += (max - min) / 10.0;
-        if (ui_key_take(ctx, SDLK_PAGEDOWN, 0)) *v -= (max - min) / 10.0;
+        while (ui_key_take_any(ctx, SDLK_RIGHT, &mods) || ui_key_take_any(ctx, SDLK_UP, &mods))
+            *v = ui_clampd(*v + ((mods & UI_MOD_SHIFT) ? st * 10.0 : st), min, max);
+        while (ui_key_take_any(ctx, SDLK_LEFT, &mods) || ui_key_take_any(ctx, SDLK_DOWN, &mods))
+            *v = ui_clampd(*v - ((mods & UI_MOD_SHIFT) ? st * 10.0 : st), min, max);
+        while (ui_key_take(ctx, SDLK_PAGEUP, 0)) *v = ui_clampd(*v + (max - min) / 10.0, min, max);
+        while (ui_key_take(ctx, SDLK_PAGEDOWN, 0))
+            *v = ui_clampd(*v - (max - min) / 10.0, min, max);
         if (ui_key_take(ctx, SDLK_HOME, 0)) *v = min;
         if (ui_key_take(ctx, SDLK_END, 0)) *v = max;
         {
@@ -144,7 +145,7 @@ static bool number_rect(ui_ctx *ctx, ui_id id, ui_rect r, double *v, double min,
 {
     const ui_palette *p = &ctx->theme.pal;
     ui_state *st = ui_state_get(ctx, id);
-    bool disabled = (flags & UI_DISABLED) != 0, changed = false, focused;
+    bool disabled = (flags & UI_DISABLED) != 0, changed = false, focused, editing;
     int32_t bw = ui_px(ctx, 18.0f);
     ui_rect text_r = r, spin = ui_cut_right(&text_r, bw), up, dn;
     ui_id eid = id ^ 0xED17u;
@@ -163,9 +164,10 @@ static bool number_rect(ui_ctx *ctx, ui_id id, ui_rect r, double *v, double min,
         int32_t fb = ui_px_line(ctx, 2.0f);
         ui_push_clip(ctx, r);
         ui_draw_rrect_ex(ctx, ui_rect_make(r.x, r.y + r.h - fb, r.w, fb),
-                         (ui_corners){ 0, 0, ctx->px.radius, ctx->px.radius }, p->accent);
+                         ui_corners_make(0.0f, 0.0f, ctx->px.radius, ctx->px.radius), p->accent);
         ui_pop_clip(ctx);
     }
+    editing = ctx->edit.id == eid;
     er = ui_edit_field(ctx, eid, text_r, st->text, NUM_BUF,
                        UI_EDIT_NUMERIC | UI_EDIT_NO_FRAME | UI_EDIT_SELECT_ALL |
                            (flags & UI_DISABLED),
@@ -180,14 +182,17 @@ static bool number_rect(ui_ctx *ctx, ui_id id, ui_rect r, double *v, double min,
         format_num(st->text, NUM_BUF, *v, decimals, flags);
         if (ctx->edit.id == eid) { ctx->edit.anchor = 0; ctx->edit.cursor = strlen(st->text); }
     }
-    if (er & UI_EDIT_CANCEL) *v = old;
+    /* Escape restores the value the field had when editing started (typed
+     * values in range apply live, so "old" may already be an edit) */
+    if (ctx->edit.id == eid && !editing) st->d[1] = old;
+    if (er & UI_EDIT_CANCEL) *v = editing ? st->d[1] : old;
     /* keys while focused: Up/Down step, PageUp/PageDown ten steps */
     if (ctx->focus == eid && !disabled) {
         double d = 0.0;
-        if (ui_key_take(ctx, SDLK_UP, 0)) d = step;
-        if (ui_key_take(ctx, SDLK_DOWN, 0)) d = -step;
-        if (ui_key_take(ctx, SDLK_PAGEUP, 0)) d = step * 10.0;
-        if (ui_key_take(ctx, SDLK_PAGEDOWN, 0)) d = -step * 10.0;
+        while (ui_key_take(ctx, SDLK_UP, 0)) d += step;
+        while (ui_key_take(ctx, SDLK_DOWN, 0)) d -= step;
+        while (ui_key_take(ctx, SDLK_PAGEUP, 0)) d += step * 10.0;
+        while (ui_key_take(ctx, SDLK_PAGEDOWN, 0)) d -= step * 10.0;
         if (d != 0.0) {
             *v = round_dec(ui_clampd(*v + d, min, max), decimals);
             format_num(st->text, NUM_BUF, *v, decimals, flags);
@@ -228,11 +233,11 @@ static bool number_rect(ui_ctx *ctx, ui_id id, ui_rect r, double *v, double min,
         if ((iu.clicked || idn.clicked || drag) && focused)
             format_num(st->text, NUM_BUF, *v, decimals, flags);
         if (iu.hovered || iu.held)
-            ui_draw_rrect_ex(ctx, ui_rect_inset(up, 1, 1), (ui_corners){ 0, ctx->px.radius, 0, 0 },
-                             p->hover);
+            ui_draw_rrect_ex(ctx, ui_rect_inset(up, 1, 1),
+                             ui_corners_make(0.0f, ctx->px.radius, 0.0f, 0.0f), p->hover);
         if (idn.hovered || idn.held)
-            ui_draw_rrect_ex(ctx, ui_rect_inset(dn, 1, 1), (ui_corners){ 0, 0, ctx->px.radius, 0 },
-                             p->hover);
+            ui_draw_rrect_ex(ctx, ui_rect_inset(dn, 1, 1),
+                             ui_corners_make(0.0f, 0.0f, ctx->px.radius, 0.0f), p->hover);
         ui_draw_icon(ctx, UI_ICON_CHEVRON_UP, up, ui_px(ctx, 10.0f),
                      disabled ? p->text_disabled : p->text_dim, p->text_dim);
         ui_draw_icon(ctx, UI_ICON_CHEVRON_DOWN, dn, ui_px(ctx, 10.0f),
@@ -342,7 +347,7 @@ bool ui_angle(ui_ctx *ctx, const char *id_str, double *deg, double min, double m
     const ui_palette *p = &ctx->theme.pal;
     ui_id id = ui_get_id(ctx, id_str);
     int32_t d = ui_px(ctx, 64.0f), gap = ctx->px.spacing;
-    ui_rect r = ui_layout_next(ctx, d + gap + ui_px(ctx, 96.0f), d), dial, num;
+    ui_rect r = ui_layout_next_natural(ctx, d + gap + ui_px(ctx, 96.0f), d), dial, num;
     ui_interaction in;
     double old = *deg;
     ui_vec2 c;
@@ -365,9 +370,9 @@ bool ui_angle(ui_ctx *ctx, const char *id_str, double *deg, double min, double m
     }
     if (in.focused) {
         uint32_t mods = 0;
-        if (ui_key_take_any(ctx, SDLK_LEFT, &mods) || ui_key_take_any(ctx, SDLK_DOWN, &mods))
+        while (ui_key_take_any(ctx, SDLK_LEFT, &mods) || ui_key_take_any(ctx, SDLK_DOWN, &mods))
             *deg = ui_clampd(*deg - ((mods & UI_MOD_SHIFT) ? 15.0 : 1.0), min, max);
-        if (ui_key_take_any(ctx, SDLK_RIGHT, &mods) || ui_key_take_any(ctx, SDLK_UP, &mods))
+        while (ui_key_take_any(ctx, SDLK_RIGHT, &mods) || ui_key_take_any(ctx, SDLK_UP, &mods))
             *deg = ui_clampd(*deg + ((mods & UI_MOD_SHIFT) ? 15.0 : 1.0), min, max);
     }
     ui_draw_circle(ctx, c, rad, in.hovered ? p->field_hover : p->field);
@@ -432,12 +437,16 @@ bool ui_point_picker(ui_ctx *ctx, const char *id_str, ui_vec2 *pt, SDL_Texture *
         ui_set_cursor(ctx, UI_CURSOR_CROSSHAIR);
     }
     if (in.focused) {
-        float st = (ui_mods(ctx) & UI_MOD_SHIFT) ? 0.1f : 0.01f;
+        /* arrows nudge by 1 % of the area, Shift by 10 % */
         uint32_t m = 0;
-        if (ui_key_take_any(ctx, SDLK_LEFT, &m)) pt->x = ui_clampf(pt->x - st, -1.0f, 1.0f);
-        if (ui_key_take_any(ctx, SDLK_RIGHT, &m)) pt->x = ui_clampf(pt->x + st, -1.0f, 1.0f);
-        if (ui_key_take_any(ctx, SDLK_UP, &m)) pt->y = ui_clampf(pt->y - st, -1.0f, 1.0f);
-        if (ui_key_take_any(ctx, SDLK_DOWN, &m)) pt->y = ui_clampf(pt->y + st, -1.0f, 1.0f);
+        while (ui_key_take_any(ctx, SDLK_LEFT, &m))
+            pt->x = ui_clampf(pt->x - ((m & UI_MOD_SHIFT) ? 0.1f : 0.01f), -1.0f, 1.0f);
+        while (ui_key_take_any(ctx, SDLK_RIGHT, &m))
+            pt->x = ui_clampf(pt->x + ((m & UI_MOD_SHIFT) ? 0.1f : 0.01f), -1.0f, 1.0f);
+        while (ui_key_take_any(ctx, SDLK_UP, &m))
+            pt->y = ui_clampf(pt->y - ((m & UI_MOD_SHIFT) ? 0.1f : 0.01f), -1.0f, 1.0f);
+        while (ui_key_take_any(ctx, SDLK_DOWN, &m))
+            pt->y = ui_clampf(pt->y + ((m & UI_MOD_SHIFT) ? 0.1f : 0.01f), -1.0f, 1.0f);
     }
     px = floorf((float)img.x + (pt->x + 1.0f) * 0.5f * (float)img.w) + 0.5f;
     py = floorf((float)img.y + (pt->y + 1.0f) * 0.5f * (float)img.h) + 0.5f;
