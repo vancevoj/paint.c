@@ -186,7 +186,11 @@ Layout (`pc_text_lines`, `pc_text_glyphs`):
 - Line height = ascent + descent + line gap of the primary face. Vertical
   anchor: by default the first line's box is centered on the click point
   (3.36 `GetUpperLeft`); `PC_TEXT_ANCHOR_TOP` and `_BASELINE` are available.
-- `snap` rounds each line start and baseline to whole pixels.
+- `snap` rounds each line start and baseline to whole pixels. The Sharp
+  rendering modes also put glyphs on whole pixels (Classic rounds every
+  advance like GDI, Modern rounds each pen position of the fractional
+  layout); the backend receives the mode and may hint outlines and advances
+  as well.
 - Synthetic italic shears by 0.2 (about 11.3 degrees); synthetic bold strokes
   the outline with em/24 (round joins) and widens advances by em/24. Glyph
   contours are oriented first so the stroke unions under the nonzero rule

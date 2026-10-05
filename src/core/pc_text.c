@@ -322,6 +322,31 @@ static double snapv(const pc_text *t, double v)
     return t->style.snap ? floor(v + 0.5) : v;
 }
 
+/* Sharp modes place glyphs on whole pixels (the backend may hint the
+ * outlines and advances themselves): Classic rounds every advance like
+ * GDI, Modern rounds each pen position and keeps the fractional sum.
+ * Positions are relative to the line start; returns the new width. */
+static double sharpen(pc_text *t, size_t g0, size_t g1)
+{
+    double pen = 0.0, acc = 0.0;
+    if (t->style.mode == PC_TEXT_SHARP_CLASSIC) {
+        for (size_t k = g0; k < g1; k++) {
+            double a = floor(t->glyphs[k].advance + 0.5);
+            t->glyphs[k].x = pen;
+            t->glyphs[k].advance = a;
+            pen += a;
+        }
+        return pen;
+    }
+    for (size_t k = g0; k < g1; k++) {
+        double x = floor(acc + 0.5);
+        acc += t->glyphs[k].advance;
+        t->glyphs[k].x = x;
+        t->glyphs[k].advance = floor(acc + 0.5) - x;
+    }
+    return floor(acc + 0.5);
+}
+
 /* Recompute lines and glyphs. Never allocates: the arrays were reserved
  * for the current text by reserve_layout. */
 static void layout(pc_text *t)
@@ -386,6 +411,7 @@ static void layout(pc_text *t)
         }
         L->byte_end = i;
         L->glyph_end = t->n_glyphs;
+        if (t->style.mode != PC_TEXT_SMOOTH) pen = sharpen(t, L->glyph_start, L->glyph_end);
         L->width = pen;
         switch (t->style.align) {
         case PC_TEXT_CENTER: L->x = t->origin.x - 0.5 * pen; break;

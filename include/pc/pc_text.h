@@ -56,7 +56,10 @@
 /* ---- font backend ---------------------------------------------------------------- */
 
 /* Text rendering modes (TOOLS.md 3.3). The engine passes the mode to the
- * backend, which may hint outlines and advances for the Sharp modes. */
+ * backend, which may hint outlines and advances for the Sharp modes. The
+ * layout itself puts glyphs on whole pixels in the Sharp modes: Classic
+ * rounds every advance (GDI style), Modern rounds each pen position of the
+ * fractional layout. */
 typedef enum pc_text_mode {
     PC_TEXT_SMOOTH = 0,          /* "Smooth": unhinted outlines */
     PC_TEXT_SHARP_MODERN = 1,    /* "Sharp (Modern)": natural symmetric hinting */

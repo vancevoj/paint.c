@@ -305,6 +305,25 @@ static void t_layout(void)
     CHECK(g[1].byte == 1u && g[2].byte == 3u && g[3].byte == 6u);
     CHECK(e3_near(pc_text_lines(t, NULL)[0].width, 12.0 + 14.0 + 14.0 + 10.0, 1e-12));
     CHECK(e3_near(pc_text_line_height(t), 22.0, 1e-12));
+    /* Sharp modes: whole-pixel glyph positions (em 20.5 px: advances 12.3) */
+    st.size = 20.5 * 0.75;
+    st.mode = PC_TEXT_SHARP_CLASSIC;
+    CHECK(pc_text_set_style(t, &st) == PC_OK);
+    CHECK(pc_text_set_utf8(t, "ABCD", 4) == PC_OK);
+    g = pc_text_glyphs(t, NULL);
+    L = pc_text_lines(t, NULL);
+    CHECK(g[1].x - g[0].x == 12.0 && g[3].x - g[0].x == 36.0 && L[0].width == 48.0);
+    st.mode = PC_TEXT_SHARP_MODERN;
+    CHECK(pc_text_set_style(t, &st) == PC_OK);
+    g = pc_text_glyphs(t, NULL);
+    L = pc_text_lines(t, NULL);
+    CHECK(g[1].x - g[0].x == 12.0 && g[2].x - g[0].x == 25.0 && g[3].x - g[0].x == 37.0);
+    CHECK(L[0].width == 49.0 && g[2].advance == 12.0 && g[1].advance == 13.0);
+    st.mode = PC_TEXT_SMOOTH;
+    CHECK(pc_text_set_style(t, &st) == PC_OK);
+    CHECK(e3_near(pc_text_lines(t, NULL)[0].width, 4.0 * 12.3, 1e-9));
+    st.size = 15.0;
+    CHECK(pc_text_set_style(t, &st) == PC_OK);
     /* trailing newline: an empty last line */
     CHECK(pc_text_set_utf8(t, "A\n", 2) == PC_OK);
     L = pc_text_lines(t, &n);
