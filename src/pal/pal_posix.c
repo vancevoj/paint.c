@@ -431,6 +431,7 @@ char *pal__os_home(void)
     return NULL;
 }
 
+#if !defined(__APPLE__)
 /* XDG base directory from env (absolute only, per the specification) or
  * home + fallback. Result has a trailing '/'. */
 static char *xdg_base(const char *env, const char *home, const char *fallback)
@@ -442,6 +443,7 @@ static char *xdg_base(const char *env, const char *home, const char *fallback)
     }
     return pal__concat3(home, fallback, NULL);
 }
+#endif
 
 bool pal__os_user_dirs(const char *lower, const char *display, char *out[4])
 {
@@ -724,6 +726,7 @@ void pal__os_pump(void)
  * PAL_DIR_STATE, both private to the user. Peers of another uid are
  * rejected in both directions where the OS reports peer credentials.
  * macOS: not used; Finder delivers opens as SDL_EVENT_DROP_FILE. */
+#if !defined(__APPLE__)
 static struct {
     int          listen_fd;
     int          wake[2];
@@ -732,7 +735,6 @@ static struct {
     char        *sock_path;              /* file variant: unlinked at stop */
 } g_si = { -1, { -1, -1 }, -1, NULL, NULL };
 
-#if !defined(__APPLE__)
 static bool peer_is_same_user(int fd)
 {
 #if defined(__linux__) && defined(SO_PEERCRED)
