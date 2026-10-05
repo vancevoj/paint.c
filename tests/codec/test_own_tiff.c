@@ -13,7 +13,7 @@ typedef struct tiff_params { int32_t depth, compression, dither, palette; } tiff
 
 /* ---- file builder ----------------------------------------------------------------- */
 #define MAXE 40
-#define MAXSEG 64
+#define MAXSEG 1024
 typedef struct tent {
     uint32_t       tag, type, count;
     uint32_t       v[64];          /* numeric values (SHORT/LONG/BYTE; RATIONAL as pairs) */
@@ -748,6 +748,137 @@ static void t_missing_data(void)
     free(s);
 }
 
+static uint8_t bitrev(uint8_t v)
+{
+    uint8_t r = 0;
+    for (int i = 0; i < 8; i++) r = (uint8_t)(r | (((v >> i) & 1u) << (7 - i)));
+    return r;
+}
+
+/* Fill order 2 (bits of every stored byte reversed) with every compression,
+ * in strips and tiles; Deflate segments larger than the decoder's staging
+ * buffer exercise its refills. */
+static void t_fill_order(void)
+{
+    static const uint32_t comps[] = { 1, 5, 50, 32773, 8, 32946 };
+    const uint32_t W = 64, H = 40, TW = 32, TH = 16, SPP = 3;
+    uint32_t *s = rand_samples(W * H * SPP, 8);
+    uint8_t *raw = (uint8_t *)malloc((size_t)W * H * SPP);
+    gcase g = { 2, 8, 3, -1, false, 1, 1, 0, 0, 0 };
+    for (size_t c = 0; c < sizeof comps / sizeof comps[0]; c++) {
+        for (int tiled = 0; tiled < 2; tiled++) {
+            uint32_t rps = c & 1u ? 0u : 7u;          /* one strip (> 4 KiB) or 7 rows */
+            uint32_t across = W / TW, down = (H + TH - 1u) / TH;
+            pc_buf segs[16], b;
+            pc_px32 *got;
+            bool ok = true;
+            int ns = 0;
+            tb t;
+            tb_init(&t, c == 2u);
+            tb_basic(&t, W, H, 8, SPP, 2, comps[c] == 50u ? 5u : comps[c], tiled ? 0u : rps);
+            tb_1(&t, 266, 3, 2);
+            t.tiles = tiled != 0;
+            if (tiled) {
+                tb_1(&t, 322, 3, TW);
+                tb_1(&t, 323, 3, TH);
+                for (uint32_t ty = 0; ty < down; ty++)
+                    for (uint32_t tx = 0; tx < across; tx++) {
+                        uint32_t rows = H - ty * TH < TH ? H - ty * TH : TH;
+                        size_t n = (size_t)TW * TH * SPP;
+                        pack(raw, s, W, SPP, 8, false, -1, tx * TW, ty * TH, TW, rows, TW);
+                        if (rows < TH) memset(raw + (size_t)TW * SPP * rows, 0x33,
+                                              (size_t)TW * SPP * (TH - rows));
+                        encode_seg(&segs[ns], raw, n, comps[c]);
+                        ns++;
+                    }
+            } else {
+                uint32_t r = rps ? rps : H;
+                for (uint32_t y0 = 0; y0 < H; y0 += r) {
+                    uint32_t rows = H - y0 < r ? H - y0 : r;
+                    size_t n = pack(raw, s, W, SPP, 8, false, -1, 0, y0, W, rows, W);
+                    encode_seg(&segs[ns], raw, n, comps[c]);
+                    ns++;
+                }
+            }
+            for (int i = 0; i < ns; i++) {
+                for (size_t k = 0; k < segs[i].n; k++) segs[i].p[k] = bitrev(segs[i].p[k]);
+                tb_seg(&t, segs[i].p, segs[i].n);
+            }
+            tb_build(&b, &t);
+            got = load_px(&b, W, H, NULL, NULL);
+            CHECK(got != NULL);
+            for (uint32_t i = 0; got && i < W * H; i++)
+                ok = ok && px_same(got[i], expect_px(&g, s + (size_t)i * SPP, NULL));
+            if (!ok) INFO("fill order 2: compression %u tiled %d differs", comps[c], tiled);
+            CHECK(ok);
+            free(got);
+            for (int i = 0; i < ns; i++) pc_buf_free(&segs[i]);
+            pc_buf_free(&b);
+        }
+    }
+    free(raw);
+    free(s);
+}
+
+static pc_status load_lim(const pc_buf *b, uint64_t max_mem, pc_px32 **px)
+{
+    pc_codec_limits lim;
+    pc_doc *d = NULL;
+    pc_image_meta m;
+    pc_status st;
+    pc_codec_limits_default(&lim);
+    lim.max_mem = max_mem;
+    st = C->load(b->p, b->n, &lim, &d, &m);
+    *px = NULL;
+    if (st == PC_OK) {
+        *px = doc_layer0(d);
+        pc_meta_free(&m);
+        pc_doc_destroy(d);
+    } else {
+        CHECK(d == NULL);
+    }
+    return st;
+}
+
+/* Wide tile rows: tiles up to 64 rows high are decoded one tile at a time
+ * (few open decoders, so tight limits pass); taller tiles keep a decoder per
+ * tile of the row open, which must fit the working-memory limit. */
+static void t_tile_memory(void)
+{
+    const uint32_t TW = 16, ACROSS = 600, W = TW * ACROSS;
+    for (int tall = 0; tall < 2; tall++) {
+        const uint32_t TH = tall ? 80u : 16u, H = TH;
+        uint8_t *raw = (uint8_t *)malloc((size_t)TW * TH);
+        pc_buf seg, b;
+        pc_px32 *got = NULL;
+        bool ok = true;
+        tb t;
+        for (uint32_t i = 0; i < TW * TH; i++) raw[i] = (uint8_t)(i * 7u + 3u);
+        encode_seg(&seg, raw, (size_t)TW * TH, 8);
+        tb_init(&t, false);
+        t.tiles = true;
+        tb_basic(&t, W, H, 8, 1, 1, 8, 0);
+        tb_1(&t, 322, 3, TW);
+        tb_1(&t, 323, 3, TH);
+        for (uint32_t i = 0; i < ACROSS; i++) tb_seg(&t, seg.p, seg.n);
+        tb_build(&b, &t);
+        /* image 9600 x H x 4 bytes is 0.6 or 3 MiB; 600 open inflaters ~29 MiB */
+        CHECK(load_lim(&b, 8u << 20, &got) == (tall ? PC_ERR_LIMIT : PC_OK));
+        free(got);
+        CHECK(load_lim(&b, (uint64_t)4 << 30, &got) == PC_OK);
+        for (uint32_t y = 0; got && y < H; y++)
+            for (uint32_t x = 0; x < W; x++) {
+                uint32_t v = raw[y * TW + x % TW];
+                ok = ok && px_same(got[(size_t)y * W + x], mkpx(v, v, v, 255));
+            }
+        CHECK(got && ok);
+        free(got);
+        pc_buf_free(&b);
+        pc_buf_free(&seg);
+        free(raw);
+    }
+}
+
 static pc_status load_status(const pc_buf *b);
 
 /* ---- CCITT -------------------------------------------------------------------------- */
@@ -812,7 +943,8 @@ static void t_ccitt(void)
         got = load_px(&b, 8, 3, NULL, NULL);
         CHECK(got != NULL);
         for (int y = 0; got && y < 3; y++)
-            for (int x = 0; x < 8; x++) CHECK(got[y * 8 + x].r == want[y][x] && got[y * 8 + x].a == 255);
+            for (int x = 0; x < 8; x++)
+                CHECK(got[y * 8 + x].r == want[y][x] && got[y * 8 + x].a == 255);
         free(got);
         pc_buf_free(&b);
         /* cut the code stream: the first row survives, the rest is transparent */
@@ -1240,6 +1372,8 @@ static void tests(void)
     RUN(t_tiles);
     RUN(t_orientation_and_meta);
     RUN(t_missing_data);
+    RUN(t_fill_order);
+    RUN(t_tile_memory);
     RUN(t_ccitt);
     RUN(t_bad);
     RUN(t_bombs);

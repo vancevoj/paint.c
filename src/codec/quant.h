@@ -135,12 +135,17 @@ typedef struct pc_flat {
     const pc_par *par;
     pc_px32      *band;     /* owned, d->w * 64 pixels */
     int32_t       y0;       /* first row in band, -1 = none */
+    pc_status     err;      /* why the last pc_flat_row returned NULL */
 } pc_flat;
 
+/* Allocates the band (PC_ERR_NOMEM, PC_ERR_LIMIT) for a document with at
+ * least one pixel (PC_ERR_ARG otherwise). On failure f is zeroed and owns
+ * nothing; pc_flat_free stays safe to call. */
 pc_status pc_flat_init(pc_flat *f, const pc_doc *d, const pc_par *par);
-/* Pointer to row y (0 <= y < d->h, straight BGRA, d->w pixels). The caller
- * may modify it; the row stays valid until a call for a row in another
- * band. NULL when y is out of range. */
+/* Pointer to row y (0 <= y < d->h, straight BGRA, d->w pixels), owned by f.
+ * The caller may modify it; the row stays valid until a call for a row in
+ * another band. NULL when y is out of range (f->err = PC_ERR_ARG) or when
+ * compositing the band failed (f->err = the pc_comp_rect status). */
 pc_px32  *pc_flat_row(pc_flat *f, uint32_t y);
 void      pc_flat_free(pc_flat *f);                  /* NULL-safe */
 

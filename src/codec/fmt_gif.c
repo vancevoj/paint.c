@@ -479,7 +479,7 @@ static pc_status gif_save(const pc_doc *d, const pc_image_meta *meta, const void
     st = pc_quant_create(&q);
     for (uint32_t y = 0; y < h && st == PC_OK; y++) {
         const pc_px32 *r = pc_flat_row(&fl, y);
-        if (!r) { st = PC_ERR_ARG; break; }
+        if (!r) { st = fl.err; break; }
         memcpy(tmp, r, (size_t)w * sizeof *tmp);
         pc_quant_prepare_row(tmp, w, prm.threshold);
         st = pc_quant_add(q, tmp, w);
@@ -518,7 +518,7 @@ static pc_status gif_save(const pc_doc *d, const pc_image_meta *meta, const void
     enc_init(e, out, mcs);
     for (uint32_t y = 0; y < h && e->st == PC_OK; y++) {
         const pc_px32 *r = pc_flat_row(&fl, y);
-        if (!r) { st = PC_ERR_ARG; goto done; }
+        if (!r) { st = fl.err; goto done; }
         memcpy(tmp, r, (size_t)w * sizeof *tmp);
         pc_quant_prepare_row(tmp, w, prm.threshold);
         pc_quant_remap_row(q, tmp, idx);

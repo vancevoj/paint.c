@@ -419,9 +419,10 @@ static void t_flat(void)
             const pc_px32 *r = pc_flat_row(&f, y);
             ok = ok && r && memcmp(r, ref + (size_t)y * W, W * sizeof *r) == 0;
         }
-        CHECK(ok);
-        CHECK(pc_flat_row(&f, H) == NULL);
+        CHECK(ok && f.err == PC_OK);
+        CHECK(pc_flat_row(&f, H) == NULL && f.err == PC_ERR_ARG);
         pc_flat_free(&f);
+        CHECK(f.band == NULL);
     }
     CHECK(pc_flat_init(&f, NULL, NULL) == PC_ERR_ARG);
     pc_flat_free(NULL);

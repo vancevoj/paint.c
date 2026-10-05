@@ -270,11 +270,12 @@ static uint32_t count_pages(const tif *t, size_t first)
 
 /* ---- segment decompressors ------------------------------------------------- */
 #define LZW_TAB 4096u
+#define ZBUF_SIZE 4096u
 
 typedef struct seg {
     const uint8_t *src;
     size_t         len, pos;
-    uint8_t       *own;           /* bit-reversed copy (fill order 2) */
+    bool           rev;           /* fill order 2: bytes are read bit-reversed */
     uint32_t       comp;
     bool           done;
     /* PackBits */
@@ -291,6 +292,7 @@ typedef struct seg {
     /* Deflate */
     z_stream       zs;
     bool           z_init;
+    uint8_t       *zbuf;          /* reversed input staging (fill order 2) */
     /* CCITT */
     const int32_t *cct;
     uint64_t       bit, nbits;    /* bit position and count */
@@ -309,10 +311,22 @@ static uint8_t rev8(uint8_t v)
     return (uint8_t)(((v & 0xAAu) >> 1) | ((v & 0x55u) << 1));
 }
 
+/* Byte i of the segment in MSB-first fill order (i < s->len). */
+static uint8_t sbyte(const seg *s, size_t i)
+{
+    return s->rev ? rev8(s->src[i]) : s->src[i];
+}
+
+static void rev_bytes(const seg *s, uint8_t *b, size_t n)
+{
+    if (s->rev)
+        for (size_t i = 0; i < n; i++) b[i] = rev8(b[i]);
+}
+
 static void seg_close(seg *s)
 {
     if (s->z_init) inflateEnd(&s->zs);
-    free(s->own);
+    free(s->zbuf);
     free(s->prefix);
     free(s->suffix);
     free(s->first);
@@ -333,12 +347,7 @@ static pc_status seg_open(seg *s, const tif *t, uint32_t index)
     if (cnt > t->n - off) cnt = t->n - off;
     s->src = t->p + off;
     s->len = (size_t)cnt;
-    if (t->fill == 2u && s->len) {
-        s->own = (uint8_t *)malloc(s->len);
-        if (!s->own) return PC_ERR_NOMEM;
-        for (size_t i = 0; i < s->len; i++) s->own[i] = rev8(s->src[i]);
-        s->src = s->own;
-    }
+    s->rev = t->fill == 2u;      /* reversed on the fly: no per-segment copies */
     if (s->comp == C_LZW) {
         s->prefix = (uint16_t *)malloc(LZW_TAB * sizeof *s->prefix);
         s->suffix = (uint8_t *)malloc(LZW_TAB);
@@ -351,11 +360,17 @@ static pc_status seg_open(seg *s, const tif *t, uint32_t index)
         for (uint32_t i = 0; i < 256u; i++) {
             s->prefix[i] = 0; s->suffix[i] = (uint8_t)i; s->first[i] = (uint8_t)i;
         }
-        s->compat = s->len >= 2u && s->src[0] == 0u && (s->src[1] & 1u);
+        s->compat = s->len >= 2u && sbyte(s, 0) == 0u && (sbyte(s, 1) & 1u);
         s->width = 9; s->next = 258; s->prev = -1;
     } else if (s->comp == C_ADOBE_DEFL || s->comp == C_DEFLATE) {
-        s->zs.next_in = (Bytef *)(uintptr_t)s->src;
-        s->zs.avail_in = s->len > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uInt)s->len;
+        if (s->rev) {
+            s->zbuf = (uint8_t *)malloc(ZBUF_SIZE);
+            if (!s->zbuf) { seg_close(s); return PC_ERR_NOMEM; }
+        } else {
+            s->zs.next_in = (Bytef *)(uintptr_t)s->src;
+            s->zs.avail_in = s->len > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uInt)s->len;
+            s->pos = s->len;
+        }
         if (inflateInit(&s->zs) != Z_OK) { seg_close(s); return PC_ERR_NOMEM; }
         s->z_init = true;
     }
@@ -379,8 +394,9 @@ static bool lzw_code(seg *s, uint32_t *code)
 {
     while (s->nacc < s->width) {
         if (s->pos >= s->len) return false;
-        if (s->compat) s->acc |= (uint32_t)s->src[s->pos++] << s->nacc;
-        else s->acc = (s->acc << 8) | s->src[s->pos++];
+        uint32_t v = sbyte(s, s->pos++);
+        if (s->compat) s->acc |= v << s->nacc;
+        else s->acc = (s->acc << 8) | v;
         s->nacc += 8u;
     }
     if (s->compat) {
@@ -458,6 +474,7 @@ static size_t pb_read(seg *s, uint8_t *dst, size_t n)
                 if (k > s->len - s->pos) k = s->len - s->pos;
                 if (!k) { s->done = true; break; }
                 memcpy(dst + o, s->src + s->pos, k);
+                rev_bytes(s, dst + o, k);
                 s->pos += k;
             }
             o += k; s->pb_left -= (uint32_t)k;
@@ -465,12 +482,12 @@ static size_t pb_read(seg *s, uint8_t *dst, size_t n)
         }
         if (s->done || s->pos >= s->len) { s->done = true; break; }
         {
-            int32_t h = (int8_t)s->src[s->pos++];
+            int32_t h = (int8_t)sbyte(s, s->pos++);
             if (h >= 0) {
                 s->pb_left = (uint32_t)h + 1u; s->pb_rep = false;
             } else if (h != -128) {
                 if (s->pos >= s->len) { s->done = true; break; }
-                s->pb_left = (uint32_t)(1 - h); s->pb_rep = true; s->pb_val = s->src[s->pos++];
+                s->pb_left = (uint32_t)(1 - h); s->pb_rep = true; s->pb_val = sbyte(s, s->pos++);
             }
         }
     }
@@ -484,12 +501,20 @@ static size_t z_read(seg *s, uint8_t *dst, size_t n)
         uInt chunk = (n - o) > 0x40000000u ? 0x40000000u : (uInt)(n - o);
         size_t made;
         int r;
+        if (s->zbuf && s->zs.avail_in == 0u && s->pos < s->len) {   /* refill, reversed */
+            size_t k = s->len - s->pos < ZBUF_SIZE ? s->len - s->pos : ZBUF_SIZE;
+            for (size_t i = 0; i < k; i++) s->zbuf[i] = rev8(s->src[s->pos + i]);
+            s->pos += k;
+            s->zs.next_in = s->zbuf;
+            s->zs.avail_in = (uInt)k;
+        }
         s->zs.next_out = dst + o;
         s->zs.avail_out = chunk;
         r = inflate(&s->zs, Z_NO_FLUSH);
         made = (size_t)(chunk - s->zs.avail_out);
         o += made;
-        if (r != Z_OK || (made == 0u && s->zs.avail_in == 0u)) s->done = true;
+        if (r != Z_OK || (made == 0u && s->zs.avail_in == 0u && s->pos >= s->len))
+            s->done = true;
     }
     return o;
 }
@@ -593,7 +618,7 @@ static uint32_t cc_peek(const seg *s, uint32_t n)       /* n <= 24, zero past th
     uint32_t v = 0;
     uint64_t byte = s->bit >> 3;
     for (uint32_t k = 0; k < 4u; k++)
-        v = (v << 8) | (byte + k < s->len ? s->src[byte + k] : 0u);
+        v = (v << 8) | (byte + k < s->len ? sbyte(s, (size_t)(byte + k)) : 0u);
     return (v << (uint32_t)(s->bit & 7u)) >> (32u - n);
 }
 
@@ -620,7 +645,7 @@ static int32_t cc_run(seg *s, uint32_t color)
 
 static uint32_t cc_bit_at(const seg *s, uint64_t pos)
 {
-    return ((uint32_t)s->src[pos >> 3] >> (7u - (uint32_t)(pos & 7u))) & 1u;
+    return ((uint32_t)sbyte(s, (size_t)(pos >> 3)) >> (7u - (uint32_t)(pos & 7u))) & 1u;
 }
 
 /* Consume an EOL, possibly preceded by fill zeros. True when one was found. */
@@ -730,7 +755,8 @@ static size_t cc_read(seg *s, uint8_t *dst, size_t n)
     return o;
 }
 
-/* Read exactly n bytes; missing bytes are zero. Returns false when short. */
+/* Read exactly n bytes. Returns false when the data ends first; dst is then
+ * unspecified (callers leave such rows transparent and convert nothing). */
 static bool seg_read(seg *s, uint8_t *dst, size_t n)
 {
     size_t got = 0;
@@ -738,6 +764,7 @@ static bool seg_read(seg *s, uint8_t *dst, size_t n)
     case C_NONE: {
         size_t k = s->len - s->pos < n ? s->len - s->pos : n;
         if (k) memcpy(dst, s->src + s->pos, k);
+        rev_bytes(s, dst, k);
         s->pos += k;
         got = k;
         break;
@@ -749,7 +776,6 @@ static bool seg_read(seg *s, uint8_t *dst, size_t n)
         break;
     default:         got = s->z_init ? z_read(s, dst, n) : 0u; break;
     }
-    if (got < n) memset(dst + got, 0, n - got);
     return got == n;
 }
 
@@ -1023,12 +1049,37 @@ done:
     return st;
 }
 
-/* Tiles: all tiles of one tile row stay open and are decoded together, 64
- * image rows at a time, so memory is O(width * 64) whatever the tile height
- * (a single tile may cover the whole image). */
+/* Working memory of one open segment (decoder state, not the image). */
+static uint64_t seg_cost(const tif *t)
+{
+    uint64_t c = sizeof(seg);
+    switch (t->comp) {
+    case C_LZW:
+        c += (uint64_t)LZW_TAB * 4u + 1u;
+        break;
+    case C_ADOBE_DEFL: case C_DEFLATE:
+        c += 48u * 1024u + (t->fill == 2u ? ZBUF_SIZE : 0u);   /* inflate state + window */
+        break;
+    case C_CCITT_RLE: case C_CCITT_T4: case C_CCITT_T6: case C_CCITT_RLEW:
+        c += ((uint64_t)t->tw + 4u) * 8u + (t->tw + 7u) / 8u;
+        break;
+    default:
+        break;
+    }
+    return c;
+}
+
+/* Tiles: decoded one tile row at a time, 64 image rows (one band) at a
+ * time, so memory is O(width * 64) whatever the tile height (a single tile
+ * may cover the whole image). A tile's segments are opened when its first
+ * band is decoded and closed after its last one: tiles at most 64 rows high
+ * never keep more than `planes` decoders open, taller tiles keep one per
+ * tile of the tile row open, which is bounded by MAX_OPEN_SEGS and by the
+ * working-memory limit. */
 #define MAX_OPEN_SEGS 8192u
 
-static pc_status decode_tiles(const tif *t, pc_rowsink *rs, bool *trunc)
+static pc_status decode_tiles(const tif *t, const pc_codec_limits *lim, pc_rowsink *rs,
+                              bool *trunc)
 {
     uint32_t planes = t->planar == 2u ? t->spp : 1u;
     uint32_t across = (uint32_t)(((uint64_t)t->w + t->tw - 1u) / t->tw);
@@ -1043,7 +1094,12 @@ static pc_status decode_tiles(const tif *t, pc_rowsink *rs, bool *trunc)
     size_t rb = (size_t)rb64, bn, nseg = (size_t)across * planes;
     memset(buf, 0, sizeof buf);
     if (per * planes > t->offs.count) return PC_ERR_FORMAT;
-    if (nseg > MAX_OPEN_SEGS) return PC_ERR_UNSUPPORTED;      /* absurd tile layout */
+    if (t->th > PC_TILE_DIM) {                 /* a whole tile row stays open */
+        uint64_t img = (uint64_t)t->w * t->h * 4u;
+        if (nseg > MAX_OPEN_SEGS) return PC_ERR_UNSUPPORTED;      /* absurd tile layout */
+        if (img > lim->max_mem || (uint64_t)nseg * seg_cost(t) > lim->max_mem - img)
+            return PC_ERR_LIMIT;
+    }
     if (!pc_mul_size(t->w, PC_TILE_DIM, &bn)) return PC_ERR_LIMIT;
     sg = (seg *)calloc(nseg, sizeof *sg);
     full = (uint8_t *)malloc(PC_TILE_DIM);
@@ -1056,17 +1112,17 @@ static pc_status decode_tiles(const tif *t, pc_rowsink *rs, bool *trunc)
     }
     for (uint32_t ty = 0; ty < down && st == PC_OK; ty++) {
         uint32_t y0 = ty * t->th, rows = t->h - y0 < t->th ? t->h - y0 : t->th;
-        for (uint32_t tx = 0; tx < across && st == PC_OK; tx++)
-            for (uint32_t k = 0; k < planes && st == PC_OK; k++)
-                st = seg_open(&sg[(size_t)tx * planes + k], t,
-                              (uint32_t)(k * per + (uint64_t)ty * across + tx));
         for (uint32_t r0 = 0; r0 < rows && st == PC_OK; r0 += PC_TILE_DIM) {
             uint32_t nr = rows - r0 < PC_TILE_DIM ? rows - r0 : PC_TILE_DIM;
             memset(full, 0, PC_TILE_DIM);           /* band rows are cleared on first use */
-            for (uint32_t tx = 0; tx < across; tx++) {
+            for (uint32_t tx = 0; tx < across && st == PC_OK; tx++) {
                 uint32_t x0 = tx * t->tw, cols = t->w - x0 < t->tw ? t->w - x0 : t->tw;
                 seg *ts = &sg[(size_t)tx * planes];
-                for (uint32_t r = 0; r < nr; r++) {
+                if (r0 == 0u)
+                    for (uint32_t k = 0; k < planes && st == PC_OK; k++)
+                        st = seg_open(&ts[k], t,
+                                      (uint32_t)(k * per + (uint64_t)ty * across + tx));
+                for (uint32_t r = 0; r < nr && st == PC_OK; r++) {
                     bool ok = true;
                     for (uint32_t k = 0; k < planes; k++) {
                         if (!seg_read(&ts[k], buf[k], rb)) ok = false;
@@ -1079,11 +1135,12 @@ static pc_status decode_tiles(const tif *t, pc_rowsink *rs, bool *trunc)
                     memcpy(band + (size_t)r * t->w + x0, tmp, (size_t)cols * sizeof *tmp);
                     full[r] = 1u;
                 }
+                if (r0 + nr >= rows)                            /* last band of the tile */
+                    for (uint32_t k = 0; k < planes; k++) seg_close(&ts[k]);
             }
             for (uint32_t r = 0; r < nr && st == PC_OK; r++)
                 if (full[r]) st = pc_rowsink_put(rs, y0 + r0 + r, band + (size_t)r * t->w);
         }
-        for (size_t i = 0; i < nseg; i++) seg_close(&sg[i]);
     }
 done:
     if (sg) for (size_t i = 0; i < nseg; i++) seg_close(&sg[i]);
@@ -1100,6 +1157,7 @@ static pc_status tiff_load(const uint8_t *p, size_t n, const pc_codec_limits *li
 {
     tif *t;
     pc_rowsink rs;
+    pc_codec_limits dl;
     int32_t *cct = NULL;
     size_t first;
     uint32_t pages;
@@ -1108,6 +1166,7 @@ static pc_status tiff_load(const uint8_t *p, size_t n, const pc_codec_limits *li
     if (!p || !out || !meta) return PC_ERR_ARG;
     *out = NULL;
     memset(meta, 0, sizeof *meta);
+    if (!lim) { pc_codec_limits_default(&dl); lim = &dl; }
     if (n < 8u) return PC_ERR_FORMAT;
     if (!((p[0] == 'I' && p[1] == 'I') || (p[0] == 'M' && p[1] == 'M'))) return PC_ERR_FORMAT;
     t = (tif *)calloc(1u, sizeof *t);
@@ -1128,7 +1187,7 @@ static pc_status tiff_load(const uint8_t *p, size_t n, const pc_codec_limits *li
     }
     if (st == PC_OK) st = pc_rowsink_init(&rs, lim, t->w, t->h, t->orient);
     if (st != PC_OK) { free(cct); free(t); return st; }
-    st = t->tiled ? decode_tiles(t, &rs, &trunc) : decode_strips(t, &rs, &trunc);
+    st = t->tiled ? decode_tiles(t, lim, &rs, &trunc) : decode_strips(t, &rs, &trunc);
     free(cct);
     t->cc_tab = NULL;
     if (st != PC_OK) { pc_rowsink_abort(&rs); free(t); return st; }
@@ -1330,7 +1389,7 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
         pc_quant_stats_init(s);
         for (uint32_t y = 0; y < h; y++) {
             const pc_px32 *r = pc_flat_row(&fl, y);
-            if (!r) { free(s); st = PC_ERR_ARG; goto done; }
+            if (!r) { free(s); st = fl.err; goto done; }
             pc_quant_stats_add(s, r, w);
         }
         depth = pc_quant_choose_depth(s, PC_QD_1 | PC_QD_2 | PC_QD_4 | PC_QD_8 | PC_QD_24 |
@@ -1341,7 +1400,7 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
         st = pc_quant_create(&q);
         for (uint32_t y = 0; y < h && st == PC_OK; y++) {
             const pc_px32 *r = pc_flat_row(&fl, y);
-            if (!r) { st = PC_ERR_ARG; break; }
+            if (!r) { st = fl.err; break; }
             memcpy(tmp, r, (size_t)w * sizeof *tmp);
             pc_quant_prepare_row(tmp, w, 0);
             st = pc_quant_add(q, tmp, w);
@@ -1375,7 +1434,7 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
         for (uint32_t r = 0; r < rows; r++) {
             const pc_px32 *src = pc_flat_row(&fl, y0 + r);
             uint8_t *dst = strip + (size_t)r * rb;
-            if (!src) { st = PC_ERR_ARG; break; }
+            if (!src) { st = fl.err; break; }
             memcpy(tmp, src, (size_t)w * sizeof *tmp);
             if (depth == 32u) {
                 for (uint32_t x = 0; x < w; x++) {

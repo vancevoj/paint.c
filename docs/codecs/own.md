@@ -101,12 +101,19 @@ truncated data stay transparent; GIF indices beyond the table are black.
   BMP and TGA also check that the file holds every row before allocating.
 * Decoders never hold the whole image: rows go through `pc_rowsink` (one
   64-row band plus the tiles that get content). Transposed TIFF orientations
-  stage rows in a second sparse layer. TIFF tiles keep the tiles of one tile
-  row open and decode 64 rows at a time, so a single tile covering the whole
-  image costs one band (at most 8192 open tile streams, else unsupported).
+  stage rows in a second sparse layer. TIFF tiles are decoded one tile row
+  and one 64-row band at a time, so a single tile covering the whole image
+  costs one band. A tile's decoder is opened at its first band and closed
+  after its last: tiles up to 64 rows high never keep more than one decoder
+  per plane open; taller tiles keep one per tile of the row open, at most
+  8192 (else unsupported) and only while their estimated state fits
+  `max_mem` next to the image (else `PC_ERR_LIMIT`).
+* Fill order 2 is undone while reading (Deflate through a 4 KiB staging
+  buffer), so no decoder copies its segment; a file whose tiles all point at
+  one large segment costs no extra memory.
 * Every decompressor produces exactly the bytes the geometry asks for, so
   decompression bombs cannot allocate; rows without data cost no work (a
-  30000 x 30000 TIFF with a 30-byte strip loads in about 25 ms).
+  30000 x 30000 TIFF with a 30-byte strip loads in about 1 ms).
 * TIFF: IFD entry count capped at 4096 and bounds checked, value offsets
   checked against the file, the page chain is walked with loop detection
   (at most 16384 pages), samples per pixel at most 32.

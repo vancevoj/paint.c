@@ -515,7 +515,7 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
         pc_quant_stats_init(s);
         for (uint32_t y = 0; y < h; y++) {
             const pc_px32 *r = pc_flat_row(&fl, y);
-            if (!r) { free(s); st = PC_ERR_ARG; goto done; }
+            if (!r) { free(s); st = fl.err; goto done; }
             pc_quant_stats_add(s, r, w);
         }
         depth = pc_quant_choose_depth(s, PC_QD_1 | PC_QD_4 | PC_QD_8 | PC_QD_24 | PC_QD_32);
@@ -525,7 +525,7 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
         st = pc_quant_create(&q);
         for (uint32_t y = 0; y < h && st == PC_OK; y++) {
             const pc_px32 *r = pc_flat_row(&fl, y);
-            if (!r) { st = PC_ERR_ARG; break; }
+            if (!r) { st = fl.err; break; }
             memcpy(tmp, r, (size_t)w * sizeof *tmp);
             pc_quant_prepare_row(tmp, w, 0);
             st = pc_quant_add(q, tmp, w);
@@ -575,7 +575,7 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
     }
     for (uint32_t yy = h; yy-- > 0 && st == PC_OK;) {
         const pc_px32 *r = pc_flat_row(&fl, yy);
-        if (!r) { st = PC_ERR_ARG; break; }
+        if (!r) { st = fl.err; break; }
         memset(line, 0, (size_t)stride);
         if (depth == 32u) {
             memcpy(line, r, (size_t)w * 4u);

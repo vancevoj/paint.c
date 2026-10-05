@@ -928,25 +928,32 @@ pc_status pc_flat_init(pc_flat *f, const pc_doc *d, const pc_par *par)
     memset(f, 0, sizeof *f);
     if (!d || d->w == 0u || d->h == 0u) return PC_ERR_ARG;
     if (!pc_mul_size(d->w, PC_TILE_DIM, &n)) return PC_ERR_LIMIT;
-    f->band = (pc_px32 *)malloc(n * sizeof *f->band);
+    if (!pc_mul_size(n, sizeof *f->band, &n)) return PC_ERR_LIMIT;
+    f->band = (pc_px32 *)malloc(n);
     if (!f->band) return PC_ERR_NOMEM;
     f->d = d;
     f->par = par;
     f->y0 = -1;
+    f->err = PC_OK;
     return PC_OK;
 }
 
 pc_px32 *pc_flat_row(pc_flat *f, uint32_t y)
 {
     int32_t by;
-    if (!f->band || y >= f->d->h) return NULL;
+    if (!f->band || y >= f->d->h) { f->err = PC_ERR_ARG; return NULL; }
     by = (int32_t)(y & ~(PC_TILE_DIM - 1u));
     if (by != f->y0) {
         uint32_t rows = f->d->h - (uint32_t)by;
+        pc_status st;
         if (rows > PC_TILE_DIM) rows = PC_TILE_DIM;
-        if (pc_comp_rect(f->d, pc_rect_make(0, by, (int32_t)f->d->w, (int32_t)rows), f->band,
-                         f->d->w, f->par) != PC_OK)
+        st = pc_comp_rect(f->d, pc_rect_make(0, by, (int32_t)f->d->w, (int32_t)rows), f->band,
+                          f->d->w, f->par);
+        if (st != PC_OK) {
+            f->y0 = -1;                     /* the band holds partial data */
+            f->err = st;
             return NULL;
+        }
         f->y0 = by;
     }
     return f->band + (size_t)(y - (uint32_t)by) * f->d->w;
