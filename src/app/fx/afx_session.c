@@ -13,15 +13,17 @@
  *           images (ADR-005 full-source model), the selection coverage,
  *           the pan pad thumbnail and, for Levels, the input histogram.
  *   PREVIEW (dialogs) every parameter change cancels the running job; the
- *           next job starts as soon as the cancelled one has drained, so
- *           input is never blocked. Finished ROIs (viewport first) are
- *           blended through the selection into the transaction within a
- *           per-frame time budget; once the job is done the rest is
- *           blended in one parallel pass.
+ *           next job starts as soon as no worker is inside the cancelled
+ *           one (at once or at the next frame), so input is never blocked.
+ *           Finished ROIs (viewport first) are blended through the
+ *           selection into the transaction within a per-frame time budget;
+ *           once the job is done the rest is blended in parallel bands,
+ *           still within the budget.
  *   APPLYING OK (or a dialog-less run): the job for the final parameters
- *           completes, the remaining ROIs are blended and the transaction
- *           commits one history item named after the effect. A progress
- *           box with Cancel appears when this takes longer than 300 ms.
+ *           completes, the remaining ROIs are blended (larger budget) and
+ *           the transaction commits one history item named after the
+ *           effect (an empty one when no pixel changed). A progress box
+ *           with Cancel appears when this takes longer than 300 ms.
  *   FINISHED the dialog closes; Cancel and Esc restore the image.
  *
  * Workers never see the app: a render (afx_run) is one app_task that runs
@@ -373,8 +375,12 @@ static void run_done(app *a, void *ud)
     }
 }
 
-/* Start a render of the current parameters, or schedule one when a job is
- * still draining (shared dst: the next job may only start after it). */
+/* Start a render of the current parameters. A running job is cancelled
+ * first; the new job shares dst, so it starts only once no worker is inside
+ * the old job any more (fx_job_active_workers 0 after the cancel flag is
+ * set: a worker arriving later sees the flag and renders nothing). That is
+ * usually at once; otherwise restart stays set and session_frame retries
+ * every frame. The old run is detached and freed by its done callback. */
 static void start_run(app *a, afx_session *s)
 {
     afx_run *r;
@@ -386,8 +392,12 @@ static void start_run(app *a, afx_session *s)
     if (!s->ready) return;                       /* load_done starts the first run */
     if (s->run && !s->run->finished) {
         fx_job_cancel(s->run->job);
-        s->restart = true;
-        return;
+        if (fx_job_active_workers(s->run->job) != 0u) {
+            s->restart = true;
+            return;
+        }
+        s->run->s = NULL;                         /* run_done frees it */
+        s->run = NULL;
     }
     run_free(s->run);
     s->run = NULL;
@@ -1177,6 +1187,9 @@ static bool session_frame(app *a, void *st)
         backdrop_restore(a);
         return false;
     }
+    if (s->restart && s->run && !s->run->finished &&
+        fx_job_active_workers(s->run->job) == 0u)
+        start_run(a, s);                          /* the cancelled job has drained */
     (void)take_results(a, s, false);
     if (s->commit_ready) try_commit(a, s);
     if (s->state == AFX_FINISHED) {

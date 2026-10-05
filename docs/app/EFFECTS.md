@@ -47,9 +47,11 @@ Everything happens on the main thread except the copy and the render.
    helper tasks join the same job (one per pool thread). ROIs are 64 x 64
    cells handed out nearest to the viewport center first. When parameters
    change, the job is cancelled (workers stop within a row) and the next
-   job starts as soon as the cancelled one drained, from the done callback,
-   so neither the UI thread nor input ever waits. A job's buffers are
-   reference counted, so a session may close while its job drains.
+   job starts as soon as no worker is inside the cancelled one (it shares
+   `dst`): usually at once, otherwise at the next frame. Neither the UI
+   thread nor input ever waits for a render. The cancelled job is detached
+   and freed by its done callback; buffers are reference counted, so a
+   session may also close while its job drains.
 4. **Preview**: each frame the finished ROIs are blended into the
    transaction with `pc_txn_blend_rect_masked` through the selection
    coverage (no coverage for `FX_FLAG_NO_SEL_CLIP` effects such as Drop
@@ -85,7 +87,7 @@ Large images: on 8192 x 8192 (tests/app/test_f_large.c) opening a dialog
 takes well under a millisecond on the UI thread, frames stay at the
 renderer's own cost plus the blend budget while 64 M pixels render, a
 parameter change returns in about a millisecond and the next job starts
-within two frames, Cancel returns at once.
+at once or at the next frame, Cancel returns at once.
 
 ## The dialog and the property builder
 

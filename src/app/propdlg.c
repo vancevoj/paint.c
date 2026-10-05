@@ -358,21 +358,23 @@ static bool reset_button(app *a, bool is_default, uint32_t dis)
     return click && !dis && !is_default;
 }
 
-/* One slider row without a label: slider, numeric box, reset (pan axes). */
-static bool axis_row(app *a, const char *id, double *v, double lo, double hi, double def,
-                     double step, uint32_t dis)
+/* One slider row without a label: slider, numeric box, reset (pan axes and
+ * props with an empty label, such as the Posterize levels under their
+ * check boxes). flags: UI_SLIDER_LOG / UI_SLIDER_PERCENT / UI_DISABLED. */
+static bool slider_row(app *a, const char *id, double *v, double lo, double hi, double def,
+                       double step, int dec, uint32_t flags)
 {
     ui_ctx *ui = a->ui;
     ui_size cells[3];
     bool ch = false;
-    int dec = decimals_for(step);
+    uint32_t dis = flags & UI_DISABLED;
     cells[0] = ui_size_fr(1.0f);
     cells[1] = ui_size_px(72.0f);
     cells[2] = ui_size_px(ui_get_theme(ui)->m.control_h);
     ui_push_id(ui, id);
     ui_layout_row(ui, 0.0f, 3, cells);
-    ch |= ui_slider_double(ui, "##s", v, lo, hi, step, dis);
-    ch |= ui_number_double(ui, "##n", v, lo, hi, step, dec, dis);
+    ch |= ui_slider_double(ui, "##s", v, lo, hi, step, flags);
+    ch |= ui_number_double(ui, "##n", v, lo, hi, step, dec, flags & ~UI_SLIDER_LOG);
     if (reset_button(a, fabs(*v - def) < 1e-9, dis)) {
         *v = def;
         ch = true;
@@ -380,6 +382,12 @@ static bool axis_row(app *a, const char *id, double *v, double lo, double hi, do
     ui_layout_column(ui);
     ui_pop_id(ui);
     return ch && !dis;
+}
+
+static bool axis_row(app *a, const char *id, double *v, double lo, double hi, double def,
+                     double step, uint32_t dis)
+{
+    return slider_row(a, id, v, lo, hi, def, step, decimals_for(step), dis);
 }
 
 static uint32_t reseed(const app_props_ctx *ctx)
@@ -559,7 +567,14 @@ uint32_t afx_props_ui(app *a, const fx_prop *props, uint32_t n, void *params,
             int32_t v = round_i32(app_prop_get(p, params));
             ui_rect top = ui_layout_rest(ui);
             int32_t lo = round_i32(p->min), hi = round_i32(p->max), def = round_i32(p->def);
-            if (ui_prop_slider_int(ui, p->label, &v, lo, hi, def, sflags | dis) && en) {
+            if (!p->label || !*p->label) {
+                double dv = (double)v;
+                if (slider_row(a, "##row", &dv, (double)lo, (double)hi, (double)def, 1.0, 0,
+                               sflags | dis) && en && round_i32(dv) != v) {
+                    app_prop_set(p, params, dv);
+                    changed = true;
+                }
+            } else if (ui_prop_slider_int(ui, p->label, &v, lo, hi, def, sflags | dis) && en) {
                 app_prop_set(p, params, (double)v);
                 changed = true;
             }
@@ -569,8 +584,14 @@ uint32_t afx_props_ui(app *a, const fx_prop *props, uint32_t n, void *params,
         case FXP_REAL: {
             double v = app_prop_get(p, params), step = p->step > 0.0 ? p->step : 0.01;
             ui_rect top = ui_layout_rest(ui);
-            if (ui_prop_slider_double(ui, p->label, &v, p->min, p->max, p->def, step,
-                                      decimals_for(step), sflags | dis) && en) {
+            if (!p->label || !*p->label) {
+                if (slider_row(a, "##row", &v, p->min, p->max, p->def, step, decimals_for(step),
+                               sflags | dis) && en) {
+                    app_prop_set(p, params, v);
+                    changed = true;
+                }
+            } else if (ui_prop_slider_double(ui, p->label, &v, p->min, p->max, p->def, step,
+                                             decimals_for(step), sflags | dis) && en) {
                 app_prop_set(p, params, v);
                 changed = true;
             }

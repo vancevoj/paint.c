@@ -25,17 +25,21 @@ static double frames_max(app *a, int n, double *total)
     return worst;
 }
 
+/* Instrumented or unoptimized builds get generous limits; the INFO lines
+ * still show the times. */
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__) || !defined(__OPTIMIZE__)
+#  define F_SLOW_BUILD 1
+#elif defined(__has_feature)
+#  if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+#    define F_SLOW_BUILD 1
+#  endif
+#endif
+
 static void t_large(void)
 {
     const uint32_t n = 8192u;
-#if defined(__SANITIZE_ADDRESS__)
-    const double frame_limit = 1500.0, call_limit = 400.0;
-#elif defined(__has_feature)
-#  if __has_feature(address_sanitizer)
-    const double frame_limit = 1500.0, call_limit = 400.0;
-#  else
-    const double frame_limit = 250.0, call_limit = 60.0;
-#  endif
+#if defined(F_SLOW_BUILD)
+    const double frame_limit = 5000.0, call_limit = 1000.0;
 #else
     const double frame_limit = 250.0, call_limit = 60.0;
 #endif
