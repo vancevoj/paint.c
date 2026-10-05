@@ -4,6 +4,7 @@
 
 #include "../app_internal.h"
 #include "app/app_float.h"
+#include "app/app_io.h"
 #include "m_hist.h"
 #include "m_icc.h"
 #include "pc/pc_geom.h"
@@ -17,7 +18,6 @@
 
 #define M_HOOK_KEY      "lane_m.float_hook"
 #define M_CLIPCACHE_KEY "lane_m.clip_cache"
-#define M_MAX_FILE      ((uint64_t)3u << 30)     /* as File > Open */
 #define M_MAX_TEXT      ((size_t)1u << 30)       /* data URI text we decode */
 
 /* ---- float hook ----------------------------------------------------------------------- */
@@ -372,18 +372,18 @@ static void to_target_profile(paste_job *j)
 static void decode_work(void *ud)
 {
     paste_job *j = (paste_job *)ud;
-    pc_codec_limits lim;
     if (j->img) {
         j->st = PC_OK;
     } else {
+        /* lane CODEC (wave 4): the limits of File > Open, for a file and for
+         * clipboard bytes alike */
         if (j->path) {
-            j->st = pal_read_file(j->path, M_MAX_FILE, &j->data, &j->len);
-            if (j->st != PC_OK) return;
+            j->st = app_load_file(j->path, NULL, &j->img, &j->meta, NULL, NULL);
+        } else {
+            j->st = app_load_bytes(j->data, j->len, NULL, NULL, &j->img, &j->meta, NULL, NULL);
+            free(j->data);
+            j->data = NULL;
         }
-        pc_codec_limits_default(&lim);
-        j->st = pc_codec_load_any(j->data, j->len, j->path, &lim, &j->img, &j->meta, NULL);
-        free(j->data);
-        j->data = NULL;
         if (j->st == PC_OK && !j->img) j->st = PC_ERR_FORMAT;
         if (j->st != PC_OK) return;
     }

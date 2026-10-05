@@ -21,8 +21,6 @@
 
 #define DROP_KEY       "lane_i.drop"
 #define DROP_MAX_FILES 256
-#define IMPORT_MAX_BYTES ((uint64_t)3u << 30)
-
 typedef struct drop_state {
     char  **paths;              /* files of the drop in progress (owned) */
     int     n, cap;
@@ -62,6 +60,7 @@ typedef struct import_file {
     char     *path;
     pc_doc   *doc;              /* decoded (owned) */
     pc_status st;
+    app_load_info info;         /* lane CODEC: what the load found */
 } import_file;
 
 typedef struct import_job {
@@ -86,17 +85,10 @@ static void import_work(void *ud)
     import_job *j = (import_job *)ud;
     for (int i = 0; i < j->n; i++) {
         import_file *f = &j->files[i];
-        uint8_t *data = NULL;
-        size_t len = 0;
-        pc_codec_limits lim;
         pc_image_meta m;
-        memset(&m, 0, sizeof m);
-        f->st = pal_read_file(f->path, IMPORT_MAX_BYTES, &data, &len);
-        if (f->st != PC_OK) continue;
-        pc_codec_limits_default(&lim);
-        f->st = pc_codec_load_any(data, len, f->path, &lim, &f->doc, &m, NULL);
+        /* lane CODEC (wave 4): the limits of File > Open */
+        f->st = app_load_file(f->path, NULL, &f->doc, &m, NULL, &f->info);
         pc_meta_free(&m);
-        free(data);
     }
 }
 
@@ -208,7 +200,10 @@ static void import_done(app *a, void *ud)
     for (int i = 0; i < j->n; i++) {
         import_file *f = &j->files[i];
         if (f->st != PC_OK || !f->doc) {
-            app_error(a, "Could not import \"%s\": %s.", f->path, pc_status_str(f->st));
+            char msg[1400];
+            app_load_error_text(msg, sizeof msg, "import", f->path,
+                                f->st == PC_OK ? PC_ERR_FORMAT : f->st, &f->info);
+            app_error(a, "%s", msg);
             continue;
         }
         last = import_one(a, d, f->path, f->doc);

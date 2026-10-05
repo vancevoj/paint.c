@@ -35,7 +35,6 @@
 #define AS_STALE_PERIODS   3.0
 #define AS_SETTINGS_SECS   30.0
 #define AS_MANIFEST_MAX    ((uint64_t)64u << 10)
-#define AS_PDN_MAX         ((uint64_t)8u << 30)
 
 /* settings.c (lane I internals): .bak + atomic write of serialized text,
  * and the dirty flag after a background write. */
@@ -75,6 +74,7 @@ typedef struct as_job {
     char         *text;          /* manifest / heartbeat / settings text (owned) */
     size_t        text_len;
     rec_item      item;          /* JOB_RESTORE */
+    app_load_info load;          /* JOB_RESTORE: what the load found (lane CODEC) */
     /* JOB_SCAN */
     rec_item     *items;
     int           nitems;
@@ -716,15 +716,14 @@ int app_recovery_discard(app *a, int i)
 static void restore_work(void *ud)
 {
     as_job *j = (as_job *)ud;
-    uint8_t *data = NULL;
-    size_t len = 0;
     const pc_codec *pdn = pc_codec_by_id("pdn");
-    pc_codec_limits lim;
-    j->st = pal_read_file(j->pdn, AS_PDN_MAX, &data, &len);
-    if (j->st != PC_OK) return;
-    pc_codec_limits_default(&lim);
-    j->st = pdn && pdn->load ? pdn->load(data, len, &lim, &j->doc, &j->meta) : PC_ERR_UNSUPPORTED;
-    free(data);
+    /* lane CODEC (wave 4): the limits of File > Open (app_load_file), so
+     * every image that opens can also be recovered */
+    if (!pdn) {
+        j->st = PC_ERR_UNSUPPORTED;
+        return;
+    }
+    j->st = app_load_file(j->pdn, pdn, &j->doc, &j->meta, NULL, &j->load);
 }
 
 static void restore_done(app *a, as_state *s, as_job *j)
@@ -738,7 +737,10 @@ static void restore_done(app *a, as_state *s, as_job *j)
             it = &s->items[k];
     if (it) remove_item(s, it);
     if (j->st != PC_OK || !j->doc) {
-        app_error(a, "Could not recover \"%s\": %s.", j->item.info.name, pc_status_str(j->st));
+        char msg[1400];
+        app_load_error_text(msg, sizeof msg, "recover", j->item.info.name,
+                            j->st == PC_OK ? PC_ERR_FORMAT : j->st, &j->load);
+        app_error(a, "%s", msg);
         return;
     }
     codec = j->item.info.codec[0] ? pc_codec_by_id(j->item.info.codec) : NULL;

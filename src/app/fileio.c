@@ -28,7 +28,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_OPEN_BYTES   ((uint64_t)3u << 30)
 #define PREVIEW_MAX_SIDE 2048
 #define FILE_STATE_KEY   "lane_i.fileio"
 
@@ -308,42 +307,24 @@ typedef struct open_job {
     pc_image_meta   meta;
     const pc_codec *codec;
     pc_status       st;
-    bool            missing;
+    app_load_info   info;           /* lane CODEC (FL-BIG): what the load found */
     uint8_t        *thumb;          /* recent list thumbnail (owned) */
     int32_t         tw, th;
     char           *thumb_file;     /* its cache file, NULL = none (owned) */
 } open_job;
 
-/* lane CODEC (FL-BIG): decoder limits for opening files. Any size up to
- * PC_MAX_DIM per side (ADR-014) is allowed; the decoded image may use up
- * to three quarters of the physical RAM (never less than the codec default
- * of 4 GiB). */
-static void open_limits(pc_codec_limits *lim)
-{
-    uint64_t ram = pal_ram_bytes(), budget = ram / 4u * 3u;
-    pc_codec_limits_default(lim);
-    lim->max_pixels = (uint64_t)PC_MAX_DIM * PC_MAX_DIM;
-    if (budget > lim->max_mem) lim->max_mem = budget;
-}
-
+/* lane CODEC (FL-BIG, wave 4): the limits and the byte budget are the
+ * shared ones of every load (app_load_file, src/app/io/load.c): any size
+ * up to PC_MAX_DIM per side, the file and the decoded pixels within three
+ * quarters of the RAM. No fixed byte cap any more (it was 3 GiB, which
+ * refused a 32768 x 32768 24-bit BMP). */
 static void open_work(void *ud)
 {
     open_job *j = (open_job *)ud;
-    uint8_t *data = NULL;
-    size_t len = 0;
-    pc_codec_limits lim;
-    if (!pal_file_exists(j->path)) {
-        j->missing = true;
-        j->st = PC_ERR_IO;
-        return;
-    }
-    j->st = pal_read_file(j->path, MAX_OPEN_BYTES, &data, &len);
-    if (j->st != PC_OK) return;
-    open_limits(&lim);
-    j->st = pc_codec_load_any(data, len, j->path, &lim, &j->doc, &j->meta, &j->codec);
-    free(data);
-    /* lane CODEC (FL-ICC): a damaged profile, or one that does not match the
-     * pixels (CMYK or gray on color, device link), is dropped with a note */
+    j->st = app_load_file(j->path, NULL, &j->doc, &j->meta, &j->codec, &j->info);
+    /* lane CODEC (FL-ICC): a damaged profile, one Little-CMS cannot convert
+     * with (wave 4), or one that does not match the pixels (CMYK or gray on
+     * color, device link) is dropped with a note */
     if (j->st == PC_OK && j->doc) (void)pc_icc_meta_validate(&j->meta, j->doc);
     if (j->st == PC_OK && j->doc) j->thumb = io_thumb_rgba(j->doc, IO_THUMB_MAX, &j->tw, &j->th);
     if (j->thumb && j->thumb_file) (void)io_thumb_write(j->thumb_file, j->thumb, j->tw, j->th);
@@ -355,21 +336,13 @@ static bool startup_untouched(app *a, app_doc *d)
            d->hist->cur == d->hist->root && d->hist->count == 1u;
 }
 
-static void open_error(app *a, const char *path, pc_status st, bool missing)
+static void open_error(app *a, const char *path, pc_status st, const app_load_info *info)
 {
-    if (missing) {
-        app_error(a, "Could not open \"%s\": the file does not exist.", path);
-    } else if (st == PC_ERR_LIMIT) {
-        /* lane CODEC (FL-BIG): say which limits apply */
-        pc_codec_limits lim;
-        open_limits(&lim);
-        app_error(a, "Could not open \"%s\": the image is too large. paint.c opens images "
-                     "up to %u x %u pixels that fit in %llu MB of memory.", path,
-                  (unsigned)PC_MAX_DIM, (unsigned)PC_MAX_DIM,
-                  (unsigned long long)(lim.max_mem >> 20));
-    } else {
-        app_error(a, "Could not open \"%s\": %s.", path, pc_status_str(st));
-    }
+    /* lane CODEC (FL-BIG): a file over the byte budget and an image over the
+     * decode limits get different texts, each with the limits that applied */
+    char msg[1400];
+    app_load_error_text(msg, sizeof msg, "open", path, st, info);
+    app_error(a, "%s", msg);
 }
 
 static void open_done(app *a, void *ud)
@@ -377,7 +350,7 @@ static void open_done(app *a, void *ud)
     open_job *j = (open_job *)ud;
     opening_remove(a, j->path);
     if (j->st != PC_OK || !j->doc) {
-        open_error(a, j->path, j->st, j->missing);
+        open_error(a, j->path, j->st, &j->info);
     } else {
         app_doc *old = NULL;
         app_doc *d;
@@ -758,12 +731,12 @@ static void cfg_work(void *ud)
     if (j->st == PC_OK) {
         j->bytes = out.n;
         if ((j->codec->flags & PC_CODEC_LOAD) && j->codec->load) {
-            pc_codec_limits lim;
             pc_doc *back = NULL;
             pc_image_meta m;
-            memset(&m, 0, sizeof m);
-            pc_codec_limits_default(&lim);
-            if (j->codec->load(out.p, out.n, &lim, &back, &m) == PC_OK && back) {
+            /* lane CODEC (FL-BIG): the limits of File > Open, so every image
+             * that saves also gets its preview */
+            if (app_load_bytes(out.p, out.n, NULL, j->codec, &back, &m, NULL, NULL) == PC_OK &&
+                back) {
                 j->rgba = preview_rgba(back, &j->tw, &j->th);
                 j->img_w = back->w;
                 j->img_h = back->h;
