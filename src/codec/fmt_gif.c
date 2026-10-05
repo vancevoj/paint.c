@@ -283,7 +283,7 @@ static pc_status gif_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
             }
             if (label == 0xFEu && com.n < CM_TEXT_MAX) {          /* comment */
                 size_t q = pos;
-                while (q < n && p[q] && st_c == PC_OK) {
+                while (q < n && p[q] && st_c == PC_OK && com.n <= CM_TEXT_MAX) {
                     size_t len = p[q];
                     if (len > n - q - 1u) break;
                     st_c = pc_buf_append(&com, p + q + 1u, len);

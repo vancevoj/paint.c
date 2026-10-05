@@ -320,7 +320,7 @@ static pc_status exif_entry(nrbf_str v, cm_exif *e, pc_image_meta *meta)
             if (!cm_exif_tag_dropped(ifd, (uint16_t)id) && !cm_exif_find(e, (uint16_t)id))
                 st = cm_exif_set(e, ifd, (uint16_t)id, (uint16_t)type, (uint32_t)(blen / ts),
                                  buf, (uint32_t)blen);
-            if (st == PC_ERR_ARG) st = PC_OK;
+            if (st == PC_ERR_ARG || st == PC_ERR_LIMIT) st = PC_OK;    /* skip the entry */
         }
     }
     free(buf);

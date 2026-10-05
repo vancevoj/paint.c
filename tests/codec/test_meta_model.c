@@ -436,6 +436,36 @@ static void t_png_text_and_comment(void)
     pc_meta_free(&m);
 }
 
+/* The entry cap: a full set refuses new tags, callers keep going. */
+static void t_entry_cap(void)
+{
+    cm_exif e;
+    pc_image_meta m;
+    pc_buf b;
+    uint8_t *out = NULL;
+    size_t n = 0;
+    uint8_t v[2] = { 1, 0 };
+    cm_exif_init(&e);
+    memset(&m, 0, sizeof m);
+    memset(&b, 0, sizeof b);
+    for (uint32_t i = 0; i < CM_EXIF_MAX_ENTRIES; i++)
+        CHECK(cm_exif_set(&e, (uint8_t)(i % 4u), (uint16_t)(1000u + i / 4u), 3, 1, v, 2) ==
+              PC_OK);
+    CHECK(e.n == CM_EXIF_MAX_ENTRIES);
+    CHECK(cm_exif_set(&e, CM_IFD0, 60000, 3, 1, v, 2) == PC_ERR_LIMIT);
+    CHECK(cm_exif_set(&e, CM_IFD0, 1002, 3, 1, v, 2) == PC_OK);        /* replacing works */
+    CHECK(cm_meta_load_png_text(&m, &e, "Author", "x") == PC_OK);      /* skipped, no error */
+    CHECK(cm_exif_find(&e, CM_TAG_ARTIST) == NULL);
+    CHECK(cm_meta_put_exif(&m, &e) == PC_OK && pc_meta_get(&m, CM_KEY_EXIF));
+    m.dpi_x = m.dpi_y = 300.0;
+    CHECK(cm_exif_for_save(&m, 10, 10, NULL, 0, (size_t)1 << 24, &out, &n) == PC_OK && out);
+    free(out);
+    CHECK(cm_meta_load_comment(&m, (const uint8_t *)"c", 1) == PC_OK);
+    cm_exif_free(&e);
+    pc_meta_free(&m);
+    pc_buf_free(&b);
+}
+
 /* Mutated EXIF blocks: parsing never crashes and whatever is parsed
  * serializes into a block that parses to the same entries. */
 static void t_fuzz(void)
@@ -496,6 +526,7 @@ int main(int argc, char **argv)
     RUN(t_xmp);
     RUN(t_iptc);
     RUN(t_png_text_and_comment);
+    RUN(t_entry_cap);
     RUN(t_fuzz);
     return pc_test_finish();
 }

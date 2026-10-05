@@ -237,6 +237,7 @@ pc_status cm_exif_set(cm_exif *e, uint8_t ifd, uint16_t tag, uint16_t type, uint
     if (len) memcpy(v, le_val, len);
     t = find_tag(e, ifd, tag);
     if (!t) {
+        if (e->n >= CM_EXIF_MAX_ENTRIES) { free(v); return PC_ERR_LIMIT; }
         if (e->n == e->cap) {
             size_t nc = e->cap ? e->cap * 2u : 32u, bytes;
             cm_tag *nt;
@@ -438,6 +439,7 @@ static pc_status parse_ifd(const tparse *t, uint32_t off, uint8_t ifd, cm_exif *
         if (t->be) to_le((uint16_t)tag, (uint16_t)type, v, (uint32_t)len);
         st = cm_exif_set(e, ifd, (uint16_t)tag, (uint16_t)type, cnt, v, (uint32_t)len);
         free(v);
+        if (st == PC_ERR_LIMIT) return PC_OK;          /* entry cap: keep what fits */
         if (st != PC_OK) return st;
     }
     return PC_OK;
@@ -861,6 +863,7 @@ pc_status cm_meta_load_exif(pc_image_meta *m, const uint8_t *p, size_t n, bool u
         const cm_tag *t = &add.t[i];
         if (find_tag(&cur, t->ifd, t->tag)) continue;
         st = cm_exif_set(&cur, t->ifd, t->tag, t->type, t->count, t->val, t->len);
+        if (st == PC_ERR_LIMIT) { st = PC_OK; break; }   /* keep what fits */
     }
     if (st == PC_OK) st = cm_meta_put_exif(m, &cur);
     cm_exif_free(&cur);
@@ -942,6 +945,7 @@ pc_status cm_exif_for_save(const pc_image_meta *m, uint32_t w, uint32_t h,
         if (st == PC_OK) st = cm_exif_set(&e, CM_IFD0, CM_TAG_YRES, 5u, 1u, r, 8u);
         if (st == PC_OK) st = set_short(&e, CM_IFD0, CM_TAG_RESUNIT, 2u);
     }
+    if (st == PC_ERR_LIMIT) st = PC_OK;      /* a full set keeps its old values */
     memset(&b, 0, sizeof b);
     if (st == PC_OK) st = cm_exif_serialize(&e, &b);
     if (st == PC_OK && b.n > max_len && cm_exif_find(&e, CM_TAG_MAKERNOTE)) {
@@ -1102,7 +1106,7 @@ pc_status cm_meta_load_png_text(pc_image_meta *m, cm_exif *e, const char *keywor
     tag = cm_png_text_tag(keyword);
     if (tag) {
         pc_status st = cm_exif_set_text(e, tag, text);
-        return st == PC_ERR_ARG ? PC_OK : st;
+        return st == PC_ERR_ARG || st == PC_ERR_LIMIT ? PC_OK : st;
     }
     {
         char key[sizeof CM_KEY_PNG_TEXT + 160u];
@@ -1136,7 +1140,7 @@ pc_status cm_meta_load_comment(pc_image_meta *m, const uint8_t *p, size_t n)
         }
     }
     st = cm_exif_set_text(&e, CM_TAG_USERCOMMENT, joined ? joined : (old ? old : add));
-    if (st == PC_ERR_ARG) st = PC_OK;
+    if (st == PC_ERR_ARG || st == PC_ERR_LIMIT) st = PC_OK;
     if (st == PC_OK) st = cm_meta_put_exif(m, &e);
     free(joined);
     free(old);

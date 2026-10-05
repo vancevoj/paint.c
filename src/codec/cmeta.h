@@ -41,6 +41,7 @@
 #define CM_XMP_MAX  ((size_t)16 << 20)
 #define CM_IPTC_MAX ((size_t)4 << 20)
 #define CM_TEXT_MAX ((size_t)1 << 20)       /* one PNG text chunk or GIF comment */
+#define CM_EXIF_MAX_ENTRIES 8192u            /* entries of one cm_exif, all IFDs */
 
 /* ---- items ------------------------------------------------------------------ */
 /* Replace the first item with this key (or append one). Copies both
@@ -132,7 +133,7 @@ bool      cm_exif_tag_dropped(uint8_t ifd, uint16_t tag);
 
 /* Add or replace (same ifd and tag) one entry; le_val holds len bytes in
  * little-endian order and len must equal count * cm_type_size(type).
- * PC_ERR_ARG, PC_ERR_NOMEM. */
+ * PC_ERR_ARG, PC_ERR_NOMEM, PC_ERR_LIMIT (CM_EXIF_MAX_ENTRIES reached). */
 pc_status cm_exif_set(cm_exif *e, uint8_t ifd, uint16_t tag, uint16_t type, uint32_t count,
                       const void *le_val, uint32_t len);
 /* First entry with this tag in any IFD, or NULL. Borrowed. */
