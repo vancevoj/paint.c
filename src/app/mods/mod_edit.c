@@ -295,6 +295,7 @@ static bool do_copy(app *a, bool merged)
                                  (const uint8_t *)s.px, s.w, s.h, (size_t)s.stride * 4u);
     pc_buf_free(&png);
     pc_surf_free(&s);
+    m_paste_invalidate(a);
     if (!ok) app_error(a, "Could not place the image on the clipboard.");
     return ok;
 }
@@ -323,6 +324,8 @@ static bool can_paste(app *a, const app_cmd *c)
 static void cmd_paste(app *a, const app_cmd *c) { m_paste_start(a, (int)c->arg); }
 
 /* ---- selection geometry (CB-SEL-JSON) ----------------------------------------------- */
+typedef struct seltext_cache { uint64_t at; bool valid, ok; } seltext_cache;
+
 static void cmd_copy_selection(app *a, const app_cmd *c)
 {
     app_doc *d = app_active_doc(a);
@@ -333,11 +336,15 @@ static void cmd_copy_selection(app *a, const app_cmd *c)
             app_error(a, "Could not place the selection on the clipboard.");
     }
     free(text);
+    m_paste_invalidate(a);
+    {
+        seltext_cache *k = (seltext_cache *)app_ext_get(a, "lane_m.seltext");
+        if (k) k->valid = false;
+    }
 }
 
 /* Enabled while the clipboard text looks like a selection polygon list;
  * the text is fetched at most once per second. */
-typedef struct seltext_cache { uint64_t at; bool valid, ok; } seltext_cache;
 
 static bool clip_seltext(app *a, const app_cmd *c)
 {

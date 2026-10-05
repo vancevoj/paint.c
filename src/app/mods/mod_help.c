@@ -88,8 +88,8 @@ static const char *const k_notice[] = {
     "    zlib 1.3.2                 zlib license          https://zlib.net",
     "    libspng 0.7.4              BSD 2-Clause          https://libspng.org",
     "    libjpeg-turbo 3.2.0        IJG, BSD 3-Clause and zlib licenses",
-    "    libwebp 1.6.0              BSD 3-Clause         "
-    " https://chromium.googlesource.com/webm/libwebp",
+    ("    libwebp 1.6.0              BSD 3-Clause         "
+     " https://chromium.googlesource.com/webm/libwebp"),
     "    Little-CMS 2.19.1          MIT                   https://littlecms.com",
     "    bcdec, stb_dxt, bc7enc     MIT or public domain  (see third_party/*/LICENSE*)",
     "    stb_truetype 1.26          MIT or public domain, Copyright (c) 2017 Sean Barrett",
@@ -142,7 +142,6 @@ size_t m_about_text(app *a, char *out, size_t cap)
 static bool about_frame(app *a, void *st)
 {
     ui_ctx *ui = a->ui;
-    const ui_palette *p = ui_pal(ui);
     char line[512];
     ui_rect box;
     uint32_t r;
@@ -171,7 +170,6 @@ static bool about_frame(app *a, void *st)
     }
     ui_layout_pop(ui);
     ui_scroll_end(ui);
-    (void)p;
     ui_dialog_buttons(ui, UI_DLG_CLOSE, UI_DLG_CLOSE);
     r = ui_dialog_end(ui);
     if (r) a->about_open = false;

@@ -65,7 +65,10 @@ void m_paste_image(app *a, int kind, pc_doc *img);
 
 /* True when the clipboard probably holds something Paste can use: an
  * image, or text naming an image file or holding a base64 data URI image
- * (CB-PASTE-FILES, CB-PASTE-BASE64). The text check is cached briefly. */
+ * (CB-PASTE-FILES, CB-PASTE-BASE64). The answer is cached for 250 ms
+ * (the text contents for a second). */
 bool m_paste_available(app *a);
+/* Forget the cached answer (after paint.c itself changed the clipboard). */
+void m_paste_invalidate(app *a);
 
 #endif /* M_PASTE_H */

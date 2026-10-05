@@ -64,9 +64,11 @@ void m_paste_position(app *a, app_doc *d, int32_t w, int32_t h, int32_t *x, int3
 typedef enum clip_text_kind { CT_NONE = 0, CT_FILE, CT_DATA_URI } clip_text_kind;
 
 typedef struct clip_cache {
-    uint64_t       at;          /* app time of the last check */
+    uint64_t       at;          /* app time of the last text check */
     bool           valid;
     clip_text_kind kind;
+    uint64_t       any_at;      /* app time of the last overall answer */
+    bool           any_valid, any;
 } clip_cache;
 
 static bool starts_with_ci(const char *s, const char *prefix)
@@ -219,29 +221,54 @@ static char *clip_text_any(void)
     return SDL_HasClipboardText() ? pal_clip_get_text() : NULL;
 }
 
+static clip_cache *cache_of(app *a)
+{
+    clip_cache *c = (clip_cache *)app_ext_get(a, M_CLIPCACHE_KEY);
+    if (c) return c;
+    c = (clip_cache *)calloc(1u, sizeof *c);
+    if (!c || !app_ext_set(a, M_CLIPCACHE_KEY, c, free)) {
+        free(c);
+        return NULL;
+    }
+    return c;
+}
+
+void m_paste_invalidate(app *a)
+{
+    clip_cache *c = (clip_cache *)app_ext_get(a, M_CLIPCACHE_KEY);
+    if (c) c->valid = c->any_valid = false;
+}
+
+/* The enabled state of the paste commands is asked every frame (toolbar
+ * button); the clipboard is queried at most every 250 ms (text contents
+ * every second), since some platforms answer through window system
+ * round trips. */
 bool m_paste_available(app *a)
 {
     clip_cache *c;
+    uint64_t now = app_now_ms(a);
     if (!video_ok()) return false;
+    c = cache_of(a);
+    if (!c) return pal_clip_has_image();
+    if (c->any_valid && now >= c->any_at && now - c->any_at < 250u) return c->any;
+    c->any_at = now;
+    c->any_valid = true;
+    c->any = true;
     if (pal_clip_has_image()) return true;
-    if (!SDL_HasClipboardText() && !SDL_HasClipboardData("text/uri-list")) return false;
-    c = (clip_cache *)app_ext_get(a, M_CLIPCACHE_KEY);
-    if (!c) {
-        c = (clip_cache *)calloc(1u, sizeof *c);
-        if (!c || !app_ext_set(a, M_CLIPCACHE_KEY, c, free)) {
-            free(c);
-            return false;
-        }
+    if (!SDL_HasClipboardText() && !SDL_HasClipboardData("text/uri-list")) {
+        c->any = false;
+        return false;
     }
-    if (!c->valid || app_now_ms(a) - c->at > 1000u || app_now_ms(a) < c->at) {
+    if (!c->valid || now - c->at > 1000u || now < c->at) {
         char *text = clip_text_any();
         char path[1024];
         c->kind = classify_text(text, path, sizeof path);
         free(text);
-        c->at = app_now_ms(a);
+        c->at = now;
         c->valid = true;
     }
-    return c->kind != CT_NONE;
+    c->any = c->kind != CT_NONE;
+    return c->any;
 }
 
 /* ---- the paste job -------------------------------------------------------------------------- */
