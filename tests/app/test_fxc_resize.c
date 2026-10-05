@@ -8,12 +8,16 @@
  *  - app_doc_trc: no profile and sRGB profiles use the exact built-in sRGB
  *    curve (NULL), other profiles their own curves, cached per profile;
  *  - the Resize dialog on an Adobe RGB image mixes black and white to
- *    255 * 0.5^(1/2.2) = 186 (sRGB would give 188, no gamma 128).
+ *    255 * 0.5^(1/2.2) = 186 (sRGB would give 188, no gamma 128);
+ *  - Move Selected Pixels with Gamma Corrected squeezes black and white
+ *    rows through the same curve (tagged Adobe RGB darker than untagged).
  */
 #include "pc_test.h"
 #include "f_test_util.h"
+#include "a_util.h"
 #include "doc_trc.h"
 #include "edit/m_icc.h"
+#include "tools/sel_float.h"
 
 static void text_ev(app *a, const char *t)
 {
@@ -148,6 +152,35 @@ static void t_resize_dialog(void)
     CHECK((double)adobe == want);
 }
 
+/* Move Selected Pixels, Bilinear, Gamma Corrected: 1 px black and white
+ * rows squeezed to half height blend 50 / 50 in the image's linear light. */
+static uint8_t move_mix(bool tagged)
+{
+    app *a = a_app(100, 80, app_px_make(255, 255, 255, 255));
+    uint8_t v = 0;
+    if (!a) return 0;
+    for (int32_t y = 20; y < 60; y += 2)
+        a_fill(a, pc_rect_make(20, y, 40, 1), a_px(0, 0, 0, 255));
+    if (tagged) set_profile(a_doc(a), M_ICC_ADOBE_RGB);
+    sel_move_pixels_quality(a, SEL_RS_BILINEAR, true);
+    (void)app_tool_select(a, "rect_select");
+    a_drag(a, 20, 20, 60, 60, SDL_BUTTON_LEFT, 0u);
+    CHECK(app_tool_select(a, "move_pixels"));
+    a_drag(a, 40, 60, 40, 40, SDL_BUTTON_LEFT, 0u);
+    v = a_lpx(a, 40, 30).r;
+    app_destroy(a);
+    return v;
+}
+
+static void t_move_gamma(void)
+{
+    uint8_t plain = move_mix(false), adobe = move_mix(true);
+    INFO("Move Selected Pixels 50/50 rows: untagged %u, Adobe RGB %u", (unsigned)plain,
+         (unsigned)adobe);
+    CHECK(plain >= 182u && plain <= 194u);              /* sRGB linear light, about 188 */
+    CHECK(adobe < plain && (unsigned)(plain - adobe) <= 6u);   /* gamma 2.2: about 186 */
+}
+
 int main(int argc, char **argv)
 {
     pc_test_init(argc, argv);
@@ -159,6 +192,7 @@ int main(int argc, char **argv)
     RUN(t_cross_check);
     RUN(t_doc_trc);
     RUN(t_resize_dialog);
+    RUN(t_move_gamma);
     at_quit();
     return pc_test_finish();
 }
