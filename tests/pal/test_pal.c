@@ -1183,17 +1183,135 @@ static void t_clipboard(void)
     CHECK(pal_clip_set_text(""));
     CHECK(!pal_clip_has_image());
 #else
-    /* No video subsystem in this headless test: every call fails cleanly
-     * and never touches the desktop clipboard. */
+    /* Without the video subsystem every call fails cleanly. */
     CHECK(!pal_clip_has_image());
     CHECK(!pal_clip_get_image(&d, &n, mime, sizeof mime) && d == NULL && n == 0u);
     CHECK(!pal_clip_set_image_png(fake_png, sizeof fake_png));
     CHECK(!pal_clip_set_image_bgra(fake_png, sizeof fake_png, px, 4, 4, 16u));
     CHECK(!pal_clip_set_text("x"));
     CHECK(pal_clip_get_text() == NULL);
+    /* SDL's offscreen driver keeps the clipboard inside the process, so
+     * the round trips below never reach the desktop clipboard. */
+    (void)SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
+    if (SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        size_t alt_n = 0;
+#if defined(__APPLE__)
+        uint8_t *alt = pal__enc_tiff(px, 4, 4, 16u, &alt_n);
+        const char *alt_mime = "image/tiff";
+#else
+        uint8_t *alt = pal__enc_bmp(px, 4, 4, 16u, true, &alt_n);
+        const char *alt_mime = "image/bmp";
+#endif
+        char *t;
+        CHECK(pal_clip_set_text("h\xC3\xA9llo\nworld"));
+        t = pal_clip_get_text();
+        CHECK(t && strcmp(t, "h\xC3\xA9llo\nworld") == 0);
+        free(t);
+        CHECK(!pal_clip_has_image());
+        CHECK(pal_clip_set_image_png(fake_png, sizeof fake_png));
+        CHECK(pal_clip_has_image());
+        CHECK(pal_clip_get_image(&d, &n, mime, sizeof mime));
+        CHECK(d && n == sizeof fake_png && memcmp(d, fake_png, n) == 0 && d[n] == 0u);
+        CHECK(strcmp(mime, "image/png") == 0);
+        free(d);
+        CHECK(pal_clip_set_image_bgra(NULL, 0u, px, 4, 4, 16u));
+        CHECK(pal_clip_get_image(&d, &n, mime, sizeof mime));
+        CHECK(d && alt && n == alt_n && memcmp(d, alt, n) == 0);
+        CHECK(strcmp(mime, alt_mime) == 0);
+        free(d);
+        CHECK(pal_clip_set_image_bgra(fake_png, sizeof fake_png, px, 4, 4, 16u));
+        CHECK(pal_clip_get_image(&d, &n, mime, sizeof mime));
+        CHECK(d && n == sizeof fake_png && strcmp(mime, "image/png") == 0);
+        free(d);
+        CHECK(!pal_clip_set_image_bgra(fake_png, sizeof fake_png, px, 4, 0, 16u));
+        CHECK(pal_clip_set_text("text again"));
+        CHECK(!pal_clip_has_image());
+        free(alt);
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    } else {
+        INFO("offscreen video driver unavailable (%s), round trips skipped", SDL_GetError());
+    }
+    (void)SDL_ResetHint(SDL_HINT_VIDEO_DRIVER);
 #endif
     CHECK(!pal_clip_get_image(NULL, &n, mime, sizeof mime));
     CHECK(!pal_clip_set_image_png(NULL, 4u));
+}
+
+/* ---- dialogs (completion path only: a real dialog would pop up) ------------------ */
+typedef struct dlg_got {
+    int  calls;
+    int  n;
+    int  filter;
+    int  order;
+    char first[64];
+} dlg_got;
+
+static int g_dlg_order;
+
+static void dlg_cb(void *ud, const char *const *paths, int n, int filter)
+{
+    dlg_got *g = (dlg_got *)ud;
+    g->calls++;
+    g->n = n;
+    g->filter = filter;
+    g->order = ++g_dlg_order;
+    CHECK((n == 0) == (paths == NULL));
+    if (n > 0) (void)snprintf(g->first, sizeof g->first, "%s", paths[0]);
+}
+
+typedef struct dlg_sim {
+    const char *const *list;
+    int                filter;
+    dlg_got           *got;
+} dlg_sim;
+
+static int SDLCALL dlg_thread(void *ud)
+{
+    const dlg_sim *s = (const dlg_sim *)ud;
+    pal_filter f[2];                         /* temporary: pal copies them */
+    f[0].name = "PNG";
+    f[0].pattern = "png;apng";
+    f[1].name = "All files";
+    f[1].pattern = "*";
+    pal__dialog_simulate(dlg_cb, s->got, f, 2, s->list, s->filter);
+    return 0;
+}
+
+static void t_dialogs(void)
+{
+    static const char *const two[] = { "/x/\xC3\xA9.png", "/x/b.png", NULL };
+    static const char *const none[] = { NULL };
+    dlg_got got[3];
+    dlg_sim sim[3];
+    SDL_Thread *th[3];
+    memset(got, 0, sizeof got);
+    sim[0].list = two;  sim[0].filter = 1;  sim[0].got = &got[0];
+    sim[1].list = none; sim[1].filter = -1; sim[1].got = &got[1];
+    sim[2].list = NULL; sim[2].filter = 0;  sim[2].got = &got[2];   /* error */
+    for (int i = 0; i < 3; i++) {             /* completions arrive on threads */
+        th[i] = SDL_CreateThread(dlg_thread, "dialog", &sim[i]);
+        SDL_WaitThread(th[i], NULL);
+    }
+    CHECK(got[0].calls == 0 && got[1].calls == 0 && got[2].calls == 0);   /* not yet */
+    pal_pump();
+    CHECK(got[0].calls == 1 && got[0].n == 2 && got[0].filter == 1);
+    CHECK(strcmp(got[0].first, "/x/\xC3\xA9.png") == 0);
+    CHECK(got[1].calls == 1 && got[1].n == 0 && got[1].filter == -1);
+    CHECK(got[2].calls == 1 && got[2].n == 0 && got[2].filter == -1);
+    CHECK(got[0].order < got[1].order && got[1].order < got[2].order);
+    pal_pump();                               /* each result exactly once */
+    CHECK(got[0].calls == 1 && got[1].calls == 1 && got[2].calls == 1);
+}
+
+static int g_dlg_late;
+
+static void dlg_cb_never(void *ud, const char *const *paths, int n, int filter)
+{
+    (void)ud;
+    (void)paths;
+    (void)n;
+    (void)filter;
+    g_dlg_late++;                             /* must not happen after pal_quit */
 }
 
 /* ---- single instance ------------------------------------------------------------- */
@@ -1380,10 +1498,18 @@ int main(int argc, char **argv)
     RUN(t_dynlib);
     RUN(t_encoders);
     RUN(t_clipboard);
+    RUN(t_dialogs);
     RUN(t_si_codec);
     RUN(t_single_instance);
     pal_quit();
     CHECK(pal_dir(PAL_DIR_CONFIG) == NULL);
+    {
+        /* a dialog finishing after pal_quit is dropped (and freed) */
+        static const char *const late[] = { "/late.png", NULL };
+        pal__dialog_simulate(dlg_cb_never, NULL, NULL, 0, late, 0);
+        pal_pump();
+        CHECK(g_dlg_late == 0);
+    }
     rm_tree(g_root);
     CHECK(!pal_is_dir(g_root));
     SDL_Quit();

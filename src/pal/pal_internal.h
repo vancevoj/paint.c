@@ -46,6 +46,13 @@ bool pal__glob_match(const char *glob, const char *name);
  * plain byte order so the result is total and deterministic. */
 int  pal__name_cmp(const char *a, const char *b);
 
+/* ---- test hook (pal_common.c) --------------------------------------------------- */
+/* Runs the file dialog completion exactly as SDL does when a dialog ends
+ * (list NULL = error, list[0] NULL = cancelled), on the calling thread, so
+ * tests can exercise the cross-thread queue without showing a dialog. */
+void pal__dialog_simulate(pal_paths_fn cb, void *ud, const pal_filter *f, int nf,
+                          const char *const *list, int filter);
+
 /* ---- single instance wire format (pal_common.c) ----------------------------- */
 #define PAL__SI_MAX_MSG   (1u << 20)   /* bytes per forwarded message */
 #define PAL__SI_MAX_PATHS 4096u

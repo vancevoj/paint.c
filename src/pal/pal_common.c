@@ -473,6 +473,13 @@ void pal_dialog_folder(pal_window *w, const char *default_dir, pal_paths_fn cb, 
     SDL_ShowOpenFolderDialog(dlg_done, r, w, default_dir, false);
 }
 
+void pal__dialog_simulate(pal_paths_fn cb, void *ud, const pal_filter *f, int nf,
+                          const char *const *list, int filter)
+{
+    dlg_req *r = dlg_new(cb, ud, f, nf);
+    if (r) dlg_done(r, list, filter);
+}
+
 static void dlg_deliver(void)
 {
     dlg_req *r;
