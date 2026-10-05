@@ -14,7 +14,8 @@
  *   blend N                   tool blend mode (0..13, 14 = overwrite)
  *   antialias 0|1
  *   cmd ID                    execute a command
- *   key COMBO                 a key press ("Ctrl+Z", "F7", "B")
+ *   key COMBO                 a key press ("Ctrl+Z", "F7", "B"); its modifiers go
+ *                             down before and up after it (lane UIB)
  *   down X Y [left|right|middle]  pointer press at a document position
  *   move X Y                  pointer motion
  *   up X Y [left|right|middle]

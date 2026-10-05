@@ -56,6 +56,16 @@ in docs/PACKAGING.md.
 the wave 2a options. Interactive runs use pal's single instance (forwarded
 paths open in the running editor) and the wake poll.
 
+Lane UIB (wave 4): the single instance is per settings folder
+(`app_cli_instance_id`, src/app/cli_set.h): a launch with another
+`--config-dir` starts its own window. `--set KEY=VALUE` given to a launch
+that forwards is written to `settings.forward.<time><random>.ini` in the
+settings folder first; the running instance takes those files when the
+forwarded message arrives (a new primary takes leftovers at startup),
+applies the values live (theme, view toggles, units, colors, tool settings,
+panels, recent files, window geometry, Settings dialog preferences) and
+saves the settings file at once.
+
 ## Script commands added by lane I (script.c)
 
 `saveas PATH`, `autosave`, `idle MS`, `print TEXT`, `touch PATH`,
