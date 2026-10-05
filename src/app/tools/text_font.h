@@ -27,8 +27,8 @@
  *
  * Color fonts (lane TOOLB, T-TEXT-COLORFONT; text_sfnt.h): faces with
  * COLR / CPAL tables report their color layers, faces with CBDT / CBLC or
- * sbix strikes report bitmaps decoded with the project's PNG (or JPEG)
- * codec and cached per face (at most TF_BMP_CACHE_BYTES), and color faces
+ * sbix strikes report bitmaps decoded with the project's PNG (or JPEG,
+ * TIFF) codecs and cached per face (at most TF_BMP_CACHE_BYTES), and color faces
  * apply their GSUB ligatures to clusters (emoji ZWJ sequences, flags,
  * keycaps, skin tones). Fonts without outlines (Noto Color Emoji), which
  * the toolkit cannot load, are read with text_sfnt alone. The scan marks

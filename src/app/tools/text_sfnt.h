@@ -8,9 +8,9 @@
  * Every read is bounds checked against its table and every count is
  * capped before it is used (P-08); malformed tables read as absent. Only
  * the documented subset is read: COLR version 1 paint graphs, EBDT
- * monochrome strikes, sbix JPEG and TIFF graphics, and GSUB lookup types
- * other than 4 (ligatures) are ignored, so such glyphs fall back to their
- * outlines.
+ * monochrome strikes and GSUB lookup types other than 4 (ligatures, also
+ * inside extension lookups) are ignored, so such glyphs fall back to
+ * their outlines.
  *
  * Thread rules: a text_sfnt is immutable after text_sfnt_open; every query
  * is pure and may run on any thread. Ownership: the font bytes are

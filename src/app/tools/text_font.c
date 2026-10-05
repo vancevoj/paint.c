@@ -265,7 +265,7 @@ static size_t cb_color_layers(void *ud, uint32_t gid, pc_font_color_layer *out, 
     return text_sfnt_colr_layers(&t->cs, gid, out, cap);
 }
 
-/* Decode an embedded image (PNG, or JPEG for sbix) to straight BGRA.
+/* Decode an embedded image (PNG, or JPEG / TIFF for sbix) to straight BGRA.
  * Bounded by TF_BMP_MAX_SIDE before anything is allocated (P-08). */
 static pc_px32 *decode_image(const text_sfnt_image *im, int32_t *w, int32_t *h)
 {
@@ -277,6 +277,7 @@ static pc_px32 *decode_image(const text_sfnt_image *im, int32_t *w, int32_t *h)
     size_t n;
     if (memcmp(im->type, "png ", 4) == 0) c = pc_codec_by_id("png");
     else if (memcmp(im->type, "jpg ", 4) == 0) c = pc_codec_by_id("jpeg");
+    else if (memcmp(im->type, "tiff", 4) == 0) c = pc_codec_by_id("tiff");
     if (!c || !c->load || !c->sniff || !c->sniff(im->data, im->len)) return NULL;
     pc_codec_limits_default(&lim);
     lim.max_w = TF_BMP_MAX_SIDE;

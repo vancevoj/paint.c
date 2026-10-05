@@ -276,6 +276,10 @@ static void t_backend(void)
     ff = faces[0];
     CHECK(ff->color && ff->color_bitmap(ff->ud, 2, 32.0, &bm) == PC_OK);
     CHECK(bm.w == 8 && bm.scale == 2.0 && bm.left == 2.0 && bm.top == 4.0 - 16.0);
+    CHECK(ff->color_bitmap(ff->ud, 3, 16.0, &bm) == PC_OK);      /* a JPEG graphic */
+    CHECK(bm.w == 8 && bm.h == 8 && bm.px[27].a == 255u);
+    CHECK(abs((int)bm.px[27].r - 0) < 24 && abs((int)bm.px[27].g - 200) < 24 &&
+          abs((int)bm.px[27].b - 200) < 24);
     /* the built-in face is not a color face; the emoji fallback is */
     CHECK(text_fonts_faces(tf, "Inter", false, false, &faces, &nf) == PC_OK && nf >= 2u);
     CHECK(!faces[0]->color);

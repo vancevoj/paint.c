@@ -13,8 +13,9 @@
  *    gid 1 U+1F600 red, 2 U+1F601 blue, 3 / 4 U+1F1E6 / U+1F1E7, 5 their
  *    ligature (green), 6 U+200D.
  *  "Toolb Sbix": glyf (.notdef square) + an sbix strike at 16 ppem with a
- *                PNG and a 'dupe' record, cmap format 12.
- *    gid 1 U+1F602 yellow (origin offset 1, -2), 2 U+1F603 = dupe of 1.
+ *                PNG, a 'dupe' record and a JPEG, cmap format 12.
+ *    gid 1 U+1F602 yellow (origin offset 1, -2), 2 U+1F603 = dupe of 1,
+ *    3 U+1F604 teal JPEG.
  *
  * upem 1000 everywhere. Bitmaps: 8 x 8 at 16 ppem (bearing 1, 7), 16 x 16
  * at 32 ppem (bearing 2, 14), PNG encoded with the project's codec.
@@ -284,29 +285,35 @@ static inline void tf_gsub(tfb *f, const tf_lig *lig1, const tf_lig *lig2)
 
 /* ---- images ---------------------------------------------------------------------------------- */
 
-/* PNG of a w x h square of color c (top-left pixel transparent). */
-static inline bool tf_png(int32_t w, int32_t h, pc_px32 c, pc_buf *out)
+/* An image file (codec id "png", "jpeg") of a w x h square of color c, the
+ * top-left pixel transparent (PNG) or black (JPEG). */
+static inline bool tf_image(const char *codec, int32_t w, int32_t h, pc_px32 c, pc_buf *out)
 {
-    const pc_codec *png = pc_codec_by_id("png");
+    const pc_codec *cod = pc_codec_by_id(codec);
     pc_doc *d = pc_doc_create((uint32_t)w, (uint32_t)h);
     pc_layer *l = d ? pc_layer_create(d, "L") : NULL;
     pc_px32 *px = (pc_px32 *)calloc((size_t)w * (size_t)h, sizeof *px);
     uint8_t params[512];
     bool ok = false;
     memset(out, 0, sizeof *out);
-    if (png && d && l && px && png->params_size <= sizeof params) {
+    if (cod && cod->save && d && l && px && cod->params_size <= sizeof params) {
         for (int32_t i = 1; i < w * h; i++) px[i] = c;
         if (pc_layer_store_rect(d, l, pc_doc_rect(d), px, (size_t)w) == PC_OK &&
             pc_doc_insert_layer(d, l, 0) == PC_OK) {
             l = NULL;
-            pc_codec_default_params(png, params);
-            ok = png->save(d, NULL, params, NULL, out) == PC_OK;
+            pc_codec_default_params(cod, params);
+            ok = cod->save(d, NULL, params, NULL, out) == PC_OK;
         }
     }
     if (l) pc_layer_destroy(l);
     pc_doc_destroy(d);
     free(px);
     return ok;
+}
+
+static inline bool tf_png(int32_t w, int32_t h, pc_px32 c, pc_buf *out)
+{
+    return tf_image("png", w, h, c, out);
 }
 
 static inline pc_px32 tf_rgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
@@ -462,33 +469,42 @@ static inline bool tf_font_bits(pc_buf *out)
 
 static inline bool tf_font_sbix(pc_buf *out)
 {
-    static const int16_t box[3][4] = { { 50, 0, 450, 700 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
-    static const uint16_t adv[3] = { 500, 1000, 1000 };
-    static const tf_map map[2] = { { 0x1F602u, 1u }, { 0x1F603u, 2u } };
-    pc_buf png, *b;
+    static const int16_t box[4][4] = {
+        { 50, 0, 450, 700 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 }
+    };
+    static const uint16_t adv[4] = { 500, 1000, 1000, 1000 };
+    static const tf_map map[3] = { { 0x1F602u, 1u }, { 0x1F603u, 2u }, { 0x1F604u, 3u } };
+    pc_buf png, jpg, *b;
     tfb f;
-    size_t so;
+    uint32_t g1, g2, g3;
     if (!tf_png(8, 8, tf_rgba(255, 255, 0, 255), &png)) return false;
+    if (!tf_image("jpeg", 8, 8, tf_rgba(0, 200, 200, 255), &jpg)) {
+        pc_buf_free(&png);
+        return false;
+    }
     memset(&f, 0, sizeof f);
     tf_head(&f, true);
-    tf_hhea_hmtx_maxp(&f, 3u, adv);
+    tf_hhea_hmtx_maxp(&f, 4u, adv);
     tf_name_os2(&f, "Toolb Sbix");
-    tf_cmap(&f, map, 2u, true);
-    tf_glyf(&f, box, 3u);
+    tf_cmap(&f, map, 3u, true);
+    tf_glyf(&f, box, 4u);
     b = tfb_add(&f, "sbix");
     tb16(b, 1); tb16(b, 1); tb32(b, 1); tb32(b, 12);
-    so = b->n;
-    tb16(b, 16); tb16(b, 72);
-    tb32(b, 20); tb32(b, 20);                             /* glyph 0: none */
-    tb32(b, 20u + 8u + (uint32_t)png.n);                  /* glyph 1 ends */
-    tb32(b, 20u + 8u + (uint32_t)png.n + 10u);            /* glyph 2 (dupe) ends */
-    (void)so;
+    tb16(b, 16); tb16(b, 72);                             /* strike at 12 */
+    g1 = 24u + 8u + (uint32_t)png.n;                      /* data from strike + 24 */
+    g2 = g1 + 10u;
+    g3 = g2 + 8u + (uint32_t)jpg.n;
+    tb32(b, 24); tb32(b, 24);                             /* glyph 0: none */
+    tb32(b, g1); tb32(b, g2); tb32(b, g3);
     tbs16(b, 1); tbs16(b, -2); (void)pc_buf_append(b, "png ", 4u);
     (void)pc_buf_append(b, png.p, png.n);
     tbs16(b, 0); tbs16(b, 0); (void)pc_buf_append(b, "dupe", 4u); tb16(b, 1);
+    tbs16(b, 0); tbs16(b, 0); (void)pc_buf_append(b, "jpg ", 4u);
+    (void)pc_buf_append(b, jpg.p, jpg.n);
     tfb_finish(&f, false, out);
     tfb_free(&f);
     pc_buf_free(&png);
+    pc_buf_free(&jpg);
     return true;
 }
 

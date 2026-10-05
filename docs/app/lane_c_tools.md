@@ -83,9 +83,9 @@ tables (`text_face_info.color`, cache format 2; older caches are rescanned)
 so the engine can prefer them for emoji before loading them. A color face
 reports COLR v0 layers with CPAL palette 0 colors (index 0xFFFF is the text
 color, the primary color), and CBDT (index formats 1 to 5, image formats 17
-to 19) or sbix ('png ', 'jpg ', one 'dupe' hop) strikes, choosing the
+to 19) or sbix ('png ', 'jpg ', 'tiff', one 'dupe' hop) strikes, choosing the
 smallest strike at least as large as the em size, else the largest. Strikes
-are decoded with the project's PNG (or JPEG) codec, bounded to 2048 x 2048,
+are decoded with the project's PNG (or JPEG, TIFF) codecs, bounded to 2048 x 2048,
 and cached per face (512 images, 48 MiB). Color faces apply their GSUB
 ligature lookups (types 4 and 7 of the ccmp, liga, clig and rlig features)
 to each cluster, which makes ZWJ sequences, flags, keycaps and skin tones
@@ -120,8 +120,8 @@ at 1 MiB and 256 per folder; parsers are bounded and fuzzed in the tests.
 ## Known gaps
 
 - Complex-script shaping is absent (ADR-004); only color faces apply GSUB
-  ligatures, per cluster. COLR version 1 paint graphs, EBDT monochrome
-  strikes and sbix TIFF graphics are not drawn (outlines are used).
+  ligatures, per cluster. COLR version 1 paint graphs and EBDT monochrome
+  strikes are not drawn (outlines are used).
 - The Sharp modes use paint.c's automatic grid fitter, not the font's own
   TrueType or CFF instructions, so stems match GDI and DirectWrite in kind
   (whole pixels; Modern only vertically) but not pixel for pixel.
