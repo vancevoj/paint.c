@@ -14,3 +14,18 @@ endforeach()
 if(TARGET test_ui_gallery)
   target_compile_definitions(test_ui_gallery PRIVATE PC_UI_OUT_DIR="${CMAKE_BINARY_DIR}")
 endif()
+
+# lane UIB (wave 4 item 43, marked edit in lane L3's file): text field copy
+# and paste go through SDL's clipboard, which every process of the session
+# shares on Windows and under Wine; such tests take the same CTest lock as
+# tests/app and tests/pal so `ctest -j` never runs two of them at once.
+file(GLOB _ui_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test_*.c)
+foreach(t ${_ui_tests})
+  get_filename_component(_n ${t} NAME_WE)
+  if(TARGET ${_n})
+    file(STRINGS ${t} _clip REGEX "[Cc]lipboard" LIMIT_COUNT 1)
+    if(_clip)
+      set_property(TEST ${_n} APPEND PROPERTY RESOURCE_LOCK clipboard)
+    endif()
+  endif()
+endforeach()

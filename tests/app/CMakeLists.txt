@@ -37,3 +37,21 @@ if(TARGET paintc AND TARGET test_uib_cli)
   add_dependencies(test_uib_cli paintc)
 endif()
 
+# lane UIB (wave 4 item 43): tests that put data on or take data from the
+# system clipboard never run at the same time. The clipboard is shared by
+# every process of a desktop session (Windows, and Wine running the mingw
+# build), so `ctest -j` let one test empty or hold it while another read it.
+# The list is found by scanning the sources for clipboard calls, so new
+# tests join it automatically. Keep the pattern in sync with
+# tests/pal/CMakeLists.txt and tests/ui/CMakeLists.txt.
+set(PC_CLIPBOARD_TEST_REGEX
+    "pal_clip_|SDL_[A-Za-z]*Clipboard|edit\\.(cut|copy|paste)|m_paste_|Copy Path")
+foreach(t ${_app_tests})
+  get_filename_component(_n ${t} NAME_WE)
+  if(TARGET ${_n})
+    file(STRINGS ${t} _clip REGEX "${PC_CLIPBOARD_TEST_REGEX}" LIMIT_COUNT 1)
+    if(_clip)
+      set_property(TEST ${_n} APPEND PROPERTY RESOURCE_LOCK clipboard)
+    endif()
+  endif()
+endforeach()

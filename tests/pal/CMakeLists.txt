@@ -24,3 +24,23 @@ if(APPLE)
 endif()
 pc_warnings(pal_test_plugin)
 add_dependencies(test_pal pal_test_plugin)
+
+# lane UIB (wave 4 item 36): the clipboard retry policy test reads
+# pal_internal.h too.
+if(TARGET test_uib_clip)
+  target_include_directories(test_uib_clip PRIVATE ${PROJECT_SOURCE_DIR}/src/pal)
+endif()
+
+# lane UIB (wave 4 item 43): tests that use the system clipboard never run at
+# the same time (it is shared by every process of the session on Windows and
+# under Wine); same rule as tests/app/CMakeLists.txt.
+file(GLOB _pal_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test_*.c)
+foreach(t ${_pal_tests})
+  get_filename_component(_n ${t} NAME_WE)
+  if(TARGET ${_n})
+    file(STRINGS ${t} _clip REGEX "pal_clip_|SDL_[A-Za-z]*Clipboard" LIMIT_COUNT 1)
+    if(_clip)
+      set_property(TEST ${_n} APPEND PROPERTY RESOURCE_LOCK clipboard)
+    endif()
+  endif()
+endforeach()

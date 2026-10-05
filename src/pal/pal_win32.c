@@ -717,9 +717,16 @@ static UINT fmt_png(void)
 
 /* Hidden message-only window that owns what we put on the clipboard
  * (OpenClipboard(NULL) would make SetClipboardData fail). Created on the
- * main thread, so SDL's message pump also services it. */
+ * main thread, so SDL's message pump also services it.
+ * lane UIB (wave 4 item 36): while another program holds the clipboard,
+ * opening is retried for up to about a second with growing waits
+ * (pal__clip_retry_delay) instead of 10 x 5 ms, so Copy and Paste do not
+ * report errors when a clipboard manager or remote desktop session reads
+ * the new data a little longer. */
 static bool clip_open(void)
 {
+    uint64_t t0;
+    HWND holder;
     if (!g_clip_hwnd) {
         WNDCLASSEXW wc;
         memset(&wc, 0, sizeof wc);
@@ -733,11 +740,19 @@ static bool clip_open(void)
                                       GetModuleHandleW(NULL), NULL);
         if (!g_clip_hwnd) return false;
     }
-    for (int i = 0; i < 10; i++) {          /* another app may hold it briefly */
+    t0 = SDL_GetTicks();
+    for (int attempt = 0;; attempt++) {
+        uint64_t spent;
+        int wait;
         if (OpenClipboard(g_clip_hwnd)) return true;
-        Sleep(5);
+        spent = SDL_GetTicks() - t0;
+        wait = pal__clip_retry_delay(attempt, spent > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)spent);
+        if (wait < 0) break;
+        Sleep((DWORD)wait);
     }
-    pal__log_str(PAL_LOG_WARN, "clipboard: OpenClipboard failed");
+    holder = GetOpenClipboardWindow();
+    pal_log(PAL_LOG_WARN, "clipboard: OpenClipboard failed for %u ms (held by window %p)",
+            (unsigned)(SDL_GetTicks() - t0), (void *)holder);
     return false;
 }
 
