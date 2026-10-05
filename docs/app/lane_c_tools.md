@@ -74,8 +74,15 @@ settings folder and later scans only read changed files. Characters missing
 in the chosen family come from Inter, then from broad-coverage families when
 installed (DejaVu Sans, Noto Sans, the color emoji families Segoe UI Emoji,
 Apple Color Emoji, Noto Color Emoji, Twemoji, JoyPixels, EmojiOne Color,
-then Noto Sans CJK and others), loaded on first use. Faces load through
-`ui_font_load_file` (structural validation).
+then the CJK families, then symbol families), loaded on first use. Lane
+TOOLS (wave 4): the CJK families cover Linux, Windows and macOS for each
+writing system (Noto Sans CJK SC / JP / KR / TC; Microsoft YaHei, Yu Gothic
+UI, Yu Gothic, Meiryo UI, Meiryo, Malgun Gothic, Microsoft JhengHei;
+PingFang SC / TC, Hiragino Sans, Hiragino Kaku Gothic ProN, Apple SD Gothic
+Neo), and the group of the user's language (SDL_GetPreferredLocales) comes
+first, so Hangul finds a Korean face and Japanese text gets Japanese forms
+(`text_fonts_fallback_order`). A set holds up to 24 fallback faces. Faces
+load through `ui_font_load_file` (structural validation).
 
 Color fonts (lane TOOLB, T-TEXT-COLORFONT; Paint.NET's docs: "Text tool
 supports colored fonts"): the scan marks faces with COLR, CBDT or sbix
@@ -105,7 +112,13 @@ The Font button opens a searchable list (type to filter, Enter picks the
 first match, arrows preview on the live text) in which each family name is
 drawn in its own regular face; preview faces load on demand, two per frame,
 only from files up to 8 MiB, and at most 96 stay loaded. Families whose
-face lacks the glyphs of its own name are shown in the UI font.
+face lacks the glyphs of its own name are shown in the UI font. Lane TOOLS
+(wave 4): so are symbol fonts (a symbol cmap, the OS/2 Symbol code page or
+PANOSE symbol class, glyph names of the name's letters that are not those
+letters, or a known TeX math, dingbat or icon family such as cmsy10,
+cmex10, D050000L, Wingdings), with up to six of the face's own characters
+drawn after the name; a face whose glyphs are taller than the row is
+scaled down to fit and every row is clipped (`text_fonts_preview_info`).
 
 ## Custom shapes
 

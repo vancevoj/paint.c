@@ -545,17 +545,60 @@ typedef struct font_rows {
     uint32_t    frame;
 } font_rows;
 
+/* Size and baseline that fit ink (em units above / below the baseline) of
+ * text at size fs into r with pad pixels above and below: smaller when
+ * the ink is taller than the row (lane TOOLS, wave 4 item 31). */
+static float fit_ink(float fs, float top, float bottom, ui_rect r, float pad, float *base)
+{
+    float avail = (float)r.h - 2.0f * pad, ink = top + bottom;
+    if (ink > 0.0f && ink * fs > avail) fs = avail / ink;
+    if (ink > 0.0f) *base = (float)r.y + pad + (avail - ink * fs) * 0.5f + top * fs;
+    else *base = (float)r.y + (float)r.h * 0.7f;
+    return fs;
+}
+
+/* A row of the font list: the family name in its own face; symbol fonts
+ * (and faces that cannot draw their name) as the name in the UI font with
+ * a sample of the face's characters after it. Drawing is clipped to the
+ * row, and faces whose glyphs are taller than the row are scaled down. */
 static void font_row(ui_ctx *ui, void *ud, int32_t index, ui_rect row, uint32_t state)
 {
     font_rows *fr = (font_rows *)ud;
     int32_t fam = fr->map[index];
     const char *name = text_fonts_family(fr->tf, fam);
-    ui_font *f = text_fonts_preview(fr->tf, fam, fr->frame);
+    text_preview pv;
+    bool has = text_fonts_preview_info(fr->tf, fam, fr->frame, &pv);
     ui_color c = (state & UI_ROW_SELECTED) ? ui_pal(ui)->selection_text : ui_pal(ui)->text;
-    float fs = ui_font_px(ui) * 1.15f;
+    float fs = ui_font_px(ui) * 1.15f, pad = (float)ui_px(ui, 2.0f);
     ui_rect r = ui_rect_make(row.x + ui_px(ui, 8.0f), row.y, row.w - ui_px(ui, 12.0f), row.h);
-    ui_draw_text_box(ui, f ? f : ui_font_regular(ui), fs, r, UI_ALIGN_LEFT, UI_TEXT_ELLIPSIS, c,
-                     name, strlen(name));
+    ui_push_clip(ui, row);
+    if (has && pv.face && pv.name_in_face) {
+        float base, s = fit_ink(fs, pv.ink_top, pv.ink_bottom, r, pad, &base);
+        if (s < fs) {
+            ui_push_clip(ui, r);
+            (void)ui_draw_text(ui, pv.face, s, (float)r.x, base, c, name, strlen(name));
+            ui_pop_clip(ui);
+        } else {
+            ui_draw_text_box(ui, pv.face, fs, r, UI_ALIGN_LEFT, UI_TEXT_ELLIPSIS, c, name,
+                             strlen(name));
+        }
+    } else {
+        float w = ui_text_width(ui_font_regular(ui), ui_font_px(ui), name, strlen(name));
+        ui_draw_text_box(ui, ui_font_regular(ui), ui_font_px(ui), r, UI_ALIGN_LEFT,
+                         UI_TEXT_ELLIPSIS, c, name, strlen(name));
+        if (has && pv.face && pv.sample[0]) {
+            int32_t gap = ui_px(ui, 12.0f), x = r.x + (int32_t)ceilf(w) + gap;
+            ui_rect sr = ui_rect_make(x, r.y, r.x + r.w - x, r.h);
+            float base, s = fit_ink(fs, pv.ink_top, pv.ink_bottom, sr, pad, &base);
+            if (sr.w > 0) {
+                ui_push_clip(ui, sr);
+                (void)ui_draw_text(ui, pv.face, s, (float)sr.x, base, ui_color_fade(c, 0.8f),
+                                   pv.sample, strlen(pv.sample));
+                ui_pop_clip(ui);
+            }
+        }
+    }
+    ui_pop_clip(ui);
 }
 
 static bool ci_contains(const char *hay, const char *needle)
@@ -583,6 +626,7 @@ static bool font_picker(app *a, text_state *s, text_fonts *tf)
     ui_interaction in = ui_interact(ui, ui_get_id(ui, "##text_font"), r,
                                     UI_INTERACT_KEEP_FOCUS | UI_INTERACT_PRESS);
     bool changed = false, open = ui_popup_is_open(ui, "##text_font_pop");
+    paint_widget_note(a, "##text_font", r);              /* tests (lane TOOLS) */
     float rad = (float)ui_px(ui, ui_get_theme(ui)->m.radius);
     int32_t aw = ui_px(ui, 16.0f);
     ui_draw_rrect(ui, r, rad, open || in.held ? p->raised_active : in.hovered ? p->raised_hover
@@ -648,6 +692,7 @@ static bool font_picker(app *a, text_state *s, text_fonts *tf)
             ui_rect lrect;
             ui_layout_row(ui, 0.0f, 1, &cell);
             lrect = ui_layout_next(ui, ui_px(ui, 280.0f), ui_px(ui, 330.0f));
+            paint_widget_note(a, "##text_font_list", lrect);    /* tests (lane TOOLS) */
             lr = ui_list(ui, "##text_font_list", lrect, nm, 28.0f, &sel, 0, font_row, &fr);
             bool close = lr.activated;
             if (sel != old && sel >= 0 && sel < nm) {
