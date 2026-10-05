@@ -50,6 +50,7 @@
  * dialog stack, the plugin error list by the app (app_ext). */
 #include "../app_internal.h"
 #include "../edit/m_settings.h"
+#include "../panels/pnl.h"
 #include "../edit/m_ui.h"
 #include "../fx/afx.h"
 #include "../shell_ext.h"
@@ -59,6 +60,7 @@
 #include "pc/pc_pattern.h"
 #include "pc/pc_shapes.h"
 
+#include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -185,6 +187,7 @@ typedef struct tool_opt {
     const char       *(*name_fn)(int i);
     int                 n;
     const int          *values;           /* stored value of each label (NULL = index) */
+    int                 dpi;              /* lane UIA: TO_NUM default scales with the UI */
 } tool_opt;
 
 typedef struct tool_group {
@@ -221,10 +224,14 @@ static const char *grad_mode(int i) { return pc_grad_mode_name((pc_grad_mode)i);
 static const char *grad_repeat(int i) { return pc_grad_repeat_name((pc_grad_repeat)i); }
 static const char *shape_name(int i) { return pc_shape_name((pc_shape_kind)i); }
 
-#define CH(k, l, d, names, n) { k, l, TO_CHOICE, d, 0, 0, 0, names, NULL, n, NULL }
-#define CF(k, l, d, fn, n) { k, l, TO_CHOICE, d, 0, 0, 0, NULL, fn, n, NULL }
-#define BO(k, l, d) { k, l, TO_BOOL, d, 0, 1, 0, NULL, NULL, 0, NULL }
-#define NU(k, l, d, lo, hi, dec) { k, l, TO_NUM, d, lo, hi, dec, NULL, NULL, 0, NULL }
+#define CH(k, l, d, names, n) { k, l, TO_CHOICE, d, 0, 0, 0, names, NULL, n, NULL, 0 }
+#define CF(k, l, d, fn, n) { k, l, TO_CHOICE, d, 0, 0, 0, NULL, fn, n, NULL, 0 }
+#define BO(k, l, d) { k, l, TO_BOOL, d, 0, 1, 0, NULL, NULL, 0, NULL, 0 }
+#define NU(k, l, d, lo, hi, dec) { k, l, TO_NUM, d, lo, hi, dec, NULL, NULL, 0, NULL, 0 }
+/* lane UIA (wave 4): factory value d at 100 % UI scale, scaled like the
+ * brush width (TOOLS.md 3.3: text size 12 scaled by DPI; corner size, R
+ * 4.0.9) */
+#define ND(k, l, d, lo, hi, dec) { k, l, TO_NUM, d, lo, hi, dec, NULL, NULL, 0, NULL, 1 }
 
 static const tool_opt k_opts_rect[] = {
     CH("rect_select.draw_mode", "Draw mode:", 0, k_draw_modes, 3),
@@ -233,15 +240,15 @@ static const tool_opt k_opts_rect[] = {
     NU("rect_select.size_w", "Fixed width:", 400.0, 0.01, 65535.0, 2),
     NU("rect_select.size_h", "Fixed height:", 300.0, 0.01, 65535.0, 2),
     { "rect_select.size_units", "Fixed size units:", TO_CHOICE, -1, 0, 0, 0, k_size_units, NULL,
-      4, k_size_unit_values },
+      4, k_size_unit_values, 0 },
 };
 static const tool_opt k_opts_move[] = {
     CH("move_pixels.sampling", "Sampling:", 4, k_mp_sampling, 5),
     BO("move_pixels.gamma", "Gamma corrected", 1),
 };
 static const tool_opt k_opts_text[] = {
-    { "text.font", "Font:", TO_TEXT, 0, 0, 0, 0, NULL, NULL, 0, NULL },
-    NU("text.size", "Size:", 12.0, 1.0, 2000.0, 2),
+    { "text.font", "Font:", TO_TEXT, 0, 0, 0, 0, NULL, NULL, 0, NULL, 0 },
+    ND("text.size", "Size:", 12.0, 1.0, 2000.0, 2),
     CH("text.unit", "Size unit:", 0, k_text_units, 2),
     BO("text.bold", "Bold", 0),
     BO("text.italic", "Italic", 0),
@@ -262,12 +269,13 @@ static const tool_opt k_opts_pick[] = {
 static const tool_opt k_opts_shape[] = {
     CF("shapes.kind", "Shape:", 0, shape_name, PC_SHAPE_BUILTIN_COUNT),
     CH("shapes.draw", "Draw mode:", 0, k_shape_draw, 3),
-    NU("shapes.corner", "Corner size:", 10.0, 0.0, 2000.0, 2),
+    ND("shapes.corner", "Corner size:", 10.0, 0.0, 2000.0, 2),
 };
 static const tool_opt k_opts_line[] = {
     CH("line_curve.type", "Curve type:", 1, k_curve_types, 3),
-    { "line_curve.start_cap", "Start cap:", TO_CHOICE, 0, 0, 0, 0, k_caps, NULL, 4, k_cap_values },
-    { "line_curve.end_cap", "End cap:", TO_CHOICE, 0, 0, 0, 0, k_caps, NULL, 4, k_cap_values },
+    { "line_curve.start_cap", "Start cap:", TO_CHOICE, 0, 0, 0, 0, k_caps, NULL, 4, k_cap_values,
+      0 },
+    { "line_curve.end_cap", "End cap:", TO_CHOICE, 0, 0, 0, 0, k_caps, NULL, 4, k_cap_values, 0 },
     CH("dash", "Dash style:", 0, k_dashes, 5),
 };
 static const tool_opt k_opts_recolor[] = {
@@ -278,6 +286,7 @@ static const tool_opt k_opts_recolor[] = {
 #undef CF
 #undef BO
 #undef NU
+#undef ND
 
 #define NOPTS(x) ((int)(sizeof x / sizeof x[0]))
 static const tool_group k_groups[] = {
@@ -319,6 +328,15 @@ static bool opt_valid(const tool_opt *o, const app_settings *s, const char *key)
     return true;
 }
 
+/* Lane UIA (wave 4): the factory value of a numeric option, scaled with
+ * the UI like the brush width for ND options (2 decimals, in range). */
+static double opt_factory_num(const tool_opt *o)
+{
+    double v = o->def;
+    if (o->dpi) v = floor(o->def * (double)app_tool_default_scale() * 100.0 + 0.5) / 100.0;
+    return v < o->lo ? o->lo : (v > o->hi ? o->hi : v);
+}
+
 /* Write the factory value of o under prefix.<key>. size_units "same as
  * the view" and the default font are stored too (apply removes the tool
  * key for the view-units case). */
@@ -329,7 +347,7 @@ static void opt_store_factory(app_settings *s, const char *prefix, const tool_op
     switch (o->type) {
     case TO_CHOICE: (void)app_settings_set_int(s, key, (int64_t)o->def); break;
     case TO_BOOL: (void)app_settings_set_bool(s, key, o->def != 0.0); break;
-    case TO_NUM: (void)app_settings_set_double(s, key, o->def); break;
+    case TO_NUM: (void)app_settings_set_double(s, key, opt_factory_num(o)); break;
     default: (void)app_settings_set(s, key, TEXT_DEFAULT_FAMILY); break;
     }
 }
@@ -695,7 +713,8 @@ static void page_tool_options(app *a, ui_size cells[2])
                     changed = true;
                 }
             } else if (o->type == TO_NUM) {
-                double v = opt_valid(o, s, key) ? app_settings_double(s, key, o->def) : o->def;
+                double v = opt_valid(o, s, key) ? app_settings_double(s, key, o->def)
+                                                : opt_factory_num(o);
                 if (ui_number_double(ui, wid, &v, o->lo, o->hi, 1.0, o->decimals, 0)) {
                     (void)app_settings_set_double(s, key, v);
                     changed = true;
@@ -784,10 +803,12 @@ static void page_tools(app *a)
         int32_t hard = def.hardness, spacing = def.spacing, fill = def.fill;
         int blend = def.blend;
         ui_label_ex(ui, "Brush width:", UI_LABEL_DIM);
-        if (ui_number_double(ui, "##tdw", &w, 1.0, 2000.0, 1.0, 0, 0)) {
+        /* lane UIA (wave 4): decimals as in the toolbar box (O-WIDTH, 6.5) */
+        if (ui_number_double(ui, "##tdw", &w, 1.0, 2000.0, 1.0, 2, 0)) {
             def.width = (float)w;
             changed = true;
         }
+        pnl_rect_set(a, "settings.tdw", ui_last_rect(ui));       /* lane UIA: tests */
         ui_label_ex(ui, "Hardness:", UI_LABEL_DIM);
         if (ui_number_int(ui, "##tdh", &hard, 0, 100, 1, UI_SLIDER_PERCENT)) {
             def.hardness = hard;
@@ -798,6 +819,7 @@ static void page_tools(app *a)
             def.spacing = spacing;
             changed = true;
         }
+        pnl_rect_set(a, "settings.tdsp", ui_last_rect(ui));      /* lane UIA: tests */
         ui_label_ex(ui, "Fill:", UI_LABEL_DIM);
         for (int i = 0; i < (int)PC_FILL_STYLE_COUNT; i++)
             fills[i] = pc_fill_style_name((pc_fill_style)i);
@@ -922,7 +944,8 @@ static void page_gfx(app *a)
     ui_layout_column(ui);
     snprintf(line, sizeof line,
              "0 means automatic: a quarter of the memory, at least 1 GiB. In use now: %.0f MiB. "
-             "The oldest steps are dropped when an image's history needs more.",
+             "History beyond the limit moves to a temporary file on disk (deleted when the "
+             "image closes), so no steps are lost.",
              (double)a->hist_budget / 1048576.0);
     dim_text(a, line);
 }
@@ -1137,10 +1160,16 @@ static bool settings_frame(app *a, void *st)
     settings_dlg *g = (settings_dlg *)st;
     ui_ctx *ui = a->ui;
     ui_rect body, list, page;
-    int32_t lw = ui_px(ui, 190.0f), gap = ui_px(ui, 12.0f);
+    int32_t lw = ui_px(ui, 190.0f), gap = ui_px(ui, 12.0f), bh;
     uint32_t r;
+    /* lane UIA (wave 4): in a short window the page gets shorter (it
+     * scrolls anyway) before the whole dialog has to scroll; 100 DIPs are
+     * the title, the paddings and the Close row */
+    bh = a->fi.height - 16 - ui_px(ui, 100.0f);
+    if (bh > ui_px(ui, 470.0f)) bh = ui_px(ui, 470.0f);
+    if (bh < ui_px(ui, 160.0f)) bh = ui_px(ui, 160.0f);
     ui_dialog_begin(ui, "Settings##settings", 780.0f, 0.0f);
-    body = ui_layout_next(ui, 0, ui_px(ui, 470.0f));
+    body = ui_layout_next(ui, 0, bh);
     list = ui_rect_make(body.x, body.y, lw, body.h);
     page = ui_rect_make(body.x + lw + gap, body.y, body.w - lw - gap, body.h);
     page_list(a, g, list);

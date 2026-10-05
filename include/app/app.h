@@ -53,8 +53,13 @@ typedef enum app_theme_pref {
 typedef struct app_opts {
     bool        headless;    /* software renderer on an off-screen surface, no window
                                 (tests, --screenshot without a display) */
-    int32_t     width, height;   /* window or surface size in px (0 = default) */
-    float       scale;       /* headless DIP scale (window mode: display scale) */
+    int32_t     width, height;   /* surface size in px, or window size in window
+                                    units (0 = default; lane UIA: a window then
+                                    takes its saved or default DIP size, fitted
+                                    to the display; a given size wins) */
+    float       scale;       /* UI scale (0 = automatic: 1 headless, the display
+                                scale in a window; lane UIA: a value overrides
+                                the display scale in a window too) */
     uint32_t    workers;     /* worker threads, 0 = logical cores - 1 */
     const char *config_dir;  /* settings folder; NULL = PAL_DIR_CONFIG; "" = no
                                 settings file at all (tests) */

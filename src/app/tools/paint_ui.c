@@ -975,7 +975,19 @@ void paint_opt_fill(app *a)
     (void)fill_previews(a, s);
     ui_push_id(ui, "##fill");
     app_opt_label(a, "Fill:");
-    r = opt_rect(a, FILL_DIP);
+    {
+        /* lane UIA (wave 4): wide enough for the longest name ("Dashed
+         * Downward Diagonal") after the swatch, so none is cut short */
+        float sc = ui_scale(ui) > 0.0f ? ui_scale(ui) : 1.0f, tw = 0.0f, dip;
+        for (int32_t i = 0; i < (int32_t)PC_FILL_STYLE_COUNT; i++) {
+            const char *nm = paint_fill_name(i);
+            float w = nm ? ui_text_width(ui_font_regular(ui), ui_font_px(ui), nm, strlen(nm))
+                         : 0.0f;
+            if (w > tw) tw = w;
+        }
+        dip = ceilf((tw + (float)s->fill_w) / sc) + 5.0f + 6.0f + 20.0f + 4.0f;
+        r = opt_rect(a, dip > FILL_DIP ? dip : FILL_DIP);
+    }
     note(a, "##fill", NULL, r);
     in = ui_interact(ui, ui_get_id(ui, "##button"), r, 0u);
     ui_draw_rect(ui, r, in.hovered ? p->field_hover : p->field);

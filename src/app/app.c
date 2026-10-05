@@ -4,6 +4,7 @@
 #include "app_internal.h"
 #include "fx/fx_builtin.h"
 
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,9 +68,11 @@ pc_px32 app_px_make(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 void app_opts_default(app_opts *o)
 {
     memset(o, 0, sizeof *o);
-    o->width = 1440;
-    o->height = 900;
-    o->scale = 1.0f;
+    /* lane UIA (wave 4): 0 = automatic: 1440 x 900 (window: DIPs, fitted
+     * to the display), scale 1 headless and the display scale in a window */
+    o->width = 0;
+    o->height = 0;
+    o->scale = 0.0f;
     o->theme = -1;
 }
 
@@ -161,12 +164,15 @@ void app_settings_store_ui(app *a)
         app_settings_set_bool(s, "window.maximized", maxi);
         if (!maxi && !(f & SDL_WINDOW_MINIMIZED)) {
             int x = 0, y = 0, w = 0, h = 0;
+            double upd = (double)app_window_upd(a);
             SDL_GetWindowPosition(a->win, &x, &y);
             SDL_GetWindowSize(a->win, &w, &h);
             app_settings_set_int(s, "window.x", x);
             app_settings_set_int(s, "window.y", y);
-            app_settings_set_int(s, "window.w", w);
-            app_settings_set_int(s, "window.h", h);
+            /* lane UIA: the size in DIPs (window.unit marks the format) */
+            app_settings_set_int(s, "window.w", (int64_t)floor((double)w / upd + 0.5));
+            app_settings_set_int(s, "window.h", (int64_t)floor((double)h / upd + 0.5));
+            app_settings_set(s, "window.unit", "dip");
         }
     }
     app_tools_store(a);
@@ -181,39 +187,230 @@ static void fx_log_hook(void *ud, int level, const char *utf8)
 }
 
 /* ---- create / destroy --------------------------------------------------------------- */
+/* ---- lane UIA (wave 4): window geometry -------------------------------------------------- */
+#define WIN_DEF_W_DIP   1440.0
+#define WIN_DEF_H_DIP   900.0
+#define WIN_MIN_W_DIP   640.0
+#define WIN_MIN_H_DIP   400.0
+#define WIN_FLOOR_DIP   200.0     /* never smaller, even on tiny screens */
+#define WIN_MARGIN_DIP  16.0      /* frame left and right */
+#define WIN_TITLE_DIP   40.0      /* title bar and frame above and below */
+
+static int32_t clampi32(int32_t v, int32_t lo, int32_t hi)
+{
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+static int32_t units(double dip, double upd)
+{
+    double v = floor(dip * upd + 0.5);
+    return v < 1.0 ? 1 : (v > 16384.0 ? 16384 : (int32_t)v);
+}
+
+void app_window_geometry(app_win_geom *g)
+{
+    double upd = g->upd > 0.0f && g->upd < 64.0f ? (double)g->upd : 1.0;
+    bool known = g->usable.w > 0 && g->usable.h > 0, explicit_size = g->req_w > 0 && g->req_h > 0;
+    int32_t w, h;
+    if (explicit_size) {
+        w = clampi32(g->req_w, 64, 16384);
+        h = clampi32(g->req_h, 64, 16384);
+    } else {
+        double dw = WIN_DEF_W_DIP, dh = WIN_DEF_H_DIP;
+        if (g->has_size && g->saved_w >= WIN_FLOOR_DIP && g->saved_h >= WIN_FLOOR_DIP &&
+            g->saved_w <= 16384.0 && g->saved_h <= 16384.0) {
+            dw = g->saved_w;
+            dh = g->saved_h;
+        }
+        w = units(dw, upd);
+        h = units(dh, upd);
+        /* the preferred minimum, then the screen, then an absolute floor */
+        if (w < units(WIN_MIN_W_DIP, upd)) w = units(WIN_MIN_W_DIP, upd);
+        if (h < units(WIN_MIN_H_DIP, upd)) h = units(WIN_MIN_H_DIP, upd);
+        if (known) {
+            int32_t mw = g->usable.w - units(WIN_MARGIN_DIP, upd);
+            int32_t mh = g->usable.h - units(WIN_TITLE_DIP, upd);
+            if (w > mw) w = mw;
+            if (h > mh) h = mh;
+        }
+        if (w < units(WIN_FLOOR_DIP, upd)) w = units(WIN_FLOOR_DIP, upd);
+        if (h < units(WIN_FLOOR_DIP, upd)) h = units(WIN_FLOOR_DIP, upd);
+    }
+    g->w = w;
+    g->h = h;
+    g->set_pos = false;
+    g->x = g->y = 0;
+    if (g->has_pos) {
+        int32_t x = g->saved_x, y = g->saved_y;
+        if (known) {
+            /* fully inside the usable area when it fits, the title bar
+             * (above the client area) on screen first */
+            int32_t top = units(WIN_TITLE_DIP, upd) * 3 / 4;
+            int32_t x1 = g->usable.x + g->usable.w - w, y1 = g->usable.y + g->usable.h - h;
+            int32_t y0 = g->usable.y + (g->usable.h - h >= top ? top : 0);
+            x = x1 >= g->usable.x ? clampi32(x, g->usable.x, x1) : g->usable.x;
+            y = y1 >= y0 ? clampi32(y, y0, y1) : y0;
+        }
+        g->x = x;
+        g->y = y;
+        g->set_pos = true;
+    }
+}
+
+/* Window units per DIP: the UI scale over the pixel density (Wayland and
+ * macOS windows are sized in points, X11 and Windows in pixels). */
+float app_window_upd(const app *a)
+{
+    float s, pd;
+    if (!a->win) return 1.0f;
+    s = a->uia_scale > 0.0f ? a->uia_scale : SDL_GetWindowDisplayScale(a->win);
+    pd = SDL_GetWindowPixelDensity(a->win);
+    if (!(s > 0.0f) || !(pd > 0.0f)) return 1.0f;
+    s /= pd;
+    return s > 0.1f && s < 32.0f ? s : 1.0f;
+}
+
+float app_ui_scale_target(const app *a)
+{
+    float s;
+    if (!a->win) return a->opts.scale > 0.0f ? a->opts.scale : 1.0f;
+    if (a->uia_scale > 0.0f) return a->uia_scale;
+    s = SDL_GetWindowDisplayScale(a->win);
+    return s > 0.0f ? s : 1.0f;
+}
+
+/* The display a new window goes to: the one of the saved position, else
+ * the primary one. */
+static SDL_DisplayID target_display(const app_win_geom *g)
+{
+    SDL_DisplayID id = 0;
+    if (g->has_pos) {
+        SDL_Rect probe;
+        probe.x = g->saved_x + 40;
+        probe.y = g->saved_y + 20;
+        probe.w = 1;
+        probe.h = 1;
+        id = SDL_GetDisplayForRect(&probe);
+    }
+    return id ? id : SDL_GetPrimaryDisplay();
+}
+
+static void geom_inputs(app *a, app_win_geom *g, float upd_now)
+{
+    const app_settings *s = a->settings;
+    bool dip = app_settings_get(s, "window.unit") &&
+               strcmp(app_settings_get(s, "window.unit"), "dip") == 0;
+    memset(g, 0, sizeof *g);
+    g->upd = upd_now;
+    g->req_w = a->opts.width > 0 && a->opts.height > 0 ? a->opts.width : 0;
+    g->req_h = a->opts.width > 0 && a->opts.height > 0 ? a->opts.height : 0;
+    if (app_settings_get(s, "window.w") && app_settings_get(s, "window.h")) {
+        double w = (double)app_settings_int(s, "window.w", 0);
+        double h = (double)app_settings_int(s, "window.h", 0);
+        /* before wave 4 the size was stored in window units */
+        if (!dip && upd_now > 0.0f) {
+            w /= (double)upd_now;
+            h /= (double)upd_now;
+        }
+        g->has_size = w > 0.0 && h > 0.0;
+        g->saved_w = w;
+        g->saved_h = h;
+    }
+    if (app_settings_get(s, "window.x") && app_settings_get(s, "window.y")) {
+        int64_t x = app_settings_int(s, "window.x", 0), y = app_settings_int(s, "window.y", 0);
+        if (x > -1000000 && x < 1000000 && y > -1000000 && y < 1000000) {
+            SDL_Rect probe;
+            g->saved_x = (int32_t)x;
+            g->saved_y = (int32_t)y;
+            /* only positions on some display are restored */
+            probe.x = g->saved_x + 40;
+            probe.y = g->saved_y + 20;
+            probe.w = 1;
+            probe.h = 1;
+            g->has_pos = SDL_GetDisplayForRect(&probe) != 0;
+        }
+    }
+}
+
+static void geom_usable(app_win_geom *g, SDL_DisplayID id)
+{
+    if (!id || !SDL_GetDisplayUsableBounds(id, &g->usable)) {
+        if (!id || !SDL_GetDisplayBounds(id, &g->usable)) memset(&g->usable, 0, sizeof g->usable);
+    }
+}
+
+/* The smallest window the layout is made for (600 x 380 DIPs: the menus,
+ * the image list button and the right-hand buttons in one row), never
+ * more than the window was created with (an explicit --size, a small
+ * screen). cap_w / cap_h 0: keep the caps of the last call. */
+static void apply_min_size(app *a, int32_t cap_w, int32_t cap_h)
+{
+    static const double min_w = 600.0, min_h = 380.0;
+    double upd = (double)app_window_upd(a);
+    int32_t w, h;
+    if (!a->win) return;
+    if (cap_w > 0 && cap_h > 0) {
+        a->uia_min_cap_w = cap_w;
+        a->uia_min_cap_h = cap_h;
+    }
+    w = units(min_w, upd);
+    h = units(min_h, upd);
+    if (a->uia_min_cap_w > 0 && w > a->uia_min_cap_w) w = a->uia_min_cap_w;
+    if (a->uia_min_cap_h > 0 && h > a->uia_min_cap_h) h = a->uia_min_cap_h;
+    SDL_SetWindowMinimumSize(a->win, w, h);
+}
+
+/* ---- create / destroy --------------------------------------------------------------- */
 static bool create_window(app *a)
 {
     const app_settings *s = a->settings;
-    int w = (int)app_settings_int(s, "window.w", a->opts.width > 0 ? a->opts.width : 1440);
-    int h = (int)app_settings_int(s, "window.h", a->opts.height > 0 ? a->opts.height : 900);
     SDL_WindowFlags flags =
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN;
+    app_win_geom g;
+    SDL_DisplayID disp;
+    float upd0, upd;
+    const char *vd = SDL_GetCurrentVideoDriver();
     const char *driver = a->opts.software ? SDL_SOFTWARE_RENDERER : NULL;
     /* lane M: Settings > Graphics (hardware acceleration, rendering device),
      * applied at start */
     if (!driver && app_settings_bool(s, "gfx.software", false)) driver = SDL_SOFTWARE_RENDERER;
     if (!driver && app_settings_get(s, "gfx.renderer") && *app_settings_get(s, "gfx.renderer"))
         driver = app_settings_get(s, "gfx.renderer");
-    if (a->opts.width > 0 && !app_settings_get(s, "window.w")) w = a->opts.width;
-    if (a->opts.height > 0 && !app_settings_get(s, "window.h")) h = a->opts.height;
-    if (w < 640) w = 640;
-    if (h < 400) h = 400;
-    if (w > 16384) w = 1440;
-    if (h > 16384) h = 900;
+    /* lane UIA (wave 4): sizes in DIPs, fitted to the display. The scale
+     * of the display is a first guess (window units are points on Wayland
+     * and macOS, where the guess is 1); the hidden window then reports the
+     * real ratio and is resized before it is shown. */
+    geom_inputs(a, &g, 1.0f);
+    disp = target_display(&g);
+    upd0 = a->uia_scale > 0.0f ? a->uia_scale : SDL_GetDisplayContentScale(disp);
+    if (!(upd0 > 0.0f)) upd0 = 1.0f;
+    if (vd && (strcmp(vd, "wayland") == 0 || strcmp(vd, "cocoa") == 0) && !(a->uia_scale > 0.0f))
+        upd0 = 1.0f;
+    geom_inputs(a, &g, upd0);
+    geom_usable(&g, disp);
+    app_window_geometry(&g);
     SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "composition");
-    a->win = SDL_CreateWindow(APP_NAME, w, h, flags);
+    a->win = SDL_CreateWindow(APP_NAME, g.w, g.h, flags);
     if (!a->win) {
         pal_log(PAL_LOG_ERROR, "window: %s", SDL_GetError());
         return false;
     }
-    if (app_settings_get(s, "window.x") && app_settings_get(s, "window.y")) {
-        int x = (int)app_settings_int(s, "window.x", 0);
-        int y = (int)app_settings_int(s, "window.y", 0);
-        /* keep the window reachable: only restore positions on some display */
-        SDL_Rect probe;
-        probe.x = x + 40; probe.y = y + 20; probe.w = 1; probe.h = 1;
-        if (SDL_GetDisplayForRect(&probe)) SDL_SetWindowPosition(a->win, x, y);
+    upd = app_window_upd(a);
+    if (fabsf(upd - upd0) > 1e-3f) {
+        SDL_DisplayID wd = SDL_GetDisplayForWindow(a->win);
+        geom_inputs(a, &g, upd);
+        geom_usable(&g, wd ? wd : disp);
+        app_window_geometry(&g);
+        SDL_SetWindowSize(a->win, g.w, g.h);
     }
+    apply_min_size(a, g.w, g.h);
+    if (g.set_pos)
+        SDL_SetWindowPosition(a->win, g.x, g.y);
+    else
+        SDL_SetWindowPosition(a->win, (int)SDL_WINDOWPOS_CENTERED_DISPLAY(disp),
+                              (int)SDL_WINDOWPOS_CENTERED_DISPLAY(disp));
+    pal_log(PAL_LOG_INFO, "window: %d x %d units, %.2f units per DIP", (int)g.w, (int)g.h,
+            (double)upd);
     if (app_settings_bool(s, "window.maximized", false)) SDL_MaximizeWindow(a->win);
     a->ren = SDL_CreateRenderer(a->win, driver);
     if (!a->ren && driver && !a->opts.software) {   /* lane M: a stored driver failed */
@@ -250,7 +447,7 @@ static bool create_headless(app *a)
  * display scale (WINDOWS.md default image). */
 static void open_startup_doc(app *a)
 {
-    float ds = a->win ? SDL_GetWindowDisplayScale(a->win) : 1.0f;
+    float ds = a->win ? app_ui_scale_target(a) : 1.0f;     /* lane UIA: --scale too */
     uint32_t w, h;
     app_doc *d;
     if (!(ds > 0.0f)) ds = 1.0f;
@@ -272,6 +469,9 @@ app *app_create(const app_opts *o)
     if (!a) return NULL;
     if (o) a->opts = *o;
     else app_opts_default(&a->opts);
+    /* lane UIA (wave 4): a scale given for a window overrides the display's */
+    if (!a->opts.headless && a->opts.scale > 0.0f)
+        a->uia_scale = a->opts.scale < 0.5f ? 0.5f : (a->opts.scale > 4.0f ? 4.0f : a->opts.scale);
     if (!(a->opts.scale > 0.0f)) a->opts.scale = 1.0f;
     a->active = -1;
     a->progress = 2.0f;
@@ -686,10 +886,13 @@ void app_event(app *a, const SDL_Event *e)
         a->focused = false;
         app_request_frame(a);
         break;
+    case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
+        if (a->win && e->window.windowID == SDL_GetWindowID(a->win)) apply_min_size(a, 0, 0);
+        app_request_frame(a);
+        break;
     case SDL_EVENT_WINDOW_EXPOSED:
     case SDL_EVENT_WINDOW_RESIZED:
     case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-    case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
     case SDL_EVENT_WINDOW_SHOWN:
     case SDL_EVENT_WINDOW_RESTORED:
     case SDL_EVENT_WINDOW_MAXIMIZED:
@@ -762,6 +965,7 @@ static void frame_info(app *a)
         a->fi.time_ms = a->now;
     } else {
         ui_frame_info_auto(a->ui, &a->fi);
+        if (a->uia_scale > 0.0f) a->fi.scale = a->uia_scale;    /* lane UIA: --scale */
         a->fi.time_ms = a->now;
     }
 }

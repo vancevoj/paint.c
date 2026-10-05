@@ -47,6 +47,10 @@ typedef struct app_panel {
     app_panel_def  def;         /* id and title point at the owned copies below */
     char          *id, *title;  /* owned */
     ui_panel_state st;
+    /* lane UIA (wave 4): placed by the default layout (panels.c), which
+     * fits the standard windows to the workspace without overlaps; off
+     * once the user moves or resizes the window */
+    bool           uia_auto;
 } app_panel;
 
 typedef struct app_dialog_rec {
@@ -234,6 +238,11 @@ struct app {
     pc_px32          m_cv_border;
     float            m_cv_checker;     /* Canvas: checkerboard brightness 0.25..1 (0 = 0.75) */
     bool             m_pen_off;        /* Pen & Tablet: pens act as a mouse */
+
+    /* lane UIA (wave 4): --scale in window mode overrides the display
+     * scale (0 = follow the display) */
+    float            uia_scale;
+    int32_t          uia_min_cap_w, uia_min_cap_h;   /* window minimum size caps (units) */
 };
 
 /* ---- cross-file internals --------------------------------------------------------- */
@@ -242,6 +251,35 @@ void     app_fire_hooks(app *a, app_hook_kind k, app_doc *d);
 void     app_settings_store_ui(app *a);       /* write prefs into the settings store */
 void     app_apply_theme(app *a);
 const char *app_config_path(const app *a, const char *name, char *buf, size_t cap);
+
+/* Lane UIA (wave 4): main window geometry. Window units are what
+ * SDL_CreateWindow and SDL_SetWindowSize take: pixels on Windows and X11,
+ * points on Wayland and macOS. upd is window units per DIP (the UI scale
+ * divided by the window's pixel density). Saved sizes are DIPs, so a
+ * window keeps its layout across display scales; the default size and
+ * saved sizes are clamped to the usable area of the display (an explicit
+ * --size is used as given). A saved position is kept on its display with
+ * the title bar reachable. Pure function, any thread. */
+typedef struct app_win_geom {
+    /* in */
+    SDL_Rect usable;            /* usable bounds of the target display (w <= 0: unknown) */
+    float    upd;               /* window units per DIP (<= 0: 1) */
+    int32_t  req_w, req_h;      /* --size in window units (0: none) */
+    bool     has_size;          /* a saved size */
+    double   saved_w, saved_h;  /* the saved size in DIPs */
+    bool     has_pos;           /* a saved position on some display */
+    int32_t  saved_x, saved_y;  /* window units */
+    /* out */
+    int32_t  w, h;              /* window units */
+    int32_t  x, y;
+    bool     set_pos;           /* else center on the display */
+} app_win_geom;
+void     app_window_geometry(app_win_geom *g);
+/* Window units per DIP of the main window now (1 headless). Main thread. */
+float    app_window_upd(const app *a);
+/* The UI scale the app aims for: --scale when given, else the window's
+ * display scale (headless: opts.scale). Main thread. */
+float    app_ui_scale_target(const app *a);
 
 /* cmd.c */
 void     app_cmds_free(app *a);

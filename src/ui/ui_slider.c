@@ -153,6 +153,14 @@ bool ui_slider_int(ui_ctx *ctx, const char *id, int32_t *v, int32_t min, int32_t
 }
 
 /* ---- numeric up/down ----------------------------------------------------- */
+/* Lane UIA (wave 4): a scroll region is open around the widget. */
+static bool in_scroll_area(const ui_ctx *ctx)
+{
+    for (int32_t i = 0; i < ctx->lay_depth; i++)
+        if (ctx->lay[i].kind == UI_LAY_SCROLL) return true;
+    return false;
+}
+
 static void format_num(char *out, size_t cap, double v, int decimals, uint32_t flags)
 {
     snprintf(out, cap, "%.*f%s", decimals < 0 ? 0 : decimals, v,
@@ -252,8 +260,10 @@ static bool number_rect(ui_ctx *ctx, ui_id id, ui_rect r, double *v, double min,
             ctx->edit.cursor = strlen(st->text);
         }
     }
-    /* wheel over the field */
-    if (!disabled) {
+    /* wheel over the field; lane UIA (wave 4): inside a scrolled area (a
+     * Settings page, a dialog taller than the window) only while the field
+     * has the focus, else the wheel scrolls the area, as for dropdowns */
+    if (!disabled && (focused || !in_scroll_area(ctx))) {
         ui_vec2 w = ui_wheel_take(ctx, r);
         if (w.y != 0.0f) {
             *v = round_dec(ui_clampd(*v + (w.y > 0.0f ? step : -step), min, max), decimals);

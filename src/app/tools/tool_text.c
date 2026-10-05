@@ -706,7 +706,7 @@ static void text_options(app *a, void *st)
     {
         static const char *const units[] = { "Points (image DPI)", "Fixed (96 DPI)" };
         int v = s->unit;
-        (void)app_opt_next(a, 106.0f);
+        (void)app_opt_next(a, app_opt_combo_dip(a, units, 2, 106.0f));    /* lane UIA */
         if (ui_combo(ui, "##text_unit", &v, units, 2) && v != s->unit) {
             s->unit = v;
             ch = true;
@@ -737,7 +737,7 @@ static void text_options(app *a, void *st)
     {
         static const char *const modes[] = { "Smooth", "Sharp (Modern)", "Sharp (Classic)" };
         int v = s->mode;
-        (void)app_opt_next(a, 106.0f);
+        (void)app_opt_next(a, app_opt_combo_dip(a, modes, 3, 106.0f));    /* lane UIA */
         if (ui_combo(ui, "##text_mode", &v, modes, 3) && v != s->mode) {
             s->mode = v;
             ch = true;

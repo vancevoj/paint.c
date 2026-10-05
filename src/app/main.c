@@ -12,6 +12,9 @@
  *   paintc --self-test                    open, paint, undo, redo, save and
  *                                         reload an image; exit code 0 on success
  *   options: --headless --size WxH --scale S --frames N --theme light|dark
+ *            (lane UIA: --size is the window size in window units and wins
+ *            over the saved size; --scale overrides the display scale in a
+ *            window too)
  *            --software --no-vsync --config-dir DIR --reset-windows
  *            --diagnostics --version --disable-plugins (lane F: no effect plugins)
  *            --state-dir DIR          autosave and recovery data (default:
@@ -65,10 +68,13 @@ static void usage(const char *argv0)
 {
     fprintf(stderr,
             "usage: %s [files...]\n"
-            "       %s --screenshot out.bmp [--headless] [--size WxH] [--scale S] [files...]\n"
+            "       %s --screenshot out.bmp [--headless] [files...]\n"
             "       %s --script file.txt [--headless] [files...]\n"
             "       %s --self-test [--headless]\n"
-            "options: --theme light|dark --software --no-vsync --frames N --config-dir DIR\n"
+            "options: --size WxH (window size, or the image size with --headless;\n"
+            "         overrides the saved window size) --scale S (UI scale 0.5..4,\n"
+            "         default: the display's, 1 with --headless)\n"
+            "         --theme light|dark --software --no-vsync --frames N --config-dir DIR\n"
             "         --state-dir DIR --autosave-interval SECONDS --reset-windows\n"
             "         --diagnostics --version --disable-plugins --set KEY=VALUE\n",
             argv0, argv0, argv0, argv0);
@@ -96,7 +102,7 @@ static bool parse(int argc, char **argv, cli *c)
 {
     memset(c, 0, sizeof *c);
     c->theme = -1;
-    c->scale = 1.0f;
+    c->scale = 0.0f;              /* lane UIA: not given (automatic) */
     c->frames = 4;
     c->autosave_s = -1.0;
     c->files = (const char **)calloc((size_t)(argc > 0 ? argc : 1), sizeof *c->files);
@@ -128,13 +134,22 @@ static bool parse(int argc, char **argv, cli *c)
             c->sets[c->nsets++] = v;
         }
         else if (strcmp(s, "--frames") == 0 && more) c->frames = atoi(argv[++i]);
-        else if (strcmp(s, "--scale") == 0 && more) c->scale = (float)atof(argv[++i]);
+        else if (strcmp(s, "--scale") == 0 && more) {                    /* lane UIA */
+            char *end;
+            double v = strtod(argv[++i], &end);
+            if (*end || !(v >= 0.5 && v <= 4.0)) return false;
+            c->scale = (float)v;
+        }
         else if (strcmp(s, "--theme") == 0 && more) {
             const char *t = argv[++i];
             c->theme = strcmp(t, "dark") == 0 ? APP_THEME_DARK
                        : strcmp(t, "light") == 0 ? APP_THEME_LIGHT : APP_THEME_AUTO;
         } else if (strcmp(s, "--size") == 0 && more) {
-            if (sscanf(argv[++i], "%dx%d", &c->w, &c->h) != 2) return false;
+            /* lane UIA: both sides, at least 64 (0 or junk is an error) */
+            char tail;
+            if (sscanf(argv[++i], "%dx%d%c", &c->w, &c->h, &tail) != 2 || c->w < 64 ||
+                c->h < 64)
+                return false;
         } else if (strcmp(s, "--help") == 0 || strcmp(s, "-h") == 0) {
             c->help = true;
         } else if (s[0] == '-' && s[1] == '-') {
@@ -144,7 +159,6 @@ static bool parse(int argc, char **argv, cli *c)
         }
     }
     if (c->w < 0 || c->h < 0 || c->w > 16384 || c->h > 16384) return false;
-    if (!(c->scale >= 0.5f && c->scale <= 4.0f)) c->scale = 1.0f;
     if (c->frames < 1) c->frames = 1;
     return true;
 }

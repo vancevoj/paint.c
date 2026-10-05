@@ -117,6 +117,15 @@ keyboard (Alt+H, Alt+T in the app). Menus taller than the window scroll
 its items (except inside scrolled areas). `ui_key_press.sym` is the
 character a press types with the layout's Shift / AltGr state.
 
+Wave 4 (lane UIA): a modal dialog taller than the window is as tall as the
+window and its body scrolls, buttons included (`ui_dialog_scrolled`); the
+scroll region adds no id level, so widget ids and focus survive a resize.
+Inside scrolled areas a number box takes the wheel only while it has the
+keyboard focus (like combos). Dropdown lists reserve room for their scroll
+bar and up to 16 items show without one. `ui_id_scope` /
+`ui_push_id_scope` let code inside another widget's id scope declare ids
+in an outer scope (the options bar opens its overflow popup this way).
+
 ## Implementation notes
 
 * Draw calls append triangles to per-layer draw lists (base, panels,

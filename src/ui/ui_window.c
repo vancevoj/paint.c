@@ -6,6 +6,15 @@
 #include <string.h>
 
 /* ---- dialogs ------------------------------------------------------------- */
+/* Lane UIA (wave 4): a dialog taller than the window is shrunk to the
+ * window (DLG_MARGIN on both sides) and its body scrolls, so the buttons
+ * stay reachable by scrolling (and Enter / Esc). The scroll region adds no
+ * id to the stack, so widget ids and states are the same scrolled or not.
+ * ui_state of a dialog: i[0] natural body height, i[2] shown, i[3] the
+ * body scrolls this frame, f[0..3] drag offsets. */
+#define DLG_MARGIN 8
+#define DLG_BODY_ID "##ui_dlg_body"
+
 /* Dialog rectangle from the measured content height (0 while unknown: the
  * first frame lays out hidden) and the user's drag offset. */
 static ui_rect dialog_rect(const ui_ctx *ctx, const ui_state *st, int32_t W, int32_t H,
@@ -49,6 +58,13 @@ bool ui_dialog_begin_ex(ui_ctx *ctx, const char *title, float w_dip, float h_dip
     H = h_dip > 0.0f ? ui_px(ctx, h_dip) : (st->i[0] > 0 ? th + st->i[0] : 0);
     hidden = H == 0;
     if (W > ctx->fi.width - 16) W = ctx->fi.width - 16;
+    /* lane UIA: taller than the window: as tall as the window, scrolled */
+    st->i[3] = 0;
+    if (!hidden && H > ctx->fi.height - 2 * DLG_MARGIN &&
+        ctx->fi.height - 2 * DLG_MARGIN > th + ui_px(ctx, 48.0f)) {
+        H = ctx->fi.height - 2 * DLG_MARGIN;
+        st->i[3] = 1;
+    }
     r = dialog_rect(ctx, st, W, H, th);
     ctx->dlg_id = id;
     ctx->dlg_result = 0;
@@ -89,6 +105,25 @@ bool ui_dialog_begin_ex(ui_ctx *ctx, const char *title, float w_dip, float h_dip
                       cin.held ? p->danger : ui_color_fade(p->danger, 0.85f));
     ui_draw_icon(ctx, UI_ICON_CLOSE, close_r, ui_px(ctx, 14.0f),
                  cin.hovered ? p->text_on_accent : p->text_dim, p->text_dim);
+    if (st->i[3]) {
+        /* lane UIA: the body is a scroll region with the dialog's padding
+         * inside it (half a pad on top, a pad at the bottom: ui_dialog_end) */
+        ui_rect body = ui_rect_make(r.x, r.y + th, r.w, r.h - th);
+        ui_layout *l;
+        ui_layout_root(ctx, body, 0, UI_LAY_PUSH, id);
+        ui_push_id(ctx, title);
+        ui_scroll_begin(ctx, DLG_BODY_ID, body, UI_SCROLL_NO_BG);
+        ui_pop_id(ctx);                   /* no extra id level for the content */
+        l = ui_layout_top(ctx);
+        l->rect.x += pad;
+        l->rect.w = ui_maxi(l->rect.w - 2 * pad, 1);
+        l->cx = l->rect.x;
+        l->max_x = l->rect.x;
+        l->cy += pad / 2;
+        l->row_y = l->cy;
+        l->max_y = l->cy;
+        return true;
+    }
     ui_layout_root(ctx, ui_rect_make(r.x, r.y + th, r.w, r.h - th), pad, UI_LAY_PUSH, id);
     ui_layout_top(ctx)->rect.y -= pad / 2;
     ui_layout_top(ctx)->cy -= pad / 2;
@@ -96,6 +131,12 @@ bool ui_dialog_begin_ex(ui_ctx *ctx, const char *title, float w_dip, float h_dip
     ui_layout_top(ctx)->max_y = ui_layout_top(ctx)->cy;
     ui_push_id(ctx, title);
     return true;
+}
+
+bool ui_dialog_scrolled(ui_ctx *ctx, const char *title)
+{
+    ui_state *st = ui_state_find(ctx, ui_get_id(ctx, title));
+    return st && st->i[3] != 0;
 }
 
 static const char *button_label(uint32_t b)
@@ -142,7 +183,17 @@ uint32_t ui_dialog_end(ui_ctx *ctx)
     uint32_t r = ctx->dlg_result, buttons = ctx->dlg_buttons_def >> 8,
              def = ctx->dlg_buttons_def & 0xFFu;
     if (!id) return 0;
-    h = (l->max_y - l->rect.y) + pad + pad / 2;
+    if (st && st->i[3] && l->kind == UI_LAY_SCROLL) {
+        /* lane UIA: the natural body height is the scrolled content with
+         * its padding; the region's own id comes back for its pop */
+        ui_layout_extend(ctx, ui_rect_make(l->rect.x, l->max_y, 0, pad));
+        h = l->max_y - l->rect.y;
+        ui_push_id(ctx, DLG_BODY_ID);
+        ui_scroll_end(ctx);
+        l = ui_layout_top(ctx);
+    } else {
+        h = (l->max_y - l->rect.y) + pad + pad / 2;
+    }
     if (st && st->i[0] != h) { st->i[0] = h; ctx->want_frame = true; }
     /* lane SHELL: with dialogs stacked (an error over Save Configuration)
      * only the topmost one takes Enter and Escape */

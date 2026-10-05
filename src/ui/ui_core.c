@@ -438,6 +438,10 @@ void ui_pop_id(ui_ctx *ctx)
     if (ctx->id_depth > 0) ctx->id_depth--;
 }
 
+/* lane UIA (wave 4) */
+ui_id ui_id_scope(const ui_ctx *ctx) { return seed(ctx); }
+void ui_push_id_scope(ui_ctx *ctx, ui_id scope) { push_raw(ctx, scope); }
+
 const char *ui_label_end(const char *label)
 {
     const char *p = label;

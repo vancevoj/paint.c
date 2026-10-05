@@ -89,6 +89,14 @@ float app_panel_alpha(app *a, int32_t index, ui_rect pr, bool held)
     if (!s->off && !app_dialog_active(a) && !ui_rect_empty(ui_rect_intersect(pr, dr)) && !held &&
         !(ui_rect_contains(pr, m.x, m.y) && !a->cv.captured))
         target = PANEL_MIN_ALPHA;
+    /* lane UIA (wave 4): a window over another window stays opaque, so
+     * the one below does not show through it (only the image may) */
+    for (int32_t i = 0; i < a->npanels && target < 1.0f; i++) {
+        ui_rect o;
+        if (i == index || !a->panels[i].st.open) continue;
+        o = ui_panel_rect(ui, a->panels[i].title);
+        if (!ui_rect_empty(o) && !ui_rect_empty(ui_rect_intersect(pr, o))) target = 1.0f;
+    }
     cur = s->alpha[index];
     dt = s->ms[index] && now > s->ms[index] ? (float)(now - s->ms[index]) * 0.001f : 0.0f;
     if (dt > 0.1f) dt = 0.1f;
