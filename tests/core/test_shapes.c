@@ -419,6 +419,20 @@ static void t_handles(void)
     }
 }
 
+/* Many small rotations keep the transform rigid and the size exact. */
+static void t_rigid(void)
+{
+    pc_shape s;
+    pc_shape_init(&s, PC_SHAPE_RECTANGLE, NULL);
+    pc_shape_from_drag(&s, pc_pt_make(10, 20), pc_pt_make(110, 70), 0u);
+    for (int i = 0; i < 3600; i++) pc_shape_rotate(&s, 0.1 * PI / 180.0 + 1e-7, pc_shape_pivot(&s));
+    CHECK(e3_near(s.xf.a * s.xf.a + s.xf.b * s.xf.b, 1.0, 1e-15));
+    CHECK(s.xf.a == s.xf.d && s.xf.b == -s.xf.c);
+    CHECK(e3_near(hypot(pc_shape_nub(&s, 4).x - pc_shape_nub(&s, 0).x,
+                        pc_shape_nub(&s, 4).y - pc_shape_nub(&s, 0).y), hypot(100, 50), 1e-9));
+    CHECK(e3_near(pc_shape_center(&s).x, 60.0, 1e-9) && e3_near(pc_shape_center(&s).y, 45.0, 1e-9));
+}
+
 static void t_drags(void)
 {
     pc_shape s, keep;
@@ -1089,6 +1103,7 @@ int main(int argc, char **argv)
     RUN(t_coverage);
     RUN(t_dash_split);
     RUN(t_handles);
+    RUN(t_rigid);
     RUN(t_drags);
     RUN(t_snap);
     RUN(t_render_basic);

@@ -283,7 +283,14 @@ void pc_shape_translate(pc_shape *s, double dx, double dy)
 void pc_shape_rotate(pc_shape *s, double rad, pc_pt about)
 {
     pc_affine r = pc_affine_rotate_about(rad, about.x, about.y);
+    double ang;
     s->xf = pc_affine_compose(&r, &s->xf);
+    /* keep xf exactly rigid however many rotations accumulate */
+    ang = atan2(s->xf.b, s->xf.a);
+    s->xf.a = cos(ang);
+    s->xf.b = sin(ang);
+    s->xf.c = -s->xf.b;
+    s->xf.d = s->xf.a;
     if (s->pivot_custom) s->pivot = pc_affine_apply(&r, s->pivot);
     else s->pivot = pc_shape_center(s);
 }
