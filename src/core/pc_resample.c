@@ -645,13 +645,20 @@ typedef struct wp_ctx {
     float          mid[255];
 } wp_ctx;
 
+/* sRGB decode for the Rotate/Zoom linear-light tables (W3B-SHELL; the resize
+ * path uses the image profile's curve through pc_trc instead). */
+static double wp_srgb_to_linear(double v)
+{
+    return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4);
+}
+
 static void wp_lin_tables(wp_ctx *c)
 {
     c->lin = true;
     for (uint32_t i = 0; i < 256u; i++)
-        c->s2l[i] = (float)(255.0 * srgb_to_linear((double)i / 255.0));
+        c->s2l[i] = (float)(255.0 * wp_srgb_to_linear((double)i / 255.0));
     for (uint32_t i = 0; i < 255u; i++)
-        c->mid[i] = (float)(255.0 * srgb_to_linear(((double)i + 0.5) / 255.0));
+        c->mid[i] = (float)(255.0 * wp_srgb_to_linear(((double)i + 0.5) / 255.0));
 }
 
 /* 255 * linear -> nearest sRGB code (rounded in the encoded domain). */

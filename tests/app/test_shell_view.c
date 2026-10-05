@@ -125,14 +125,14 @@ static void t_home_twice(void)
     CHECK(near(d->view.cx, x1, 1e-9) && near(d->view.cy, hh, 1e-9));
     tap(a, SDLK_END, SDL_KMOD_NONE);               /* second End: bottom right */
     CHECK(near(d->view.cx, 3000.0 - hw, 1e-9) && near(d->view.cy, 2000.0 - hh, 1e-9));
-    /* a view change between the presses makes the next Home a first one */
+    /* 3.36 rule (cmd.c edge_key): Home at the left edge already goes to the
+     * top left corner, whatever happened in between */
     tap(a, SDLK_HOME, SDL_KMOD_NONE);
     cy = d->view.cy;
     tap(a, SDLK_PAGEUP, SDL_KMOD_NONE);
     CHECK(d->view.cy < cy);
-    cy = d->view.cy;
     tap(a, SDLK_HOME, SDL_KMOD_NONE);
-    CHECK(near(d->view.cx, x0, 1e-9) && near(d->view.cy, cy, 1e-9));
+    CHECK(near(d->view.cx, hw, 1e-9) && near(d->view.cy, hh, 1e-9));
     app_destroy(a);
 }
 
