@@ -236,17 +236,18 @@ static void t_dispatch(void)
     app_destroy(a);
 }
 
-/* Dummy tools sharing a letter, in Tools window order. */
-static const app_tool k_s1 = { "t_rect", "Rect", NULL, 'S', 1, UI_ICON_TOOL_RECT_SELECT,
+/* Dummy tools sharing a letter, in Tools window order. Lane A: the letter is J
+ * because the real selection tools now own S (their cycle is in test_a_select). */
+static const app_tool k_s1 = { "t_rect", "Rect", NULL, 'J', 1, UI_ICON_TOOL_RECT_SELECT,
                                APP_CURSOR_CROSSHAIR, 0u, 0, NULL, NULL, NULL, NULL, NULL, NULL,
                                NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
-static const app_tool k_s3 = { "t_lasso", "Lasso", NULL, 'S', 3, UI_ICON_TOOL_LASSO_SELECT,
+static const app_tool k_s3 = { "t_lasso", "Lasso", NULL, 'J', 3, UI_ICON_TOOL_LASSO_SELECT,
                                APP_CURSOR_CROSSHAIR, 0u, 0, NULL, NULL, NULL, NULL, NULL, NULL,
                                NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
-static const app_tool k_s5 = { "t_ellipse", "Ellipse", NULL, 'S', 5, UI_ICON_TOOL_ELLIPSE_SELECT,
+static const app_tool k_s5 = { "t_ellipse", "Ellipse", NULL, 'J', 5, UI_ICON_TOOL_ELLIPSE_SELECT,
                                APP_CURSOR_CROSSHAIR, 0u, 0, NULL, NULL, NULL, NULL, NULL, NULL,
                                NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
-static const app_tool k_s7 = { "t_wand", "Wand", NULL, 'S', 7, UI_ICON_TOOL_MAGIC_WAND,
+static const app_tool k_s7 = { "t_wand", "Wand", NULL, 'J', 7, UI_ICON_TOOL_MAGIC_WAND,
                                APP_CURSOR_CROSSHAIR, 0u, 0, NULL, NULL, NULL, NULL, NULL, NULL,
                                NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
 
@@ -265,26 +266,26 @@ static void t_tool_letters(void)
         CHECK(app_tool_at(a, i - 1)->order <= app_tool_at(a, i)->order);
     CHECK(strcmp(cur(a), "paintbrush") == 0);           /* default tool */
     a->now = 10000;
-    CHECK(app_key_press(a, 's', 0u, false) && strcmp(cur(a), "t_rect") == 0);
+    CHECK(app_key_press(a, 'j', 0u, false) && strcmp(cur(a), "t_rect") == 0);
     a->now += 300;
-    CHECK(app_key_press(a, 's', 0u, false) && strcmp(cur(a), "t_lasso") == 0);
+    CHECK(app_key_press(a, 'j', 0u, false) && strcmp(cur(a), "t_lasso") == 0);
     a->now += 300;
-    CHECK(app_key_press(a, 's', 0u, false) && strcmp(cur(a), "t_ellipse") == 0);
+    CHECK(app_key_press(a, 'j', 0u, false) && strcmp(cur(a), "t_ellipse") == 0);
     a->now += 300;
-    CHECK(app_key_press(a, 's', 0u, false) && strcmp(cur(a), "t_wand") == 0);
+    CHECK(app_key_press(a, 'j', 0u, false) && strcmp(cur(a), "t_wand") == 0);
     a->now += 300;
-    CHECK(app_key_press(a, 's', 0u, false) && strcmp(cur(a), "t_rect") == 0);   /* wraps */
+    CHECK(app_key_press(a, 'j', 0u, false) && strcmp(cur(a), "t_rect") == 0);   /* wraps */
     /* after the cycle window the first tool comes back */
     a->now += 300;
-    CHECK(app_key_press(a, 's', 0u, false) && strcmp(cur(a), "t_lasso") == 0);
+    CHECK(app_key_press(a, 'j', 0u, false) && strcmp(cur(a), "t_lasso") == 0);
     a->now += 5000;
-    CHECK(app_key_press(a, 's', 0u, false) && strcmp(cur(a), "t_rect") == 0);
-    /* Shift reverses: from another tool, Shift+S picks the last S tool */
+    CHECK(app_key_press(a, 'j', 0u, false) && strcmp(cur(a), "t_rect") == 0);
+    /* Shift reverses: from another tool, Shift+J picks the last J tool */
     CHECK(app_key_press(a, 'p', 0u, false) && strcmp(cur(a), "pencil") == 0);
     a->now += 300;
-    CHECK(app_key_press(a, 's', UI_MOD_SHIFT, false) && strcmp(cur(a), "t_wand") == 0);
+    CHECK(app_key_press(a, 'j', UI_MOD_SHIFT, false) && strcmp(cur(a), "t_wand") == 0);
     a->now += 300;
-    CHECK(app_key_press(a, 's', UI_MOD_SHIFT, false) && strcmp(cur(a), "t_ellipse") == 0);
+    CHECK(app_key_press(a, 'j', UI_MOD_SHIFT, false) && strcmp(cur(a), "t_ellipse") == 0);
     /* single-letter tools */
     CHECK(app_key_press(a, 'b', 0u, false) && strcmp(cur(a), "paintbrush") == 0);
     CHECK(app_key_press(a, 'h', 0u, false) && strcmp(cur(a), "pan") == 0);

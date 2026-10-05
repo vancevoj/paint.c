@@ -13,7 +13,7 @@
 #define PI 3.14159265358979323846
 
 #define NUB_HIT_DIP     7.0f
-#define ANCHOR_HIT_DIP  8.0f
+#define ANCHOR_HIT_DIP  6.0f
 #define ICON_HIT_DIP    9.0f
 #define ICON_OFF_DIP    18.0f
 #define CORRIDOR_DIP    22.0f

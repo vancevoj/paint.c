@@ -56,6 +56,17 @@ static inline pc_px32 a_lpx(app *a, uint32_t x, uint32_t y)
     return pc_layer_get_px(app_doc_layer(d), x, y);
 }
 
+/* Active layer pixel as shown, through an open transaction (live edits). */
+static inline pc_px32 a_live_px(app *a, int32_t x, int32_t y)
+{
+    app_doc *d = a_doc(a);
+    pc_px32 p;
+    memset(&p, 0, sizeof p);
+    if (d->txn) (void)pc_txn_read_rect(d->txn, d->layer_id, pc_rect_make(x, y, 1, 1), &p, 1u);
+    else p = pc_layer_get_px(app_doc_layer(d), (uint32_t)x, (uint32_t)y);
+    return p;
+}
+
 static inline uint8_t a_cov(app *a, int32_t x, int32_t y)
 {
     return pc_sel_coverage(a_doc(a)->doc, x, y);

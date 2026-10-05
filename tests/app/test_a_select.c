@@ -442,6 +442,12 @@ static void t_cycle(void)
         a_key(a, SDLK_S, SDL_KMOD_NONE);
         CHECK(strcmp(app_tool_current(a)->id, order[i]) == 0);
     }
+    /* Shift reverses: Magic Wand first, then Ellipse Select */
+    CHECK(app_tool_select(a, "paintbrush"));
+    a_key(a, SDLK_S, SDL_KMOD_LSHIFT);
+    CHECK(strcmp(app_tool_current(a)->id, "magic_wand") == 0);
+    a_key(a, SDLK_S, SDL_KMOD_LSHIFT);
+    CHECK(strcmp(app_tool_current(a)->id, "ellipse_select") == 0);
     a_key(a, SDLK_M, SDL_KMOD_NONE);
     CHECK(strcmp(app_tool_current(a)->id, "move_pixels") == 0);
     a_key(a, SDLK_M, SDL_KMOD_NONE);
