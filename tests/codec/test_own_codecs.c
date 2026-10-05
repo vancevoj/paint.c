@@ -187,6 +187,9 @@ static const fixture k_fix[] = {
     { "tif_im_packbits.tif", "tiff", PC_OK, E_RGBA, 19, 13, 0, "", true },
     { "tif_im_strips_lzw.tif", "tiff", PC_OK, E_RGBA, 19, 13, 0, "", true },
     { "tif_im_float.tif", "tiff", PC_OK, E_RGBA, 19, 13, 1, "", true },
+    { "tif_im_half_pred3.tif", "tiff", PC_OK, E_RGBA, 19, 13, 0, "", true },
+    { "tif_im_float_pred3_tiled.tif", "tiff", PC_OK, E_RGBA, 19, 13, 1, "", true },
+    { "tif_im_double_pred2.tif", "tiff", PC_OK, E_RGBA, 19, 13, 1, "", true },
     { "tif_im_multipage.tif", "tiff", PC_OK, E_RGBA, 19, 13, 0, "first of 2 pages", true },
 };
 

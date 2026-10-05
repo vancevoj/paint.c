@@ -478,6 +478,162 @@ static void t_float(void)
     pc_buf_free(&b);
 }
 
+/* ---- floating point samples: 16/32/64-bit, predictor 3 ------------------------- */
+/* Test-side reference: value of a sample bit pattern, and its 8-bit result. */
+static double fp_value(uint64_t bits, uint32_t bps)
+{
+    if (bps == 16u) {
+        uint32_t e = (uint32_t)(bits >> 10) & 31u, m = (uint32_t)bits & 1023u;
+        double v = e == 31u ? (m ? NAN : INFINITY)
+                 : e == 0u ? ldexp((double)m, -24) : ldexp((double)(m | 1024u), (int)e - 25);
+        return (bits & 0x8000u) ? -v : v;
+    }
+    if (bps == 32u) {
+        uint32_t u = (uint32_t)bits;
+        float f;
+        memcpy(&f, &u, 4);
+        return (double)f;
+    }
+    {
+        double d;
+        memcpy(&d, &bits, 8);
+        return d;
+    }
+}
+
+static uint32_t fp_to8(double v)
+{
+    uint32_t v16 = !(v > 0.0) ? 0u : v >= 1.0 ? 65535u : (uint32_t)(v * 65535.0 + 0.5);
+    return (v16 * 255u + 32767u) / 65535u;
+}
+
+static uint64_t fp_random(uint32_t bps)
+{
+    uint32_t r = rndu(20);
+    double v = (double)rndu(1u << 20) / (double)(1u << 20) * 1.4 - 0.2;   /* -0.2 .. 1.2 */
+    if (bps == 16u) {
+        static const uint16_t special[] = { 0x0000, 0x3C00, 0x7C00, 0xFC00, 0x7E00, 0x0001,
+                                            0x03FF, 0x8001, 0x3BFF, 0x3800 };
+        if (r < 10u) return special[r];
+        return (uint64_t)(rndu(16u) << 10 | rndu(1024u)) | (rndu(8) == 0 ? 0x8000u : 0u);
+    }
+    if (bps == 32u) {
+        float f = (float)v;
+        uint32_t u;
+        if (r == 0u) return 0x7FC00000u;                                  /* NaN */
+        if (r == 1u) return 0x7F800000u;                                  /* +inf */
+        memcpy(&u, &f, 4);
+        return u;
+    }
+    {
+        uint64_t u;
+        if (r == 0u) return 0x7FF8000000000000ull;
+        memcpy(&u, &v, 8);
+        return u;
+    }
+}
+
+static void put_bits(uint8_t *p, uint64_t bits, uint32_t bytes, bool be)
+{
+    for (uint32_t k = 0; k < bytes; k++)
+        p[be ? k : bytes - 1u - k] = (uint8_t)(bits >> (8u * (bytes - 1u - k)));
+}
+
+/* Floating point predictor of one row of wc words (TIFF Technical Note 3). */
+static void fp_predict(uint8_t *row, size_t wc, uint32_t bytes, uint32_t stride, bool be)
+{
+    size_t cc = wc * bytes;
+    uint8_t *tmp = (uint8_t *)malloc(cc);
+    for (size_t c = 0; c < wc; c++)
+        for (uint32_t k = 0; k < bytes; k++)         /* plane k = k-th most significant byte */
+            tmp[k * wc + c] = row[c * bytes + (be ? k : bytes - 1u - k)];
+    for (size_t i = cc; i-- > stride;) tmp[i] = (uint8_t)(tmp[i] - tmp[i - stride]);
+    memcpy(row, tmp, cc);
+    free(tmp);
+}
+
+static void t_float_formats(void)
+{
+    const uint32_t W = 23, H = 9, SPP = 4;          /* RGB + unassociated alpha */
+    int cases = 0, bad = 0;
+    CHECK(W * SPP <= 128u);                         /* fits the row word buffer */
+    for (uint32_t bi = 0; bi < 3; bi++) {
+        const uint32_t bps = 16u << bi, bytes = bps / 8u;
+        const uint64_t mask = bps == 64u ? ~(uint64_t)0 : ((uint64_t)1 << bps) - 1u;
+        for (int v = 0; v < 24; v++) {
+            bool be = v & 1, planar = (v >> 1) & 1, tiled = (v >> 2) & 1;
+            uint32_t pred = 1u + (uint32_t)v / 8u, comp = pred > 1u ? ((v & 1) ? 8u : 5u) : 1u;
+            uint32_t planes = planar ? SPP : 1u, per = planar ? 1u : SPP;
+            uint32_t TW = tiled ? 16u : W, TH = tiled ? 16u : H;
+            uint32_t across = (W + TW - 1u) / TW, down = (H + TH - 1u) / TH;
+            uint64_t *smp = (uint64_t *)malloc(sizeof(uint64_t) * W * H * SPP);
+            size_t rb = (size_t)TW * per * bytes;
+            uint8_t *seg = (uint8_t *)calloc(rb * TH, 1);
+            uint64_t words[128];
+            pc_buf segs[64], b;
+            pc_px32 *got;
+            bool ok = true;
+            int ns = 0;
+            tb t;
+            for (uint32_t i = 0; i < W * H * SPP; i++) smp[i] = fp_random(bps);
+            tb_init(&t, be);
+            tb_basic(&t, W, H, bps, SPP, 2, comp, 0);
+            tb_1(&t, 339, 3, 3);
+            tb_1(&t, 338, 3, 2);
+            if (planar) tb_1(&t, 284, 3, 2);
+            if (pred != 1u) tb_1(&t, 317, 3, pred);
+            if (tiled) { t.tiles = true; tb_1(&t, 322, 3, TW); tb_1(&t, 323, 3, TH); }
+            for (uint32_t p = 0; p < planes; p++)
+                for (uint32_t ty = 0; ty < down; ty++)
+                    for (uint32_t tx = 0; tx < across; tx++) {
+                        memset(seg, 0x3C, rb * TH);
+                        for (uint32_t r = 0; r < TH && TW * per <= 128u; r++) {
+                            uint8_t *row = seg + rb * r;
+                            uint32_t nw = TW * per;
+                            for (uint32_t c = 0; c < TW; c++)
+                                for (uint32_t k = 0; k < per; k++) {
+                                    uint32_t x = tx * TW + c, y = ty * TH + r;
+                                    uint32_t sk = planar ? p : k;
+                                    words[c * per + k] = x < W && y < H
+                                        ? smp[((size_t)y * W + x) * SPP + sk]
+                                        : (uint64_t)0x3C3C3C3C3C3C3C3Cull & mask;
+                                }
+                            if (pred == 2u)                 /* integer differencing */
+                                for (uint32_t i = nw; i-- > per;)
+                                    words[i] = (words[i] - words[i - per]) & mask;
+                            for (uint32_t i = 0; i < nw; i++)
+                                put_bits(row + (size_t)i * bytes, words[i], bytes, be);
+                            if (pred == 3u) fp_predict(row, nw, bytes, per, be);
+                        }
+                        encode_seg(&segs[ns], seg, rb * TH, comp);
+                        tb_seg(&t, segs[ns].p, segs[ns].n);
+                        ns++;
+                    }
+            tb_build(&b, &t);
+            got = load_px(&b, W, H, NULL, NULL);
+            for (uint32_t i = 0; got && i < W * H; i++) {
+                const uint64_t *q = smp + (size_t)i * SPP;
+                pc_px32 want = mkpx(fp_to8(fp_value(q[0], bps)), fp_to8(fp_value(q[1], bps)),
+                                    fp_to8(fp_value(q[2], bps)), fp_to8(fp_value(q[3], bps)));
+                ok = ok && px_same(got[i], want);
+            }
+            cases++;
+            if (!got || !ok) {
+                bad++;
+                INFO("float bps %u be %d planar %d pred %u tiled %d: %s", bps, be, planar, pred,
+                     tiled, got ? "pixels differ" : "load failed");
+            }
+            CHECK(got && ok);
+            free(got);
+            for (int i = 0; i < ns; i++) pc_buf_free(&segs[i]);
+            pc_buf_free(&b);
+            free(seg);
+            free(smp);
+        }
+    }
+    INFO("%d float layouts, %d differ", cases, bad);
+}
+
 static void t_compression(void)
 {
     static const uint32_t comps[] = { 1, 5, 50, 32773, 8, 32946 };
@@ -1021,7 +1177,7 @@ static void t_bad(void)
         { "jpeg", 0, PC_ERR_UNSUPPORTED }, { "ccitt", 1, PC_ERR_UNSUPPORTED },
         { "ycbcr", 2, PC_ERR_UNSUPPORTED }, { "cielab", 3, PC_ERR_UNSUPPORTED },
         { "bps mismatch", 4, PC_ERR_UNSUPPORTED }, { "bps 3", 5, PC_ERR_UNSUPPORTED },
-        { "signed", 6, PC_ERR_UNSUPPORTED }, { "half float", 7, PC_ERR_UNSUPPORTED },
+        { "signed", 6, PC_ERR_UNSUPPORTED }, { "8-bit float", 7, PC_ERR_UNSUPPORTED },
         { "rgb spp 2", 8, PC_ERR_FORMAT }, { "palette no map", 9, PC_ERR_FORMAT },
         { "short map", 10, PC_ERR_FORMAT }, { "planar 3", 11, PC_ERR_FORMAT },
         { "predictor 3", 12, PC_ERR_UNSUPPORTED }, { "pred 2 on 4-bit", 13, PC_ERR_UNSUPPORTED },
@@ -1029,6 +1185,8 @@ static void t_bad(void)
         { "tile width 0", 16, PC_ERR_FORMAT }, { "spp 40", 17, PC_ERR_UNSUPPORTED },
         { "no width", 18, PC_ERR_FORMAT }, { "no offsets", 19, PC_ERR_FORMAT },
         { "inkset 2", 20, PC_ERR_UNSUPPORTED }, { "palette 16-bit", 21, PC_ERR_UNSUPPORTED },
+        { "64-bit integer", 22, PC_ERR_UNSUPPORTED }, { "pred 3 on 16-bit int", 23, PC_ERR_UNSUPPORTED },
+        { "predictor 4", 24, PC_ERR_UNSUPPORTED },
     };
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
         int k = cases[i].k;
@@ -1046,16 +1204,19 @@ static void t_bad(void)
             uint32_t ph = (k == 2) ? 6u : (k == 3) ? 8u : (k == 9 || k == 10 || k == 21) ? 3u
                         : (k == 4 || k == 8) ? 2u : (k == 20) ? 5u : 1u;
             uint32_t spp = k == 4 ? 3u : k == 8 ? 2u : k == 17 ? 40u : k == 20 ? 4u : 1u;
-            uint32_t bps = k == 5 ? 3u : k == 7 ? 16u : (k == 13) ? 4u : k == 21 ? 16u : 8u;
-            uint32_t comp = k == 0 ? 7u : k == 1 ? 3u : (k == 12 || k == 13) ? 5u : 1u;
+            uint32_t bps = k == 5 ? 3u : (k == 13) ? 4u : k == 21 ? 16u
+                         : k == 22 ? 64u : k == 23 ? 16u : k == 24 ? 32u : 8u;
+            uint32_t comp = k == 0 ? 7u : k == 1 ? 3u : (k == 12 || k == 13 || k >= 23) ? 5u : 1u;
             uint32_t dim = k == 15 ? 65535u : 4u;
             tb_basic(&t, dim, dim, bps, spp, ph, comp, k == 14 ? 1u : 0u);
             if (k == 6) tb_1(&t, 339, 3, 2);
-            if (k == 7) tb_1(&t, 339, 3, 3);
+            if (k == 7 || k == 24) tb_1(&t, 339, 3, 3);
             if (k == 10) { uint32_t cm[6] = { 1, 2, 3, 4, 5, 6 }; tb_add(&t, 320, 3, 6, cm); }
             if (k == 11) tb_1(&t, 284, 3, 3);
             if (k == 12) tb_1(&t, 317, 3, 3);
             if (k == 13) tb_1(&t, 317, 3, 2);
+            if (k == 23) tb_1(&t, 317, 3, 3);
+            if (k == 24) tb_1(&t, 317, 3, 4);
             if (k == 16) { t.tiles = true; tb_1(&t, 322, 3, 0); tb_1(&t, 323, 3, 16); }
             if (k == 20) tb_1(&t, 332, 3, 2);
         }
@@ -1339,9 +1500,12 @@ static void make_seeds(seedset *ss)
         }
         free(s);
     }
-    {   /* the third-party CCITT fixtures */
+    {   /* third-party fixtures: CCITT, fill order 2, float samples and predictor 3 */
         static const char *const files[] = { "tif_pil_g4.tif", "tif_pil_g3_2d.tif",
-                                             "tif_pil_ccitt_rle.tif", "tif_im_fax.tif" };
+                                             "tif_pil_ccitt_rle.tif", "tif_im_fax.tif",
+                                             "tif_im_g4_lsb.tif", "tif_im_half_pred3.tif",
+                                             "tif_im_float_pred3_tiled.tif",
+                                             "tif_im_double_pred2.tif" };
         for (size_t i = 0; i < sizeof files / sizeof files[0]; i++) {
             size_t n;
             uint8_t *p = read_fixture(files[i], &n);
@@ -1368,6 +1532,7 @@ static void tests(void)
 {
     RUN(t_photometric);
     RUN(t_float);
+    RUN(t_float_formats);
     RUN(t_compression);
     RUN(t_tiles);
     RUN(t_orientation_and_meta);

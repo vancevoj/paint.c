@@ -156,6 +156,17 @@ def main():
            'tif_im_strips_lzw.tif')
     magick('rgba', ['-depth', '32', '-define', 'quantum:format=floating-point'],
            'tif_im_float.tif')
+    magick('rgba', ['-depth', '16', '-define', 'quantum:format=floating-point',
+                    '-compress', 'Zip', '-define', 'tiff:predictor=3'], 'tif_im_half_pred3.tif')
+    magick('rgba', ['-depth', '32', '-define', 'quantum:format=floating-point',
+                    '-define', 'tiff:tile-geometry=16x16', '-compress', 'LZW',
+                    '-define', 'tiff:predictor=3'],
+           'tif_im_float_pred3_tiled.tif')
+    # (ImageMagick 7.1.1 writes predictor 3 wrongly with -endian MSB: libtiff
+    # cannot read those back either; the hand-built tests cover big endian.)
+    magick('rgba', ['-depth', '64', '-define', 'quantum:format=floating-point',
+                    '-compress', 'LZW', '-define', 'tiff:predictor=2'],
+           'tif_im_double_pred2.tif')
     with tempfile.TemporaryDirectory() as td:
         a, b = os.path.join(td, 'a.png'), os.path.join(td, 'b.png')
         Image.fromarray(pat('rgba'), 'RGBA').save(a)

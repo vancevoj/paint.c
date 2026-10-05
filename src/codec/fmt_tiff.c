@@ -4,11 +4,11 @@
  * configuration 1 and 2; compression none, LZW (including the old
  * bit-reversed variant), PackBits, Deflate (8 and 32946, zlib), CCITT
  * Modified Huffman (2, 32771), T.4 Group 3 1D/2D (3) and T.6 Group 4 (4)
- * for 1-bit images; horizontal predictor 2 for 8/16/32-bit samples; fill
- * order 2; photometric min-is-white, min-is-black, RGB, palette and
- * separated CMYK (converted to RGB without color management);
- * 1/2/4/8/16/32-bit unsigned samples and
- * 32-bit IEEE float, reduced to 8 bits with rounding; extra samples
+ * for 1-bit images; horizontal predictor 2 for 8/16/32/64-bit samples and the
+ * floating point predictor 3; fill order 2; photometric min-is-white,
+ * min-is-black, RGB, palette and separated CMYK (converted to RGB without
+ * color management); 1/2/4/8/16/32-bit unsigned samples and 16/32/64-bit
+ * IEEE float (0.0 to 1.0), reduced to 8 bits with rounding; extra samples
  * (associated alpha is converted to straight alpha, unassociated alpha is
  * kept, unspecified extra samples are ignored; RGB with four samples and no
  * ExtraSamples tag is associated alpha, as libtiff assumes); orientation
@@ -780,9 +780,25 @@ static bool seg_read(seg *s, uint8_t *dst, size_t n)
 }
 
 /* ---- sample conversion -------------------------------------------------------- */
-static void predict_row(const tif *t, uint8_t *b, uint32_t npx, uint32_t stride)
+/* Undo the predictor of one row of npx pixels (stride samples each) in b.
+ * Predictor 2 adds each sample to the one stride samples before it;
+ * predictor 3 (floating point, TIFF Technical Note 3) adds bytes, then
+ * gathers the byte planes (most significant first) back into samples in
+ * the file's byte order, using scratch (npx * stride * bps / 8 bytes). */
+static void predict_row(const tif *t, uint8_t *b, uint8_t *scratch, uint32_t npx,
+                        uint32_t stride)
 {
     uint64_t ns = (uint64_t)npx * stride;
+    if (t->pred == 3u) {
+        uint32_t bytes = t->bps / 8u;
+        size_t wc = (size_t)ns, cc = wc * bytes;
+        for (size_t i = stride; i < cc; i++) b[i] = (uint8_t)(b[i] + b[i - stride]);
+        memcpy(scratch, b, cc);
+        for (size_t c = 0; c < wc; c++)
+            for (uint32_t k = 0; k < bytes; k++)
+                b[(size_t)bytes * c + k] = scratch[(size_t)(t->be ? k : bytes - 1u - k) * wc + c];
+        return;
+    }
     if (t->bps == 8u) {
         for (uint64_t i = stride; i < ns; i++) b[i] = (uint8_t)(b[i] + b[i - stride]);
     } else if (t->bps == 16u) {
@@ -793,6 +809,18 @@ static void predict_row(const tif *t, uint8_t *b, uint32_t npx, uint32_t stride)
             v = (v + u) & 0xFFFFu;
             if (t->be) { q[0] = (uint8_t)(v >> 8); q[1] = (uint8_t)v; }
             else { q[0] = (uint8_t)v; q[1] = (uint8_t)(v >> 8); }
+        }
+    } else if (t->bps == 64u) {
+        for (uint64_t i = stride; i < ns; i++) {
+            uint8_t *q = b + i * 8u, *r = b + (i - stride) * 8u;
+            uint64_t v = 0, u = 0;
+            for (uint32_t k = 0; k < 8u; k++) {
+                uint32_t at = t->be ? k : 7u - k;
+                v = (v << 8) | q[at];
+                u = (u << 8) | r[at];
+            }
+            v += u;
+            for (uint32_t k = 0; k < 8u; k++) q[t->be ? 7u - k : k] = (uint8_t)(v >> (8u * k));
         }
     } else if (t->bps == 32u) {
         for (uint64_t i = stride; i < ns; i++) {
@@ -840,7 +868,37 @@ static uint32_t raw_sample(const tif *t, const uint8_t *b, uint64_t i)
     }
 }
 
-/* Sample value normalized to 0..65535. */
+/* Floating point sample (0.0 = black, 1.0 = full) to 0..65535; negative
+ * values and NaN are 0, values above 1 saturate. */
+static uint32_t unit16(double f)
+{
+    if (!(f > 0.0)) return 0u;
+    if (f >= 1.0) return 65535u;
+    return (uint32_t)(f * 65535.0 + 0.5);
+}
+
+/* IEEE 754 half precision bits to double (exact; no libm needed). */
+static double half_to_double(uint32_t h)
+{
+    uint32_t e = (h >> 10) & 31u, m = h & 1023u;
+    double v;
+    if (e == 31u) v = m ? 0.0 : 1e300;                          /* NaN reads as 0 */
+    else if (e == 0u) v = (double)m / 16777216.0;               /* subnormal: m * 2^-24 */
+    else v = (double)(m | 1024u) * (double)(1u << e) / 33554432.0;   /* * 2^(e - 25) */
+    return (h & 0x8000u) ? -v : v;
+}
+
+static double rd_double(const tif *t, const uint8_t *b, uint64_t i)
+{
+    const uint8_t *q = b + i * 8u;
+    uint64_t v = 0;
+    double f;
+    for (uint32_t k = 0; k < 8u; k++) v = (v << 8) | q[t->be ? k : 7u - k];
+    memcpy(&f, &v, sizeof f);
+    return f;
+}
+
+/* Sample value (bps <= 32) normalized to 0..65535. */
 static uint32_t norm16(const tif *t, uint32_t v)
 {
     switch (t->bps) {
@@ -848,14 +906,12 @@ static uint32_t norm16(const tif *t, uint32_t v)
     case 2: return v * 21845u;
     case 4: return v * 4369u;
     case 8: return v * 257u;
-    case 16: return v;
+    case 16: return t->sfmt == 3u ? unit16(half_to_double(v)) : v;
     default:
         if (t->sfmt == 3u) {
             float f;
             memcpy(&f, &v, sizeof f);
-            if (!(f > 0.0f)) return 0u;                 /* also NaN */
-            if (f >= 1.0f) return 65535u;
-            return (uint32_t)(f * 65535.0f + 0.5f);
+            return unit16((double)f);
         }
         return v >> 16;
     }
@@ -875,9 +931,11 @@ static void convert_px(const tif *t, uint8_t *const *planes, uint32_t npx, pc_px
         pc_px32 p;
         for (uint32_t k = 0; k < need; k++) {
             uint32_t si = k < t->color_ch ? k : (uint32_t)t->alpha_idx;
-            uint32_t raw = chunky ? raw_sample(t, planes[0], (uint64_t)x * spp + si)
-                                  : raw_sample(t, planes[si], x);
-            s[k] = (t->photo == 3u && k == 0u) ? raw : norm16(t, raw);
+            const uint8_t *pb = chunky ? planes[0] : planes[si];
+            uint64_t at = chunky ? (uint64_t)x * spp + si : x;
+            if (t->photo == 3u && k == 0u) s[k] = raw_sample(t, pb, at);   /* index */
+            else if (t->bps == 64u) s[k] = unit16(rd_double(t, pb, at));
+            else s[k] = norm16(t, raw_sample(t, pb, at));
         }
         switch (t->photo) {
         case 0: case 1: {
@@ -929,13 +987,14 @@ static pc_status validate(tif *t)
         if (arr_get(t, &t->bpsa, i) != t->bps) return PC_ERR_UNSUPPORTED;
     if (t->sfmt == 0u) t->sfmt = 1u;
     if (t->sfmt == 3u) {
-        if (t->bps != 32u) return PC_ERR_UNSUPPORTED;
+        if (t->bps != 16u && t->bps != 32u && t->bps != 64u) return PC_ERR_UNSUPPORTED;
     } else if (t->sfmt != 1u) {
         return PC_ERR_UNSUPPORTED;
     }
     if (t->bps != 1u && t->bps != 2u && t->bps != 4u && t->bps != 8u && t->bps != 16u &&
-        t->bps != 32u)
+        t->bps != 32u && t->bps != 64u)
         return PC_ERR_UNSUPPORTED;
+    if (t->bps == 64u && t->sfmt != 3u) return PC_ERR_UNSUPPORTED;   /* 64-bit integers */
     if (t->comp == C_CCITT_RLE || t->comp == C_CCITT_T4 || t->comp == C_CCITT_T6 ||
         t->comp == C_CCITT_RLEW) {
         if (t->bps != 1u || t->spp != 1u) return PC_ERR_UNSUPPORTED;
@@ -969,7 +1028,8 @@ static pc_status validate(tif *t)
     if (t->pred == 0u) t->pred = 1u;
     if (t->comp != C_LZW && t->comp != C_ADOBE_DEFL && t->comp != C_DEFLATE) t->pred = 1u;
     if (t->pred == 2u && t->bps < 8u) return PC_ERR_UNSUPPORTED;
-    if (t->pred != 1u && t->pred != 2u) return PC_ERR_UNSUPPORTED;
+    if (t->pred == 3u && t->sfmt != 3u) return PC_ERR_UNSUPPORTED;
+    if (t->pred < 1u || t->pred > 3u) return PC_ERR_UNSUPPORTED;
     if (t->fill != 2u) t->fill = 1u;
     if (t->orient < 1u || t->orient > 8u) t->orient = 1u;
     extra = t->spp - t->color_ch;
@@ -1011,7 +1071,7 @@ static pc_status decode_strips(const tif *t, pc_rowsink *rs, bool *trunc)
     uint32_t planes = t->planar == 2u ? t->spp : 1u;
     uint32_t per = (t->h + t->rps - 1u) / t->rps;
     uint64_t rb64 = ((uint64_t)t->w * (t->planar == 2u ? 1u : t->spp) * t->bps + 7u) / 8u;
-    uint8_t *buf[MAX_SPP];
+    uint8_t *buf[MAX_SPP], *fps = NULL;
     seg *sg = NULL;
     pc_px32 *row = NULL;
     pc_status st = PC_OK;
@@ -1020,7 +1080,8 @@ static pc_status decode_strips(const tif *t, pc_rowsink *rs, bool *trunc)
     if ((uint64_t)per * planes > t->offs.count) return PC_ERR_FORMAT;
     sg = (seg *)calloc(planes, sizeof *sg);
     row = (pc_px32 *)malloc((size_t)t->w * sizeof *row);
-    if (!sg || !row) { st = PC_ERR_NOMEM; goto done; }
+    if (t->pred == 3u) fps = (uint8_t *)malloc(rb + 8u);
+    if (!sg || !row || (t->pred == 3u && !fps)) { st = PC_ERR_NOMEM; goto done; }
     for (uint32_t k = 0; k < planes; k++) {
         buf[k] = (uint8_t *)malloc(rb + 8u);
         if (!buf[k]) { st = PC_ERR_NOMEM; goto done; }
@@ -1033,7 +1094,8 @@ static pc_status decode_strips(const tif *t, pc_rowsink *rs, bool *trunc)
             bool full = true;
             for (uint32_t k = 0; k < planes; k++) {
                 if (!seg_read(&sg[k], buf[k], rb)) full = false;
-                else if (t->pred == 2u) predict_row(t, buf[k], t->w, t->planar == 2u ? 1u : t->spp);
+                else if (t->pred != 1u)
+                    predict_row(t, buf[k], fps, t->w, t->planar == 2u ? 1u : t->spp);
             }
             if (!full) { *trunc = true; continue; }          /* row stays transparent */
             convert_px(t, buf, t->w, row);
@@ -1044,6 +1106,7 @@ static pc_status decode_strips(const tif *t, pc_rowsink *rs, bool *trunc)
 done:
     if (sg) for (uint32_t k = 0; k < planes; k++) seg_close(&sg[k]);
     for (uint32_t k = 0; k < planes; k++) free(buf[k]);
+    free(fps);
     free(sg);
     free(row);
     return st;
@@ -1086,7 +1149,7 @@ static pc_status decode_tiles(const tif *t, const pc_codec_limits *lim, pc_rowsi
     uint32_t down = (uint32_t)(((uint64_t)t->h + t->th - 1u) / t->th);
     uint64_t per = (uint64_t)across * down;
     uint64_t rb64 = ((uint64_t)t->tw * (t->planar == 2u ? 1u : t->spp) * t->bps + 7u) / 8u;
-    uint8_t *buf[MAX_SPP];
+    uint8_t *buf[MAX_SPP], *fps = NULL;
     seg *sg = NULL;
     uint8_t *full = NULL;
     pc_px32 *band = NULL, *tmp = NULL;
@@ -1105,7 +1168,11 @@ static pc_status decode_tiles(const tif *t, const pc_codec_limits *lim, pc_rowsi
     full = (uint8_t *)malloc(PC_TILE_DIM);
     band = (pc_px32 *)malloc(bn * sizeof *band);
     tmp = (pc_px32 *)malloc((size_t)t->tw * sizeof *tmp);
-    if (!sg || !full || !band || !tmp) { st = PC_ERR_NOMEM; goto done; }
+    if (t->pred == 3u) fps = (uint8_t *)malloc(rb + 8u);
+    if (!sg || !full || !band || !tmp || (t->pred == 3u && !fps)) {
+        st = PC_ERR_NOMEM;
+        goto done;
+    }
     for (uint32_t k = 0; k < planes; k++) {
         buf[k] = (uint8_t *)malloc(rb + 8u);
         if (!buf[k]) { st = PC_ERR_NOMEM; goto done; }
@@ -1126,8 +1193,8 @@ static pc_status decode_tiles(const tif *t, const pc_codec_limits *lim, pc_rowsi
                     bool ok = true;
                     for (uint32_t k = 0; k < planes; k++) {
                         if (!seg_read(&ts[k], buf[k], rb)) ok = false;
-                        else if (t->pred == 2u)
-                            predict_row(t, buf[k], t->tw, t->planar == 2u ? 1u : t->spp);
+                        else if (t->pred != 1u)
+                            predict_row(t, buf[k], fps, t->tw, t->planar == 2u ? 1u : t->spp);
                     }
                     if (!ok) { *trunc = true; continue; }       /* stays transparent */
                     convert_px(t, buf, cols, tmp);
@@ -1145,6 +1212,7 @@ static pc_status decode_tiles(const tif *t, const pc_codec_limits *lim, pc_rowsi
 done:
     if (sg) for (size_t i = 0; i < nseg; i++) seg_close(&sg[i]);
     for (uint32_t k = 0; k < planes; k++) free(buf[k]);
+    free(fps);
     free(sg);
     free(full);
     free(band);
