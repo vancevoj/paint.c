@@ -25,6 +25,30 @@ pc_status pc_gm_build(const pc_tile *const *src, uint32_t sw, uint32_t sh, uint8
                       pc_gm_map m, uint32_t dw, uint32_t dh, const void *fill,
                       const pc_tile *const *mask, const pc_par *par, pc_tile ***out);
 
+/* lerp(o, n, k / 255) in premultiplied space, unpremultiplied with
+ * rounding; exact at k == 0 and k == 255. The single definition of the
+ * "apply through coverage" rule used by pc_txn_blend_rect_masked and the
+ * selection-aware layer operations. All sums fit in 32 bits. */
+static inline pc_px32 pc_px_lerp(pc_px32 o, pc_px32 n, uint32_t k)
+{
+    pc_px32 out;
+    uint32_t ik, A, a;
+    if (k == 0u) return o;
+    if (k >= 255u) return n;
+    ik = 255u - k;
+    A = (uint32_t)o.a * ik + (uint32_t)n.a * k;      /* alpha * 255 */
+    a = (A + 127u) / 255u;
+    if (a == 0u) {
+        out.b = out.g = out.r = out.a = 0u;
+        return out;
+    }
+    out.b = (uint8_t)(((uint32_t)o.b * o.a * ik + (uint32_t)n.b * n.a * k + A / 2u) / A);
+    out.g = (uint8_t)(((uint32_t)o.g * o.a * ik + (uint32_t)n.g * n.a * k + A / 2u) / A);
+    out.r = (uint8_t)(((uint32_t)o.r * o.a * ik + (uint32_t)n.r * n.a * k + A / 2u) / A);
+    out.a = (uint8_t)a;
+    return out;
+}
+
 /* Fault-checked pc_hist_node_new (pc_fault_check hook for tests). */
 pc_hist_node *pc_gm_node_new(const char *label);
 

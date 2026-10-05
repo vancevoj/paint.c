@@ -8,6 +8,7 @@
  * first write access clones it. Restoring a tile simply points the private
  * content back at the original, which never allocates. */
 #include "pc/pc_txn.h"
+#include "pc_geom_int.h"   /* pc_px_lerp */
 
 #include <stdlib.h>
 #include <string.h>
@@ -415,26 +416,6 @@ pc_status pc_txn_write_rect(pc_txn *t, uint32_t layer_id, pc_rect r,
     return PC_OK;
 }
 
-/* lerp(o, n, k/255) in premultiplied space, unpremultiplied with rounding.
- * Exact at the end points. All sums fit in 32 bits: the color numerator is
- * at most 255 * 255 * 255. */
-static pc_px32 lerp_px(pc_px32 o, pc_px32 n, uint32_t k)
-{
-    pc_px32 z = {0, 0, 0, 0}, out;
-    uint32_t ik, A, a;
-    if (k == 0u) return o;
-    if (k >= 255u) return n;
-    ik = 255u - k;
-    A = (uint32_t)o.a * ik + (uint32_t)n.a * k;      /* alpha * 255 */
-    a = (A + 127u) / 255u;
-    if (a == 0u) return z;
-    out.b = (uint8_t)(((uint32_t)o.b * o.a * ik + (uint32_t)n.b * n.a * k + A / 2u) / A);
-    out.g = (uint8_t)(((uint32_t)o.g * o.a * ik + (uint32_t)n.g * n.a * k + A / 2u) / A);
-    out.r = (uint8_t)(((uint32_t)o.r * o.a * ik + (uint32_t)n.r * n.a * k + A / 2u) / A);
-    out.a = (uint8_t)a;
-    return out;
-}
-
 typedef struct blend_job {
     pc_txn        *t;
     const size_t  *ents;      /* entry indices */
@@ -462,7 +443,7 @@ static void blend_tile(void *ud, uint32_t job, uint32_t worker)
             pc_px32 o = {0, 0, 0, 0};
             uint32_t k = j->cov ? pc_mask_at(j->cov, x, y) : 255u;
             if (orow) o = orow[x - tr.x];
-            drow[x - tr.x] = lerp_px(o, srow[x - j->r.x], k);
+            drow[x - tr.x] = pc_px_lerp(o, srow[x - j->r.x], k);
         }
     }
 }

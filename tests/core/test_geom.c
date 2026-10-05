@@ -316,47 +316,6 @@ static void t_geom_sharing(void)
     CHECK(tu_leak_same(t0, l0));
 }
 
-/* Test-only history op for selection edits: swaps the selection grid and
- * its active flag (lane L1a provides the real selection operations). */
-typedef struct sel_pl { pc_tile **grid; bool active; size_t n; } sel_pl;
-
-static void sel_swap(pc_doc *d, void *p)
-{
-    sel_pl *s = (sel_pl *)p;
-    pc_tile **g = d->sel_grid;
-    bool a = d->sel_active;
-    PC_ASSERT(s->n == (size_t)d->tiles_x * d->tiles_y);
-    d->sel_grid = s->grid; d->sel_active = s->active;
-    s->grid = g; s->active = a;
-    d->sel_gen++;
-}
-
-static void sel_destroy(void *p)
-{
-    sel_pl *s = (sel_pl *)p;
-    if (s->grid) for (size_t i = 0; i < s->n; i++) pc_tile_release(s->grid[i]);
-    free(s->grid);
-    free(s);
-}
-
-static size_t sel_bytes(const void *p) { (void)p; return sizeof(sel_pl); }
-static const pc_hist_ops k_sel_ops = { sel_swap, sel_destroy, sel_bytes };
-
-static void hist_random_selection(pc_hist *h)
-{
-    pc_doc *d = h->doc;
-    sel_pl *s = (sel_pl *)malloc(sizeof *s);
-    pc_hist_node *n = pc_hist_node_new("Select");
-    if (!s || !n) abort();
-    s->grid = d->sel_grid;
-    s->active = d->sel_active;
-    s->n = (size_t)d->tiles_x * d->tiles_y;
-    d->sel_grid = NULL;
-    if (rndu(5u) == 0u) d->sel_active = false;     /* deselect */
-    else tu_random_selection(d);
-    pc_hist_link(h, n, &k_sel_ops, s);           /* already applied */
-}
-
 /* Random interleaving of geometry ops with paint, layer and property ops,
  * undo, redo and jumps: the fingerprint of every node is stable. */
 static void t_geom_history_property(void)

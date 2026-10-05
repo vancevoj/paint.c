@@ -239,4 +239,49 @@ static inline pc_px32 tu_ref_comp_px(const pc_doc *d, uint32_t x, uint32_t y)
     return acc;
 }
 
+/* Test-only history op for selection edits: swaps the selection grid and
+ * its active flag (lane L1a provides the real selection operations). */
+typedef struct tu_sel_pl { pc_tile **grid; bool active; size_t n; } tu_sel_pl;
+
+static inline void tu_sel_swap(pc_doc *d, void *p)
+{
+    tu_sel_pl *s = (tu_sel_pl *)p;
+    pc_tile **g = d->sel_grid;
+    bool a = d->sel_active;
+    PC_ASSERT(s->n == (size_t)d->tiles_x * d->tiles_y);
+    d->sel_grid = s->grid; d->sel_active = s->active;
+    s->grid = g; s->active = a;
+    d->sel_gen++;
+}
+
+static inline void tu_sel_destroy(void *p)
+{
+    tu_sel_pl *s = (tu_sel_pl *)p;
+    if (s->grid) for (size_t i = 0; i < s->n; i++) pc_tile_release(s->grid[i]);
+    free(s->grid);
+    free(s);
+}
+
+static inline size_t tu_sel_bytes(const void *p) { (void)p; return sizeof(tu_sel_pl); }
+static inline const pc_hist_ops *tu_sel_ops(void)
+{
+    static const pc_hist_ops ops = { tu_sel_swap, tu_sel_destroy, tu_sel_bytes };
+    return &ops;
+}
+
+static inline void hist_random_selection(pc_hist *h)
+{
+    pc_doc *d = h->doc;
+    tu_sel_pl *s = (tu_sel_pl *)malloc(sizeof *s);
+    pc_hist_node *n = pc_hist_node_new("Select");
+    if (!s || !n) abort();
+    s->grid = d->sel_grid;
+    s->active = d->sel_active;
+    s->n = (size_t)d->tiles_x * d->tiles_y;
+    d->sel_grid = NULL;
+    if (rndu(5u) == 0u) d->sel_active = false;     /* deselect */
+    else tu_random_selection(d);
+    pc_hist_link(h, n, tu_sel_ops(), s);           /* already applied */
+}
+
 #endif /* L1B_TESTUTIL_H */
