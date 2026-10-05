@@ -12,7 +12,7 @@ Attribution: docs/notice/avifjxl.md.
 
 | Option | Values | Meaning |
 |---|---|---|
-| PC_WITH_AVIF, PC_WITH_JXL | AUTO (default) | System library when found (pkg-config, else libavif's CMake config, else a plain header + library search for libjxl). Not found: the codec is compiled without the library. |
+| PC_WITH_AVIF, PC_WITH_JXL | AUTO (default) | System library when found and usable (pkg-config, else libavif's CMake config, else a plain header + library search for libjxl). Not found: the codec is compiled without the library and configure reports it disabled, with the reason. |
 | | ON | System library, else the BUNDLED build; a configure error when neither is possible. |
 | | BUNDLED | Always the pinned static build below. |
 | | OFF | Never. |
@@ -25,6 +25,21 @@ interface target pc_avifjxl (linked PUBLIC into pc_codec) carries
 PC_HAVE_AVIF=1 / PC_HAVE_JXL=1, PC_JXL_HAVE_CMS=1 (libjxl_cms, libjxl 0.9
 and later), the include directories and the libraries; tests use the
 defines to build their fixtures with the libraries and to skip otherwise.
+
+A system library is used only when a small C program of the target
+compiles and links against it (avifVersion, JxlDecoderVersion), so a
+library of another architecture or an unusable header set is never
+picked up. While cross compiling, pkg-config describes the build machine
+and is used only when it is pointed at the target (PKG_CONFIG_LIBDIR or
+PKG_CONFIG_SYSROOT_DIR in the environment, or a target-prefixed
+pkg-config such as x86_64-w64-mingw32-pkg-config). Before this rule a
+mingw-w64 cross build with AUTO on a Debian host that has libavif-dev and
+libjxl-dev took the host's libraries and put -isystem /usr/include on
+pc_codec, which broke every file (glibc headers). Without a usable
+library the configure line reads, for example, `AVIF (PC_WITH_AVIF=AUTO):
+disabled: no usable system library; the build machine's pkg-config is not
+used while cross compiling; PC_WITH_AVIF=BUNDLED builds the pinned
+version`.
 
 Minimum system versions: libavif 1.0.0 and libjxl 0.7.0. Verified with
 libavif 1.0.4 + libjxl 0.7.0 (Ubuntu 24.04, built from the release
