@@ -70,11 +70,13 @@ Load: libjpeg API with setjmp/longjmp confined to one function per call.
 Dimensions are checked right after jpeg_read_header; the libjpeg memory
 manager gets lim->max_mem as its budget (multi-scan coefficient buffers); a
 progress monitor rejects more than 500 scans (progressive DoS). Gray, YCbCr
-and RGB decode straight to BGRA; CMYK and YCCK use the embedded CMYK profile
-through Little-CMS (unoptimized transform, one rounding) when there is one
-(inverted samples when an Adobe marker is present) and convert to Adobe RGB
-(1998), which becomes meta.icc (FL-CMYK); without a usable profile the
-naive formula gives untagged RGB; meta.note says which. EXIF orientation
+and RGB decode straight to BGRA; CMYK and YCCK convert through Little-CMS
+(unoptimized transform, one rounding, results cached per CMYK value;
+inverted samples when an Adobe marker is present) to Adobe RGB (1998),
+which becomes meta.icc (FL-CMYK): with the embedded CMYK profile, or,
+when there is none or it is not usable, with the default CMYK profile
+(SWOP TR003 Coated, third_party/icc, wave 4); the naive formula only runs
+when Little-CMS itself fails. meta.note says which. EXIF orientation
 is applied while storing bands, so oriented images never need a second
 copy. Metadata (docs/codecs/meta.md): the first APP1 "Exif" block becomes
 the "exif" item (orientation reset to 1, thumbnail dropped), the APP1 XMP
@@ -95,9 +97,9 @@ The image is composited onto white, Huffman tables are optimized, JFIF
 density carries meta.dpi (96 when unknown), the EXIF item goes into APP1
 (MakerNote dropped, or the whole block left out, when it exceeds one
 segment), the XMP item into APP1 (left out past 65504 bytes; no extended
-XMP), the IPTC item into an APP13 Photoshop 3.0 resource, meta.icc into
-APP2 chunks (up to 255 x 65519 bytes). Sides above 65500 fail with
-PC_ERR_LIMIT.
+XMP), the IPTC item into an APP13 Photoshop 3.0 resource, the profile
+pc_icc_embed_for chooses for RGB data into APP2 chunks (up to 255 x 65519
+bytes). Sides above 65500 fail with PC_ERR_LIMIT.
 
 ## WebP (id "webp", libwebp 1.6.0)
 Load: the canvas size is checked first (the format caps sides at 16383).
@@ -250,20 +252,48 @@ entries and 4 GiB).
   is_srgb (every probe color moves at most one code value).
 - pc_icc_to_srgb_px / pc_icc_to_srgb_doc: perceptual 8-bit conversion of
   RGB profiles (color channels, alpha kept, alpha-0 pixels zeroed) and gray
-  profiles (green channel through a 256-entry table built without the 8-bit
-  optimizer). The document variant converts unpublished tiles in place in
-  parallel (pc_par), keeps edge padding zero and refuses shared tiles.
-  Failures leave pixels untouched.
+  profiles (gray pixels through a 256-entry table built without the 8-bit
+  optimizer; since wave 4 colored pixels through the profile's RGB form,
+  they used to be replaced by their green channel). The document variant
+  converts unpublished tiles in place in parallel (pc_par), keeps edge
+  padding zero and refuses shared tiles. Failures leave pixels untouched.
 - pc_icc_import(doc, meta, par): the import step for the app.
 - pc_icc_srgb_profile / pc_icc_meta_set_srgb: deterministic sRGB v4 profile
   for export; pc_icc_adobe_rgb_profile: deterministic Adobe RGB (1998) v4
   profile, the target of CMYK conversions.
 - pc_icc_meta_validate(meta, doc): the open-time check (FL-ICC): drops a
   damaged profile, a device link, abstract or named color profile, a CMYK
-  or other non-RGB/gray profile, or a gray profile on color pixels, with a
-  note.
+  or other non-RGB/gray profile, a profile that parses but cannot be
+  converted with (Little-CMS builds no transform, for example a PCS of
+  'SYZ ', wave 4), or a gray profile on color pixels, with a note.
 - pc_icc_xform_create / _run / _destroy: a cached, thread-safe conversion
   from an image's RGB or gray profile to sRGB for display color management.
+
+Wave 4 additions (lane CODEC):
+- pc_icc_usable_space(icc, len): the data color space of a profile that is
+  usable for an image (passes pc_icc_inspect, image class, and Little-CMS
+  builds its transform), else PC_ICC_SPACE_OTHER.
+- pc_icc_gray_as_rgb(icc, len): the RGB matrix/TRC profile equivalent to a
+  gray profile: its three curves are the gray curve (the grayTRC copied when
+  the PCS is XYZ, else 1024 samples of the gray to XYZ transform), its
+  colorants the Rec. 709 primaries with D65 adapted to D50, so (v, v, v)
+  meets exactly the PCS color the gray profile gives v (tests: within 1 of
+  65535 for an XYZ gray profile, 10 of 65535 for a Lab PCS one) and a gray
+  profile with the sRGB curve becomes sRGB. Description "<gray> (RGB)",
+  the gray profile's copyright, creation date zeroed.
+- pc_icc_embed_for(meta, pixels, &e) / pc_icc_embed_free: what an encoder
+  embeds (FS-ICC). A profile is written only when it is usable and its
+  space matches the pixel data: RGB for RGB, RGBA, palette and BGRA layer
+  data, gray for gray samples; a gray profile for RGB data becomes its RGB
+  form; CMYK, damaged and junk profiles are never written. Every encoder
+  uses it: PNG (all bit depths), JPEG, WebP, TIFF, BMP, PDN (EXIF tag
+  34675), AVIF and JPEG XL (gray output keeps a gray profile, an RGB
+  profile makes the output RGB, a gray profile on a color image goes in as
+  its RGB form). ORA, GIF, TGA and DDS carry no profile.
+- pc_icc_cmyk_default_profile: the bundled default CMYK profile.
+- JPEG XL save: an encoder failure maps to PC_ERR_UNSUPPORTED (or
+  PC_ERR_NOMEM, PC_ERR_ARG) through JxlEncoderGetError instead of
+  PC_ERR_STATE ("Operation not allowed right now").
 
 ## Integration notes for the app
 1. Open: pc_codec_load_any(bytes, len, path, &lim, &doc, &meta, &codec) on
@@ -309,13 +339,29 @@ entries and 4 GiB).
 - Lane CODEC (wave 3b): test_meta_model, test_meta_formats,
   test_meta_tiff_bmp, test_png_options, test_quant_linear, test_dds_bc6h,
   test_dds_options (see docs/codecs/meta.md).
+- Lane CODEC (wave 4): test_icc_audit (the final verification items 13 to
+  17 through the codec API that existed before the fix, so it also fails on
+  the old code: gray profiles never embedded in RGB or palette data by any
+  encoder, damaged, CMYK and junk profiles never embedded, the damaged
+  profile dropped on open, JPEG XL saves with it, colored pixels of a gray
+  profile image stay colored, profile-less CMYK JPEG, TIFF and CMYK64 TIFF
+  give the Little-CMS SWOP reference tagged Adobe RGB (1998)) and
+  test_icc_export (pc_icc_usable_space, pc_icc_gray_as_rgb exactness for
+  XYZ and Lab PCS gray profiles, pc_icc_embed_for decisions, the default
+  CMYK profile against cmyk_ref.h, the per-color CMYK cache against the
+  reference with few and many colors). tests/codec/icc_test_util.h makes
+  real profiles for the round trip tests (encoders no longer embed random
+  bytes), tests/codec/cmyk_ref.h is the independent default-CMYK reference.
 
 ## Known gaps
 - DDS: volume textures and arrays load their first image.
 - WebP: only the first frame of animations.
 - JPEG: extended XMP (APP1 "http://ns.adobe.com/xmp/extension/") is neither
   read nor written; a standard packet over 65504 bytes is left out on save.
-- CMYK without an embedded profile uses the naive formula (no default CMYK
-  profile is bundled).
+- CMYK without a usable embedded profile converts through SWOP TR003
+  Coated (US web offset, the family of Windows' default RSWOP.icm), the
+  closest freely redistributable choice; Paint.NET's own default CMYK
+  profile is not known exactly (black box), so colors of such files may
+  differ from Paint.NET by a few code values.
 - Not verified on MSVC and macOS hardware (mingw-w64 cross build passes
   all suites under Wine).

@@ -24,6 +24,7 @@ licenses below are permissive and compatible with the project's MIT license
 | bc7enc | commit f66c2e489b07138f2673a2fb3d27c1aa1d565c48 | https://github.com/richgel999/bc7enc | bc7enc.c 817bfa5d30a2c4702e8c387ebb5a69398034c95905f580a6b8cd4261da901058, bc7enc.h 6a129cd608eebf9f2796dd1ad4659f8c4fbe2a2ace371b728fc4ece92f449c90 | MIT OR Unlicense (third_party/bc7enc/LICENSE) | none; pc_bc7enc.c/.h is our wrapper |
 | stb_truetype | v1.26, nothings/stb commit 6e9f34d5429cf16790ec43c9bac3f1ee4ad1f760 | https://github.com/nothings/stb | ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab | MIT or public domain | third_party/stb_truetype (outline extraction only, behind src/ui/ui_font_check.c) |
 | Inter | 4.1 | https://github.com/rsms/inter | zip 9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e | SIL OFL 1.1 | assets/fonts (embedded UI font) |
+| SWOP TR003 Coated CMYK profile | colord 1.4.7 data/profiles (Debian colord-data 1.4.7-3) | https://github.com/hughsie/colord | SWOP_TR003_coated_3.icc 92eaa9cb3517288968ca88e897252b9f4f51fecece1de0d18bd512aafe244e91 | CC0-1.0 (profile), NPES terms for the ANSI CGATS/SWOP TR 003-2007 data it is based on: free to distribute, the Technical Report must be named as the data source (third_party/icc/LICENSE) | none; embedded by cmake/PcCodecDeps.cmake (PcEmbed) as the default CMYK profile (lane CODEC, wave 4) |
 
 ## Notices the shipped product must carry
 - libjpeg-turbo (IJG License): the documentation must state "This software is
@@ -34,6 +35,9 @@ licenses below are permissive and compatible with the project's MIT license
   copyright notices and license texts go into the product's third-party notices.
 - bcdec, stb_dxt and bc7enc are used under their MIT alternatives; their
   copyright lines go into the same notices.
+- The default CMYK profile (third_party/icc): the notices must name ANSI
+  CGATS/SWOP TR 003-2007 as the source of its characterization data (NPES
+  terms); the profile itself is CC0.
 
 ## Build integration
 - Third-party code is compiled without pc_warnings (no -Werror) but with the

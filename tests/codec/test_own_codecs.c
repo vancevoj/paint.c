@@ -2,6 +2,7 @@
  * option schemas and defaults, sniffing, and decoding of the fixtures in
  * data/own (written by Pillow and ImageMagick, see gen_fixtures.py). */
 #include "test_own_common.h"
+#include "cmyk_ref.h"
 
 extern const pc_codec pc_codec_bmp, pc_codec_gif, pc_codec_tga, pc_codec_tiff;
 
@@ -101,7 +102,8 @@ static void t_sniff(void)
  * 16-bit TGA writer loses up to 16 (our decode matches Pillow within 1).
  * tif_im_miniswhite.tif holds plain gray values tagged min-is-white, so the
  * spec-conforming result is the inverted ramp. */
-enum { E_RGBA, E_RGB, E_GRAY, E_GRAY_INV, E_BW, E_FEW, E_FEWT, E_FEW_OFF, E_RGBA_CW, E_NONE };
+enum { E_RGBA, E_RGB, E_GRAY, E_GRAY_INV, E_BW, E_FEW, E_FEWT, E_FEW_OFF, E_RGBA_CW, E_NONE,
+       E_CMYK8 };   /* E_CMYK8: 8-bit CMYK samples stored uncompressed at file offset 8 */
 
 static pc_px32 expect_px(int kind, uint32_t x, uint32_t y)
 {
@@ -181,7 +183,9 @@ static const fixture k_fix[] = {
     { "tif_im_be_lzw_pred.tif", "tiff", PC_OK, E_RGBA, 19, 13, 0, "", true },
     { "tif_im_16_zip_pred.tif", "tiff", PC_OK, E_RGBA, 19, 13, 0, "", true },
     { "tif_im_16_be_tiled.tif", "tiff", PC_OK, E_RGBA, 19, 13, 0, "", true },
-    { "tif_im_cmyk.tif", "tiff", PC_OK, E_RGB, 19, 13, 2, "", false },
+    /* no embedded profile: the default CMYK profile (SWOP) to Adobe RGB
+     * (1998), exactly (FL-CMYK, wave 4) */
+    { "tif_im_cmyk.tif", "tiff", PC_OK, E_CMYK8, 19, 13, 0, "default CMYK profile", false },
     { "tif_im_miniswhite.tif", "tiff", PC_OK, E_GRAY_INV, 19, 13, 0, "", false },
     { "tif_im_orient6.tif", "tiff", PC_OK, E_RGBA_CW, 13, 19, 0, "", true },
     { "tif_im_packbits.tif", "tiff", PC_OK, E_RGBA, 19, 13, 0, "", true },
@@ -217,9 +221,16 @@ static void t_fixtures(void)
             CHECK(d->w == f->w && d->h == f->h);
             if (d->w == f->w && d->h == f->h) {
                 ref = (pc_px32 *)malloc((size_t)f->w * f->h * sizeof *ref);
-                for (uint32_t y = 0; y < f->h; y++)
-                    for (uint32_t x = 0; x < f->w; x++)
-                        ref[(size_t)y * f->w + x] = expect_px(f->kind, x, y);
+                if (f->kind == E_CMYK8) {
+                    CHECK(n >= 8u + (size_t)f->w * f->h * 4u);
+                    CHECK(n >= 8u + (size_t)f->w * f->h * 4u &&
+                          cmyk_ref(b + 8, (size_t)f->w * f->h, false, ref));
+                    CHECK(cmyk_ref_is_adobe(&m));
+                } else {
+                    for (uint32_t y = 0; y < f->h; y++)
+                        for (uint32_t x = 0; x < f->w; x++)
+                            ref[(size_t)y * f->w + x] = expect_px(f->kind, x, y);
+                }
                 diff = px_maxdiff(got, ref, (size_t)f->w * f->h);
                 if (diff > f->tol) INFO("%s: max difference %u > %u", f->file, diff, f->tol);
                 CHECK(diff <= f->tol);

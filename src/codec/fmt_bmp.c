@@ -20,11 +20,14 @@
  * quantization algorithm and dithering level apply to the explicit indexed
  * depths). Depths without alpha are flattened onto white first. The image's
  * ICC profile is embedded (V5 header, PROFILE_EMBEDDED, profile data after
- * the pixels) at every depth (FS-ICC); without one, 32-bit files say sRGB.
+ * the pixels) at every depth (FS-ICC; pc_icc_embed_for: an RGB profile as
+ * is, a gray one as its RGB form, never an unusable or CMYK one); without
+ * one, 32-bit files say sRGB.
  *
  * Threading: load and save are reentrant (no global state).
  */
 #include "quant.h"
+#include "pc/pc_icc.h"
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -494,8 +497,10 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
     uint32_t depth, w, h, hsize, npal = 0, ppm_x, ppm_y;
     uint64_t stride, total;
     size_t icc_n;
+    pc_icc_embed icc;
     pc_status st;
     size_t base;
+    memset(&icc, 0, sizeof icc);
     if (!d || !out) return PC_ERR_ARG;
     if (params) memcpy(&prm, params, sizeof prm);
     else { prm.depth = 0; prm.dither = 7; prm.palette = 0; }
@@ -542,7 +547,11 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
     }
 
     stride = (((uint64_t)w * depth + 31u) / 32u) * 4u;
-    icc_n = meta && meta->icc && meta->icc_len <= 0x7FFFFFFFu ? meta->icc_len : 0u;
+    /* FS-ICC: RGB and palette data take an RGB profile only (a gray one as
+     * its RGB form; unusable and CMYK profiles are left out) */
+    st = pc_icc_embed_for(meta, PC_ICC_SPACE_RGB, &icc);
+    if (st != PC_OK) goto done;
+    icc_n = icc.icc && icc.len <= 0x7FFFFFFFu ? icc.len : 0u;
     hsize = depth == 32u || icc_n ? 124u : 40u;
     total = 14u + (uint64_t)hsize + (uint64_t)npal * 4u + stride * h + icc_n;
     if (total > 0xFFFFFFFFull || (uint64_t)SIZE_MAX < total) { st = PC_ERR_LIMIT; goto done; }
@@ -608,7 +617,7 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
         }
         st = pc_buf_append(out, line, (size_t)stride);
     }
-    if (st == PC_OK && icc_n) st = pc_buf_append(out, meta->icc, icc_n);
+    if (st == PC_OK && icc_n) st = pc_buf_append(out, icc.icc, icc_n);
     if (st != PC_OK) out->n = base;
 done:
     pc_quant_destroy(q);
@@ -616,6 +625,7 @@ done:
     free(line);
     free(idx);
     pc_flat_free(&fl);
+    pc_icc_embed_free(&icc);
     return st;
 }
 

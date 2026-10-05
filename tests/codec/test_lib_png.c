@@ -3,6 +3,7 @@
  * here, metadata, save modes and round trips, limits, mutation fuzzing. */
 #include "pc_test.h"
 #include "lib_test_util.h"
+#include "icc_test_util.h"
 #include "spng.h"
 
 static const pc_codec *png(void) { return pc_codec_by_id("png"); }
@@ -594,31 +595,46 @@ static void t_save_palette(void)
 
 static void t_save_icc_and_big(void)
 {
-    /* ICC passes through; sizes crossing many tiles; NULL params = defaults */
+    /* ICC passes through (a usable RGB profile, FS-ICC); sizes crossing many
+     * tiles; NULL params = defaults */
     const uint32_t W = 300, H = 129;
     pc_px32 *a = tu_photo(W, H, false);
     pc_doc *d = tu_doc_from_px(W, H, a), *r;
     pc_image_meta meta, m2;
     pc_buf out;
-    uint8_t icc[1000];
-    for (int i = 0; i < 1000; i++) icc[i] = (uint8_t)rnd8();
+    size_t icc_n = 0;
+    uint8_t *icc = itu_rgb("png pass-through", 300u, &icc_n);
+    CHECK(icc != NULL);
     memset(&meta, 0, sizeof meta);
     meta.icc = icc;
-    meta.icc_len = sizeof icc;
+    meta.icc_len = icc_n;
     memset(&out, 0, sizeof out);
     CHECK(png()->save(d, &meta, NULL, NULL, &out) == PC_OK);
     r = reload(&out, &m2);
     if (r) {
         pc_px32 *px = tu_layer_px(r, r->stack[0]);
         CHECK(tu_diff(px, a, (size_t)W * H) == 0);
-        CHECK(m2.icc_len == sizeof icc && memcmp(m2.icc, icc, sizeof icc) == 0);
+        CHECK(icc && m2.icc_len == icc_n && memcmp(m2.icc, icc, icc_n) == 0);
         free(px);
         pc_doc_destroy(r);
         pc_meta_free(&m2);
     }
     pc_buf_free(&out);
+    {   /* bytes that are not a usable profile never become an iCCP chunk */
+        uint8_t *junk = itu_junk(1000u, 9u);
+        meta.icc = junk;
+        meta.icc_len = 1000u;
+        CHECK(png()->save(d, &meta, NULL, NULL, &out) == PC_OK);
+        r = reload(&out, &m2);
+        CHECK(r && m2.icc == NULL);
+        pc_doc_destroy(r);
+        pc_meta_free(&m2);
+        pc_buf_free(&out);
+        free(junk);
+    }
     pc_doc_destroy(d);
     free(a);
+    free(icc);
 }
 
 /* Fixtures encoded by libspng itself: 16-bit RGBA and 8-bit gray + alpha. */

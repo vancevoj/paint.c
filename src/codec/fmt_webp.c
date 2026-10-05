@@ -13,13 +13,15 @@
  * 0..100 (default 95, unused when lossless), effort 0..9 (default 7; the
  * libwebp method for lossy, the lossless preset level for lossless) and a
  * lossless switch. Lossless output keeps exact RGB under transparency. The
- * embedded profile and the EXIF and XMP items are muxed in as ICCP, EXIF
- * and XMP chunks.
+ * image profile (pc_icc_embed_for: RGB as is, gray as its RGB form, never
+ * an unusable or CMYK one) and the EXIF and XMP items are muxed in as
+ * ICCP, EXIF and XMP chunks.
  *
  * Threads: reentrant; libwebp's own worker threads are not used.
  */
 #include "lib_codec.h"
 #include "cmeta.h"
+#include "pc/pc_icc.h"
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -278,9 +280,14 @@ static pc_status webp_save(const pc_doc *d, const pc_image_meta *meta, const voi
         uint8_t *ex = NULL;
         size_t ex_n = 0, xmp_n = 0;
         const char *xmp = meta ? cm_meta_xmp(meta, &xmp_n) : NULL;
-        st = cm_exif_for_save(meta, d->w, d->h, NULL, 0u, CM_EXIF_MAX, &ex, &ex_n);
+        pc_icc_embed icc;
+        /* FS-ICC: the RGB data takes an RGB profile only (gray as its RGB
+         * form, unusable and CMYK profiles never) */
+        st = pc_icc_embed_for(meta, PC_ICC_SPACE_RGB, &icc);
         if (st != PC_OK) { pc_buf_free(&bits); return st; }
-        if ((meta && meta->icc && meta->icc_len) || ex || xmp) {
+        st = cm_exif_for_save(meta, d->w, d->h, NULL, 0u, CM_EXIF_MAX, &ex, &ex_n);
+        if (st != PC_OK) { pc_icc_embed_free(&icc); pc_buf_free(&bits); return st; }
+        if (icc.icc || ex || xmp) {
             WebPData img, chunk, asm_out;
             WebPMux *mux;
             bool ok;
@@ -288,11 +295,16 @@ static pc_status webp_save(const pc_doc *d, const pc_image_meta *meta, const voi
             img.size = bits.n;
             WebPDataInit(&asm_out);
             mux = WebPMuxCreate(&img, 0);
-            if (!mux) { free(ex); pc_buf_free(&bits); return PC_ERR_NOMEM; }
+            if (!mux) {
+                free(ex);
+                pc_icc_embed_free(&icc);
+                pc_buf_free(&bits);
+                return PC_ERR_NOMEM;
+            }
             ok = true;
-            if (meta && meta->icc && meta->icc_len) {
-                chunk.bytes = meta->icc;
-                chunk.size = meta->icc_len;
+            if (icc.icc) {
+                chunk.bytes = icc.icc;
+                chunk.size = icc.len;
                 ok = WebPMuxSetChunk(mux, "ICCP", &chunk, 0) == WEBP_MUX_OK;
             }
             if (ok && ex) {
@@ -308,10 +320,12 @@ static pc_status webp_save(const pc_doc *d, const pc_image_meta *meta, const voi
             if (ok) ok = WebPMuxAssemble(mux, &asm_out) == WEBP_MUX_OK;
             WebPMuxDelete(mux);
             free(ex);
+            pc_icc_embed_free(&icc);
             if (!ok) { pc_buf_free(&bits); return PC_ERR_NOMEM; }
             st = pc_buf_append(out, asm_out.bytes, asm_out.size);
             WebPDataClear(&asm_out);
         } else {
+            pc_icc_embed_free(&icc);
             st = pc_buf_append(out, bits.p, bits.n);
         }
     }

@@ -6,8 +6,11 @@
  * color management) after pc_icc_meta_validate dropped unusable ones;
  * pasting and importing convert to sRGB with pc_icc_import. Codecs never
  * convert by themselves, except CMYK (JPEG and TIFF), whose samples exist
- * only inside the decoder: with an embedded CMYK profile they convert to
- * Adobe RGB (1998) and tag the image with that profile (FL-CMYK).
+ * only inside the decoder: they convert to Adobe RGB (1998) through the
+ * embedded CMYK profile, or through the default CMYK profile when there is
+ * no usable one (pc_icc_cmyk_default_profile), and tag the image with
+ * Adobe RGB (1998) (FL-CMYK). Encoders embed a profile only when it is
+ * usable and matches their pixel data (pc_icc_embed_for, FS-ICC).
  *
  * Robustness: profiles are untrusted input. Every function validates the
  * header first (size, signature, tag table bounds, a 64 MiB cap) and turns
@@ -49,8 +52,9 @@ pc_status pc_icc_inspect(const uint8_t *icc, size_t len, pc_icc_info *info);
 
 /* Convert w x h straight-alpha BGRA pixels (stride in pixels, borrowed,
  * modified in place) from the profile to sRGB, perceptual intent, 8-bit.
- * RGB profiles transform the color channels; gray profiles map the green
- * channel (gray images have R == G == B); alpha is kept and pixels with
+ * RGB profiles transform the color channels; gray profiles map gray
+ * pixels (R == G == B) through the gray curve and colored ones through the
+ * profile's RGB form (pc_icc_gray_as_rgb); alpha is kept and pixels with
  * alpha 0 stay all zero. CMYK and other spaces return PC_ERR_UNSUPPORTED.
  * On any error the pixels are untouched. */
 pc_status pc_icc_to_srgb_px(const uint8_t *icc, size_t len, pc_px32 *px, int32_t w,
@@ -115,5 +119,65 @@ pc_status pc_icc_xform_create(const uint8_t *icc, size_t len, pc_icc_xform **out
  * zero). Thread-safe: one xform may run on many threads at once. */
 void      pc_icc_xform_run(const pc_icc_xform *x, pc_px32 *px, size_t n);
 void      pc_icc_xform_destroy(pc_icc_xform *x);                   /* NULL-safe */
+
+/* ---- additions of wave 4 (lane CODEC) ---------------------------------------------------- */
+
+/* Gray profiles and colored pixels: every conversion above (pixels,
+ * documents, xforms, the import step) maps pixels with R == G == B through
+ * the gray profile and other pixels through its RGB form
+ * (pc_icc_gray_as_rgb), so gray stays exactly gray and color keeps a
+ * defined meaning. */
+
+/* The data color space of icc/len (borrowed) when it is usable as an image
+ * profile: it passes pc_icc_inspect, its class is not device link,
+ * abstract or named color, and Little-CMS builds its transform (to sRGB
+ * for RGB and gray profiles, both the gray table and its RGB form; to sRGB
+ * for CMYK). A profile that parses but cannot be converted with is not
+ * usable (FL-ICC). PC_ICC_SPACE_OTHER when it is not usable, absent (NULL
+ * or 0 bytes), or in another space. Any thread. */
+pc_icc_space pc_icc_usable_space(const uint8_t *icc, size_t len);
+
+/* The RGB profile equivalent to the gray profile icc/len (borrowed): its
+ * three tone curves are the gray curve (gray -> Y; a copy of the grayTRC
+ * tag when the PCS is XYZ, else sampled), its colorants are the Rec. 709
+ * (sRGB) primaries with a D65 white adapted to D50, so (v, v, v) maps to
+ * the PCS color the gray profile gives v, and a gray profile with the sRGB
+ * curve becomes sRGB. Description "<gray description> (RGB)", the gray
+ * profile's copyright, creation date zeroed (reproducible). *out is
+ * malloc'ed (caller frees with free()). PC_ERR_ARG, PC_ERR_LIMIT,
+ * PC_ERR_FORMAT, PC_ERR_UNSUPPORTED (not a gray profile), PC_ERR_NOMEM.
+ * Any thread. */
+pc_status pc_icc_gray_as_rgb(const uint8_t *icc, size_t len, uint8_t **out, size_t *out_len);
+
+/* The profile an encoder embeds (FS-ICC): an image profile is written only
+ * when its color space matches the pixel data of the file. */
+typedef struct pc_icc_embed {
+    const uint8_t *icc;         /* profile to write, NULL = none; points into meta->icc
+                                   or at owned; valid until pc_icc_embed_free and while
+                                   meta->icc is unchanged */
+    size_t         len;
+    uint8_t       *owned;       /* malloc'ed profile made for this file, or NULL */
+} pc_icc_embed;
+
+/* Decide what to embed for pixel data in space pixels (PC_ICC_SPACE_RGB:
+ * RGB, RGBA, palette and BGRA layers; PC_ICC_SPACE_GRAY: gray samples):
+ *  - no profile, or one that is not usable (pc_icc_usable_space): none;
+ *  - a usable profile of the same space: meta's profile itself;
+ *  - a gray profile for RGB pixels: its RGB form (pc_icc_gray_as_rgb);
+ *  - anything else (CMYK, an RGB profile for gray pixels): none, so a
+ *    writer that can store gray should store RGB when the profile is RGB.
+ * meta (may be NULL) is borrowed. e is always initialized (pc_icc_embed_free
+ * is safe after any return). PC_OK, PC_ERR_ARG (e NULL, pixels not RGB or
+ * gray), PC_ERR_NOMEM. Any thread. */
+pc_status pc_icc_embed_for(const pc_image_meta *meta, pc_icc_space pixels, pc_icc_embed *e);
+void      pc_icc_embed_free(pc_icc_embed *e);                    /* NULL-safe, zeroes *e */
+
+/* The CMYK profile used when a CMYK file (JPEG, TIFF) has no usable
+ * embedded profile: "SWOP TR003 Coated" (ANSI CGATS/SWOP TR 003-2007
+ * characterization data, profile CC0, third_party/icc). CMYK images are
+ * converted through it to Adobe RGB (1998) and tagged with that profile
+ * (FL-CMYK). Static data owned by the library, never freed. *len (may be
+ * NULL) receives the size. Any thread. */
+const uint8_t *pc_icc_cmyk_default_profile(size_t *len);
 
 #endif /* PC_ICC_H */

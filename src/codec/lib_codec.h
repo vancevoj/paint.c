@@ -155,13 +155,33 @@ pc_status lc_png_encode(pc_buf *out, uint32_t w, uint32_t h, lc_rows_src src, vo
 typedef struct lc_cmyk_xf lc_cmyk_xf;
 /* Transform from a CMYK profile to the RGB profile dst (dst_len bytes,
  * borrowed; NULL = sRGB), perceptual intent. inverted selects Adobe-style
- * inverted samples. NULL when a profile is unusable (the caller then falls
- * back to the naive formula). Caller frees with lc_cmyk_close. */
+ * inverted samples. NULL when a profile is unusable (the caller then uses
+ * the default CMYK profile, and the naive formula only when even that
+ * fails). Caller frees with lc_cmyk_close. */
 lc_cmyk_xf *lc_cmyk_open(const uint8_t *icc, size_t len, bool inverted, const uint8_t *dst,
                          size_t dst_len);
-/* n CMYK pixels (4 bytes each, borrowed) to opaque BGRA. */
+/* The same transform from the default CMYK profile (lc_cmyk_swop_icc,
+ * pc_icc_cmyk_default_profile), for CMYK data without a usable profile. */
+lc_cmyk_xf *lc_cmyk_open_default(bool inverted, const uint8_t *dst, size_t dst_len);
+/* n CMYK pixels (4 bytes each, borrowed; may alias dst exactly, in place)
+ * to opaque BGRA. Exact results (unoptimized pipeline), cached per color
+ * inside x, so one x is used by one thread at a time. */
 void        lc_cmyk_run(lc_cmyk_xf *x, const uint8_t *cmyk, pc_px32 *dst, size_t n);
 void        lc_cmyk_close(lc_cmyk_xf *x);
+
+/* Bytes of third_party/icc/SWOP_TR003_coated_3.icc, generated into the
+ * build by cmake/PcCodecDeps.cmake (PcEmbed: one NUL guard byte follows
+ * the lc_cmyk_swop_icc_size bytes). */
+extern const unsigned char lc_cmyk_swop_icc[];
+extern const size_t        lc_cmyk_swop_icc_size;
+
+/* Notes of the CMYK decoders (meta->note). */
+#define LC_NOTE_CMYK_EMBEDDED "CMYK converted to Adobe RGB (1998) with the embedded color profile"
+#define LC_NOTE_CMYK_DEFAULT  "CMYK converted to Adobe RGB (1998) with the default CMYK " \
+                              "profile (SWOP)"
+#define LC_NOTE_CMYK_BAD      "CMYK converted to Adobe RGB (1998) with the default CMYK " \
+                              "profile (SWOP); the embedded profile was unusable"
+#define LC_NOTE_CMYK_NAIVE    "CMYK converted to RGB without a color profile"
 
 /* ---- small utilities ------------------------------------------------------------ */
 /* Copy a UTF-8 string into dst (cap bytes incl. NUL), truncated at a

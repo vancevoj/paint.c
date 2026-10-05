@@ -880,6 +880,8 @@ static pc_status avif_save(const pc_doc *d, const pc_image_meta *meta, const voi
     uint8_t *exif = NULL, *xmp = NULL;
     size_t exif_len = 0, xmp_len = 0;
     uint32_t threads;
+    pc_icc_embed icc;
+    memset(&icc, 0, sizeof icc);
     if (!d || !out) return PC_ERR_ARG;
     if (d->w > AVIF_MAX_SIDE || d->h > AVIF_MAX_SIDE || !d->w || !d->h) return PC_ERR_LIMIT;
     prm.quality = 85;
@@ -899,14 +901,15 @@ static pc_status avif_save(const pc_doc *d, const pc_image_meta *meta, const voi
     if (!band) return PC_ERR_NOMEM;
     st = scan_doc(d, par, band, &sc);
     if (st != PC_OK) goto done;
-    /* profile: RGB profiles keep the image RGB; a gray profile only fits a gray image */
-    if (meta && meta->icc && meta->icc_len) {
-        pc_icc_info info;
-        if (pc_icc_inspect(meta->icc, meta->icc_len, &info) == PC_OK) {
-            if (info.space == PC_ICC_SPACE_RGB) { use_icc = true; sc.gray = false; }
-            else if (info.space == PC_ICC_SPACE_GRAY && sc.gray) use_icc = true;
-        }
-    }
+    /* FS-ICC: a usable RGB profile keeps the image RGB; a gray profile goes
+     * with a gray image (4:0:0) as is and with a color image as its RGB
+     * form; unusable and CMYK profiles are left out (pc_icc_embed_for) */
+    if (meta && meta->icc &&
+        pc_icc_usable_space(meta->icc, meta->icc_len) == PC_ICC_SPACE_RGB)
+        sc.gray = false;
+    st = pc_icc_embed_for(meta, sc.gray ? PC_ICC_SPACE_GRAY : PC_ICC_SPACE_RGB, &icc);
+    if (st != PC_OK) goto done;
+    use_icc = icc.icc != NULL;
     if (sc.gray) fmt = AVIF_PIXEL_FORMAT_YUV400;
     else if (prm.lossless || prm.chroma == AVIF_CHROMA_444) fmt = AVIF_PIXEL_FORMAT_YUV444;
     else if (prm.chroma == AVIF_CHROMA_420) fmt = AVIF_PIXEL_FORMAT_YUV420;
@@ -956,7 +959,7 @@ static pc_status avif_save(const pc_doc *d, const pc_image_meta *meta, const voi
     if (st != PC_OK) goto done;
     /* metadata */
     if (use_icc) {
-        ar = avifImageSetProfileICC(img, meta->icc, meta->icc_len);
+        ar = avifImageSetProfileICC(img, icc.icc, icc.len);
         if (ar != AVIF_RESULT_OK) { st = enc_status(ar); goto done; }
     }
     if (meta) {
@@ -1048,6 +1051,7 @@ done:
     free(exif);
     free(xmp);
     free(band);
+    pc_icc_embed_free(&icc);
     return st;
 }
 

@@ -291,11 +291,22 @@ target_include_directories(pc_codec_tp_headers SYSTEM INTERFACE
   ${_pc_tp_root}/bcdec ${_pc_tp_root}/stb_dxt ${_pc_tp_root}/bc7enc)
 target_compile_definitions(pc_codec_tp_headers INTERFACE SPNG_STATIC BCDEC_BC4BC5_PRECISE)
 
+# ---- default CMYK profile (lane CODEC, wave 4) -------------------------------------
+# third_party/icc/SWOP_TR003_coated_3.icc (colord, CC0; ANSI CGATS/SWOP TR
+# 003-2007 data, see third_party/icc/LICENSE) becomes the byte array
+# lc_cmyk_swop_icc (src/codec/lib_codec.h) of pc_codec: CMYK files without
+# a usable embedded profile convert through it (FL-CMYK).
+include(PcEmbed)
+set(_pc_cmyk_icc ${_pc_tp_root}/icc/SWOP_TR003_coated_3.icc)
+
 # pc_codec_link_deps(<target>): called by src/codec/CMakeLists.txt.
 function(pc_codec_link_deps tgt)
   target_link_libraries(${tgt} PRIVATE pc_spng pc_jpeg pc_webp pc_lcms2 pc_texcomp)
   # Headers only (no link): tests/codec builds fixtures with the libraries.
   target_link_libraries(${tgt} PUBLIC pc_codec_tp_headers)
+  set(_emb "")
+  pc_embed_file(_emb ${_pc_cmyk_icc} lc_cmyk_swop_icc)
+  target_sources(${tgt} PRIVATE ${_emb})
 endfunction()
 
 include(PcAvifJxl)   # lane AVIFJXL: libavif + libjxl for fmt_avif.c / fmt_jxl.c (ADR-019)

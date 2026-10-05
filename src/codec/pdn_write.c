@@ -12,6 +12,7 @@
 #include "nrbf.h"
 #include "pdn.h"
 #include "cmeta.h"
+#include "pc/pc_icc.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -200,8 +201,15 @@ static pc_status build_items(const pc_image_meta *meta, const pdn_save_opts *o, 
     if (st == PC_OK) { rational(dx, buf); st = push_exif(l, &tagno, 282u, 5u, buf, 8u); }
     if (st == PC_OK) { rational(dy, buf); st = push_exif(l, &tagno, 283u, 5u, buf, 8u); }
     if (st == PC_OK && meta && meta->icc && meta->icc_len) {
-        if (meta->icc_len > (16u << 20)) st = PC_ERR_LIMIT;
-        else st = push_exif(l, &tagno, 34675u, 7u, meta->icc, meta->icc_len);
+        /* FS-ICC: the layers are BGRA, so an RGB profile only (a gray one as
+         * its RGB form; unusable and CMYK profiles are left out) */
+        pc_icc_embed icc;
+        st = pc_icc_embed_for(meta, PC_ICC_SPACE_RGB, &icc);
+        if (st == PC_OK && icc.icc) {
+            if (icc.len > (16u << 20)) st = PC_ERR_LIMIT;
+            else st = push_exif(l, &tagno, 34675u, 7u, icc.icc, icc.len);
+        }
+        pc_icc_embed_free(&icc);
     }
     if (st != PC_OK || !meta) return st;
     {
