@@ -709,11 +709,12 @@ static void t_limits_fuzz(void)
         lim.max_h = 47;
         CHECK(jx()->load(out.p, out.n, &lim, &r, &m) == PC_ERR_LIMIT && r == NULL);
         pc_codec_limits_default(&lim);
-        lim.max_mem = 30000;           /* buffers and document do not fit */
+        lim.max_mem = 64u * 48u * 4u - 1u;      /* the document does not fit */
         CHECK(jx()->load(out.p, out.n, &lim, &r, &m) == PC_ERR_LIMIT && r == NULL);
-        /* they fit, but libjxl's working memory (counted by the memory
+        if (r) { pc_doc_destroy(r); pc_meta_free(&m); r = NULL; }
+        /* it fits, but libjxl's working memory (counted by the memory
          * manager; libjxl before 0.9 allocates most of it elsewhere) does not */
-        lim.max_mem = 64u * 48u * 12u + 64u;
+        lim.max_mem = 64u * 48u * 4u + 1024u;
         {
             pc_status st = jx()->load(out.p, out.n, &lim, &r, &m);
 #if JPEGXL_MAJOR_VERSION > 0 || JPEGXL_MINOR_VERSION >= 9
