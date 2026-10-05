@@ -28,6 +28,7 @@ recorded here; lane agents still never decide OWNER items on their own.
 | ADR-017 | Performance thresholds (wall-clock limits) are enforced in local optimized builds without sanitizers and only reported when the CI environment variable is set (shared runners vary 2.5 to 4x). Correctness checks are never conditional. | The Intel macOS runner measured a soft-brush p95 of 9 ms against an 8 ms limit that passes with 2 to 3 ms locally and on every other runner. |
 | ADR-018 | Plugins load from the per-user PAL_DIR_DATA/plugins folder and, for portable installs, from a plugins folder next to the executable (refines OD-9 default). Both are user-controlled locations; --disable-plugins turns loading off. | Paint.NET users install effect plugins next to the app as well as per user; portable zips need it. |
 | ADR-019 | AVIF and JPEG XL are implemented (supersedes the 'optional later' part of ADR-011): Paint.NET 5.1 ships both as built-in file types. HEIC and JPEG XR stay N/A: Paint.NET only reaches them through Windows OS codecs (Microsoft HEVC extension, WIC). | Parity audit 2026-10-05; a complete clone needs every built-in file type. |
+| ADR-020 | Opening http(s) URLs from the Open dialog (F-FILE-FL-URL, optional in FILES.md) is out of scope: it needs an HTTPS client and TLS stack that neither libc nor SDL3 provides. | Avoids a large network dependency for an optional convenience. |
 
 ## Owner decisions (defaults stay in effect until the owner answers)
 | ID | Question | Default in effect | Affects | Owner answer |

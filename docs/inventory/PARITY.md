@@ -60,7 +60,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-CORE-SEL-COMBINE-SUBTRACT | Selection combine mode Subtract | core | DONE | D SelectionTools |
 | F-CORE-SEL-COMBINE-INTERSECT | Selection combine mode Intersect | core | DONE | D SelectionTools |
 | F-CORE-SEL-COMBINE-XOR | Selection combine mode Xor | core | DONE | D SelectionTools |
-| F-CORE-SEL-AA | Antialiased selection coverage (4x4 supersampled) | core | WIP | R 4.3 Audit 2026-10-05: Spec (TOOLS T-SEL-QUALITY, R 4.3) is 4x4 supersampled coverage (values k*255/16); paint.c uses exact area coverage, so edge values differ by up to about 8/255 from Paint.NET and are not quantized to 17 levels. Visuall... |
+| F-CORE-SEL-AA | Antialiased selection coverage (4x4 supersampled) | core | DONE | R 4.3 Audit 2026-10-05: Spec (TOOLS T-SEL-QUALITY, R 4.3) is 4x4 supersampled coverage (values k*255/16); paint.c uses exact area coverage, so edge values differ by up to about 8/255 from Paint.NET and are not quantized to 17 levels. Visuall... Closed in wave 3b (2026-10-05). |
 | F-CORE-SEL-PIXELATED | Pixelated (aliased) selection coverage | core | DONE | D |
 | F-CORE-SEL-INVERT | Invert selection within canvas | core | DONE |  |
 | F-CORE-SEL-ALL | Select all = canvas rectangle | core | DONE |  |
@@ -73,7 +73,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-CORE-HIST-REDO | Redo one step | core | DONE |  |
 | F-CORE-HIST-JUMP | Jump to any history entry | core | DONE | INV-HIST-PATH |
 | F-CORE-HIST-TRUNCATE | New action after undo discards redo entries | core | DONE | D HistoryWindow |
-| F-CORE-HIST-BUDGET | History limited only by memory/disk (budget + spill) | core | WIP | OD-10 Audit 2026-10-05: No disk spill: grep finds no spill or temp-file path in src/core or src/app. Once history passes the RAM budget the oldest undo steps are silently dropped, while Paint.NET keeps history limited only by memory plus disk. |
+| F-CORE-HIST-BUDGET | History limited only by memory/disk (budget + spill) | core | DONE | OD-10 Audit 2026-10-05: No disk spill: grep finds no spill or temp-file path in src/core or src/app. Once history passes the RAM budget the oldest undo steps are silently dropped, while Paint.NET keeps history limited only by memory plus disk. Closed in wave 3b (2026-10-05). |
 | F-CORE-HIST-FINEGRAINED | Live tool sub-steps recorded as history entries | core | DONE | R 4.0 |
 | F-CORE-HIST-PERIMAGE | Separate history per image, discarded on close | core | DONE | D |
 | F-CORE-RESAMPLE-BICUBIC | Resize resampling Bicubic (Catmull-Rom B=0 C=0.5) | core | DONE | MENUS Resize dialog |
@@ -84,7 +84,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-CORE-RESAMPLE-LANCZOS | Resize resampling Lanczos 3 lobes | core | DONE | MENUS Resize dialog |
 | F-CORE-RESAMPLE-FANT | Resize resampling Fant (area average down, bilinear up) | core | DONE | MENUS Resize dialog |
 | F-CORE-RESAMPLE-NEAREST | Resize resampling Nearest Neighbor (pixel centers, no half-pixel shift) | core | DONE | MENUS Resize dialog |
-| F-CORE-RESAMPLE-GAMMA | Resize in linear light when gamma correction is on | core | WIP | R 5.0.4 Audit 2026-10-05: Always uses the sRGB transfer curve. MENUS Resize says linear light via 'sRGB transfer, or the image profile's'; paint.c keeps pixels in the image's own profile (m_profile.h), so a tagged ProPhoto/Adobe RGB image is l... |
+| F-CORE-RESAMPLE-GAMMA | Resize in linear light when gamma correction is on | core | DONE | R 5.0.4 Audit 2026-10-05: Always uses the sRGB transfer curve. MENUS Resize says linear light via 'sRGB transfer, or the image profile's'; paint.c keeps pixels in the image's own profile (m_profile.h), so a tagged ProPhoto/Adobe RGB image is l... Closed in wave 3b (2026-10-05). |
 | F-CORE-RESIZE-ALLLAYERS | Resize applies to all layers and stores DPI | core | DONE |  |
 | F-CORE-CANVAS-ANCHOR | Canvas size with 9 anchors | core | DONE | MENUS Canvas Size |
 | F-CORE-CANVAS-FILL | Canvas size fill color for new area (bottom layer) | core | DONE | R 5.1.1, verify scope |
@@ -113,7 +113,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-CORE-QUANT-OCTREE | Palette quantization Octree | core | DONE | FILES FS-QUANT |
 | F-CORE-QUANT-MEDIANCUT | Palette quantization Median Cut | core | DONE |  |
 | F-CORE-QUANT-DITHER | Error diffusion dithering levels 0..8 | core | DONE |  |
-| F-CORE-QUANT-LINEAR | Quantizer merges colors in linear gamma | core | TODO | R 5.1.5 Audit 2026-10-05: R 5.1.5 quantizer merging in linear gamma is not implemented; indexed saves (PNG/GIF/BMP/TIFF 8-bit and lower) get palette colors biased dark on mixed clusters. |
+| F-CORE-QUANT-LINEAR | Quantizer merges colors in linear gamma | core | DONE | R 5.1.5 Audit 2026-10-05: R 5.1.5 quantizer merging in linear gamma is not implemented; indexed saves (PNG/GIF/BMP/TIFF 8-bit and lower) get palette colors biased dark on mixed clusters. Closed in wave 3b (2026-10-05). |
 | F-CORE-QUANT-NODITHER-SMALL | No dithering when colors already fit | core | DONE | R 4.2.16 |
 | F-CORE-AUTODEPTH | Auto-detect smallest lossless bit depth | core | DONE | FILES FS-AUTO |
 | F-CORE-ALPHA-WHITE | Alpha-less depths composite over white | core | DONE | FILES FS-ALPHA-WHITE |
@@ -121,7 +121,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-CORE-CM-ASSIGN | Color profile assign (tag only) | core | DONE |  |
 | F-CORE-CM-BUILTINS | Built-in profiles sRGB, Adobe RGB, Display P3, ProPhoto RGB | core | DONE |  |
 | F-CORE-CM-DEFAULT-SRGB | Untagged images treated as sRGB | core | DONE |  |
-| F-CORE-CM-CMYK | CMYK input converted via Adobe RGB | core | WIP | R 5.1 Audit 2026-10-05: FILES FL-CMYK / R 5.1: CMYK is converted to RGB with the Adobe RGB profile (result tagged Adobe RGB). paint.c converts to untagged sRGB (gamut clipped to sRGB), and TIFF CMYK ignores profiles entirely. |
+| F-CORE-CM-CMYK | CMYK input converted via Adobe RGB | core | DONE | R 5.1 Audit 2026-10-05: FILES FL-CMYK / R 5.1: CMYK is converted to RGB with the Adobe RGB profile (result tagged Adobe RGB). paint.c converts to untagged sRGB (gamut clipped to sRGB), and TIFF CMYK ignores profiles entirely. Closed in wave 3b (2026-10-05). |
 | F-CORE-MAXSIZE | Max canvas 262144 x 262144, min 1 x 1 | core | N/A | R 4.2.2 Audit 2026-10-05: ADR-014 keeps PC_MAX_DIM = 65535 per side (include/pc/pc_base.h:29) instead of 262144; listed as an accepted parity gap. Minimum 1x1 is supported (pc_geom_* reject 0). |
 | F-CORE-DPI | Image resolution stored (px/in or px/cm), default 96 | core | DONE |  |
 | F-CORE-PALETTE-PARSE | Palette .txt parse (AARRGGBB, ; comments, pad white, cap 96) | core | DONE | WINDOWS 7.1 |
@@ -135,27 +135,27 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FILE-FL-SNIFF | Detect the real format from content when the extension lies (WebP named .png, BMP named .png) (R 4.2.13, 5.0.11). | codec | DONE | FILES FL-SNIFF |
 | F-FILE-FL-EXIF-ORIENT | Apply EXIF orientation on open. | codec | DONE | FILES FL-EXIF-ORIENT |
 | F-FILE-FL-FIRSTFRAME | Multi-frame GIF/TIFF/WebP/AVIF: load first (primary) frame. | codec | DONE | FILES FL-FIRSTFRAME |
-| F-FILE-FL-ICC | Embedded color profiles are kept and used for display (5.1 color management). A bad/unparseable profile is ignored and the image is treated as sRGB ... | codec | WIP | FILES FL-ICC Audit 2026-10-05: Three deviations: (1) no display color management, the canvas shows raw pixel values as sRGB (edit/m_profile.h says so); (2) an unparseable profile is NOT ignored: it stays on the image and is written back verbatim (b... |
-| F-FILE-FL-CMYK | CMYK images are converted to RGB with the Adobe RGB profile (R 5.1); CMYK64 supported. | codec | WIP | FILES FL-CMYK Audit 2026-10-05: Conversion target is sRGB, not Adobe RGB, and the image is not tagged Adobe RGB; CMYK without an embedded profile uses the naive 255-ink formula instead of a default CMYK profile; TIFF CMYK ignores an embedded CMYK pr... |
-| F-FILE-FL-META | EXIF, XMP, IPTC preserved where the format supports them (XMP: PDN, JPEG, PNG, TIFF, JPEG XR, HEIC, AVIF, WebP; R 4.2.11, IPTC R 5.0). PNG text ... | codec | TODO | FILES FL-META Audit 2026-10-05: EXIF, XMP, IPTC and the PNG text chunks are dropped on every open/save round trip (photo metadata loss). Fix: read them into pc_image_meta items ("exif", "xmp", "iptc", "png.text.<key>") in fmt_jpeg.c, fmt_png.c, fmt_... |
+| F-FILE-FL-ICC | Embedded color profiles are kept and used for display (5.1 color management). A bad/unparseable profile is ignored and the image is treated as sRGB ... | codec | DONE | FILES FL-ICC Audit 2026-10-05: Three deviations: (1) no display color management, the canvas shows raw pixel values as sRGB (edit/m_profile.h says so); (2) an unparseable profile is NOT ignored: it stays on the image and is written back verbatim (b... Closed in wave 3b (2026-10-05). |
+| F-FILE-FL-CMYK | CMYK images are converted to RGB with the Adobe RGB profile (R 5.1); CMYK64 supported. | codec | DONE | FILES FL-CMYK Audit 2026-10-05: Conversion target is sRGB, not Adobe RGB, and the image is not tagged Adobe RGB; CMYK without an embedded profile uses the naive 255-ink formula instead of a default CMYK profile; TIFF CMYK ignores an embedded CMYK pr... Closed in wave 3b (2026-10-05). |
+| F-FILE-FL-META | EXIF, XMP, IPTC preserved where the format supports them (XMP: PDN, JPEG, PNG, TIFF, JPEG XR, HEIC, AVIF, WebP; R 4.2.11, IPTC R 5.0). PNG text ... | codec | DONE | FILES FL-META Audit 2026-10-05: EXIF, XMP, IPTC and the PNG text chunks are dropped on every open/save round trip (photo metadata loss). Fix: read them into pc_image_meta items ("exif", "xmp", "iptc", "png.text.<key>") in fmt_jpeg.c, fmt_png.c, fmt_... Closed in wave 3b (2026-10-05). |
 | F-FILE-FL-DPI | Resolution read from the file (default 96 DPI when absent or invalid). | codec | DONE | FILES FL-DPI |
 | F-FILE-FL-ERR | Error dialog shows the file path and reason (R 4.2.11). | codec | DONE | FILES FL-ERR |
-| F-FILE-FL-BIG | Loading large images (e.g. 32K x 32K) must stay responsive; max canvas 262,144 x 262,144 (R 4.2.2). | codec | WIP | FILES FL-BIG Audit 2026-10-05: Beyond ADR-014, src/codec/codec.c pc_codec_limits_default caps loads at 1 Gpx (max_pixels 1<<30) and 4 GiB: a 40000 x 30000 PNG (inside the 65535 per-side document limit) is refused with only "Size limit exceeded." Fi... |
-| F-FILE-FL-URL | Open dialog accepts an http(s) URL in the file name box; the image opens as untitled (Save As required). paint.c optional. | codec | TODO | FILES FL-URL Audit 2026-10-05: Open dialog / app_open_path do not accept http(s) URLs (spec marks it optional for paint.c). Fix: src/app/fileio.c app_open_path (download to memory on the worker, open as untitled). |
+| F-FILE-FL-BIG | Loading large images (e.g. 32K x 32K) must stay responsive; max canvas 262,144 x 262,144 (R 4.2.2). | codec | DONE | FILES FL-BIG Audit 2026-10-05: Beyond ADR-014, src/codec/codec.c pc_codec_limits_default caps loads at 1 Gpx (max_pixels 1<<30) and 4 GiB: a 40000 x 30000 PNG (inside the 65535 per-side document limit) is refused with only "Size limit exceeded." Fi... Closed in wave 3b (2026-10-05). |
+| F-FILE-FL-URL | Open dialog accepts an http(s) URL in the file name box; the image opens as untitled (Save As required). paint.c optional. | codec | N/A | FILES FL-URL Audit 2026-10-05: Open dialog / app_open_path do not accept http(s) URLs (spec marks it optional for paint.c). Fix: src/app/fileio.c app_open_path (download to memory on the worker, open as untitled). ADR-020: opening http(s) URLs is optional per FILES.md and needs an HTTPS client paint.c does not ship. |
 | F-FILE-FS-FLATTEN | Saving a multi-layer image to a single-layer type shows the Flatten prompt (MENUS.md); flatten is an undoable History step done before writing. | codec | DONE | FILES FS-FLATTEN |
 | F-FILE-FS-CONFIG | Types with options show Save Configuration (preview + file size) on Save As and on the first Save of the session; options are remembered per image. | codec | DONE | FILES FS-CONFIG |
 | F-FILE-FS-ATOMIC | Write to a temporary file in the target folder, then replace atomically; no data loss on failure or power cut (R 4.2.12, 5.1.8). Temp files must be ... | codec | DONE | FILES FS-ATOMIC |
 | F-FILE-FS-ALPHA-WHITE | When the chosen depth has no alpha (24-bit, opaque 8-bit, JPEG), pixels are composited over white. For 8-bit with transparency, alpha < threshold ... | codec | DONE | FILES FS-ALPHA-WHITE |
 | F-FILE-FS-AUTO | Auto-detect bit depth: among depths that lose nothing (32 always; 24 if all opaque; 8 if opaque and <= 256 colors; 8 with transparency if alpha is ... | codec | DONE | FILES FS-AUTO |
-| F-FILE-FS-QUANT | Indexed depths (8, 4, 2, 1 bit) quantize with Octree (default) or Median Cut, merging colors in linear gamma (R 5.1.5), then dither with the chosen ... | codec | WIP | FILES FS-QUANT Audit 2026-10-05: Colors are clustered in gamma-encoded premultiplied sRGB (quant.c px_coords), not in linear light as 5.1.5 does; PNG indexed output always uses Octree (fmt_png.c png_quantize_8bit hardcodes PC_QUANT_OCTREE) and offers... |
-| F-FILE-FS-ICC | Embed the image's color profile where the format supports it (I for each format). | codec | WIP | FILES FS-ICC Audit 2026-10-05: TIFF and BMP drop the profile on save although both formats can carry it (adobe_re.tif and adobe_re.bmp have no profile; BMP 32-bit writes LCS_sRGB), so wide-gamut images change appearance. Fix: fmt_tiff.c tiff_save (... |
+| F-FILE-FS-QUANT | Indexed depths (8, 4, 2, 1 bit) quantize with Octree (default) or Median Cut, merging colors in linear gamma (R 5.1.5), then dither with the chosen ... | codec | DONE | FILES FS-QUANT Audit 2026-10-05: Colors are clustered in gamma-encoded premultiplied sRGB (quant.c px_coords), not in linear light as 5.1.5 does; PNG indexed output always uses Octree (fmt_png.c png_quantize_8bit hardcodes PC_QUANT_OCTREE) and offers... Closed in wave 3b (2026-10-05). |
+| F-FILE-FS-ICC | Embed the image's color profile where the format supports it (I for each format). | codec | DONE | FILES FS-ICC Audit 2026-10-05: TIFF and BMP drop the profile on save although both formats can carry it (adobe_re.tif and adobe_re.bmp have no profile; BMP 32-bit writes LCS_sRGB), so wide-gamut images change appearance. Fix: fmt_tiff.c tiff_save (... Closed in wave 3b (2026-10-05). |
 | F-FILE-FS-DPI | Write the image resolution. | codec | DONE | FILES FS-DPI |
 | F-FILE-PDN-LOAD | PDN load | codec | DONE | FILES.md |
 | F-FILE-PDN-SAVE | PDN save | codec | DONE | FILES.md |
 | F-FILE-PDN-LAYERS | PDN layers | codec | DONE | FILES.md |
 | F-FILE-PDN-LAYERPROPS | PDN layerprops | codec | DONE | FILES.md |
 | F-FILE-PDN-HIDDEN | PDN hidden | codec | DONE | FILES.md |
-| F-FILE-PDN-METADATA | PDN metadata | codec | WIP | FILES.md Audit 2026-10-05: All other userMetadataItems are dropped on load and not written: other EXIF tags, XMP and plain user metadata keys (pc_codec.h documents "pdn.user.<name>" items but fmt_pdn.c never adds them). Fix: fmt_pdn.c read_meta... |
+| F-FILE-PDN-METADATA | PDN metadata | codec | DONE | FILES.md Audit 2026-10-05: All other userMetadataItems are dropped on load and not written: other EXIF tags, XMP and plain user metadata keys (pc_codec.h documents "pdn.user.<name>" items but fmt_pdn.c never adds them). Fix: fmt_pdn.c read_meta... Closed in wave 3b (2026-10-05). |
 | F-FILE-PDN-THUMB | PDN thumb | codec | DONE | FILES.md |
 | F-FILE-PDN-PYPDN-ROUNDTRIP | PDN pypdn roundtrip | codec | DONE | FILES.md |
 | F-FILE-PNG-LOAD | PNG load | codec | DONE | FILES.md |
@@ -166,27 +166,27 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FILE-PNG-SAVE-32BIT | PNG save 32bit | codec | DONE | FILES.md |
 | F-FILE-PNG-SAVE-24BIT | PNG save 24bit | codec | DONE | FILES.md |
 | F-FILE-PNG-SAVE-8BIT | PNG save 8bit | codec | DONE | FILES.md |
-| F-FILE-PNG-SAVE-4BIT | PNG save 4bit | codec | TODO | FILES.md Audit 2026-10-05: No 4-bit PNG option (OBSERVED 3.3 lists 4-bit). Fix: fmt_png.c k_png_depths/png_save and lc_png_encode (sub-byte palette packing). |
-| F-FILE-PNG-SAVE-2BIT | PNG save 2bit | codec | TODO | FILES.md Audit 2026-10-05: No 2-bit PNG option. Fix: fmt_png.c k_png_depths/png_save, lc_png_encode. |
-| F-FILE-PNG-SAVE-1BIT | PNG save 1bit | codec | TODO | FILES.md Audit 2026-10-05: No 1-bit PNG option (Auto-detect also never picks 1/2/4-bit PNG). Fix: fmt_png.c k_png_depths/png_save, lc_png_encode. |
-| F-FILE-PNG-SAVE-INTERLACED | PNG save interlaced | codec | TODO | FILES.md Audit 2026-10-05: No Interlaced (Adam7) save option (OBSERVED: "Interlaced = off"). Fix: fmt_png.c props + lc_png_encode (ih.interlace_method = 1). |
+| F-FILE-PNG-SAVE-4BIT | PNG save 4bit | codec | DONE | FILES.md Audit 2026-10-05: No 4-bit PNG option (OBSERVED 3.3 lists 4-bit). Fix: fmt_png.c k_png_depths/png_save and lc_png_encode (sub-byte palette packing). Closed in wave 3b (2026-10-05). |
+| F-FILE-PNG-SAVE-2BIT | PNG save 2bit | codec | DONE | FILES.md Audit 2026-10-05: No 2-bit PNG option. Fix: fmt_png.c k_png_depths/png_save, lc_png_encode. Closed in wave 3b (2026-10-05). |
+| F-FILE-PNG-SAVE-1BIT | PNG save 1bit | codec | DONE | FILES.md Audit 2026-10-05: No 1-bit PNG option (Auto-detect also never picks 1/2/4-bit PNG). Fix: fmt_png.c k_png_depths/png_save, lc_png_encode. Closed in wave 3b (2026-10-05). |
+| F-FILE-PNG-SAVE-INTERLACED | PNG save interlaced | codec | DONE | FILES.md Audit 2026-10-05: No Interlaced (Adam7) save option (OBSERVED: "Interlaced = off"). Fix: fmt_png.c props + lc_png_encode (ih.interlace_method = 1). Closed in wave 3b (2026-10-05). |
 | F-FILE-PNG-SAVE-DITHER | PNG save dither | codec | DONE | FILES.md |
 | F-FILE-PNG-SAVE-THRESHOLD | PNG save threshold | codec | DONE | FILES.md |
-| F-FILE-PNG-SAVE-QUANT-ALGO | PNG save quant algo | codec | TODO | FILES.md Audit 2026-10-05: No Octree / Median Cut choice in the PNG dialog. Fix: fmt_png.c k_png_props + png_quantize_8bit. |
+| F-FILE-PNG-SAVE-QUANT-ALGO | PNG save quant algo | codec | DONE | FILES.md Audit 2026-10-05: No Octree / Median Cut choice in the PNG dialog. Fix: fmt_png.c k_png_props + png_quantize_8bit. Closed in wave 3b (2026-10-05). |
 | F-FILE-PNG-ICC | PNG icc | codec | DONE | FILES.md |
-| F-FILE-PNG-TEXTCHUNKS | PNG textchunks | codec | TODO | FILES.md Audit 2026-10-05: PNG text chunks Author, Comment, Copyright, Description (R 5.1.3) are lost. Fix: fmt_png.c lc_png_decode (spng_get_text into meta items) and lc_png_encode (spng_set_text). |
+| F-FILE-PNG-TEXTCHUNKS | PNG textchunks | codec | DONE | FILES.md Audit 2026-10-05: PNG text chunks Author, Comment, Copyright, Description (R 5.1.3) are lost. Fix: fmt_png.c lc_png_decode (spng_get_text into meta items) and lc_png_encode (spng_set_text). Closed in wave 3b (2026-10-05). |
 | F-FILE-PNG-DPI | PNG dpi | codec | DONE | FILES.md |
 | F-FILE-JPEG-LOAD | JPEG load | codec | DONE | FILES.md |
-| F-FILE-JPEG-LOAD-CMYK | JPEG load cmyk | codec | WIP | FILES.md Audit 2026-10-05: Converted to sRGB instead of Adobe RGB (5.1); without an embedded profile the naive formula is used instead of a default CMYK profile. Fix: fmt_jpeg.c jdec_run CMYK branch. |
+| F-FILE-JPEG-LOAD-CMYK | JPEG load cmyk | codec | DONE | FILES.md Audit 2026-10-05: Converted to sRGB instead of Adobe RGB (5.1); without an embedded profile the naive formula is used instead of a default CMYK profile. Fix: fmt_jpeg.c jdec_run CMYK branch. Closed in wave 3b (2026-10-05). |
 | F-FILE-JPEG-LOAD-EXIF-ORIENT | JPEG load exif orient | codec | DONE | FILES.md |
 | F-FILE-JPEG-SAVE-QUALITY | JPEG save quality | codec | DONE | FILES.md |
 | F-FILE-JPEG-SAVE-SUBSAMPLING-444 | JPEG save subsampling 444 | codec | DONE | FILES.md |
-| F-FILE-JPEG-SAVE-SUBSAMPLING-422 | JPEG save subsampling 422 | codec | WIP | FILES.md Audit 2026-10-05: Spec default is 4:2:2 but k_jpeg_props default is JPEG_SUB_420 (4:2:0), and jpeg_save also falls back to 4:2:0 (fresh-config JPEG dialog screenshot shows 4:2:0). Fix: fmt_jpeg.c k_jpeg_props def and jpeg_save fallback... |
+| F-FILE-JPEG-SAVE-SUBSAMPLING-422 | JPEG save subsampling 422 | codec | DONE | FILES.md Audit 2026-10-05: Spec default is 4:2:2 but k_jpeg_props default is JPEG_SUB_420 (4:2:0), and jpeg_save also falls back to 4:2:0 (fresh-config JPEG dialog screenshot shows 4:2:0). Fix: fmt_jpeg.c k_jpeg_props def and jpeg_save fallback... Closed in wave 3b (2026-10-05). |
 | F-FILE-JPEG-SAVE-SUBSAMPLING-420 | JPEG save subsampling 420 | codec | DONE | FILES.md |
 | F-FILE-JPEG-SAVE-ALPHA-WHITE | JPEG save alpha white | codec | DONE | FILES.md |
-| F-FILE-JPEG-EXIF | JPEG exif | codec | TODO | FILES.md Audit 2026-10-05: EXIF is stripped from every JPEG on save (camera data, dates, GPS lost). Fix: fmt_jpeg.c jdec_run (store APP1 Exif as a meta item, orientation reset to 1) and jenc_run (jpeg_write_marker APP1). |
-| F-FILE-JPEG-XMP | JPEG xmp | codec | TODO | FILES.md Audit 2026-10-05: JPEG XMP not preserved. Fix: fmt_jpeg.c jdec_run/jenc_run (APP1 XMP packet as meta item "xmp"). |
-| F-FILE-JPEG-IPTC | JPEG iptc | codec | TODO | FILES.md Audit 2026-10-05: IPTC (APP13 Photoshop 3.0 IRB) not preserved. Fix: fmt_jpeg.c jdec_run (jpeg_save_markers APP13, meta item "iptc") and jenc_run. |
+| F-FILE-JPEG-EXIF | JPEG exif | codec | DONE | FILES.md Audit 2026-10-05: EXIF is stripped from every JPEG on save (camera data, dates, GPS lost). Fix: fmt_jpeg.c jdec_run (store APP1 Exif as a meta item, orientation reset to 1) and jenc_run (jpeg_write_marker APP1). Closed in wave 3b (2026-10-05). |
+| F-FILE-JPEG-XMP | JPEG xmp | codec | DONE | FILES.md Audit 2026-10-05: JPEG XMP not preserved. Fix: fmt_jpeg.c jdec_run/jenc_run (APP1 XMP packet as meta item "xmp"). Closed in wave 3b (2026-10-05). |
+| F-FILE-JPEG-IPTC | JPEG iptc | codec | DONE | FILES.md Audit 2026-10-05: IPTC (APP13 Photoshop 3.0 IRB) not preserved. Fix: fmt_jpeg.c jdec_run (jpeg_save_markers APP13, meta item "iptc") and jenc_run. Closed in wave 3b (2026-10-05). |
 | F-FILE-JPEG-ICC | JPEG icc | codec | DONE | FILES.md |
 | F-FILE-JPEG-DPI | JPEG dpi | codec | DONE | FILES.md |
 | F-FILE-JPEG-EXTENSIONS | JPEG extensions | codec | DONE | FILES.md |
@@ -199,13 +199,13 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FILE-BMP-SAVE-8BIT | BMP save 8bit | codec | DONE | FILES.md |
 | F-FILE-BMP-SAVE-4BIT | BMP save 4bit | codec | DONE | FILES.md |
 | F-FILE-BMP-SAVE-1BIT | BMP save 1bit | codec | DONE | FILES.md |
-| F-FILE-BMP-SAVE-DITHER | BMP save dither | codec | WIP | FILES.md Audit 2026-10-05: Dithering level and Palette stay enabled for Auto-detect/24/32-bit (no enable condition like PNG's "bit_depth=3"); the algorithm label is "Palette" rather than a quantization-algorithm label. Fix: fmt_bmp.c k_props en... |
+| F-FILE-BMP-SAVE-DITHER | BMP save dither | codec | DONE | FILES.md Audit 2026-10-05: Dithering level and Palette stay enabled for Auto-detect/24/32-bit (no enable condition like PNG's "bit_depth=3"); the algorithm label is "Palette" rather than a quantization-algorithm label. Fix: fmt_bmp.c k_props en... Closed in wave 3b (2026-10-05). |
 | F-FILE-GIF-LOAD-FIRSTFRAME | GIF load firstframe | codec | DONE | FILES.md |
 | F-FILE-GIF-LOAD-TRANSPARENCY | GIF load transparency | codec | DONE | FILES.md |
 | F-FILE-GIF-SAVE | GIF save | codec | DONE | FILES.md |
 | F-FILE-GIF-SAVE-DITHER | GIF save dither | codec | DONE | FILES.md |
 | F-FILE-GIF-SAVE-THRESHOLD | GIF save threshold | codec | DONE | FILES.md |
-| F-FILE-GIF-COMMENT | GIF comment | codec | TODO | FILES.md Audit 2026-10-05: GIF comment is not preserved (R 5.1.4 keeps it as EXIF UserComment). Fix: fmt_gif.c gif_load (0xFE extension -> meta item) and gif_save (write it back). |
+| F-FILE-GIF-COMMENT | GIF comment | codec | DONE | FILES.md Audit 2026-10-05: GIF comment is not preserved (R 5.1.4 keeps it as EXIF UserComment). Fix: fmt_gif.c gif_load (0xFE extension -> meta item) and gif_save (write it back). Closed in wave 3b (2026-10-05). |
 | F-FILE-TGA-LOAD | TGA load | codec | DONE | FILES.md |
 | F-FILE-TGA-LOAD-16BIT | TGA load 16bit | codec | DONE | FILES.md |
 | F-FILE-TGA-LOAD-8BIT | TGA load 8bit | codec | DONE | FILES.md |
@@ -221,8 +221,8 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FILE-TIFF-SAVE-8BIT | TIFF save 8bit | codec | DONE | FILES.md |
 | F-FILE-TIFF-SAVE-4BIT | TIFF save 4bit | codec | DONE | FILES.md |
 | F-FILE-TIFF-SAVE-1BIT | TIFF save 1bit | codec | DONE | FILES.md |
-| F-FILE-TIFF-ICC | TIFF icc | codec | WIP | FILES.md Audit 2026-10-05: tiff_save never writes tag 34675: the profile is lost on TIFF save (scripted run (paintc --headless --script, private config dir): adobe_re.tif has no profile). Fix: fmt_tiff.c tiff_save add_ent(T_ICC, type 7). |
-| F-FILE-TIFF-XMP | TIFF xmp | codec | TODO | FILES.md Audit 2026-10-05: TIFF XMP not preserved. Fix: fmt_tiff.c parse/tiff_save (tag 700 as meta item "xmp"). |
+| F-FILE-TIFF-ICC | TIFF icc | codec | DONE | FILES.md Audit 2026-10-05: tiff_save never writes tag 34675: the profile is lost on TIFF save (scripted run (paintc --headless --script, private config dir): adobe_re.tif has no profile). Fix: fmt_tiff.c tiff_save add_ent(T_ICC, type 7). Closed in wave 3b (2026-10-05). |
+| F-FILE-TIFF-XMP | TIFF xmp | codec | DONE | FILES.md Audit 2026-10-05: TIFF XMP not preserved. Fix: fmt_tiff.c parse/tiff_save (tag 700 as meta item "xmp"). Closed in wave 3b (2026-10-05). |
 | F-FILE-DDS-LOAD-ALLFORMATS | DDS load allformats | codec | DONE | FILES.md |
 | F-FILE-DDS-LOAD-CUBEMAP | DDS load cubemap | codec | DONE | FILES.md |
 | F-FILE-DDS-SAVE-FORMAT-BC1 | DDS save format bc1 | codec | DONE | FILES.md |
@@ -230,18 +230,18 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FILE-DDS-SAVE-FORMAT-BC3 | DDS save format bc3 | codec | DONE | FILES.md |
 | F-FILE-DDS-SAVE-FORMAT-BC4 | DDS save format bc4 | codec | DONE | FILES.md |
 | F-FILE-DDS-SAVE-FORMAT-BC5 | DDS save format bc5 | codec | DONE | FILES.md |
-| F-FILE-DDS-SAVE-FORMAT-BC6H | DDS save format bc6h | codec | TODO | FILES.md Audit 2026-10-05: No BC6H (unsigned) save format. Fix: fmt_dds.c k_formats/k_format_labels + an encoder (e.g. a BC6H encoder in third_party) in enc_level_bc. |
+| F-FILE-DDS-SAVE-FORMAT-BC6H | DDS save format bc6h | codec | DONE | FILES.md Audit 2026-10-05: No BC6H (unsigned) save format. Fix: fmt_dds.c k_formats/k_format_labels + an encoder (e.g. a BC6H encoder in third_party) in enc_level_bc. Closed in wave 3b (2026-10-05). |
 | F-FILE-DDS-SAVE-FORMAT-BC7 | DDS save format bc7 | codec | DONE | FILES.md |
 | F-FILE-DDS-SAVE-FORMAT-SRGB-VARIANTS | DDS save format srgb variants | codec | DONE | FILES.md |
 | F-FILE-DDS-SAVE-FORMAT-UNCOMPRESSED | DDS save format uncompressed | codec | DONE | FILES.md |
 | F-FILE-DDS-SAVE-FORMAT-16BIT | DDS save format 16bit | codec | DONE | FILES.md |
 | F-FILE-DDS-SAVE-FORMAT-R8-RG8-R32F | DDS save format r8 rg8 r32f | codec | DONE | FILES.md |
-| F-FILE-DDS-SAVE-DITHER | DDS save dither | codec | WIP | FILES.md Audit 2026-10-05: Default is off (spec on); dithering is not applied to BC1..BC3 (stb_dxt dither flag unused in enc_level_bc); the checkbox is always enabled instead of only for BC1..BC3 and 16-bit formats. Fix: fmt_dds.c k_dds_props (... |
-| F-FILE-DDS-SAVE-BC7SPEED | DDS save bc7speed | codec | WIP | FILES.md Audit 2026-10-05: Always enabled (spec: only for BC6H/BC7), and the combo box overflows the left column of the Save Configuration dialog (its arrow is clipped under the preview; screenshot). No BC6H to apply it to. Fix: fmt_dds.c k_dds... |
-| F-FILE-DDS-SAVE-ERRORMETRIC | DDS save errormetric | codec | WIP | FILES.md Audit 2026-10-05: Always enabled (spec: only BC1..BC3 variants). Fix: fmt_dds.c k_dds_props enable string. |
+| F-FILE-DDS-SAVE-DITHER | DDS save dither | codec | DONE | FILES.md Audit 2026-10-05: Default is off (spec on); dithering is not applied to BC1..BC3 (stb_dxt dither flag unused in enc_level_bc); the checkbox is always enabled instead of only for BC1..BC3 and 16-bit formats. Fix: fmt_dds.c k_dds_props (... Closed in wave 3b (2026-10-05). |
+| F-FILE-DDS-SAVE-BC7SPEED | DDS save bc7speed | codec | WIP | FILES.md Audit 2026-10-05: Always enabled (spec: only for BC6H/BC7), and the combo box overflows the left column of the Save Configuration dialog (its arrow is clipped under the preview; screenshot). No BC6H to apply it to. Fix: fmt_dds.c k_dds... Wave 3b: Enable rule done; the BC7 speed combo overflows the Save Configuration options column (layout). |
+| F-FILE-DDS-SAVE-ERRORMETRIC | DDS save errormetric | codec | DONE | FILES.md Audit 2026-10-05: Always enabled (spec: only BC1..BC3 variants). Fix: fmt_dds.c k_dds_props enable string. Closed in wave 3b (2026-10-05). |
 | F-FILE-DDS-SAVE-CUBEMAP | DDS save cubemap | codec | DONE | FILES.md |
 | F-FILE-DDS-SAVE-MIPMAPS | DDS save mipmaps | codec | DONE | FILES.md |
-| F-FILE-DDS-SAVE-MIP-RESAMPLE | DDS save mip resample | codec | WIP | FILES.md Audit 2026-10-05: Default is Fant instead of Bicubic, and "Bilinear (Low Quality)" and "Adaptive" are missing from the list. Fix: fmt_dds.c k_filters/k_dds_props def and lc_filter in lib_codec.h. |
+| F-FILE-DDS-SAVE-MIP-RESAMPLE | DDS save mip resample | codec | DONE | FILES.md Audit 2026-10-05: Default is Fant instead of Bicubic, and "Bilinear (Low Quality)" and "Adaptive" are missing from the list. Fix: fmt_dds.c k_filters/k_dds_props def and lc_filter in lib_codec.h. Closed in wave 3b (2026-10-05). |
 | F-FILE-DDS-SAVE-MIP-GAMMA | DDS save mip gamma | codec | DONE | FILES.md |
 | F-FILE-WEBP-LOAD | WEBP load | codec | DONE | FILES.md |
 | F-FILE-WEBP-LOAD-FIRSTFRAME | WEBP load firstframe | codec | DONE | FILES.md |
@@ -250,21 +250,21 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FILE-WEBP-SAVE-EFFORT | WEBP save effort | codec | DONE | FILES.md |
 | F-FILE-WEBP-SAVE-LOSSLESS | WEBP save lossless | codec | DONE | FILES.md |
 | F-FILE-WEBP-MAXSIZE | WEBP maxsize | codec | DONE | FILES.md |
-| F-FILE-WEBP-XMP | WEBP xmp | codec | TODO | FILES.md Audit 2026-10-05: WebP XMP not preserved. Fix: fmt_webp.c webp_load (WebPDemuxGetChunk "XMP ") and webp_save (WebPMuxSetChunk). |
-| F-FILE-AVIF-LOAD | AVIF load | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". |
-| F-FILE-AVIF-SAVE-QUALITY | AVIF save quality | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". |
-| F-FILE-AVIF-SAVE-LOSSLESS | AVIF save lossless | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". |
-| F-FILE-AVIF-SAVE-ALPHA-LOSSLESS | AVIF save alpha lossless | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". |
-| F-FILE-AVIF-SAVE-PRESET | AVIF save preset | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". |
-| F-FILE-AVIF-SAVE-CHROMA | AVIF save chroma | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". |
-| F-FILE-AVIF-SAVE-TILESIZE | AVIF save tilesize | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". |
-| F-FILE-AVIF-SAVE-PREMUL | AVIF save premul | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". |
-| F-FILE-AVIF-OPTIONAL | AVIF optional | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". |
-| F-FILE-JXL-LOAD | JXL load | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_jxl.c). ADR-011: JPEG XL is optional later work behind a system library; FILES.md "paint.c optional (ADR-011)". |
-| F-FILE-JXL-SAVE-QUALITY | JXL save quality | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_jxl.c). ADR-011: JPEG XL is optional later work behind a system library; FILES.md "paint.c optional (ADR-011)". |
-| F-FILE-JXL-SAVE-LOSSLESS | JXL save lossless | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_jxl.c). ADR-011: JPEG XL is optional later work behind a system library; FILES.md "paint.c optional (ADR-011)". |
-| F-FILE-JXL-SAVE-EFFORT | JXL save effort | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_jxl.c). ADR-011: JPEG XL is optional later work behind a system library; FILES.md "paint.c optional (ADR-011)". |
-| F-FILE-JXL-OPTIONAL | JXL optional | codec | N/A | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_jxl.c). ADR-011: JPEG XL is optional later work behind a system library; FILES.md "paint.c optional (ADR-011)". |
+| F-FILE-WEBP-XMP | WEBP xmp | codec | DONE | FILES.md Audit 2026-10-05: WebP XMP not preserved. Fix: fmt_webp.c webp_load (WebPDemuxGetChunk "XMP ") and webp_save (WebPMuxSetChunk). Closed in wave 3b (2026-10-05). |
+| F-FILE-AVIF-LOAD | AVIF load | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". Closed in wave 3b (2026-10-05). |
+| F-FILE-AVIF-SAVE-QUALITY | AVIF save quality | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". Closed in wave 3b (2026-10-05). |
+| F-FILE-AVIF-SAVE-LOSSLESS | AVIF save lossless | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". Closed in wave 3b (2026-10-05). |
+| F-FILE-AVIF-SAVE-ALPHA-LOSSLESS | AVIF save alpha lossless | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". Closed in wave 3b (2026-10-05). |
+| F-FILE-AVIF-SAVE-PRESET | AVIF save preset | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". Closed in wave 3b (2026-10-05). |
+| F-FILE-AVIF-SAVE-CHROMA | AVIF save chroma | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". Closed in wave 3b (2026-10-05). |
+| F-FILE-AVIF-SAVE-TILESIZE | AVIF save tilesize | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". Closed in wave 3b (2026-10-05). |
+| F-FILE-AVIF-SAVE-PREMUL | AVIF save premul | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". Closed in wave 3b (2026-10-05). |
+| F-FILE-AVIF-OPTIONAL | AVIF optional | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_avif.c). ADR-011 (docs/DECISIONS.md): AVIF, HEIC and JPEG XL are optional later work behind system libraries; FILES.md marks AVIF "paint.c optional". Closed in wave 3b (2026-10-05). |
+| F-FILE-JXL-LOAD | JXL load | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_jxl.c). ADR-011: JPEG XL is optional later work behind a system library; FILES.md "paint.c optional (ADR-011)". Closed in wave 3b (2026-10-05). |
+| F-FILE-JXL-SAVE-QUALITY | JXL save quality | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_jxl.c). ADR-011: JPEG XL is optional later work behind a system library; FILES.md "paint.c optional (ADR-011)". Closed in wave 3b (2026-10-05). |
+| F-FILE-JXL-SAVE-LOSSLESS | JXL save lossless | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_jxl.c). ADR-011: JPEG XL is optional later work behind a system library; FILES.md "paint.c optional (ADR-011)". Closed in wave 3b (2026-10-05). |
+| F-FILE-JXL-SAVE-EFFORT | JXL save effort | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_jxl.c). ADR-011: JPEG XL is optional later work behind a system library; FILES.md "paint.c optional (ADR-011)". Closed in wave 3b (2026-10-05). |
+| F-FILE-JXL-OPTIONAL | JXL optional | codec | DONE | FILES.md Audit 2026-10-05: Not implemented (no src/codec/fmt_jxl.c). ADR-011: JPEG XL is optional later work behind a system library; FILES.md "paint.c optional (ADR-011)". Closed in wave 3b (2026-10-05). |
 | F-FILE-JXR-LOAD | JXR load | codec | N/A | FILES.md Audit 2026-10-05: Not implemented. JPEG XR is a Windows WIC (Microsoft) OS codec in Paint.NET; FILES.md "OS codec (WIC). paint.c optional". |
 | F-FILE-JXR-SAVE | JXR save | codec | N/A | FILES.md Audit 2026-10-05: Not implemented. JPEG XR is a Windows WIC (Microsoft) OS codec in Paint.NET; FILES.md "OS codec (WIC). paint.c optional". |
 | F-FILE-JXR-OPTIONAL | JXR optional | codec | N/A | FILES.md Audit 2026-10-05: Not implemented. JPEG XR is a Windows WIC (Microsoft) OS codec in Paint.NET; FILES.md "OS codec (WIC). paint.c optional". |
@@ -272,8 +272,8 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FILE-HEIC-SAVE-QUALITY | HEIC save quality | codec | N/A | FILES.md Audit 2026-10-05: Not implemented. HEIC needs the OS HEVC codec (Microsoft Store codec) in Paint.NET; ADR-011 makes HEIC optional later work; FILES.md "paint.c optional (ADR-011)". |
 | F-FILE-HEIC-OPTIONAL | HEIC optional | codec | N/A | FILES.md Audit 2026-10-05: Not implemented. HEIC needs the OS HEVC codec (Microsoft Store codec) in Paint.NET; ADR-011 makes HEIC optional later work; FILES.md "paint.c optional (ADR-011)". |
 | F-FILE-OPEN-ALLIMAGES-FILTER | Open dialog type filters incl. all extensions | codec | DONE |  |
-| F-FILE-METADATA-EXIF-XMP-IPTC | Metadata preservation where supported | codec | TODO | FILES FL-META Audit 2026-10-05: EXIF, XMP and IPTC are not preserved in any format. Fix: per-codec metadata items in fmt_jpeg.c, fmt_png.c, fmt_tiff.c, fmt_webp.c, fmt_pdn.c/pdn_write.c. |
-| F-ADJ-AUTOLEVEL | Adjustment Auto-Level (no dialog) | fx | WIP | MENUS Adjustments Audit 2026-10-05: Histogram is taken over the selection bounds (fx_levels_histogram(src, env->sel)), not the exact selection shape, so with a non-rectangular selection Auto-Level differs from the Levels Auto button (which uses the sele... |
+| F-FILE-METADATA-EXIF-XMP-IPTC | Metadata preservation where supported | codec | DONE | FILES FL-META Audit 2026-10-05: EXIF, XMP and IPTC are not preserved in any format. Fix: per-codec metadata items in fmt_jpeg.c, fmt_png.c, fmt_tiff.c, fmt_webp.c, fmt_pdn.c/pdn_write.c. Closed in wave 3b (2026-10-05). |
+| F-ADJ-AUTOLEVEL | Adjustment Auto-Level (no dialog) | fx | DONE | MENUS Adjustments Audit 2026-10-05: Histogram is taken over the selection bounds (fx_levels_histogram(src, env->sel)), not the exact selection shape, so with a non-rectangular selection Auto-Level differs from the Levels Auto button (which uses the sele... Closed in wave 3b (2026-10-05). |
 | F-ADJ-BW | Adjustment Black and White (no dialog) | fx | DONE | MENUS Adjustments |
 | F-ADJ-BC | Adjustment Brightness / Contrast | fx | DONE | MENUS Adjustments |
 | F-ADJ-CURVES | Adjustment Curves | fx | DONE | MENUS Adjustments |
@@ -289,7 +289,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-ADJ-SELCLIP | Adjustments apply to selection only | fx | DONE | D |
 | F-ADJ-KEEP-RGB-TRANSPARENT | Invert Colors / B&W keep RGB of transparent pixels | fx | DONE | R 4.3.9 |
 | F-ADJ-POSTERIZE-ALPHA | Posterize alpha channel | fx | DONE | R 5.0 |
-| F-ADJ-POSTERIZE-LINK | Posterize linked channels | fx | WIP | Audit 2026-10-05: With Linked on, the Green/Blue/Alpha sliders are disabled and keep showing their own (stale) values while Red drives all channels; O52 says linked edits move all four sliders (each draggable) and D51 says the controls... |
+| F-ADJ-POSTERIZE-LINK | Posterize linked channels | fx | DONE | Audit 2026-10-05: With Linked on, the Green/Blue/Alpha sliders are disabled and keep showing their own (stale) values while Red drives all channels; O52 says linked edits move all four sliders (each draggable) and D51 says the controls... Closed in wave 3b (2026-10-05). |
 | F-FX-ARTISTIC-INK-SKETCH | Effect Ink Sketch | fx | DONE | MENUS Effects |
 | F-FX-ARTISTIC-OIL-PAINTING | Effect Oil Painting | fx | DONE | MENUS Effects |
 | F-FX-ARTISTIC-PENCIL-SKETCH | Effect Pencil Sketch | fx | DONE | MENUS Effects |
@@ -315,7 +315,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FX-DISTORT-TWIST | Effect Twist | fx | DONE | MENUS Effects |
 | F-FX-NOISE-ADD-NOISE | Effect Add Noise | fx | DONE | MENUS Effects |
 | F-FX-NOISE-REDUCE-NOISE | Effect Reduce Noise | fx | DONE | MENUS Effects |
-| F-FX-OBJECT-DROP-SHADOW | Effect Drop Shadow | fx | WIP | MENUS Effects Audit 2026-10-05: Effect registers flags 0, so the host clips it to the selection and prepare() only builds the shadow field inside env->sel: with a selection around the object no shadow appears outside it (script s_shadow.txt, out/sha... |
+| F-FX-OBJECT-DROP-SHADOW | Effect Drop Shadow | fx | DONE | MENUS Effects Audit 2026-10-05: Effect registers flags 0, so the host clips it to the selection and prepare() only builds the shadow field inside env->sel: with a selection around the object no shadow appears outside it (script s_shadow.txt, out/sha... Closed in wave 3b (2026-10-05). |
 | F-FX-PHOTO-GLOW | Effect Glow | fx | DONE | MENUS Effects |
 | F-FX-PHOTO-RED-EYE-REMOVAL | Effect Red Eye Removal | fx | DONE | MENUS Effects |
 | F-FX-PHOTO-SHARPEN | Effect Sharpen | fx | DONE | MENUS Effects |
@@ -337,13 +337,13 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FX-RENDER-CLOUDS-COLORS | Clouds Colors tab (Color 1/2 with alpha, reset) | fx | DONE | MENUS Effects |
 | F-FX-RENDER-CLOUDS-BLEND | Clouds blend modes | fx | DONE | MENUS Effects |
 | F-FX-RENDER-FRACTAL-BLEND | Julia/Mandelbrot blend mode | fx | DONE | MENUS Effects |
-| F-FX-OBJECT-DROPSHADOW-OUTSIDE | Drop Shadow draws outside selection/object | fx | WIP | MENUS Effects Audit 2026-10-05: Drop Shadow is clipped to the selection: fxm_drop_shadow.c registers flags 0 (no FX_FLAG_NO_SEL_CLIP) and prepare() computes the field only over env->sel, so the shadow never extends past the selection (docs/fx/effect... |
+| F-FX-OBJECT-DROPSHADOW-OUTSIDE | Drop Shadow draws outside selection/object | fx | DONE | MENUS Effects Audit 2026-10-05: Drop Shadow is clipped to the selection: fxm_drop_shadow.c registers flags 0 (no FX_FLAG_NO_SEL_CLIP) and prepare() computes the field only over env->sel, so the shadow never extends past the selection (docs/fx/effect... Closed in wave 3b (2026-10-05). |
 | F-FX-PHOTO-STRAIGHTEN-AUTOZOOM | Straighten auto-scales to fill canvas | fx | DONE | MENUS Effects |
 | F-FX-PHOTO-REDEYE-SELCLIP | Red Eye Removal clips to selection | fx | DONE | MENUS Effects |
 | F-FX-NOISE-ADDNOISE-TRANSPARENT | Add Noise does nothing on transparent areas | fx | DONE | MENUS Effects |
 | F-FX-NOISE-ADDNOISE-SEEDSTABLE | Add Noise keeps seed until Randomize | fx | DONE | MENUS Effects |
 | F-FX-DISTORT-EDGEBEHAVIOR | Edge behavior options (Clamp/Wrap/Reflect/Transparent) where offered | fx | DONE | MENUS Effects |
-| F-FX-GAMMA-CORRECT | Gamma-correct rendering for effects listed in R 5.0.4 | fx | WIP | MENUS Effects Audit 2026-10-05: The R 5.0.4 list is not transcribed in the inventory, so coverage cannot be confirmed; Motion, Radial, Zoom and Fragment Blur, Frosted Glass and Straighten still average gamma-encoded premultiplied samples (fx1_acc_bi... |
+| F-FX-GAMMA-CORRECT | Gamma-correct rendering for effects listed in R 5.0.4 | fx | DONE | MENUS Effects Audit 2026-10-05: The R 5.0.4 list is not transcribed in the inventory, so coverage cannot be confirmed; Motion, Radial, Zoom and Fragment Blur, Frosted Glass and Straighten still average gamma-encoded premultiplied samples (fx1_acc_bi... Closed in wave 3b (2026-10-05). |
 | F-FX-SELCLIP | Effects clip to selection | fx | DONE | MENUS Effects |
 | F-FX-COLOR-QUANTIZE-ALGO | Quantize Octree / Median Cut | fx | DONE | MENUS Effects |
 | F-FX-COLOR-QUANTIZE-DITHER | Quantize nine dither levels | fx | DONE | MENUS Effects |
@@ -353,13 +353,13 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FX-ARTISTIC-OIL-PAINTING-COARSENESS | Oil Painting parameter: Coarseness int 3..255 = 50 | fx | DONE | verify range/default where marked |
 | F-FX-ARTISTIC-PENCIL-SKETCH-PENCIL-TIP-SIZE | Pencil Sketch parameter: Pencil Tip Size int 1..20 = 2 | fx | DONE | verify range/default where marked |
 | F-FX-ARTISTIC-PENCIL-SKETCH-RANGE | Pencil Sketch parameter: Range int -20..20 = 0 | fx | DONE | verify range/default where marked |
-| F-FX-BLUR-BOKEH-RADIUS | Bokeh Blur parameter: Radius (double, verify range, default verify) | fx | WIP | verify range/default where marked Audit 2026-10-05: O-UI-NONLIN: Bokeh/Gaussian radius sliders are non-linear (25 of 300 at about 30 %, 2.0 at about 10 %). propdlg.c afx_props_ui only passes UI_SLIDER_LOG when min > 0, and ui_slider.c to_t/from_t only map log for min >... |
+| F-FX-BLUR-BOKEH-RADIUS | Bokeh Blur parameter: Radius (double, verify range, default verify) | fx | DONE | verify range/default where marked Audit 2026-10-05: O-UI-NONLIN: Bokeh/Gaussian radius sliders are non-linear (25 of 300 at about 30 %, 2.0 at about 10 %). propdlg.c afx_props_ui only passes UI_SLIDER_LOG when min > 0, and ui_slider.c to_t/from_t only map log for min >... Closed in wave 3b (2026-10-05). |
 | F-FX-BLUR-BOKEH-GAMMA-BOOST | Bokeh Blur parameter: Gamma Boost (5.1, replaces Gamma) | fx | DONE | verify range/default where marked |
 | F-FX-BLUR-BOKEH-QUALITY | Bokeh Blur parameter: Quality int 1..10 (verify default) | fx | DONE | verify range/default where marked |
 | F-FX-BLUR-FRAGMENT-FRAGMENTS | Fragment Blur parameter: Fragments int 2..50 = 4 | fx | DONE | verify range/default where marked |
 | F-FX-BLUR-FRAGMENT-DISTANCE | Fragment Blur parameter: Distance int 0..100 = 8 | fx | DONE | verify range/default where marked |
 | F-FX-BLUR-FRAGMENT-ROTATION | Fragment Blur parameter: Rotation double 0..360 = 0 | fx | DONE | verify range/default where marked |
-| F-FX-BLUR-GAUSSIAN-RADIUS | Gaussian Blur parameter: Radius double, 0.1 steps, 3.36 was int 0..200 = 2 (5.0 increased range, verify max) | fx | WIP | verify range/default where marked Audit 2026-10-05: Slider is linear (UI_SLIDER_LOG dropped because min is 0 in propdlg.c afx_props_ui and ui_slider.c to_t/from_t), while O-UI-NONLIN shows 2.0 at about 10 % of the track; values 0..10 occupy a few pixels. Fix: src/app/p... |
+| F-FX-BLUR-GAUSSIAN-RADIUS | Gaussian Blur parameter: Radius double, 0.1 steps, 3.36 was int 0..200 = 2 (5.0 increased range, verify max) | fx | DONE | verify range/default where marked Audit 2026-10-05: Slider is linear (UI_SLIDER_LOG dropped because min is 0 in propdlg.c afx_props_ui and ui_slider.c to_t/from_t), while O-UI-NONLIN shows 2.0 at about 10 % of the track; values 0..10 occupy a few pixels. Fix: src/app/p... Closed in wave 3b (2026-10-05). |
 | F-FX-BLUR-GAUSSIAN-GAMMA-BOOST | Gaussian Blur parameter: Gamma Boost (5.1) | fx | DONE | verify range/default where marked |
 | F-FX-BLUR-GAUSSIAN-QUALITY | Gaussian Blur parameter: Quality int 1..4 (verify default) | fx | DONE | verify range/default where marked |
 | F-FX-BLUR-MEDIAN-RADIUS | Median Blur parameter: Radius int (3.36 Median: 1..200 = 10) | fx | DONE | verify range/default where marked |
@@ -376,7 +376,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FX-BLUR-SKETCH-RADIUS | Sketch Blur parameter: Radius | fx | DONE | verify range/default where marked |
 | F-FX-BLUR-SKETCH-PERCENTILE | Sketch Blur parameter: Percentile 0..100 = 50 | fx | DONE | verify range/default where marked |
 | F-FX-BLUR-SKETCH-SMOOTHNESS | Sketch Blur parameter: Smoothness (ranges verify) | fx | DONE | verify range/default where marked |
-| F-FX-BLUR-SQUARE-RADIUS | Square Blur parameter: Radius | fx | WIP | verify range/default where marked Audit 2026-10-05: Same linear-slider issue as Gaussian/Bokeh Radius: FXP_F_SLIDER_LOG is ignored for a 0-based range (propdlg.c afx_props_ui, ui_slider.c to_t/from_t); O-UI-NONLIN says radius sliders are non-linear. Fix: same as F-FX-B... |
+| F-FX-BLUR-SQUARE-RADIUS | Square Blur parameter: Radius | fx | DONE | verify range/default where marked Audit 2026-10-05: Same linear-slider issue as Gaussian/Bokeh Radius: FXP_F_SLIDER_LOG is ignored for a 0-based range (propdlg.c afx_props_ui, ui_slider.c to_t/from_t); O-UI-NONLIN says radius sliders are non-linear. Fix: same as F-FX-B... Closed in wave 3b (2026-10-05). |
 | F-FX-BLUR-SQUARE-GAMMA-BOOST | Square Blur parameter: Gamma Boost (ranges verify) | fx | DONE | verify range/default where marked |
 | F-FX-BLUR-SURFACE-RADIUS | Surface Blur parameter: Radius int 1..100 = 6 | fx | DONE | verify range/default where marked |
 | F-FX-BLUR-SURFACE-THRESHOLD | Surface Blur parameter: Threshold int 1..100 = 15 | fx | DONE | verify range/default where marked |
@@ -403,14 +403,14 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FX-DISTORT-DENTS-QUALITY | Dents parameter: Quality int 1..5 = 2 | fx | DONE | verify range/default where marked |
 | F-FX-DISTORT-DENTS-RANDOMIZE | Dents parameter: Randomize (seed) | fx | DONE | verify range/default where marked |
 | F-FX-DISTORT-FROSTED-GLASS-MAXIMUM-SCATTER-RADIUS | Frosted Glass parameter: Maximum Scatter Radius double 0..200 = 3 | fx | DONE | verify range/default where marked |
-| F-FX-DISTORT-FROSTED-GLASS-MINIMUM-SCATTER-RADIUS | Frosted Glass parameter: Minimum Scatter Radius double 0..200 = 0 | fx | WIP | verify range/default where marked Audit 2026-10-05: O52: raising Minimum above Maximum pushes Maximum up (ring collapses to the Minimum radius). paint.c leaves Maximum unchanged and fxm_frosted_glass.c frost_render swaps them (lo/hi), so Min 10 / Max 3 scatters over 3.... |
+| F-FX-DISTORT-FROSTED-GLASS-MINIMUM-SCATTER-RADIUS | Frosted Glass parameter: Minimum Scatter Radius double 0..200 = 0 | fx | DONE | verify range/default where marked Audit 2026-10-05: O52: raising Minimum above Maximum pushes Maximum up (ring collapses to the Minimum radius). paint.c leaves Maximum unchanged and fxm_frosted_glass.c frost_render swaps them (lo/hi), so Min 10 / Max 3 scatters over 3.... Closed in wave 3b (2026-10-05). |
 | F-FX-DISTORT-FROSTED-GLASS-DIFFUSION | Frosted Glass parameter: Diffusion double = 1.0 (even distribution, lower favors min, higher favors max, range verify) | fx | DONE | verify range/default where marked |
 | F-FX-DISTORT-FROSTED-GLASS-SMOOTHNESS | Frosted Glass parameter: Smoothness int 1..8 = 2 | fx | DONE | verify range/default where marked |
 | F-FX-DISTORT-FROSTED-GLASS-RANDOMIZE | Frosted Glass parameter: Randomize | fx | DONE | verify range/default where marked |
 | F-FX-DISTORT-MORPHOLOGY-MODE | Morphology parameter: Mode: Erode / Dilate (default verify) | fx | DONE | verify range/default where marked |
 | F-FX-DISTORT-MORPHOLOGY-WIDTH | Morphology parameter: Width int (verify range) | fx | DONE | verify range/default where marked |
 | F-FX-DISTORT-MORPHOLOGY-HEIGHT | Morphology parameter: Height int (verify range) | fx | DONE | verify range/default where marked |
-| F-FX-DISTORT-MORPHOLOGY-LINKED | Morphology parameter: Linked bool | fx | WIP | verify range/default where marked Audit 2026-10-05: D51: Linked forces Width and Height to the same value. paint.c only disables the Height slider, which keeps showing its own stale value (e.g. Width 20, Height still 5) and is restored when Linked is unchecked. Fix: sr... |
+| F-FX-DISTORT-MORPHOLOGY-LINKED | Morphology parameter: Linked bool | fx | DONE | verify range/default where marked Audit 2026-10-05: D51: Linked forces Width and Height to the same value. paint.c only disables the Height slider, which keeps showing its own stale value (e.g. Width 20, Height still 5) and is restored when Linked is unchecked. Fix: sr... Closed in wave 3b (2026-10-05). |
 | F-FX-DISTORT-PIXELATE-CELL-SIZE | Pixelate parameter: Cell Size int 1..100 = 2 | fx | DONE | verify range/default where marked |
 | F-FX-DISTORT-PIXELATE-SCALE-DOWN-MODE | Pixelate parameter: Scale Down mode (resampling choice, verify list and default) | fx | DONE | verify range/default where marked |
 | F-FX-DISTORT-PIXELATE-SCALE-UP-MODE | Pixelate parameter: Scale Up mode (verify list and default) | fx | DONE | verify range/default where marked |
@@ -437,8 +437,8 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FX-OBJECT-DROP-SHADOW-DISTANCE | Drop Shadow parameter: Distance (Offset) | fx | DONE | verify range/default where marked |
 | F-FX-OBJECT-DROP-SHADOW-ANGLE | Drop Shadow parameter: Angle | fx | DONE | verify range/default where marked |
 | F-FX-OBJECT-DROP-SHADOW-OPACITY | Drop Shadow parameter: Opacity | fx | DONE | verify range/default where marked |
-| F-FX-OBJECT-DROP-SHADOW-COLOR | Drop Shadow parameter: Color | fx | WIP | verify range/default where marked Audit 2026-10-05: O52: Color is RGB with no alpha box; paint.c shows R G B A bars plus 8-digit hex and lets the color alpha scale the shadow (docs/fx/effects2.md notes this extra). Fix: an RGB-only flag for FXP_COLOR in include/fx/fx_a... |
-| F-FX-OBJECT-DROP-SHADOW-ONLY-DRAW-SHADOW | Drop Shadow parameter: Only Draw Shadow bool = off (ranges and defaults verify). Draws outside the selection/object. | fx | WIP | verify range/default where marked Audit 2026-10-05: The parameter itself is correct, but the row's 'draws outside the selection/object' part fails with an active selection (same root cause as F-FX-OBJECT-DROPSHADOW-OUTSIDE: no FX_FLAG_NO_SEL_CLIP in fxm_drop_shadow.c). |
+| F-FX-OBJECT-DROP-SHADOW-COLOR | Drop Shadow parameter: Color | fx | DONE | verify range/default where marked Audit 2026-10-05: O52: Color is RGB with no alpha box; paint.c shows R G B A bars plus 8-digit hex and lets the color alpha scale the shadow (docs/fx/effects2.md notes this extra). Fix: an RGB-only flag for FXP_COLOR in include/fx/fx_a... Closed in wave 3b (2026-10-05). |
+| F-FX-OBJECT-DROP-SHADOW-ONLY-DRAW-SHADOW | Drop Shadow parameter: Only Draw Shadow bool = off (ranges and defaults verify). Draws outside the selection/object. | fx | DONE | verify range/default where marked Audit 2026-10-05: The parameter itself is correct, but the row's 'draws outside the selection/object' part fails with an active selection (same root cause as F-FX-OBJECT-DROPSHADOW-OUTSIDE: no FX_FLAG_NO_SEL_CLIP in fxm_drop_shadow.c). Closed in wave 3b (2026-10-05). |
 | F-FX-PHOTO-GLOW-RADIUS | Glow parameter: Radius int 1..20 = 6 | fx | DONE | verify range/default where marked |
 | F-FX-PHOTO-GLOW-BRIGHTNESS | Glow parameter: Brightness int -100..100 = 10 | fx | DONE | verify range/default where marked |
 | F-FX-PHOTO-GLOW-CONTRAST | Glow parameter: Contrast int -100..100 = 10 | fx | DONE | verify range/default where marked |
@@ -486,27 +486,27 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-FX-STYLIZE-OUTLINE-INTENSITY | Outline parameter: Intensity int 0..100 = 50 | fx | DONE | verify range/default where marked |
 | F-FX-STYLIZE-OUTLINE-QUALITY | Outline parameter: Quality (5.x, verify) | fx | DONE | verify range/default where marked |
 | F-FX-STYLIZE-RELIEF-ANGLE | Relief parameter: Angle double -180..180 = 45 | fx | DONE | verify range/default where marked |
-| F-TOOL-RECTANGLE-SELECT | Tool Rectangle Select (window icon, dropdown entry, cursor, help text) | tool | WIP | TOOLS.md section 1 Audit 2026-10-05: Cursor is the plain system crosshair (no cursor_at, APP_CURSOR_CROSSHAIR falls to the default branch of src/app/canvas.c cursor_for); TOOLS 1 specifies a crosshair with the selection-mode glyph. |
+| F-TOOL-RECTANGLE-SELECT | Tool Rectangle Select (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 Audit 2026-10-05: Cursor is the plain system crosshair (no cursor_at, APP_CURSOR_CROSSHAIR falls to the default branch of src/app/canvas.c cursor_for); TOOLS 1 specifies a crosshair with the selection-mode glyph. Closed in wave 3b (2026-10-05). |
 | F-TOOL-MOVE-SELECTED-PIXELS | Tool Move Selected Pixels (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 |
 | F-TOOL-LASSO-SELECT | Tool Lasso Select (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 |
 | F-TOOL-MOVE-SELECTION | Tool Move Selection (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 |
-| F-TOOL-ELLIPSE-SELECT | Tool Ellipse Select (window icon, dropdown entry, cursor, help text) | tool | WIP | TOOLS.md section 1 Audit 2026-10-05: Cursor is the plain system crosshair (no cursor_at, APP_CURSOR_CROSSHAIR falls to the default branch of src/app/canvas.c cursor_for); TOOLS 1 specifies a crosshair with the selection-mode glyph. |
+| F-TOOL-ELLIPSE-SELECT | Tool Ellipse Select (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 Audit 2026-10-05: Cursor is the plain system crosshair (no cursor_at, APP_CURSOR_CROSSHAIR falls to the default branch of src/app/canvas.c cursor_for); TOOLS 1 specifies a crosshair with the selection-mode glyph. Closed in wave 3b (2026-10-05). |
 | F-TOOL-ZOOM | Tool Zoom (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 |
 | F-TOOL-MAGIC-WAND | Tool Magic Wand (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 |
-| F-TOOL-PAN | Tool Pan (window icon, dropdown entry, cursor, help text) | tool | WIP | TOOLS.md section 1 Audit 2026-10-05: APP_CURSOR_HAND and APP_CURSOR_GRAB share one case in src/app/canvas.c cursor_for (both UI_ICON_TOOL_PAN), so there is no closed hand while dragging. Also the Pan tool has no key callback, so holding a button plus arr... |
-| F-TOOL-PAINT-BUCKET | Tool Paint Bucket (window icon, dropdown entry, cursor, help text) | tool | WIP | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... |
-| F-TOOL-GRADIENT | Tool Gradient (window icon, dropdown entry, cursor, help text) | tool | WIP | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... |
-| F-TOOL-PAINTBRUSH | Tool Paintbrush (window icon, dropdown entry, cursor, help text) | tool | WIP | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... |
-| F-TOOL-ERASER | Tool Eraser (window icon, dropdown entry, cursor, help text) | tool | WIP | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... |
-| F-TOOL-PENCIL | Tool Pencil (window icon, dropdown entry, cursor, help text) | tool | WIP | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... |
+| F-TOOL-PAN | Tool Pan (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 Audit 2026-10-05: APP_CURSOR_HAND and APP_CURSOR_GRAB share one case in src/app/canvas.c cursor_for (both UI_ICON_TOOL_PAN), so there is no closed hand while dragging. Also the Pan tool has no key callback, so holding a button plus arr... Closed in wave 3b (2026-10-05). |
+| F-TOOL-PAINT-BUCKET | Tool Paint Bucket (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... Closed in wave 3b (2026-10-05). |
+| F-TOOL-GRADIENT | Tool Gradient (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... Closed in wave 3b (2026-10-05). |
+| F-TOOL-PAINTBRUSH | Tool Paintbrush (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... Closed in wave 3b (2026-10-05). |
+| F-TOOL-ERASER | Tool Eraser (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... Closed in wave 3b (2026-10-05). |
+| F-TOOL-PENCIL | Tool Pencil (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... Closed in wave 3b (2026-10-05). |
 | F-TOOL-COLOR-PICKER | Tool Color Picker (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 |
-| F-TOOL-CLONE-STAMP | Tool Clone Stamp (window icon, dropdown entry, cursor, help text) | tool | WIP | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... |
-| F-TOOL-RECOLOR | Tool Recolor (window icon, dropdown entry, cursor, help text) | tool | WIP | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... |
-| F-TOOL-TEXT | Tool Text (window icon, dropdown entry, cursor, help text) | tool | WIP | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... |
-| F-TOOL-LINE-CURVE | Tool Line Curve (window icon, dropdown entry, cursor, help text) | tool | WIP | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... |
-| F-TOOL-SHAPES | Tool Shapes (window icon, dropdown entry, cursor, help text) | tool | WIP | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... |
-| F-TOOL-ORDER | Tools window 2-column order and dropdown order | tool | WIP | TOOLS 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar, plain ui_combo) shows names only: no tool icons and no shortcut tooltips (TOOLS 1, 3); the 150 DIP box and the list truncate 'Move Selected Pixels' to 'Move Selec... |
-| F-TOOL-DEFAULT-BRUSH | Paintbrush active at startup / Settings default tool | tool | WIP | D Audit 2026-10-05: Until the user edits Settings > Tools (tooldef.tool unset, the default state), startup restores the last used tool instead of the default tool Paintbrush. |
+| F-TOOL-CLONE-STAMP | Tool Clone Stamp (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... Closed in wave 3b (2026-10-05). |
+| F-TOOL-RECOLOR | Tool Recolor (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... Closed in wave 3b (2026-10-05). |
+| F-TOOL-TEXT | Tool Text (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... Closed in wave 3b (2026-10-05). |
+| F-TOOL-LINE-CURVE | Tool Line Curve (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... Closed in wave 3b (2026-10-05). |
+| F-TOOL-SHAPES | Tool Shapes (window icon, dropdown entry, cursor, help text) | tool | DONE | TOOLS.md section 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar) is a plain text combo: no tool icon on the button or entries and no per-entry shortcut tooltips (TOOLS 1 and 3); 150 DIP width truncates long names ("Move Selecte... Closed in wave 3b (2026-10-05). |
+| F-TOOL-ORDER | Tools window 2-column order and dropdown order | tool | DONE | TOOLS 1 Audit 2026-10-05: Toolbar tool dropdown (src/app/tool.c app_options_bar, plain ui_combo) shows names only: no tool icons and no shortcut tooltips (TOOLS 1, 3); the 150 DIP box and the list truncate 'Move Selected Pixels' to 'Move Selec... Closed in wave 3b (2026-10-05). |
+| F-TOOL-DEFAULT-BRUSH | Paintbrush active at startup / Settings default tool | tool | DONE | D Audit 2026-10-05: Until the user edits Settings > Tools (tooldef.tool unset, the default state), startup restores the last used tool instead of the default tool Paintbrush. Closed in wave 3b (2026-10-05). |
 | F-TOOL-HOTKEY-CYCLE | Same-letter hotkey cycling with timeout and Shift reverse | tool | DONE | SHORTCUTS K-TOOLSEL-CYCLE |
 | F-TOOL-SWITCH-COMMITS | Switching tools commits pending edit | tool | DONE | I |
 | F-TOOL-FINISH-BUTTON | Finish button enabled only with pending edit | tool | DONE | D |
@@ -659,8 +659,8 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-TOOL-TEXT-ALIGN-CENTER | Text alignment Center | tool | DONE |  |
 | F-TOOL-TEXT-ALIGN-RIGHT | Text alignment Right | tool | DONE |  |
 | F-TOOL-TEXT-RENDER-SMOOTH | Text rendering mode Smooth | tool | DONE |  |
-| F-TOOL-TEXT-RENDER-SHARP-MODERN | Text rendering mode Sharp Modern | tool | WIP | Audit 2026-10-05: No real hinting: Sharp modes only round glyph positions (Classic per advance, Modern per pen position, pc_text.c sharpen) and snap vertical zones at em <= 96 (text_font.c cb_outline, ui_ymap); no horizontal stem fitti... |
-| F-TOOL-TEXT-RENDER-SHARP-CLASSIC | Text rendering mode Sharp Classic | tool | WIP | Audit 2026-10-05: No real hinting: Sharp modes only round glyph positions (Classic per advance, Modern per pen position, pc_text.c sharpen) and snap vertical zones at em <= 96 (text_font.c cb_outline, ui_ymap); no horizontal stem fitti... |
+| F-TOOL-TEXT-RENDER-SHARP-MODERN | Text rendering mode Sharp Modern | tool | DONE | Audit 2026-10-05: No real hinting: Sharp modes only round glyph positions (Classic per advance, Modern per pen position, pc_text.c sharpen) and snap vertical zones at em <= 96 (text_font.c cb_outline, ui_ymap); no horizontal stem fitti... Closed in wave 3b (2026-10-05). |
+| F-TOOL-TEXT-RENDER-SHARP-CLASSIC | Text rendering mode Sharp Classic | tool | DONE | Audit 2026-10-05: No real hinting: Sharp modes only round glyph positions (Classic per advance, Modern per pen position, pc_text.c sharpen) and snap vertical zones at em <= 96 (text_font.c cb_outline, ui_ymap); no horizontal stem fitti... Closed in wave 3b (2026-10-05). |
 | F-TOOL-TEXT-METRIC-POINTS | Text size metric Points (image DPI) | tool | DONE |  |
 | F-TOOL-TEXT-METRIC-FIXED | Text size metric Fixed (96 DPI) | tool | DONE |  |
 | F-TOOL-TEXT-FONTLIST | Font family list | tool | DONE |  |
@@ -678,9 +678,9 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-TOOL-AA-OFF | Antialiasing off (hardness ignored) | tool | DONE |  |
 | F-TOOL-MOVE-GAMMA-ON | Move tool Gamma Corrected | tool | DONE |  |
 | F-TOOL-MOVE-GAMMA-OFF | Move tool Ignore Gamma | tool | DONE |  |
-| F-TOOL-TOOLBAR-WHEEL | Toolbar controls accept mouse wheel (not Tolerance) | tool | WIP | D Toolbar Audit 2026-10-05: Magic Wand Tolerance (src/app/tools/sel_common.c sel_opt_tolerance -> ui_slider_int) accepts the wheel once focused (run p1.txt: 20% -> 22% after two wheel events), contrary to 'not Tolerance'; Line/Curve and Shapes w... |
+| F-TOOL-TOOLBAR-WHEEL | Toolbar controls accept mouse wheel (not Tolerance) | tool | DONE | D Toolbar Audit 2026-10-05: Magic Wand Tolerance (src/app/tools/sel_common.c sel_opt_tolerance -> ui_slider_int) accepts the wheel once focused (run p1.txt: 20% -> 22% after two wheel events), contrary to 'not Tolerance'; Line/Curve and Shapes w... Closed in wave 3b (2026-10-05). |
 | F-TOOL-TOOLBAR-PERSIST | Toolbar values persist across sessions | tool | DONE | I |
-| F-TOOL-TOOLBAR-OVERFLOW | Toolbar overflow chevron keeps controls usable | tool | TODO | R 4.1 Audit 2026-10-05: No overflow chevron: at 800 px the Paint Bucket row is cut after Tolerance and the Magic Wand row inside the tolerance slider, so later options and Finish cannot be reached. |
+| F-TOOL-TOOLBAR-OVERFLOW | Toolbar overflow chevron keeps controls usable | tool | DONE | R 4.1 Audit 2026-10-05: No overflow chevron: at 800 px the Paint Bucket row is cut after Tolerance and the Magic Wand row inside the tolerance slider, so later options and Finish cannot be reached. Closed in wave 3b (2026-10-05). |
 | F-TOOL-RECTANGLE-SELECT-SELECTION-MODE | Rectangle Select toolbar: Selection mode present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-RECTANGLE-SELECT-SELECTION-DRAW-MODE | Rectangle Select toolbar: Selection draw mode present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-RECTANGLE-SELECT-SELECTION-QUALITY | Rectangle Select toolbar: Selection quality present and effective | tool | DONE | TOOLS 4 and 3 |
@@ -716,7 +716,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-TOOL-GRADIENT-BLEND-MODE | Gradient toolbar: Blend mode present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-GRADIENT-SELECTION-CLIPPING | Gradient toolbar: Selection clipping present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-GRADIENT-FINISH | Gradient toolbar: Finish present and effective | tool | DONE | TOOLS 4 and 3 |
-| F-TOOL-PAINTBRUSH-WIDTH | Paintbrush toolbar: Width present and effective | tool | WIP | TOOLS 4 and 3 Audit 2026-10-05: Default brush width is a fixed 2 px (src/app/tool.c app_tool_settings_reset), not scaled by UI DPI (O-WIDTH: 4 at 200%, R 4.0.9). |
+| F-TOOL-PAINTBRUSH-WIDTH | Paintbrush toolbar: Width present and effective | tool | DONE | TOOLS 4 and 3 Audit 2026-10-05: Default brush width is a fixed 2 px (src/app/tool.c app_tool_settings_reset), not scaled by UI DPI (O-WIDTH: 4 at 200%, R 4.0.9). Closed in wave 3b (2026-10-05). |
 | F-TOOL-PAINTBRUSH-PRESSURE | Paintbrush toolbar: Pressure present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-PAINTBRUSH-HARDNESS | Paintbrush toolbar: Hardness present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-PAINTBRUSH-SPACING | Paintbrush toolbar: Spacing present and effective | tool | DONE | TOOLS 4 and 3 |
@@ -725,7 +725,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-TOOL-PAINTBRUSH-ANTIALIASING | Paintbrush toolbar: Antialiasing present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-PAINTBRUSH-BLEND-MODE | Paintbrush toolbar: Blend mode present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-PAINTBRUSH-SELECTION-CLIPPING | Paintbrush toolbar: Selection clipping present and effective | tool | DONE | TOOLS 4 and 3 |
-| F-TOOL-ERASER-WIDTH | Eraser toolbar: Width present and effective | tool | WIP | TOOLS 4 and 3 Audit 2026-10-05: Default brush width is a fixed 2 px (src/app/tool.c app_tool_settings_reset), not scaled by UI DPI (O-WIDTH: 4 at 200%, R 4.0.9). |
+| F-TOOL-ERASER-WIDTH | Eraser toolbar: Width present and effective | tool | DONE | TOOLS 4 and 3 Audit 2026-10-05: Default brush width is a fixed 2 px (src/app/tool.c app_tool_settings_reset), not scaled by UI DPI (O-WIDTH: 4 at 200%, R 4.0.9). Closed in wave 3b (2026-10-05). |
 | F-TOOL-ERASER-PRESSURE | Eraser toolbar: Pressure present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-ERASER-HARDNESS | Eraser toolbar: Hardness present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-ERASER-SPACING | Eraser toolbar: Spacing present and effective | tool | DONE | TOOLS 4 and 3 |
@@ -737,7 +737,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-TOOL-COLOR-PICKER-SAMPLING | Color Picker toolbar: Sampling present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-COLOR-PICKER-SAMPLE-SIZE | Color Picker toolbar: Sample size present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-COLOR-PICKER-AFTER-CLICK | Color Picker toolbar: After click present and effective | tool | DONE | TOOLS 4 and 3 |
-| F-TOOL-CLONE-STAMP-WIDTH | Clone Stamp toolbar: Width present and effective | tool | WIP | TOOLS 4 and 3 Audit 2026-10-05: Default brush width is a fixed 2 px (src/app/tool.c app_tool_settings_reset), not scaled by UI DPI (O-WIDTH: 4 at 200%, R 4.0.9). |
+| F-TOOL-CLONE-STAMP-WIDTH | Clone Stamp toolbar: Width present and effective | tool | DONE | TOOLS 4 and 3 Audit 2026-10-05: Default brush width is a fixed 2 px (src/app/tool.c app_tool_settings_reset), not scaled by UI DPI (O-WIDTH: 4 at 200%, R 4.0.9). Closed in wave 3b (2026-10-05). |
 | F-TOOL-CLONE-STAMP-PRESSURE | Clone Stamp toolbar: Pressure present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-CLONE-STAMP-HARDNESS | Clone Stamp toolbar: Hardness present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-CLONE-STAMP-SPACING | Clone Stamp toolbar: Spacing present and effective | tool | DONE | TOOLS 4 and 3 |
@@ -745,7 +745,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-TOOL-CLONE-STAMP-ANTIALIASING | Clone Stamp toolbar: Antialiasing present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-CLONE-STAMP-BLEND-MODE | Clone Stamp toolbar: Blend mode present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-CLONE-STAMP-SELECTION-CLIPPING | Clone Stamp toolbar: Selection clipping present and effective | tool | DONE | TOOLS 4 and 3 |
-| F-TOOL-RECOLOR-WIDTH | Recolor toolbar: Width present and effective | tool | WIP | TOOLS 4 and 3 Audit 2026-10-05: Default brush width is a fixed 2 px (src/app/tool.c app_tool_settings_reset), not scaled by UI DPI (O-WIDTH: 4 at 200%, R 4.0.9). |
+| F-TOOL-RECOLOR-WIDTH | Recolor toolbar: Width present and effective | tool | DONE | TOOLS 4 and 3 Audit 2026-10-05: Default brush width is a fixed 2 px (src/app/tool.c app_tool_settings_reset), not scaled by UI DPI (O-WIDTH: 4 at 200%, R 4.0.9). Closed in wave 3b (2026-10-05). |
 | F-TOOL-RECOLOR-PRESSURE | Recolor toolbar: Pressure present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-RECOLOR-HARDNESS | Recolor toolbar: Hardness present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-RECOLOR-SPACING | Recolor toolbar: Spacing present and effective | tool | DONE | TOOLS 4 and 3 |
@@ -756,7 +756,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-TOOL-RECOLOR-ANTIALIASING | Recolor toolbar: Antialiasing present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-RECOLOR-SELECTION-CLIPPING | Recolor toolbar: Selection clipping present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-TEXT-FONT | Text toolbar: Font present and effective | tool | DONE | TOOLS 4 and 3 |
-| F-TOOL-TEXT-SIZE | Text toolbar: Size present and effective | tool | WIP | TOOLS 4 and 3 Audit 2026-10-05: Default size is a fixed 12 (tool_text.c load_options), not scaled by UI DPI (TOOLS 3.3, R 4.0.9); the box shows '12.0' rather than '12'. |
+| F-TOOL-TEXT-SIZE | Text toolbar: Size present and effective | tool | DONE | TOOLS 4 and 3 Audit 2026-10-05: Default size is a fixed 12 (tool_text.c load_options), not scaled by UI DPI (TOOLS 3.3, R 4.0.9); the box shows '12.0' rather than '12'. Closed in wave 3b (2026-10-05). |
 | F-TOOL-TEXT-SIZE-METRIC | Text toolbar: Size metric present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-TEXT-ALIGNMENT | Text toolbar: Alignment present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-TEXT-RENDERING-MODE | Text toolbar: Rendering mode present and effective | tool | DONE | TOOLS 4 and 3 |
@@ -764,7 +764,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-TOOL-TEXT-BLEND-MODE | Text toolbar: Blend mode present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-TEXT-SELECTION-CLIPPING | Text toolbar: Selection clipping present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-TEXT-FINISH | Text toolbar: Finish present and effective | tool | DONE | TOOLS 4 and 3 |
-| F-TOOL-LINE-CURVE-WIDTH | Line / Curve toolbar: Width present and effective | tool | WIP | TOOLS 4 and 3 Audit 2026-10-05: Width uses the generic app_opt_width (src/app/tool.c) instead of lane B's paint_opt_width: label 'Brush width:' (5.2 shows 'Brush size'), a plain spin box with 0 decimals so typed fractional widths (6.5) are rounded o... |
+| F-TOOL-LINE-CURVE-WIDTH | Line / Curve toolbar: Width present and effective | tool | DONE | TOOLS 4 and 3 Audit 2026-10-05: Width uses the generic app_opt_width (src/app/tool.c) instead of lane B's paint_opt_width: label 'Brush width:' (5.2 shows 'Brush size'), a plain spin box with 0 decimals so typed fractional widths (6.5) are rounded o... Closed in wave 3b (2026-10-05). |
 | F-TOOL-LINE-CURVE-CURVE-TYPE | Line / Curve toolbar: Curve type present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-LINE-CURVE-START-CAP | Line / Curve toolbar: Start cap present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-LINE-CURVE-DASH-STYLE | Line / Curve toolbar: Dash style present and effective | tool | DONE | TOOLS 4 and 3 |
@@ -776,7 +776,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-TOOL-LINE-CURVE-FINISH | Line / Curve toolbar: Finish present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-SHAPES-SHAPE | Shapes toolbar: Shape present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-SHAPES-DRAW-MODE | Shapes toolbar: Draw mode present and effective | tool | DONE | TOOLS 4 and 3 |
-| F-TOOL-SHAPES-WIDTH | Shapes toolbar: Width present and effective | tool | WIP | TOOLS 4 and 3 Audit 2026-10-05: Width uses the generic app_opt_width (src/app/tool.c) instead of lane B's paint_opt_width: label 'Brush width:' (5.2 shows 'Brush size'), a plain spin box with 0 decimals so typed fractional widths (6.5) are rounded o... |
+| F-TOOL-SHAPES-WIDTH | Shapes toolbar: Width present and effective | tool | DONE | TOOLS 4 and 3 Audit 2026-10-05: Width uses the generic app_opt_width (src/app/tool.c) instead of lane B's paint_opt_width: label 'Brush width:' (5.2 shows 'Brush size'), a plain spin box with 0 decimals so typed fractional widths (6.5) are rounded o... Closed in wave 3b (2026-10-05). |
 | F-TOOL-SHAPES-CORNER-SIZE | Shapes toolbar: Corner size present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-SHAPES-DASH-STYLE | Shapes toolbar: Dash style present and effective | tool | DONE | TOOLS 4 and 3 |
 | F-TOOL-SHAPES-FILL-STYLE | Shapes toolbar: Fill style present and effective | tool | DONE | TOOLS 4 and 3 |
@@ -789,15 +789,15 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-T-FW-CLIP | When a selection exists, every tool except the selection and view tools is clipped to it; coverage follows Selection Clipping (Antialiased uses ... | tool | DONE | TOOLS T-FW-CLIP |
 | F-T-FW-FINISH | Live tools (Magic Wand, Move Selected Pixels, Move Selection, Paint Bucket, Gradient, Text, Line/Curve, Shapes) keep an editable state until Finish: ... | tool | DONE | TOOLS T-FW-FINISH |
 | F-T-FW-LIVE | While a live state exists, changing toolbar options or primary/secondary colors re-renders it immediately (D PaintBucket, R 4.0). | tool | DONE | TOOLS T-FW-LIVE |
-| F-T-FW-HISTORY | Fine-grained history: each edit of a live object (create, nub drag, option or color change, move) is its own History item; finishing adds a final ... | tool | WIP | TOOLS T-FW-HISTORY Audit 2026-10-05: Magic Wand, Move Selected Pixels and Move Selection add no final Finish item (comments in those files, test_a_move t_esc_and_options asserts no item; Paint.NET shows a finish item such as 'Finish Pixels'); Undo ends t... |
+| F-T-FW-HISTORY | Fine-grained history: each edit of a live object (create, nub drag, option or color change, move) is its own History item; finishing adds a final ... | tool | DONE | TOOLS T-FW-HISTORY Audit 2026-10-05: Magic Wand, Move Selected Pixels and Move Selection add no final Finish item (comments in those files, test_a_move t_esc_and_options asserts no item; Paint.NET shows a finish item such as 'Finish Pixels'); Undo ends t... Closed in wave 3b (2026-10-05). |
 | F-T-FW-BLEND | Tool blend mode composites the tool's output as if drawn on a temporary layer above the active layer and merged down with that mode (D BlendModes). ... | tool | DONE | TOOLS T-FW-BLEND |
 | F-T-FW-AA | Antialiasing on: smooth edges (internally 2x/4x supersampling for Line/Shapes, D). Off: hard pixel edges; Hardness is ignored. | tool | DONE | TOOLS T-FW-AA |
 | F-T-FW-STATUS | Status bar left shows tool help text; during use shows tool state (size, angle, offsets). | tool | DONE | TOOLS T-FW-STATUS |
-| F-T-FW-ARROWS | Arrow keys nudge the pointer or the edited object 1 px, Ctrl 10 px (tool dependent). | tool | WIP | TOOLS T-FW-ARROWS Audit 2026-10-05: No generic arrow-key pointer nudge (K-NAV-TOOLMOVE) for the other tools: arrows are not bound in the src/app/cmd.c keymap and canvas.c never warps or synthesizes pointer motion; the Pan tool's button + arrows pan is m... |
+| F-T-FW-ARROWS | Arrow keys nudge the pointer or the edited object 1 px, Ctrl 10 px (tool dependent). | tool | DONE | TOOLS T-FW-ARROWS Audit 2026-10-05: No generic arrow-key pointer nudge (K-NAV-TOOLMOVE) for the other tools: arrows are not bound in the src/app/cmd.c keymap and canvas.c never warps or synthesizes pointer motion; the Pan tool's button + arrows pan is m... Closed in wave 3b (2026-10-05). |
 | F-T-FW-OFFCANVAS | Tools accept input outside the canvas (negative coordinates) and clip output to the canvas. | tool | DONE | TOOLS T-FW-OFFCANVAS |
-| F-T-FW-AUTOSCROLL | Dragging near the view edge auto-scrolls (time based) when Settings > Auto-scroll is on; it never engages overscroll (R 4.0.10, 4.0.11). | tool | TODO | TOOLS T-FW-AUTOSCROLL Audit 2026-10-05: Dragging a tool near the view edge never scrolls the view; the Settings > User Interface Auto-scroll option does not exist. |
+| F-T-FW-AUTOSCROLL | Dragging near the view edge auto-scrolls (time based) when Settings > Auto-scroll is on; it never engages overscroll (R 4.0.10, 4.0.11). | tool | DONE | TOOLS T-FW-AUTOSCROLL Audit 2026-10-05: Dragging a tool near the view edge never scrolls the view; the Settings > User Interface Auto-scroll option does not exist. Closed in wave 3b (2026-10-05). |
 | F-T-FW-PRESSURE | Pen pressure (Windows Ink equivalent: SDL pen pressure) scales brush size for Paintbrush, Eraser, Clone Stamp, Recolor when enabled. | tool | DONE | TOOLS T-FW-PRESSURE |
-| F-TOOL-OPT-WIDTH | Toolbar option Brush width: float px, editable combo with -/+ buttons: 1..2000, decimals allowed (6.5): 2 at 100% UI scale (scaled by DPI: 4 at 200%) | tool | WIP | TOOLS O-WIDTH Audit 2026-10-05: Default 2 is not DPI scaled (src/app/tool.c app_tool_settings_reset, no 4 at 200%); Line/Curve and Shapes use src/app/tool.c app_opt_width (ui_number_double with 0 decimals): typing 6.5 becomes 7 on Enter (run sh2.txt... |
+| F-TOOL-OPT-WIDTH | Toolbar option Brush width: float px, editable combo with -/+ buttons: 1..2000, decimals allowed (6.5): 2 at 100% UI scale (scaled by DPI: 4 at 200%) | tool | DONE | TOOLS O-WIDTH Audit 2026-10-05: Default 2 is not DPI scaled (src/app/tool.c app_tool_settings_reset, no 4 at 200%); Line/Curve and Shapes use src/app/tool.c app_opt_width (ui_number_double with 0 decimals): typing 6.5 becomes 7 on Enter (run sh2.txt... Closed in wave 3b (2026-10-05). |
 | F-TOOL-OPT-WIDTH-PRESETS | Toolbar option Width presets: list: 1..15 step 1, 20..100 step 5, 125..500 step 25 (B, up to 500); 5.x extends to 2000 (verify values) | tool | DONE | TOOLS O-WIDTH-PRESETS |
 | F-TOOL-OPT-PRESSURE | Toolbar option Pressure sensitivity: split toggle: on/off: on (I) | tool | DONE | TOOLS O-PRESSURE |
 | F-TOOL-OPT-HARDNESS | Toolbar option Hardness: percent slider with +/-: 0..100%: 75% (forum, verify) | tool | DONE | TOOLS O-HARDNESS |
@@ -808,9 +808,9 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-TOOL-OPT-BLEND | Toolbar option Blend mode: split button menu: Normal, Multiply, Additive, Color Burn, Color Dodge, Reflect, Glow, Overlay, Difference, Negation, Lighten, Darken, ... | tool | DONE | TOOLS O-BLEND |
 | F-TOOL-OPT-SELCLIP | Toolbar option Selection clipping (Selection quality): split toggle: Antialiased / Pixelated: Antialiased (I) | tool | DONE | TOOLS O-SELCLIP |
 | F-TOOL-OPT-SELMODE | Toolbar option Selection mode: split button: Replace, Add (union), Subtract, Intersect, Invert (xor): Replace | tool | DONE | TOOLS O-SELMODE |
-| F-TOOL-OPT-FLOOD | Toolbar option Flood mode: split toggle: Contiguous / Global: Contiguous | tool | WIP | TOOLS O-FLOOD Audit 2026-10-05: Magic Wand uses a different widget (src/app/tools/sel_common.c sel_opt_flood: dropdown combo labeled 'Flood mode:') instead of the split toggle, so the two tools disagree (shots/o_all.png). |
-| F-TOOL-OPT-TOL | Toolbar option Tolerance: percent slider with +/- (no wheel): 0..100%: 50% | tool | WIP | TOOLS O-TOL Audit 2026-10-05: Magic Wand uses sel_common.c sel_opt_tolerance (plain ui_slider_int with a separate % label): no -/+ buttons and it takes the mouse wheel once focused (run p1.txt 20% -> 22%). |
-| F-TOOL-OPT-TOLALPHA | Toolbar option Tolerance alpha mode: toggle: Premultiplied / Straight: Premultiplied | tool | WIP | TOOLS O-TOLALPHA Audit 2026-10-05: Magic Wand shows it as a dropdown combo (sel_common.c sel_opt_tol_alpha) instead of the toggle. |
+| F-TOOL-OPT-FLOOD | Toolbar option Flood mode: split toggle: Contiguous / Global: Contiguous | tool | DONE | TOOLS O-FLOOD Audit 2026-10-05: Magic Wand uses a different widget (src/app/tools/sel_common.c sel_opt_flood: dropdown combo labeled 'Flood mode:') instead of the split toggle, so the two tools disagree (shots/o_all.png). Closed in wave 3b (2026-10-05). |
+| F-TOOL-OPT-TOL | Toolbar option Tolerance: percent slider with +/- (no wheel): 0..100%: 50% | tool | DONE | TOOLS O-TOL Audit 2026-10-05: Magic Wand uses sel_common.c sel_opt_tolerance (plain ui_slider_int with a separate % label): no -/+ buttons and it takes the mouse wheel once focused (run p1.txt 20% -> 22%). Closed in wave 3b (2026-10-05). |
+| F-TOOL-OPT-TOLALPHA | Toolbar option Tolerance alpha mode: toggle: Premultiplied / Straight: Premultiplied | tool | DONE | TOOLS O-TOLALPHA Audit 2026-10-05: Magic Wand shows it as a dropdown combo (sel_common.c sel_opt_tol_alpha) instead of the toggle. Closed in wave 3b (2026-10-05). |
 | F-TOOL-OPT-SAMPLING | Toolbar option Sampling: dropdown/toggle: Layer / Image: Layer (I) | tool | DONE | TOOLS O-SAMPLING |
 | F-TOOL-OPT-FINISH | Toolbar option Finish: button | tool | DONE | TOOLS O-FINISH |
 | F-T-SEL-DRAG | Press-drag-release creates the shape; release fixes it. Click without drag in Replace mode deselects (I). | tool | DONE | TOOLS T-SEL-DRAG |
@@ -818,14 +818,14 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-T-SEL-OFFCANVAS | Clicking off-canvas (in the gray area) deselects. | tool | DONE | TOOLS T-SEL-OFFCANVAS |
 | F-T-SEL-MODES | Combine with the existing selection by O-SELMODE or per-click modifiers. | tool | DONE | TOOLS T-SEL-MODES |
 | F-T-SEL-ANTS | Selection outline drawn as animated marching ants (always). Selected area gets a blue tint while a selection tool or Move Selection is active; tint ... | tool | DONE | TOOLS T-SEL-ANTS |
-| F-T-SEL-QUALITY | Selection quality Antialiased gives fractional edge coverage (4x4 supersampled, R 4.3); Pixelated snaps to pixels. | tool | WIP | TOOLS T-SEL-QUALITY Audit 2026-10-05: Antialiased selections use exact analytic area coverage (src/core/pc_raster.c) rather than the 4x4 supersampling the spec cites (R 4.3), so edge coverage values differ slightly from Paint.NET's 17 levels. |
-| F-T-SEL-STATUS | Status bar shows selection offset and size (and area) in current units while drawing (B, I for 5.x layout). | tool | WIP | TOOLS T-SEL-STATUS Audit 2026-10-05: The selection area is not shown (spec: offset, size and area; 3.36 shows the area). |
+| F-T-SEL-QUALITY | Selection quality Antialiased gives fractional edge coverage (4x4 supersampled, R 4.3); Pixelated snaps to pixels. | tool | DONE | TOOLS T-SEL-QUALITY Audit 2026-10-05: Antialiased selections use exact analytic area coverage (src/core/pc_raster.c) rather than the 4x4 supersampling the spec cites (R 4.3), so edge coverage values differ slightly from Paint.NET's 17 levels. Closed in wave 3b (2026-10-05). |
+| F-T-SEL-STATUS | Status bar shows selection offset and size (and area) in current units while drawing (B, I for 5.x layout). | tool | DONE | TOOLS T-SEL-STATUS Audit 2026-10-05: The selection area is not shown (spec: offset, size and area; 3.36 shows the area). Closed in wave 3b (2026-10-05). |
 | F-T-SEL-HISTORY | Each completed selection change is a History item. | tool | DONE | TOOLS T-SEL-HISTORY |
 | F-T-WAND-CLICK | Click selects pixels similar to the clicked pixel within Tolerance: Contiguous floods 4-connected (I: 4 vs 8 verify) from the click; Global selects ... | tool | DONE | TOOLS T-WAND-CLICK |
 | F-T-WAND-SAMPLE | Layer samples the active layer; Image samples the composite. | tool | DONE | TOOLS T-WAND-SAMPLE |
 | F-T-WAND-LIVE | After clicking, changing Tolerance, flood mode, alpha mode, sampling or combine mode re-evaluates from the same origin; the origin nub (white square ... | tool | DONE | TOOLS T-WAND-LIVE |
 | F-T-WAND-MODS | Ctrl add, Alt subtract, Ctrl+right xor, Alt+right intersect, Shift global (combinable). | tool | DONE | TOOLS T-WAND-MODS |
-| F-T-WAND-BUSY | A busy spinner shows on the canvas during long computations. | tool | TODO | TOOLS T-WAND-BUSY Audit 2026-10-05: No busy spinner on the canvas during long wand computations; the UI blocks instead. |
+| F-T-WAND-BUSY | A busy spinner shows on the canvas during long computations. | tool | DONE | TOOLS T-WAND-BUSY Audit 2026-10-05: No busy spinner on the canvas during long wand computations; the UI blocks instead. Closed in wave 3b (2026-10-05). |
 | F-T-WAND-PREMUL | Comparison in premultiplied space by default (transparent pixels with different RGB are equal). | tool | DONE | TOOLS T-WAND-PREMUL |
 | F-T-MOVEPX-NOSEL | Without a selection the whole active layer is moved (the selection becomes the layer bounds, I). | tool | DONE | TOOLS T-MOVEPX-NOSEL |
 | F-T-MOVEPX-LEAVE | First move lifts the pixels; the vacated area becomes #00000000. Ctrl held when starting the drag leaves a copy behind (mouse only). | tool | DONE | TOOLS T-MOVEPX-LEAVE |
@@ -835,7 +835,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-T-MOVEPX-ICON | A four-way move icon handle is also drawn and can be dragged to move. | tool | DONE | TOOLS T-MOVEPX-ICON |
 | F-T-MOVEPX-KEYS | Arrows move 1 px, Ctrl+arrows 10 px. | tool | DONE | TOOLS T-MOVEPX-KEYS |
 | F-T-MOVEPX-RESAMPLE | Transform uses the chosen resampling and gamma mode; the preview and the committed result use the same algorithm. | tool | DONE | TOOLS T-MOVEPX-RESAMPLE |
-| F-T-MOVEPX-FINISH | Finish/Enter commits (pixels merged into the layer; the selection keeps the transformed outline). Toggling layer visibility does not commit (R 5.1). | tool | WIP | TOOLS T-MOVEPX-FINISH Audit 2026-10-05: Toggling layer visibility commits the floating pixels: src/app/panels/pnl_layers.c toggle_visible calls app_tool_finish, and the layers.toggle_visibility command (src/app/mods/mod_layers.c, no APP_CMD_NO_COMMIT) is fi... |
+| F-T-MOVEPX-FINISH | Finish/Enter commits (pixels merged into the layer; the selection keeps the transformed outline). Toggling layer visibility does not commit (R 5.1). | tool | DONE | TOOLS T-MOVEPX-FINISH Audit 2026-10-05: Toggling layer visibility commits the floating pixels: src/app/panels/pnl_layers.c toggle_visible calls app_tool_finish, and the layers.toggle_visibility command (src/app/mods/mod_layers.c, no APP_CMD_NO_COMMIT) is fi... Closed in wave 3b (2026-10-05). |
 | F-T-MOVEPX-OFFCANVAS | Pixels moved fully or partly off canvas are kept while the tool is active and can be moved back; clipped at commit (I, R 5.1.10 bug fix context). | tool | DONE | TOOLS T-MOVEPX-OFFCANVAS |
 | F-T-BUCKET-CLICK | Left click fills the matching region with primary, right click with secondary (or the fill pattern using both). | tool | DONE | TOOLS T-BUCKET-CLICK |
 | F-T-BUCKET-REGION | Region from flood mode + tolerance + tolerance alpha mode + sampling, intersected with the selection; the selection edge acts as a boundary (fill ... | tool | DONE | TOOLS T-BUCKET-REGION |
@@ -866,7 +866,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-T-TEXT-COMMIT | Esc or Finish commits to pixels; switching tools commits; clicking elsewhere commits and starts new text (I). After commit the text is not editable. | tool | DONE | TOOLS T-TEXT-COMMIT |
 | F-T-TEXT-LIVE | Font, size, style, alignment, rendering mode, AA, blend and primary color changes apply to the uncommitted text. | tool | DONE | TOOLS T-TEXT-LIVE |
 | F-T-TEXT-EDIT | Caret keys, Backspace, Delete; Ctrl word movement and deletion like a word processor (R 4.2). AltGr characters must type, not trigger shortcuts (R ... | tool | DONE | TOOLS T-TEXT-EDIT |
-| F-T-TEXT-COLORFONT | Color fonts (emoji) render in color. | tool | TODO | TOOLS T-TEXT-COLORFONT Audit 2026-10-05: Color (emoji) fonts render as monochrome outlines or missing glyphs; needs COLR/CPAL (and CBDT/sbix bitmap) glyph rendering in src/app/tools/text_font.c + src/core/pc_text_render.c. |
+| F-T-TEXT-COLORFONT | Color fonts (emoji) render in color. | tool | DONE | TOOLS T-TEXT-COLORFONT Audit 2026-10-05: Color (emoji) fonts render as monochrome outlines or missing glyphs; needs COLR/CPAL (and CBDT/sbix bitmap) glyph rendering in src/app/tools/text_font.c + src/core/pc_text_render.c. Closed in wave 3b (2026-10-05). |
 | F-T-TEXT-VIEW | View recenters to keep the caret visible when typing reaches the edge; modifier keys alone never recenter (R 5.0.3). | tool | DONE | TOOLS T-TEXT-VIEW |
 | F-T-TEXT-SPACE | Space types a space (no pan while typing). | tool | DONE | TOOLS T-TEXT-SPACE |
 | F-T-LINE-DRAW | Drag from start to end draws a straight segment; Shift before release snaps to 15° multiples; Alt draws from the center (start point is the midpoint). | tool | DONE | TOOLS T-LINE-DRAW |
@@ -894,8 +894,8 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-DLG-NEW-RESOLUTION | New: resolution, default 96 px/in | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-NEW-RES-UNITS | New: resolution units px/in, px/cm | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-NEW-PRINTSIZE | New: print size width/height linked to pixels | dialog | DONE | MENUS.md / WINDOWS.md |
-| F-DLG-NEW-PRINT-UNITS | New: print units inches/centimeters | dialog | WIP | MENUS.md / WINDOWS.md Audit 2026-10-05: Print units are a fixed label tied to the resolution unit, not a dropdown (MENUS: dropdown Inches/Centimeters; OBSERVED 2: choice). User cannot pick the print unit directly. |
-| F-DLG-NEW-VALIDATION | New: invalid input disables OK | dialog | WIP | MENUS.md / WINDOWS.md Audit 2026-10-05: OK is never disabled. Out-of-range typed values are silently discarded on Tab or click-away (number_rect reformats the text from the old value before handling deactivation), so the dialog creates a different size than... |
+| F-DLG-NEW-PRINT-UNITS | New: print units inches/centimeters | dialog | DONE | MENUS.md / WINDOWS.md Audit 2026-10-05: Print units are a fixed label tied to the resolution unit, not a dropdown (MENUS: dropdown Inches/Centimeters; OBSERVED 2: choice). User cannot pick the print unit directly. Closed in wave 3b (2026-10-05). |
+| F-DLG-NEW-VALIDATION | New: invalid input disables OK | dialog | DONE | MENUS.md / WINDOWS.md Audit 2026-10-05: OK is never disabled. Out-of-range typed values are silently discarded on Tab or click-away (number_rect reformats the text from the old value before handling deactivation), so the dialog creates a different size than... Closed in wave 3b (2026-10-05). |
 | F-DLG-RESIZE-ESTIMATE | Resize: new size estimate | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-RESIZE-RESAMPLING | Resize: resampling dropdown, 8 modes, default Bicubic | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-RESIZE-RESAMPLE-RESET | Resize: resampling reset button | dialog | DONE | MENUS.md / WINDOWS.md |
@@ -929,7 +929,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-DLG-LAYERPROPS-VISIBLE | Layer Properties: Visible | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-LAYERPROPS-BLEND | Layer Properties: Blend mode (14) | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-LAYERPROPS-OPACITY | Layer Properties: Opacity slider + box 0..255 | dialog | DONE | MENUS.md / WINDOWS.md |
-| F-DLG-LAYERPROPS-LIVE | Layer Properties: live preview, Cancel reverts | dialog | WIP | MENUS.md / WINDOWS.md Audit 2026-10-05: The live preview is shown under the dialog backdrop scrim (light theme ~33% dark), so opacity/blend changes are judged on a dimmed canvas. Effect dialogs clear the backdrop (afx_session.c backdrop_clear); Layer Proper... |
+| F-DLG-LAYERPROPS-LIVE | Layer Properties: live preview, Cancel reverts | dialog | DONE | MENUS.md / WINDOWS.md Audit 2026-10-05: The live preview is shown under the dialog backdrop scrim (light theme ~33% dark), so opacity/blend changes are judged on a dimmed canvas. Effect dialogs clear the backdrop (afx_session.c backdrop_clear); Layer Proper... Closed in wave 3b (2026-10-05). |
 | F-DLG-LAYERPROPS-HISTORY | Layer Properties: one history item on OK | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-LAYERPROPS-NOTINT | Layer Properties hides selection tint | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-ROTZOOM-ANGLE | Rotate/Zoom: angle ring/slider/box | dialog | DONE | MENUS.md / WINDOWS.md |
@@ -945,10 +945,10 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-DLG-ROTZOOM-SAMPLE-BILINEAR | Rotate/Zoom sampling Bilinear | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-ROTZOOM-SAMPLE-NEAREST | Rotate/Zoom sampling Nearest Neighbor | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-ROTZOOM-RESET | Rotate/Zoom reset buttons | dialog | DONE | MENUS.md / WINDOWS.md |
-| F-DLG-ROTZOOM-GAMMA | Rotate/Zoom renders gamma correct | dialog | TODO | MENUS.md / WINDOWS.md Audit 2026-10-05: Rotate/Zoom resamples gamma-encoded values; pc_warp has no gamma option, so the result is not gamma correct (edges between bright and dark areas darken). |
+| F-DLG-ROTZOOM-GAMMA | Rotate/Zoom renders gamma correct | dialog | DONE | MENUS.md / WINDOWS.md Audit 2026-10-05: Rotate/Zoom resamples gamma-encoded values; pc_warp has no gamma option, so the result is not gamma correct (edges between bright and dark areas darken). Closed in wave 3b (2026-10-05). |
 | F-DLG-SAVECFG-SHELL | Save Configuration dialog shell | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-SAVECFG-PREVIEW | Save Configuration live preview of reloaded result | dialog | DONE | MENUS.md / WINDOWS.md |
-| F-DLG-SAVECFG-FILESIZE | Save Configuration file size + progress + error | dialog | WIP | MENUS.md / WINDOWS.md Audit 2026-10-05: No percentage while computing ("computing (p%)" in spec) and an encode error only appears in the label; the standard error dialog is not raised. |
+| F-DLG-SAVECFG-FILESIZE | Save Configuration file size + progress + error | dialog | WIP | MENUS.md / WINDOWS.md Audit 2026-10-05: No percentage while computing ("computing (p%)" in spec) and an encode error only appears in the label; the standard error dialog is not raised. Wave 3b: Save Configuration shows the size but no computing percentage (codec ABI has no progress hook). |
 | F-DLG-SAVECFG-DEFAULTS | Save Configuration Defaults button | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-SAVECFG-ZOOMPAN | Save Configuration preview zoom/pan | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-SAVECFG-ASYNC | Save Configuration encodes off UI thread | dialog | DONE | MENUS.md / WINDOWS.md |
@@ -960,7 +960,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-DLG-UNSAVED-CHAIN | Cancel in Save As/config/flatten cancels close | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-COLORPROFILE-CURRENT | Color Profile: shows current profile | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-COLORPROFILE-BUILTINS | Color Profile: built-in choices | dialog | DONE | MENUS.md / WINDOWS.md |
-| F-DLG-COLORPROFILE-DISPLAY | Color Profile: display profile choice | dialog | TODO | MENUS.md / WINDOWS.md Audit 2026-10-05: The display color profile is not offered as a choice (needs colord/ICC_PROFILE atom on Linux, GetICMProfile on Windows, ColorSync on macOS). |
+| F-DLG-COLORPROFILE-DISPLAY | Color Profile: display profile choice | dialog | DONE | MENUS.md / WINDOWS.md Audit 2026-10-05: The display color profile is not offered as a choice (needs colord/ICC_PROFILE atom on Linux, GetICMProfile on Windows, ColorSync on macOS). Closed in wave 3b (2026-10-05). |
 | F-DLG-COLORPROFILE-IMPORT | Color Profile: import .icc/.icm | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-COLORPROFILE-EXPORT | Color Profile: export profile | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-COLORPROFILE-CONVERT | Color Profile: Convert | dialog | DONE | MENUS.md / WINDOWS.md |
@@ -995,19 +995,19 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-DLG-FX-RANDOMIZE | Effect dialogs: Randomize button | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-FX-TABS | Effect dialogs: tabs (Clouds) | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-FX-REMEMBER | Effect dialogs remember last values per session | dialog | DONE | MENUS.md / WINDOWS.md |
-| F-DLG-FX-SLIDER-INPUT | Effect dialogs: slider typing, arrows, wheel | dialog | WIP | MENUS.md / WINDOWS.md Audit 2026-10-05: Out-of-range typed values are dropped on Tab or click-away instead of clamped (O-UI-CLAMP); only Enter clamps. Also no initial focus in the first numeric box when an effect dialog opens (O-UI-FOCUS). |
+| F-DLG-FX-SLIDER-INPUT | Effect dialogs: slider typing, arrows, wheel | dialog | DONE | MENUS.md / WINDOWS.md Audit 2026-10-05: Out-of-range typed values are dropped on Tab or click-away instead of clamped (O-UI-CLAMP); only Enter clamps. Also no initial focus in the first numeric box when an effect dialog opens (O-UI-FOCUS). Closed in wave 3b (2026-10-05). |
 | F-DLG-FX-HISTORY | Effect OK adds one history item | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-SETTINGS-SHELL | Settings dialog with 9 pages | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-SETTINGS-UI-LANGUAGE | Settings UI: Language | dialog | DONE | MENUS.md / WINDOWS.md |
-| F-DLG-SETTINGS-UI-THEME | Settings UI: color scheme | dialog | WIP | MENUS.md / WINDOWS.md Audit 2026-10-05: No Blue color scheme (WINDOWS 8.1, OBSERVED 10 list Default, Blue, Light, Dark). |
-| F-DLG-SETTINGS-UI-TRANSLUCENT | Settings UI: translucent windows (verify) | dialog | TODO | MENUS.md / WINDOWS.md Audit 2026-10-05: No "Translucent windows" checkbox (OBSERVED 10 default on) and utility windows never become translucent when the pointer leaves them. |
-| F-DLG-SETTINGS-UI-AUTOSCROLL | Settings UI: Auto-scroll | dialog | TODO | MENUS.md / WINDOWS.md Audit 2026-10-05: No "Auto-scroll when drawing at the edge" checkbox, and the underlying view auto-scroll while dragging at the edge (V-AUTOSCROLL) is not implemented either. |
+| F-DLG-SETTINGS-UI-THEME | Settings UI: color scheme | dialog | DONE | MENUS.md / WINDOWS.md Audit 2026-10-05: No Blue color scheme (WINDOWS 8.1, OBSERVED 10 list Default, Blue, Light, Dark). Closed in wave 3b (2026-10-05). |
+| F-DLG-SETTINGS-UI-TRANSLUCENT | Settings UI: translucent windows (verify) | dialog | DONE | MENUS.md / WINDOWS.md Audit 2026-10-05: No "Translucent windows" checkbox (OBSERVED 10 default on) and utility windows never become translucent when the pointer leaves them. Closed in wave 3b (2026-10-05). |
+| F-DLG-SETTINGS-UI-AUTOSCROLL | Settings UI: Auto-scroll | dialog | DONE | MENUS.md / WINDOWS.md Audit 2026-10-05: No "Auto-scroll when drawing at the edge" checkbox, and the underlying view auto-scroll while dragging at the edge (V-AUTOSCROLL) is not implemented either. Closed in wave 3b (2026-10-05). |
 | F-DLG-SETTINGS-UI-OVERSCROLL | Settings UI: overscroll checkbox | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-SETTINGS-CANVAS-SHADOW | Settings Canvas: drop shadow | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-SETTINGS-CANVAS-BORDER | Settings Canvas: border color | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-SETTINGS-CANVAS-CHECKER | Settings Canvas: checkerboard brightness | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-SETTINGS-TOOLS-DEFAULTTOOL | Settings Tools: default tool | dialog | DONE | MENUS.md / WINDOWS.md |
-| F-DLG-SETTINGS-TOOLS-DEFAULTS | Settings Tools: tool defaults editor | dialog | WIP | MENUS.md / WINDOWS.md Audit 2026-10-05: Only the shared brush/fill/selection/wand options are editable. Missing tool defaults from TOOLS 12 / OBSERVED 10: selection draw mode and fixed size, gradient type/mode/repeat, color picker sampling and after-click, ... |
+| F-DLG-SETTINGS-TOOLS-DEFAULTS | Settings Tools: tool defaults editor | dialog | DONE | MENUS.md / WINDOWS.md Audit 2026-10-05: Only the shared brush/fill/selection/wand options are editable. Missing tool defaults from TOOLS 12 / OBSERVED 10: selection draw mode and fixed size, gradient type/mode/repeat, color picker sampling and after-click, ... Closed in wave 3b (2026-10-05). |
 | F-DLG-SETTINGS-TOOLS-LOAD | Settings Tools: Load from Toolbar | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-SETTINGS-TOOLS-RESET | Settings Tools: Reset | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-SETTINGS-PEN-ENABLE | Settings Pen & Tablet: enable pen input | dialog | DONE | MENUS.md / WINDOWS.md |
@@ -1018,8 +1018,8 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-DLG-SETTINGS-UPD-AUTO | Settings Updates: auto check (optional) | dialog | N/A | MENUS.md / WINDOWS.md Audit 2026-10-05: Optional per WINDOWS 8.7 ("paint.c: optional (distribution channels may own updates)"); no updater, mod_m_settings.c header notes the Updates page is not applicable. |
 | F-DLG-SETTINGS-UPD-BETA | Settings Updates: pre-release (optional) | dialog | N/A | MENUS.md / WINDOWS.md Audit 2026-10-05: Optional per WINDOWS 8.7; no updater in paint.c. |
 | F-DLG-SETTINGS-UPD-CHECK | Settings Updates: Check Now (optional) | dialog | N/A | MENUS.md / WINDOWS.md Audit 2026-10-05: Optional per WINDOWS 8.7; no updater in paint.c. |
-| F-DLG-SETTINGS-PLUGINERRORS | Settings Plugin Errors page | dialog | WIP | MENUS.md / WINDOWS.md Audit 2026-10-05: Settings > Plugin Errors never shows the real plugin load errors, and Effects > Plugin Errors opens a separate dialog instead of this Settings page. Fix: page_plugins should render afx_plugin_errors_ui (or the loader ... |
-| F-DLG-SETTINGS-DIAG | Settings Diagnostics page + copy + crash folder | dialog | WIP | MENUS.md / WINDOWS.md Audit 2026-10-05: Missing GPU/driver name, pointer devices and loaded libraries/plugins (WINDOWS 8.9); paint.c never writes crash logs, so Open Crash Log Folder always opens an empty folder. |
+| F-DLG-SETTINGS-PLUGINERRORS | Settings Plugin Errors page | dialog | DONE | MENUS.md / WINDOWS.md Audit 2026-10-05: Settings > Plugin Errors never shows the real plugin load errors, and Effects > Plugin Errors opens a separate dialog instead of this Settings page. Fix: page_plugins should render afx_plugin_errors_ui (or the loader ... Closed in wave 3b (2026-10-05). |
+| F-DLG-SETTINGS-DIAG | Settings Diagnostics page + copy + crash folder | dialog | DONE | MENUS.md / WINDOWS.md Audit 2026-10-05: Missing GPU/driver name, pointer devices and loaded libraries/plugins (WINDOWS 8.9); paint.c never writes crash logs, so Open Crash Log Folder always opens an empty folder. Closed in wave 3b (2026-10-05). |
 | F-DLG-ABOUT | About dialog with version, credits, licenses, NOTICE | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-ERRORS | Error dialogs with details, Esc closes | dialog | DONE | MENUS.md / WINDOWS.md |
 | F-DLG-OPEN-DIALOG | Native open dialog | dialog | DONE | MENUS.md / WINDOWS.md |
@@ -1031,7 +1031,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-MENU-FILE-OPEN-FILTERS | Open filter list (All images + per type) | app-shell | DONE | MENUS.md |
 | F-MENU-FILE-OPEN-ALREADY | Opening an already open file switches to it (verify) | app-shell | DONE | MENUS.md |
 | F-MENU-FILE-OPEN-URL | Open from URL (optional) | app-shell | N/A | MENUS.md Audit 2026-10-05: Optional row, not in the MENUS.md File table; a URL in the Open box is a Windows common-dialog feature, paint.c uses portal/native dialogs and has no remote fetch (no http handling in fileio.c/pal) |
-| F-MENU-FILE-RECENT | File > Open Recent (10 items, newest first) | app-shell | WIP | MENUS.md Audit 2026-10-05: MENUS.md enables Open Recent only when the list is non-empty; paint.c always enables the submenu and shows a disabled 'No recent images' placeholder (menu.c recent_menu) |
+| F-MENU-FILE-RECENT | File > Open Recent (10 items, newest first) | app-shell | DONE | MENUS.md Audit 2026-10-05: MENUS.md enables Open Recent only when the list is non-empty; paint.c always enables the submenu and shows a disabled 'No recent images' placeholder (menu.c recent_menu) Closed in wave 3b (2026-10-05). |
 | F-MENU-FILE-RECENT-THUMB | Open Recent thumbnails | app-shell | DONE | MENUS.md |
 | F-MENU-FILE-RECENT-TOOLTIP | Open Recent full path tooltip | app-shell | DONE | MENUS.md |
 | F-MENU-FILE-RECENT-CLEAR | Open Recent > Clear List | app-shell | DONE | MENUS.md |
@@ -1056,7 +1056,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-MENU-EDIT-COPY | Edit > Copy | app-shell | DONE | MENUS.md |
 | F-MENU-EDIT-COPY-NOSEL | Copy without selection copies whole layer | app-shell | DONE | MENUS.md |
 | F-MENU-EDIT-COPYMERGED | Edit > Copy Merged | app-shell | DONE | MENUS.md |
-| F-MENU-EDIT-PASTE | Edit > Paste (floating, Move Selected Pixels active) | app-shell | WIP | MENUS.md Audit 2026-10-05: Paste is not floating: no float hook is ever installed (m_paste_set_float_hook has no caller and app_float_paste in tool_move_pixels.c is unused), so place() falls back to write_and_select which commits the pixels int... |
+| F-MENU-EDIT-PASTE | Edit > Paste (floating, Move Selected Pixels active) | app-shell | DONE | MENUS.md Audit 2026-10-05: Paste is not floating: no float hook is ever installed (m_paste_set_float_hook has no caller and app_float_paste in tool_move_pixels.c is unused), so place() falls back to write_and_select which commits the pixels int... Closed in wave 3b (2026-10-05). |
 | F-MENU-EDIT-PASTE-VIEWPORT | Paste lands inside current viewport | app-shell | DONE | MENUS.md |
 | F-MENU-EDIT-PASTE-LAYER | Edit > Paste into New Layer | app-shell | DONE | MENUS.md |
 | F-MENU-EDIT-PASTE-IMAGE | Edit > Paste into New Image (clipboard size) | app-shell | DONE | MENUS.md |
@@ -1091,7 +1091,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-MENU-IMAGE-ROT90CW | Image > Rotate 90 Clockwise | app-shell | DONE | MENUS.md |
 | F-MENU-IMAGE-ROT90CCW | Image > Rotate 90 Counter-clockwise | app-shell | DONE | MENUS.md |
 | F-MENU-IMAGE-ROT180 | Image > Rotate 180 | app-shell | DONE | MENUS.md |
-| F-MENU-IMAGE-COLORPROFILE | Image > Color Profile | app-shell | WIP | MENUS.md Audit 2026-10-05: The display's own profile is not offered (file header notes SDL exposes none), which MENUS.md lists as a choice |
+| F-MENU-IMAGE-COLORPROFILE | Image > Color Profile | app-shell | DONE | MENUS.md Audit 2026-10-05: The display's own profile is not offered (file header notes SDL exposes none), which MENUS.md lists as a choice Closed in wave 3b (2026-10-05). |
 | F-MENU-IMAGE-FLATTEN | Image > Flatten (enabled with 2+ layers) | app-shell | DONE | MENUS.md |
 | F-MENU-LAYERS-ADD | Layers > Add New Layer | app-shell | DONE | MENUS.md |
 | F-MENU-LAYERS-ADD-NAME | New layer named 'Layer N' unique | app-shell | DONE | MENUS.md |
@@ -1099,7 +1099,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-MENU-LAYERS-DELETE-LAST | Delete disabled for the last layer | app-shell | DONE | MENUS.md |
 | F-MENU-LAYERS-DUP | Layers > Duplicate Layer | app-shell | DONE | MENUS.md |
 | F-MENU-LAYERS-MERGE | Layers > Merge Layer Down | app-shell | DONE | MENUS.md |
-| F-MENU-LAYERS-VIS | Layers > Toggle Layer Visibility | app-shell | WIP | MENUS.md Audit 2026-10-05: MENUS.md (R 5.1): Toggle Layer Visibility must not commit Move Selected Pixels, but layers.toggle_visibility is registered without APP_CMD_NO_COMMIT (flags=1), so app_cmd_exec calls app_tool_finish first and commits t... |
+| F-MENU-LAYERS-VIS | Layers > Toggle Layer Visibility | app-shell | DONE | MENUS.md Audit 2026-10-05: MENUS.md (R 5.1): Toggle Layer Visibility must not commit Move Selected Pixels, but layers.toggle_visibility is registered without APP_CMD_NO_COMMIT (flags=1), so app_cmd_exec calls app_tool_finish first and commits t... Closed in wave 3b (2026-10-05). |
 | F-MENU-LAYERS-IMPORT | Layers > Import From File (multi-select) | app-shell | DONE | MENUS.md |
 | F-MENU-LAYERS-IMPORT-GROW | Import grows canvas to fit (transparent fill) | app-shell | DONE | MENUS.md |
 | F-MENU-LAYERS-FLIPH | Layers > Flip Horizontal | app-shell | DONE | MENUS.md |
@@ -1121,9 +1121,9 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-MENU-FX-SUBMENUS | Effects submenus in order Artistic..Stylize | app-shell | DONE | MENUS.md |
 | F-MENU-FX-PLUGIN-ICON | Plugin effects marked with an icon | app-shell | DONE | MENUS.md |
 | F-MENU-FX-TOOLTIP | Effect tooltip with name, author, file | app-shell | DONE | MENUS.md |
-| F-MENU-FX-SCROLL | Long menus scroll with the wheel | app-shell | TODO | MENUS.md Audit 2026-10-05: Menus taller than the window are clamped to the top and overflow off the bottom; no wheel scrolling of long menus (Effects submenus with many plugins, small windows) |
+| F-MENU-FX-SCROLL | Long menus scroll with the wheel | app-shell | DONE | MENUS.md Audit 2026-10-05: Menus taller than the window are clamped to the top and overflow off the bottom; no wheel scrolling of long menus (Effects submenus with many plugins, small windows) Closed in wave 3b (2026-10-05). |
 | F-MENU-MENU-FINISH-FIRST | Menu commands finish an active tool edit first | app-shell | DONE | MENUS.md |
-| F-MENU-MENU-MNEMONICS | Menu mnemonics and Alt key behavior | app-shell | WIP | MENUS.md Audit 2026-10-05: No underlined mnemonic letters, no item mnemonics inside an open menu (Alt+F then N), tapping Alt alone does nothing, View > Pixels/Inches/Centimeters have no mnemonics (R 5.1.3) |
+| F-MENU-MENU-MNEMONICS | Menu mnemonics and Alt key behavior | app-shell | DONE | MENUS.md Audit 2026-10-05: No underlined mnemonic letters, no item mnemonics inside an open menu (Alt+F then N), tapping Alt alone does nothing, View > Pixels/Inches/Centimeters have no mnemonics (R 5.1.3) Closed in wave 3b (2026-10-05). |
 | F-MENU-MENU-DISABLE-NOIMAGE | Image commands disabled with no image open | app-shell | DONE | MENUS.md |
 | F-MENU-RIGHT-TOOLS | Menu bar Tools window toggle icon | app-shell | DONE | MENUS.md |
 | F-MENU-RIGHT-HISTORY | Menu bar History window toggle icon | app-shell | DONE | MENUS.md |
@@ -1131,14 +1131,14 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-MENU-RIGHT-COLORS | Menu bar Colors window toggle icon | app-shell | DONE | MENUS.md |
 | F-MENU-RIGHT-RESET | Ctrl+Shift+click window icon resets window | app-shell | DONE | MENUS.md |
 | F-MENU-RIGHT-SETTINGS | Menu bar Settings icon | app-shell | DONE | MENUS.md |
-| F-MENU-RIGHT-HELP | Menu bar Help icon | app-shell | WIP | MENUS.md Audit 2026-10-05: MENUS.md gives the Help button Alt+H; no Alt+H binding exists (cmd.c mnemonic letters are only 'fevilac', no keymap entry) and the tooltip shows no key |
+| F-MENU-RIGHT-HELP | Menu bar Help icon | app-shell | DONE | MENUS.md Audit 2026-10-05: MENUS.md gives the Help button Alt+H; no Alt+H binding exists (cmd.c mnemonic letters are only 'fevilac', no keymap entry) and the tooltip shows no key Closed in wave 3b (2026-10-05). |
 | F-MENU-HELP-DOCS | Help > Documentation | app-shell | DONE | MENUS.md |
 | F-MENU-HELP-WEBSITE | Help > Website | app-shell | DONE | MENUS.md |
 | F-MENU-HELP-SEARCH | Help > Search | app-shell | DONE | MENUS.md |
 | F-MENU-HELP-DONATE | Help > Donate (optional) | app-shell | N/A | MENUS.md Audit 2026-10-05: Optional per MENUS.md (store builds hide it); menu.c MI_OPT hides help.donate, which is not registered (mod_help.c header) |
-| F-MENU-HELP-FORUM | Help > Forum | app-shell | TODO | MENUS.md Audit 2026-10-05: Help > Forum item absent |
-| F-MENU-HELP-TUTORIALS | Help > Tutorials | app-shell | TODO | MENUS.md Audit 2026-10-05: Help > Tutorials item absent |
-| F-MENU-HELP-PLUGINS | Help > Plugins | app-shell | TODO | MENUS.md Audit 2026-10-05: Help > Plugins (plugin index link) item absent |
+| F-MENU-HELP-FORUM | Help > Forum | app-shell | DONE | MENUS.md Audit 2026-10-05: Help > Forum item absent Closed in wave 3b (2026-10-05). |
+| F-MENU-HELP-TUTORIALS | Help > Tutorials | app-shell | DONE | MENUS.md Audit 2026-10-05: Help > Tutorials item absent Closed in wave 3b (2026-10-05). |
+| F-MENU-HELP-PLUGINS | Help > Plugins | app-shell | DONE | MENUS.md Audit 2026-10-05: Help > Plugins (plugin index link) item absent Closed in wave 3b (2026-10-05). |
 | F-MENU-HELP-FEEDBACK | Help > Send Feedback or Bug Report | app-shell | DONE | MENUS.md |
 | F-MENU-HELP-ABOUT | Help > About | app-shell | DONE | MENUS.md |
 | F-WIN-IMG-THUMB | One live thumbnail per open image (no text label); active one highlighted. Thumbnails render with correct alpha and gamma (R 5.0.4). | app-shell | DONE | WINDOWS W-IMG-THUMB |
@@ -1192,17 +1192,17 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-WIN-COL-PALETTE | Palette grid: compact mode shows the first 32 swatches, expanded shows all 96. Left click sets active slot, right click sets inactive slot (R 5.1 ... | app-shell | DONE | WINDOWS W-COL-PALETTE |
 | F-WIN-COL-ADD | Add Color button (filled with the active color): click to enter insert mode (button highlighted, palette border blinks); the next palette click ... | app-shell | DONE | WINDOWS W-COL-ADD |
 | F-WIN-COL-PALMENU | Palettes menu button (scrollable with the wheel, R 4.2.1): list of custom palettes found in the palette folders (click loads), Save Current Palette ... | app-shell | DONE | WINDOWS W-COL-PALMENU |
-| F-WIN-COL-CM | The window draws colors in the active image's color profile; palette colors are interpreted in the image's working space (R 5.1 alpha 8900). | app-shell | WIP | WINDOWS W-COL-CM Audit 2026-10-05: When an image carries a non-sRGB profile (Image > Color Profile > Assign, or paste/import into such an image), the Colors window still draws and interprets colors as sRGB instead of the image's working space |
+| F-WIN-COL-CM | The window draws colors in the active image's color profile; palette colors are interpreted in the image's working space (R 5.1 alpha 8900). | app-shell | DONE | WINDOWS W-COL-CM Audit 2026-10-05: When an image carries a non-sRGB profile (Image > Color Profile > Assign, or paste/import into such an image), the Colors window still draws and interprets colors as sRGB instead of the image's working space Closed in wave 3b (2026-10-05). |
 | F-WIN-COL-BACKSPACE | Backspace inside Colors window text boxes edits text, never runs Fill Selection (R 4.2.15). | app-shell | DONE | WINDOWS W-COL-BACKSPACE |
 | F-WIN-COL-TOGGLE | F8 toggles; Ctrl+Shift+F8 resets; size at different DPI must stay correct (R 5.0.13). | app-shell | DONE | WINDOWS W-COL-TOGGLE |
 | F-VIEW-ZOOM-RANGE | Allowed zoom: 1% .. 10,000% (was 1.5625%..6400% before 5.0.4) | app-shell | DONE | VIEW V-ZOOM-RANGE |
-| F-VIEW-ZOOM-PRESETS-UP | Zoom In steps from 100%: 150, 200, 300, 400, 500, 600, 800, 1000, 1200, 1400, 1600, 2000, 2400, 2800, 3200, 4000, 4800, 5600, 6400, then up to 10000 ... | app-shell | WIP | VIEW V-ZOOM-PRESETS-UP Audit 2026-10-05: Above 6400% paint.c steps 8000, 10000 (inventory inference); OBSERVED.md 8 (priority 2 under ADR-016) shows 7600, 8800, 10000 |
-| F-VIEW-ZOOM-PRESETS-DOWN | Zoom Out steps from 100%: 67, 50, 33, 25, 20, then (I from B): 16, 12, 8, 6, 5, 4, 3, 2, 1 | app-shell | WIP | VIEW V-ZOOM-PRESETS-DOWN Audit 2026-10-05: OBSERVED.md 8 ladder is 66.7, 50, 33.3, 25, 20, 16.7, 12.5, 10, 8.33, 7.14, 6.25, 5, 4.16, 3.57, 2.5, 1.78, 1.13, 1; paint.c uses 67/33 instead of 2/3 and 1/3 and the inferred low end (no 10%, 8.33, 7.14, 6.25, 3.57, ... |
+| F-VIEW-ZOOM-PRESETS-UP | Zoom In steps from 100%: 150, 200, 300, 400, 500, 600, 800, 1000, 1200, 1400, 1600, 2000, 2400, 2800, 3200, 4000, 4800, 5600, 6400, then up to 10000 ... | app-shell | DONE | VIEW V-ZOOM-PRESETS-UP Audit 2026-10-05: Above 6400% paint.c steps 8000, 10000 (inventory inference); OBSERVED.md 8 (priority 2 under ADR-016) shows 7600, 8800, 10000 Closed in wave 3b (2026-10-05). |
+| F-VIEW-ZOOM-PRESETS-DOWN | Zoom Out steps from 100%: 67, 50, 33, 25, 20, then (I from B): 16, 12, 8, 6, 5, 4, 3, 2, 1 | app-shell | DONE | VIEW V-ZOOM-PRESETS-DOWN Audit 2026-10-05: OBSERVED.md 8 ladder is 66.7, 50, 33.3, 25, 20, 16.7, 12.5, 10, 8.33, 7.14, 6.25, 5, 4.16, 3.57, 2.5, 1.78, 1.13, 1; paint.c uses 67/33 instead of 2/3 and 1/3 and the inferred low end (no 10%, 8.33, 7.14, 6.25, 3.57, ... Closed in wave 3b (2026-10-05). |
 | F-VIEW-ZOOM-NEXT | Next preset rule: From any zoom z, Zoom In picks the smallest preset > z + 0.5% tolerance; Zoom Out the largest preset < z - 0.5% (B used +-0.005 ... | app-shell | DONE | VIEW V-ZOOM-NEXT |
 | F-VIEW-ZOOM-NOTCUSTOM | Customization: Preset list is fixed, not user-configurable. | app-shell | DONE | VIEW V-ZOOM-NOTCUSTOM |
 | F-VIEW-ZOOM-KEYS | Ctrl+Plus / Ctrl+Minus, menu: One preset step, anchored at the view center (no drift, R 4.3). | app-shell | DONE | VIEW V-ZOOM-KEYS |
 | F-VIEW-ZOOM-WHEEL | Ctrl+wheel: One preset step per notch (I), anchored at the pointer so the image point under the pointer stays put. High-resolution wheels/trackpads ... | app-shell | DONE | VIEW V-ZOOM-WHEEL |
-| F-VIEW-ZOOM-PINCH | Touchpad / touch pinch: Zoom continuously around the gesture center. | app-shell | TODO | VIEW V-ZOOM-PINCH Audit 2026-10-05: Touchpad/touchscreen pinch does not zoom |
+| F-VIEW-ZOOM-PINCH | Touchpad / touch pinch: Zoom continuously around the gesture center. | app-shell | DONE | VIEW V-ZOOM-PINCH Audit 2026-10-05: Touchpad/touchscreen pinch does not zoom Closed in wave 3b (2026-10-05). |
 | F-VIEW-ZOOM-TOOL-CLICK | Zoom tool left/right click: One step in/out anchored at the click point. | app-shell | DONE | VIEW V-ZOOM-TOOL-CLICK |
 | F-VIEW-ZOOM-TOOL-RECT | Zoom tool drag: Zoom so the dragged rectangle fills the view (clamped to range), centered on it. | app-shell | DONE | VIEW V-ZOOM-TOOL-RECT |
 | F-VIEW-ZOOM-WINDOW | Zoom to Window (Ctrl+B): Fit the whole image inside the view, never above 100% for small images (shown at 100%); centered. Invoked again: restore the ... | app-shell | DONE | VIEW V-ZOOM-WINDOW |
@@ -1213,17 +1213,17 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-VIEW-ZOOM-SLIDER | Status bar slider: Continuous zoom (log mapping, I). | app-shell | DONE | VIEW V-ZOOM-SLIDER |
 | F-VIEW-ZOOM-OPEN | New / Open: New and opened images start fitted to the window (zoom <= 100%). | app-shell | DONE | VIEW V-ZOOM-OPEN |
 | F-VIEW-ZOOM-PER-IMAGE | Per image state: Each image tab keeps its own zoom and scroll. | app-shell | DONE | VIEW V-ZOOM-PER-IMAGE |
-| F-VIEW-ZOOM-RECENTER | Center trick: Ctrl+B twice re-centers the image at the previous zoom. | app-shell | WIP | VIEW V-ZOOM-RECENTER Audit 2026-10-05: Ctrl+B twice returns to the previous zoom at the previous scroll position, so it does not re-center the image as the ViewTools trick describes (VIEW.md V-ZOOM-WINDOW and SHORTCUTS K-NAV-ZOOM-WINDOW say restore scroll;... |
-| F-VIEW-RENDER-UP | Above 100% pixels are shown as crisp squares; 5.0.4+ antialiases square edges at non-integer scales (multisampling) instead of uneven pixel widths. ... | app-shell | WIP | VIEW V-RENDER-UP Audit 2026-10-05: No multisampled square edges at non-integer zooms above 100% (e.g. 150% gives uneven 1/2 px pixel widths); accepted for v1 by ADR-003 but still a 5.0.4+ parity gap |
-| F-VIEW-RENDER-DOWN | Below 100% downsampling is gamma-correct and mipmapped (no aliasing shimmer). | app-shell | WIP | VIEW V-RENDER-DOWN Audit 2026-10-05: Mip levels are a 2x2 box average of gamma-encoded premultiplied bytes ((a+b+c+d+2)>>2), not gamma-correct (linear light) downsampling |
-| F-VIEW-RENDER-CM | Canvas shows the image converted from its profile to the display (sRGB mode on SDR displays). | app-shell | WIP | VIEW V-RENDER-CM Audit 2026-10-05: No display transform: an image with an assigned non-sRGB profile (Image > Color Profile > Assign) shows its raw values, so its appearance on the canvas does not change; OD-7 defers display management |
+| F-VIEW-ZOOM-RECENTER | Center trick: Ctrl+B twice re-centers the image at the previous zoom. | app-shell | DONE | VIEW V-ZOOM-RECENTER Audit 2026-10-05: Ctrl+B twice returns to the previous zoom at the previous scroll position, so it does not re-center the image as the ViewTools trick describes (VIEW.md V-ZOOM-WINDOW and SHORTCUTS K-NAV-ZOOM-WINDOW say restore scroll;... Closed in wave 3b (2026-10-05). |
+| F-VIEW-RENDER-UP | Above 100% pixels are shown as crisp squares; 5.0.4+ antialiases square edges at non-integer scales (multisampling) instead of uneven pixel widths. ... | app-shell | DONE | VIEW V-RENDER-UP Audit 2026-10-05: No multisampled square edges at non-integer zooms above 100% (e.g. 150% gives uneven 1/2 px pixel widths); accepted for v1 by ADR-003 but still a 5.0.4+ parity gap Closed in wave 3b (2026-10-05). |
+| F-VIEW-RENDER-DOWN | Below 100% downsampling is gamma-correct and mipmapped (no aliasing shimmer). | app-shell | DONE | VIEW V-RENDER-DOWN Audit 2026-10-05: Mip levels are a 2x2 box average of gamma-encoded premultiplied bytes ((a+b+c+d+2)>>2), not gamma-correct (linear light) downsampling Closed in wave 3b (2026-10-05). |
+| F-VIEW-RENDER-CM | Canvas shows the image converted from its profile to the display (sRGB mode on SDR displays). | app-shell | DONE | VIEW V-RENDER-CM Audit 2026-10-05: No display transform: an image with an assigned non-sRGB profile (Image > Color Profile > Assign) shows its raw values, so its appearance on the canvas does not change; OD-7 defers display management Closed in wave 3b (2026-10-05). |
 | F-VIEW-CHECKER | Transparency checkerboard: gray and white squares behind transparent pixels, aligned to the image top-left (R 4.0.1), square size fixed in screen ... | app-shell | DONE | VIEW V-CHECKER |
 | F-VIEW-SHADOW | Drop shadow around the canvas, toggle in Settings > Canvas. | app-shell | DONE | VIEW V-SHADOW |
 | F-VIEW-BORDER | Area outside the canvas uses the theme color or the custom border color. | app-shell | DONE | VIEW V-BORDER |
-| F-VIEW-SEL-ANTS | Selection outline: marching ants animation at display refresh rate, stopped when the app is inactive or on battery saver (R 4.1, 4.2.15). | app-shell | WIP | VIEW V-SEL-ANTS Audit 2026-10-05: Ants step at ~16 Hz (60 ms) instead of display refresh rate, and there is no battery-saver pause |
+| F-VIEW-SEL-ANTS | Selection outline: marching ants animation at display refresh rate, stopped when the app is inactive or on battery saver (R 4.1, 4.2.15). | app-shell | DONE | VIEW V-SEL-ANTS Audit 2026-10-05: Ants step at ~16 Hz (60 ms) instead of display refresh rate, and there is no battery-saver pause Closed in wave 3b (2026-10-05). |
 | F-VIEW-SEL-TINT | Blue tint over the selected area while a selection tool or Move Selection is active. | app-shell | DONE | VIEW V-SEL-TINT |
 | F-VIEW-HANDLES | Tool nubs, rotation anchors and move handles drawn at constant screen size, pulsing where documented. | app-shell | DONE | VIEW V-HANDLES |
-| F-VIEW-NOFLICKER | Opening an image does not flash the checkerboard first (R 4.2.2). | app-shell | WIP | VIEW V-NOFLICKER Audit 2026-10-05: Probe (dump/flick.c): opening a 9000x7000 image shows only the checkerboard in the first frame and a partial image in the second (14 of 58 samples still checker), i.e. a checkerboard flash before the image appears |
+| F-VIEW-NOFLICKER | Opening an image does not flash the checkerboard first (R 4.2.2). | app-shell | DONE | VIEW V-NOFLICKER Audit 2026-10-05: Probe (dump/flick.c): opening a 9000x7000 image shows only the checkerboard in the first frame and a partial image in the second (14 of 58 samples still checker), i.e. a checkerboard flash before the image appears Closed in wave 3b (2026-10-05). |
 | F-VIEW-GRID-TOGGLE | View > Pixel Grid and the toolbar button share one toggle state (per app, I). | app-shell | DONE | VIEW V-GRID-TOGGLE |
 | F-VIEW-GRID-MIN | Drawn only at zoom >= 200% (docs say "not visible below 200%"; verify whether exactly 200% shows it). | app-shell | DONE | VIEW V-GRID-MIN |
 | F-VIEW-GRID-LOOK | One-screen-pixel lines on pixel boundaries, moderate contrast, adapts to light/dark theme (R 4.0.1, 4.1). | app-shell | DONE | VIEW V-GRID-LOOK |
@@ -1233,17 +1233,17 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-VIEW-RULER-CURSOR | A marker shows the pointer position on both rulers. | app-shell | DONE | VIEW V-RULER-CURSOR |
 | F-VIEW-RULER-SEL | The selection bounding range is highlighted on both rulers. | app-shell | DONE | VIEW V-RULER-SEL |
 | F-VIEW-RULER-LABELS | Vertical ruler labels sit on the correct side of their tick (R 4.0.7). | app-shell | DONE | VIEW V-RULER-LABELS |
-| F-VIEW-UNITS-WHERE | Units affect rulers, status bar size/position/selection fields, Rectangle Select fixed size default units (I), not dialogs (which have their own unit ... | app-shell | WIP | VIEW V-UNITS-WHERE Audit 2026-10-05: Rectangle Select fixed-size units are a separate tool setting (tools/sel_marquee.c tool.rect_select.size_units, default Pixels) and do not default to the View units |
+| F-VIEW-UNITS-WHERE | Units affect rulers, status bar size/position/selection fields, Rectangle Select fixed size default units (I), not dialogs (which have their own unit ... | app-shell | DONE | VIEW V-UNITS-WHERE Audit 2026-10-05: Rectangle Select fixed-size units are a separate tool setting (tools/sel_marquee.c tool.rect_select.size_units, default Pixels) and do not default to the View units Closed in wave 3b (2026-10-05). |
 | F-VIEW-UNITS-SET | Set from View menu (radio) or the status bar dropdown; persisted across sessions (I). | app-shell | DONE | VIEW V-UNITS-SET |
 | F-VIEW-UNITS-FORMAT | Pixels as integers; inches and centimeters with 2 decimals (B for status bar area formatting). | app-shell | DONE | VIEW V-UNITS-FORMAT |
 | F-VIEW-PAN-SPACE | Hold Space + left drag pans with any tool (not while typing text). | app-shell | DONE | VIEW V-PAN-SPACE |
 | F-VIEW-PAN-MMB | Middle drag pans with any tool. | app-shell | DONE | VIEW V-PAN-MMB |
 | F-VIEW-PAN-TOOL | Pan tool: left or right drag. | app-shell | DONE | VIEW V-PAN-TOOL |
-| F-VIEW-PAN-KEYS | Space + arrows; Ctrl x10; step inversely proportional to zoom (sub-pixel above 1000%). | app-shell | TODO | VIEW V-PAN-KEYS Audit 2026-10-05: Space + arrow keys (and Space+Ctrl+arrows x10) do not pan the view |
+| F-VIEW-PAN-KEYS | Space + arrows; Ctrl x10; step inversely proportional to zoom (sub-pixel above 1000%). | app-shell | DONE | VIEW V-PAN-KEYS Audit 2026-10-05: Space + arrow keys (and Space+Ctrl+arrows x10) do not pan the view Closed in wave 3b (2026-10-05). |
 | F-VIEW-SCROLL-WHEEL | Wheel scrolls vertically; Shift+wheel horizontally; horizontal wheel / two-finger swipe scrolls horizontally (R 4.1.4). | app-shell | DONE | VIEW V-SCROLL-WHEEL |
-| F-VIEW-SCROLL-KEYS | PgUp/PgDn, Home/End, Shift variants and Ctrl+Home/End per SHORTCUTS.md. | app-shell | WIP | VIEW V-SCROLL-KEYS Audit 2026-10-05: Home twice / End twice do not scroll to the top-left / bottom-right (probe: second Home leaves cy unchanged); only Shift+Home / Shift+End do |
+| F-VIEW-SCROLL-KEYS | PgUp/PgDn, Home/End, Shift variants and Ctrl+Home/End per SHORTCUTS.md. | app-shell | DONE | VIEW V-SCROLL-KEYS Audit 2026-10-05: Home twice / End twice do not scroll to the top-left / bottom-right (probe: second Home leaves cy unchanged); only Shift+Home / Shift+End do Closed in wave 3b (2026-10-05). |
 | F-VIEW-OVERSCROLL | The image can be scrolled past its edges: small images until half off screen; large images until the canvas edge reaches the view center. Setting can ... | app-shell | DONE | VIEW V-OVERSCROLL |
-| F-VIEW-AUTOSCROLL | Auto-scroll when dragging at the view edge (setting); time based; never pushes into overscroll. | app-shell | TODO | VIEW V-AUTOSCROLL Audit 2026-10-05: Dragging a tool at the view edge does not scroll the canvas; the setting is absent |
+| F-VIEW-AUTOSCROLL | Auto-scroll when dragging at the view edge (setting); time based; never pushes into overscroll. | app-shell | DONE | VIEW V-AUTOSCROLL Audit 2026-10-05: Dragging a tool at the view edge does not scroll the canvas; the setting is absent Closed in wave 3b (2026-10-05). |
 | F-VIEW-SCROLLBARS | Horizontal and vertical scrollbars reflect the scrollable range (themed, R 5.1). | app-shell | DONE | VIEW V-SCROLLBARS |
 | F-VIEW-FULLSCREEN | Paint.NET 5.1 has no full-screen command in its menus or shortcut table; only the maximized main window (I). paint.c may add one later as an ... | app-shell | DONE | VIEW V-FULLSCREEN |
 | F-VIEW-UTILITY-HIDE | Utility windows can be hidden individually (F5..F8) to free canvas space. | app-shell | DONE | VIEW V-UTILITY-HIDE |
@@ -1256,25 +1256,25 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-CLIP-PASTE-BROWSER | Images copied from browsers and office suites with transparency paste correctly (R 5.1.1). | app-shell | DONE | FILES CB-PASTE-BROWSER |
 | F-CLIP-PASTE-NOIMAGE | Clipboard without an image: paste commands disabled (I) or error "no image" (B). Unrecognized data: error suggesting re-copy (B). | app-shell | DONE | FILES CB-PASTE-NOIMAGE |
 | F-CLIP-PASTE-ERRORS | Transient clipboard access errors are retried, no spurious dialogs (R 5.1 beta 9070). | app-shell | DONE | FILES CB-PASTE-ERRORS |
-| F-CLIP-PASTE-LARGER | Pasted image larger than canvas: Expand canvas / Keep canvas size / Cancel prompt (MENUS.md). | app-shell | WIP | FILES CB-PASTE-LARGER Audit 2026-10-05: Keep canvas size writes the pixels straight into the layer (write_and_select clips to the canvas), so the off-canvas part is lost and cannot be moved in afterwards as MENUS.md describes |
+| F-CLIP-PASTE-LARGER | Pasted image larger than canvas: Expand canvas / Keep canvas size / Cancel prompt (MENUS.md). | app-shell | DONE | FILES CB-PASTE-LARGER Audit 2026-10-05: Keep canvas size writes the pixels straight into the layer (write_and_select clips to the canvas), so the off-canvas part is lost and cannot be moved in afterwards as MENUS.md describes Closed in wave 3b (2026-10-05). |
 | F-CLIP-PASTE-POS | Paste position: top-left of the visible viewport when the canvas is scrolled/zoomed so 0,0 is not visible, else 0,0 (I, D says "within the current ... | app-shell | DONE | FILES CB-PASTE-POS |
-| F-CLIP-PASTE-FLOAT | Pasted pixels float as a selection with Move Selected Pixels active; Finish merges. | app-shell | WIP | FILES CB-PASTE-FLOAT Audit 2026-10-05: Pasted pixels are committed into the layer instead of floating: moving them with Move Selected Pixels leaves a #00000000 hole where the original pixels were (probe dump/paste2.c: original blue at (5,5) became 0,0,0,0)... |
+| F-CLIP-PASTE-FLOAT | Pasted pixels float as a selection with Move Selected Pixels active; Finish merges. | app-shell | DONE | FILES CB-PASTE-FLOAT Audit 2026-10-05: Pasted pixels are committed into the layer instead of floating: moving them with Move Selected Pixels leaves a #00000000 hole where the original pixels were (probe dump/paste2.c: original blue at (5,5) became 0,0,0,0)... Closed in wave 3b (2026-10-05). |
 | F-CLIP-SEL-JSON | Copy Selection writes text JSON {"polygonList":["x,y,x,y,..."]}, one string per polygon, integer or decimal coordinates (I). Paste Selection parses ... | app-shell | DONE | FILES CB-SEL-JSON |
 | F-CLIP-NEWIMAGE-SIZE | File > New defaults to the clipboard image size when one is present. | app-shell | DONE | FILES CB-NEWIMAGE-SIZE |
-| F-CLIP-PROFILE | Pasting a PNG with a color profile into an image with a different profile converts it (I). | app-shell | WIP | FILES CB-PROFILE Audit 2026-10-05: Pasting into an image that carries a non-sRGB profile does no conversion at all (neither the clipboard profile nor sRGB data is converted into the image's profile) |
-| F-KEY-OS-1 | macOS: every Ctrl accelerator in menus is shown and bound as Cmd. Alt maps to Option. Tool modifiers (Ctrl+click, Ctrl+drag) accept both Ctrl and Cmd. | app-shell | WIP | SHORTCUTS K-OS-1 Audit 2026-10-05: Tool modifiers are Cmd-only on macOS where the code uses ui_mod_primary(): sel_common.c sel_mods_ctrl (selection Add/Xor, Move Selected Pixels Ctrl copy, Move tools Ctrl+arrow 10 px) and canvas.c:872 Ctrl+wheel zoom; ... |
-| F-KEY-OS-2 | Linux/Windows: Alt alone toggles menu mnemonics (Windows convention). On Wayland the app must not rely on global key grabs. | app-shell | WIP | SHORTCUTS K-OS-2 Audit 2026-10-05: Alt pressed and released alone does nothing (no SDLK_LALT/RALT handling in cmd.c or ui_popup.c), so it does not toggle menu mnemonics or menu keyboard mode. |
-| F-KEY-OS-3 | Keys are matched by key code for letters and digits (layout independent position for [ ] , . / is by character, as Paint.NET handles them as typed ... | app-shell | WIP | SHORTCUTS K-OS-3 Audit 2026-10-05: [ ] , . / are matched by the unshifted keycode of the physical key, not by the typed character: on layouts where they need Shift or AltGr (e.g. German AltGr+8 = "[", Shift+7 = "/") brush width keys and Line/Curve cap ... |
+| F-CLIP-PROFILE | Pasting a PNG with a color profile into an image with a different profile converts it (I). | app-shell | DONE | FILES CB-PROFILE Audit 2026-10-05: Pasting into an image that carries a non-sRGB profile does no conversion at all (neither the clipboard profile nor sRGB data is converted into the image's profile) Closed in wave 3b (2026-10-05). |
+| F-KEY-OS-1 | macOS: every Ctrl accelerator in menus is shown and bound as Cmd. Alt maps to Option. Tool modifiers (Ctrl+click, Ctrl+drag) accept both Ctrl and Cmd. | app-shell | DONE | SHORTCUTS K-OS-1 Audit 2026-10-05: Tool modifiers are Cmd-only on macOS where the code uses ui_mod_primary(): sel_common.c sel_mods_ctrl (selection Add/Xor, Move Selected Pixels Ctrl copy, Move tools Ctrl+arrow 10 px) and canvas.c:872 Ctrl+wheel zoom; ... Closed in wave 3b (2026-10-05). |
+| F-KEY-OS-2 | Linux/Windows: Alt alone toggles menu mnemonics (Windows convention). On Wayland the app must not rely on global key grabs. | app-shell | DONE | SHORTCUTS K-OS-2 Audit 2026-10-05: Alt pressed and released alone does nothing (no SDLK_LALT/RALT handling in cmd.c or ui_popup.c), so it does not toggle menu mnemonics or menu keyboard mode. Closed in wave 3b (2026-10-05). |
+| F-KEY-OS-3 | Keys are matched by key code for letters and digits (layout independent position for [ ] , . / is by character, as Paint.NET handles them as typed ... | app-shell | DONE | SHORTCUTS K-OS-3 Audit 2026-10-05: [ ] , . / are matched by the unshifted keycode of the physical key, not by the typed character: on layouts where they need Shift or AltGr (e.g. German AltGr+8 = "[", Shift+7 = "/") brush width keys and Line/Curve cap ... Closed in wave 3b (2026-10-05). |
 | F-KEY-NAV-PAN-SPACE | Pan (temporary): Hold Space + drag left button | app-shell | DONE | SHORTCUTS K-NAV-PAN-SPACE |
 | F-KEY-NAV-PAN-MMB | Pan: Drag with middle button, any tool | app-shell | DONE | SHORTCUTS K-NAV-PAN-MMB |
-| F-KEY-NAV-PAN-SPACE-ARROWS | Pan by keys: Hold Space + arrow keys | app-shell | TODO | SHORTCUTS K-NAV-PAN-SPACE-ARROWS Audit 2026-10-05: Space + arrow keys do not pan the view at all (no zoom-dependent key pan step anywhere). |
-| F-KEY-NAV-PAN-SPACE-ARROWS-10 | Pan x10: Hold Space + Ctrl + arrow keys | app-shell | TODO | SHORTCUTS K-NAV-PAN-SPACE-ARROWS-10 Audit 2026-10-05: Space + Ctrl + arrows do not pan (x10 step not implemented). |
+| F-KEY-NAV-PAN-SPACE-ARROWS | Pan by keys: Hold Space + arrow keys | app-shell | DONE | SHORTCUTS K-NAV-PAN-SPACE-ARROWS Audit 2026-10-05: Space + arrow keys do not pan the view at all (no zoom-dependent key pan step anywhere). Closed in wave 3b (2026-10-05). |
+| F-KEY-NAV-PAN-SPACE-ARROWS-10 | Pan x10: Hold Space + Ctrl + arrow keys | app-shell | DONE | SHORTCUTS K-NAV-PAN-SPACE-ARROWS-10 Audit 2026-10-05: Space + Ctrl + arrows do not pan (x10 step not implemented). Closed in wave 3b (2026-10-05). |
 | F-KEY-NAV-SCROLL-V | Scroll vertical: Mouse wheel, PgUp / PgDn | app-shell | DONE | SHORTCUTS K-NAV-SCROLL-V |
 | F-KEY-NAV-SCROLL-H-LEFT | Scroll left: Shift + wheel up, Shift + PgUp, Home (once) | app-shell | DONE | SHORTCUTS K-NAV-SCROLL-H-LEFT |
 | F-KEY-NAV-SCROLL-H-RIGHT | Scroll right: Shift + wheel down, Shift + PgDn, End (once) | app-shell | DONE | SHORTCUTS K-NAV-SCROLL-H-RIGHT |
-| F-KEY-NAV-HOME2 | Scroll image to top left of view: Home twice, or Shift + Home | app-shell | WIP | SHORTCUTS K-NAV-HOME2 Audit 2026-10-05: Pressing Home twice only repeats "scroll to left edge"; cmd_home has no double-press detection, so the second Home does not go to the top-left. |
+| F-KEY-NAV-HOME2 | Scroll image to top left of view: Home twice, or Shift + Home | app-shell | DONE | SHORTCUTS K-NAV-HOME2 Audit 2026-10-05: Pressing Home twice only repeats "scroll to left edge"; cmd_home has no double-press detection, so the second Home does not go to the top-left. Closed in wave 3b (2026-10-05). |
 | F-KEY-NAV-CTRL-HOME | Scroll image top left corner to view center: Ctrl + Home | app-shell | DONE | SHORTCUTS K-NAV-CTRL-HOME |
-| F-KEY-NAV-END2 | Scroll image to bottom right of view: End twice, or Shift + End | app-shell | WIP | SHORTCUTS K-NAV-END2 Audit 2026-10-05: Pressing End twice only repeats "scroll to right edge"; no double-press detection in mod_view.c cmd_home. |
+| F-KEY-NAV-END2 | Scroll image to bottom right of view: End twice, or Shift + End | app-shell | DONE | SHORTCUTS K-NAV-END2 Audit 2026-10-05: Pressing End twice only repeats "scroll to right edge"; no double-press detection in mod_view.c cmd_home. Closed in wave 3b (2026-10-05). |
 | F-KEY-NAV-CTRL-END | Scroll image bottom right corner to view center: Ctrl + End | app-shell | DONE | SHORTCUTS K-NAV-CTRL-END |
 | F-KEY-NAV-ZOOM-WHEEL | Zoom in/out at pointer: Ctrl + wheel | app-shell | DONE | SHORTCUTS K-NAV-ZOOM-WHEEL |
 | F-KEY-NAV-ZOOM-IN | Zoom in: Ctrl + Plus (main row or numpad) | app-shell | DONE | SHORTCUTS K-NAV-ZOOM-IN |
@@ -1282,12 +1282,12 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-KEY-NAV-ZOOM-ACTUAL | Actual size (100%): Ctrl + 0 | app-shell | DONE | SHORTCUTS K-NAV-ZOOM-ACTUAL |
 | F-KEY-NAV-ZOOM-WINDOW | Zoom to window (toggle): Ctrl + B | app-shell | DONE | SHORTCUTS K-NAV-ZOOM-WINDOW |
 | F-KEY-NAV-ZOOM-SEL | Zoom to selection: Ctrl + Shift + B | app-shell | DONE | SHORTCUTS K-NAV-ZOOM-SEL |
-| F-KEY-NAV-TOOLMOVE | Nudge current tool pointer 1 px: Arrow keys | app-shell | WIP | SHORTCUTS K-NAV-TOOLMOVE Audit 2026-10-05: No generic pointer nudge: with tools that have no key handler (Paintbrush, Pencil, Eraser, Bucket, Picker, Clone, Recolor, Zoom, Pan, Magic Wand) arrows do nothing (no SDL_WarpMouse anywhere). |
-| F-KEY-NAV-TOOLMOVE-10 | Nudge 10 px: Ctrl + arrow keys | app-shell | WIP | SHORTCUTS K-NAV-TOOLMOVE-10 Audit 2026-10-05: Ctrl+arrows do not nudge the pointer 10 px in the other tools (same missing generic pointer nudge). |
+| F-KEY-NAV-TOOLMOVE | Nudge current tool pointer 1 px: Arrow keys | app-shell | DONE | SHORTCUTS K-NAV-TOOLMOVE Audit 2026-10-05: No generic pointer nudge: with tools that have no key handler (Paintbrush, Pencil, Eraser, Bucket, Picker, Clone, Recolor, Zoom, Pan, Magic Wand) arrows do nothing (no SDL_WarpMouse anywhere). Closed in wave 3b (2026-10-05). |
+| F-KEY-NAV-TOOLMOVE-10 | Nudge 10 px: Ctrl + arrow keys | app-shell | DONE | SHORTCUTS K-NAV-TOOLMOVE-10 Audit 2026-10-05: Ctrl+arrows do not nudge the pointer 10 px in the other tools (same missing generic pointer nudge). Closed in wave 3b (2026-10-05). |
 | F-KEY-UI-DESELECT | Deselect: Ctrl + D, Enter, Esc | app-shell | DONE | SHORTCUTS K-UI-DESELECT |
 | F-KEY-UI-FINISH | Finish (commit) active tool edit: Enter, Esc, Ctrl + D, toolbar Finish | app-shell | DONE | SHORTCUTS K-UI-FINISH |
-| F-KEY-UI-MENU-ALT | Show menu mnemonics: Alt | app-shell | TODO | SHORTCUTS K-UI-MENU-ALT Audit 2026-10-05: Alt does not show menu mnemonics (no underlines, no lone-Alt handling). |
-| F-KEY-UI-MENU-MNEMONIC | Open menu item: Alt + underlined letter | app-shell | WIP | SHORTCUTS K-UI-MENU-MNEMONIC Audit 2026-10-05: Menu items have no mnemonics (ui_popup.c keyboard nav only handles arrows/Home/End/Enter/Space), Help has no Alt+H, and a letter typed while a menu is open falls through to app_key_press: Alt+F then R selected the Rec... |
+| F-KEY-UI-MENU-ALT | Show menu mnemonics: Alt | app-shell | DONE | SHORTCUTS K-UI-MENU-ALT Audit 2026-10-05: Alt does not show menu mnemonics (no underlines, no lone-Alt handling). Closed in wave 3b (2026-10-05). |
+| F-KEY-UI-MENU-MNEMONIC | Open menu item: Alt + underlined letter | app-shell | DONE | SHORTCUTS K-UI-MENU-MNEMONIC Audit 2026-10-05: Menu items have no mnemonics (ui_popup.c keyboard nav only handles arrows/Home/End/Enter/Space), Help has no Alt+H, and a letter typed while a menu is open falls through to app_key_press: Alt+F then R selected the Rec... Closed in wave 3b (2026-10-05). |
 | F-KEY-UI-WIN-TOOLS | Toggle Tools window: F5 | app-shell | DONE | SHORTCUTS K-UI-WIN-TOOLS |
 | F-KEY-UI-WIN-HISTORY | Toggle History window: F6 | app-shell | DONE | SHORTCUTS K-UI-WIN-HISTORY |
 | F-KEY-UI-WIN-LAYERS | Toggle Layers window: F7 | app-shell | DONE | SHORTCUTS K-UI-WIN-LAYERS |
@@ -1296,9 +1296,9 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-KEY-UI-HELP | Online documentation: F1 | app-shell | DONE | SHORTCUTS K-UI-HELP |
 | F-KEY-UI-SEARCH | Help search: Ctrl + E | app-shell | DONE | SHORTCUTS K-UI-SEARCH |
 | F-KEY-UI-SETTINGS | Open Settings: Alt + X | app-shell | DONE | SHORTCUTS K-UI-SETTINGS |
-| F-KEY-UI-HELPMENU | Open Help menu: Alt + H | app-shell | TODO | SHORTCUTS K-UI-HELPMENU Audit 2026-10-05: Alt+H does nothing. |
-| F-KEY-UI-TOOLDROP | Open tool dropdown in toolbar: Alt + T | app-shell | TODO | SHORTCUTS K-UI-TOOLDROP Audit 2026-10-05: Alt+T does nothing. |
-| F-KEY-UI-DIAG | Diagnostic cleanup (GC, GPU cache dump): Ctrl + Alt + Shift + ~ | app-shell | TODO | SHORTCUTS K-UI-DIAG Audit 2026-10-05: Diagnostic cleanup shortcut not implemented (spec marks it optional for paint.c). |
+| F-KEY-UI-HELPMENU | Open Help menu: Alt + H | app-shell | DONE | SHORTCUTS K-UI-HELPMENU Audit 2026-10-05: Alt+H does nothing. Closed in wave 3b (2026-10-05). |
+| F-KEY-UI-TOOLDROP | Open tool dropdown in toolbar: Alt + T | app-shell | DONE | SHORTCUTS K-UI-TOOLDROP Audit 2026-10-05: Alt+T does nothing. Closed in wave 3b (2026-10-05). |
+| F-KEY-UI-DIAG | Diagnostic cleanup (GC, GPU cache dump): Ctrl + Alt + Shift + ~ | app-shell | DONE | SHORTCUTS K-UI-DIAG Audit 2026-10-05: Diagnostic cleanup shortcut not implemented (spec marks it optional for paint.c). Closed in wave 3b (2026-10-05). |
 | F-KEY-IMG-NEXT | Next image: Ctrl + Tab, Ctrl + PgDn | app-shell | DONE | SHORTCUTS K-IMG-NEXT |
 | F-KEY-IMG-PREV | Previous image: Ctrl + Shift + Tab, Ctrl + PgUp | app-shell | DONE | SHORTCUTS K-IMG-PREV |
 | F-KEY-IMG-MOVE-LEFT | Move current tab left: Ctrl + Shift + PgUp | app-shell | DONE | SHORTCUTS K-IMG-MOVE-LEFT |
@@ -1315,19 +1315,19 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-KEY-TB-WIDTH-INC5 | Brush width plus 5: Ctrl + ] | app-shell | DONE | SHORTCUTS K-TB-WIDTH-INC5 |
 | F-KEY-TB-WIDTH-WHEEL | Step through width presets: Wheel over width box | app-shell | DONE | SHORTCUTS K-TB-WIDTH-WHEEL |
 | F-KEY-TB-WIDTH-ARROWS | Step through width presets: Up/Down in width box | app-shell | DONE | SHORTCUTS K-TB-WIDTH-ARROWS |
-| F-KEY-TB-WHEEL | Change hovered option: Wheel over any white-background toolbar control except Tolerance | app-shell | WIP | SHORTCUTS K-TB-WHEEL Audit 2026-10-05: ui_combo (ui_popup.c:534) has no wheel handling, so white dropdowns ignore the wheel: Tool chooser, Blend mode, Text font/units/rendering, Move Selected Pixels Sampling and Gamma, Magic Wand Flood mode / tolerance alp... |
+| F-KEY-TB-WHEEL | Change hovered option: Wheel over any white-background toolbar control except Tolerance | app-shell | DONE | SHORTCUTS K-TB-WHEEL Audit 2026-10-05: ui_combo (ui_popup.c:534) has no wheel handling, so white dropdowns ignore the wheel: Tool chooser, Blend mode, Text font/units/rendering, Move Selected Pixels Sampling and Gamma, Magic Wand Flood mode / tolerance alp... Closed in wave 3b (2026-10-05). |
 | F-KEY-TB-PLUSMINUS-HOLD | Repeat +/-: Press and hold a +/- button | app-shell | DONE | SHORTCUTS K-TB-PLUSMINUS-HOLD |
 | F-KEY-FILE-MENU | Open File menu: Alt + F | app-shell | DONE | SHORTCUTS K-FILE-MENU |
 | F-KEY-FILE-NEW | New: Ctrl + N | app-shell | DONE | SHORTCUTS K-FILE-NEW |
 | F-KEY-FILE-OPEN | Open: Ctrl + O | app-shell | DONE | SHORTCUTS K-FILE-OPEN |
-| F-KEY-FILE-RECENT | Open Recent submenu: Alt + F, R | app-shell | TODO | SHORTCUTS K-FILE-RECENT Audit 2026-10-05: Alt+F, R does not open Open Recent; the R leaks to tool selection while the menu is open. |
+| F-KEY-FILE-RECENT | Open Recent submenu: Alt + F, R | app-shell | DONE | SHORTCUTS K-FILE-RECENT Audit 2026-10-05: Alt+F, R does not open Open Recent; the R leaks to tool selection while the menu is open. Closed in wave 3b (2026-10-05). |
 | F-KEY-FILE-ACQUIRE | Acquire submenu: Alt + F, Q | app-shell | N/A | SHORTCUTS K-FILE-ACQUIRE Audit 2026-10-05: Acquire (scanner/camera) is optional and hidden when unsupported (MENUS.md File item 4); file.acquire.scanner is not registered so menu.c MI_SUB_OPT hides the submenu. Scanners are out of scope. |
 | F-KEY-FILE-CLOSE | Close: Ctrl + W, Ctrl + F4 | app-shell | DONE | SHORTCUTS K-FILE-CLOSE |
 | F-KEY-FILE-SAVE | Save: Ctrl + S | app-shell | DONE | SHORTCUTS K-FILE-SAVE |
 | F-KEY-FILE-SAVEAS | Save As: Ctrl + Shift + S | app-shell | DONE | SHORTCUTS K-FILE-SAVEAS |
 | F-KEY-FILE-SAVEALL | Save All: Ctrl + Alt + S | app-shell | DONE | SHORTCUTS K-FILE-SAVEALL |
 | F-KEY-FILE-PRINT | Print: Ctrl + P | app-shell | N/A | SHORTCUTS K-FILE-PRINT Audit 2026-10-05: Printing is optional per platform (MENUS.md File item 8) and out of scope; file.print is not registered (menu shows a disabled "Print... Ctrl+P"). |
-| F-KEY-FILE-EXIT | Exit: Alt + F4, or Alt + F then X | app-shell | WIP | SHORTCUTS K-FILE-EXIT Audit 2026-10-05: Alt+F then X does not exit (no menu item mnemonics; X swaps the colors with the menu open). |
+| F-KEY-FILE-EXIT | Exit: Alt + F4, or Alt + F then X | app-shell | DONE | SHORTCUTS K-FILE-EXIT Audit 2026-10-05: Alt+F then X does not exit (no menu item mnemonics; X swaps the colors with the menu open). Closed in wave 3b (2026-10-05). |
 | F-KEY-EDIT-MENU | Open Edit menu: Alt + E | app-shell | DONE | SHORTCUTS K-EDIT-MENU |
 | F-KEY-EDIT-UNDO | Undo: Ctrl + Z | app-shell | DONE | SHORTCUTS K-EDIT-UNDO |
 | F-KEY-EDIT-REDO | Redo: Ctrl + Y | app-shell | DONE | SHORTCUTS K-EDIT-REDO |
@@ -1351,7 +1351,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-KEY-VIEW-ZOOMWIN | Zoom to Window: Ctrl + B | app-shell | DONE | SHORTCUTS K-VIEW-ZOOMWIN |
 | F-KEY-VIEW-ZOOMSEL | Zoom to Selection: Ctrl + Shift + B | app-shell | DONE | SHORTCUTS K-VIEW-ZOOMSEL |
 | F-KEY-VIEW-ACTUAL | Actual Size: Ctrl + 0 (also Ctrl + Shift + A, Ctrl + Alt + 0) | app-shell | DONE | SHORTCUTS K-VIEW-ACTUAL |
-| F-KEY-VIEW-UNITS | Pixels / Inches / Centimeters: Menu mnemonics only (added R 5.1.3) | app-shell | WIP | SHORTCUTS K-VIEW-UNITS Audit 2026-10-05: No menu mnemonics exist inside menus, so the units cannot be chosen by mnemonic letters. |
+| F-KEY-VIEW-UNITS | Pixels / Inches / Centimeters: Menu mnemonics only (added R 5.1.3) | app-shell | DONE | SHORTCUTS K-VIEW-UNITS Audit 2026-10-05: No menu mnemonics exist inside menus, so the units cannot be chosen by mnemonic letters. Closed in wave 3b (2026-10-05). |
 | F-KEY-IMAGE-MENU | Open Image menu: Alt + I | app-shell | DONE | SHORTCUTS K-IMAGE-MENU |
 | F-KEY-IMAGE-CROP | Crop to Selection: Ctrl + Shift + X | app-shell | DONE | SHORTCUTS K-IMAGE-CROP |
 | F-KEY-IMAGE-RESIZE | Resize: Ctrl + R | app-shell | DONE | SHORTCUTS K-IMAGE-RESIZE |
@@ -1444,7 +1444,7 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-KEY-ZOOM-OUT | Zoom tool: Zoom out at point: Right click | app-shell | DONE | SHORTCUTS K-ZOOM-OUT |
 | F-KEY-ZOOM-RECT | Zoom tool: Zoom to dragged rectangle: Left drag | app-shell | DONE | SHORTCUTS K-ZOOM-RECT |
 | F-KEY-ZOOM-PAN | Zoom tool: Pan: Middle drag | app-shell | DONE | SHORTCUTS K-ZOOM-PAN |
-| F-KEY-PAN-DRAG | Pan tool: Pan: Left or right drag; hold button + arrows | app-shell | WIP | SHORTCUTS K-PAN-DRAG Audit 2026-10-05: Holding the button and pressing arrows does nothing: the Pan tool has no key handler (app_tool_pan .key = NULL). |
+| F-KEY-PAN-DRAG | Pan tool: Pan: Left or right drag; hold button + arrows | app-shell | DONE | SHORTCUTS K-PAN-DRAG Audit 2026-10-05: Holding the button and pressing arrows does nothing: the Pan tool has no key handler (app_tool_pan .key = NULL). Closed in wave 3b (2026-10-05). |
 | F-KEY-BUCKET-PRI | Paint Bucket: Fill with primary: Left click (Backspace fills selection) | app-shell | DONE | SHORTCUTS K-BUCKET-PRI |
 | F-KEY-BUCKET-SEC | Paint Bucket: Fill with secondary: Right click (Shift + Backspace) | app-shell | DONE | SHORTCUTS K-BUCKET-SEC |
 | F-KEY-BUCKET-MODE | Paint Bucket: Toggle Global/Contiguous for this click: Hold Shift | app-shell | DONE | SHORTCUTS K-BUCKET-MODE |
@@ -1490,13 +1490,13 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-KEY-DLG-ENTER | Enter activates the default button (OK). | app-shell | DONE | SHORTCUTS K-DLG-ENTER |
 | F-KEY-DLG-ESC | Esc cancels, including simple message boxes. | app-shell | DONE | SHORTCUTS K-DLG-ESC |
 | F-KEY-DLG-ARROWS | Arrow keys change a focused slider or numeric box; wheel over a slider changes it. | app-shell | DONE | SHORTCUTS K-DLG-ARROWS |
-| F-KEY-DLG-ANGLE-SHIFT | Shift while dragging an angle or roll control snaps to 15°. | app-shell | WIP | SHORTCUTS K-DLG-ANGLE-SHIFT Audit 2026-10-05: The Rotate/Zoom globe inner drag that sets the roll direction (mod_m_rotzoom.c:168-170) ignores Shift, so roll does not snap to 15 degrees. |
+| F-KEY-DLG-ANGLE-SHIFT | Shift while dragging an angle or roll control snaps to 15°. | app-shell | DONE | SHORTCUTS K-DLG-ANGLE-SHIFT Audit 2026-10-05: The Rotate/Zoom globe inner drag that sets the roll direction (mod_m_rotzoom.c:168-170) ignores Shift, so roll does not snap to 15 degrees. Closed in wave 3b (2026-10-05). |
 | F-KEY-DLG-TAB | Tab moves focus between fields, including Width/Height pairs. | app-shell | DONE | SHORTCUTS K-DLG-TAB |
 | F-KEY-CLI-OPEN | `paintc file1 file2 ...`: Opens each file; if an instance is running, files open in it. Relative paths work. | app-shell | DONE | SHORTCUTS K-CLI-OPEN |
 | F-KEY-CLI-RESETWIN | `paintc --reset-windows`: Hard reset of the four utility windows. | app-shell | DONE | SHORTCUTS K-CLI-RESETWIN |
 | F-KEY-CLI-NOPLUGINS | `paintc --disable-plugins`: Skip plugin loading. | app-shell | DONE | SHORTCUTS K-CLI-NOPLUGINS |
-| F-KEY-CLI-DIAG | `paintc --diagnostics`: Print diagnostics even if the UI cannot start. | app-shell | WIP | SHORTCUTS K-CLI-DIAG Audit 2026-10-05: When the video subsystem cannot start, SDL_Init(VIDEO) fails first and the program exits: SDL_VIDEO_DRIVER=nosuchdriver paintc --diagnostics printed only "SDL_Init: nosuchdriver not available", rc=1. |
-| F-KEY-CLI-SET | `paintc --set KEY=VALUE`: Override a setting (for example disable hardware acceleration). | app-shell | TODO | SHORTCUTS K-CLI-SET Audit 2026-10-05: No command-line setting override (e.g. to disable hardware acceleration). |
+| F-KEY-CLI-DIAG | `paintc --diagnostics`: Print diagnostics even if the UI cannot start. | app-shell | DONE | SHORTCUTS K-CLI-DIAG Audit 2026-10-05: When the video subsystem cannot start, SDL_Init(VIDEO) fails first and the program exits: SDL_VIDEO_DRIVER=nosuchdriver paintc --diagnostics printed only "SDL_Init: nosuchdriver not available", rc=1. Closed in wave 3b (2026-10-05). |
+| F-KEY-CLI-SET | `paintc --set KEY=VALUE`: Override a setting (for example disable hardware acceleration). | app-shell | DONE | SHORTCUTS K-CLI-SET Audit 2026-10-05: No command-line setting override (e.g. to disable hardware acceleration). Closed in wave 3b (2026-10-05). |
 
 ## Notes: effects parity pass (W2-FXP, 2026-10-05)
 
