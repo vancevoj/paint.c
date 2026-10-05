@@ -260,6 +260,14 @@ target_link_libraries(pc_lcms2 PRIVATE Threads::Threads)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(pc_lcms2 PRIVATE -fwrapv)
 endif()
+# Little-CMS installs its interpolation routines as pipeline evaluators and
+# calls them through a function pointer type with a void * parameter
+# (cmsopt.c, cmslut.c). Clang's -fsanitize=function, part of
+# -fsanitize=undefined for C since Clang 17, reports every such call. That is
+# upstream design, so only this check is turned off, only for this library.
+if(PC_SANITIZE AND CMAKE_C_COMPILER_ID MATCHES "Clang")
+  target_compile_options(pc_lcms2 PRIVATE -fno-sanitize=function)
+endif()
 _pc_tp_common(pc_lcms2)
 set_target_properties(pc_lcms2 PROPERTIES POSITION_INDEPENDENT_CODE ON C_EXTENSIONS ON)
 
