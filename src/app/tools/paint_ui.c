@@ -657,8 +657,11 @@ void paint_opt_width(app *a)
     if (!s) return;
     ui_push_id(ui, "##brush_size");
     app_opt_label(a, "Brush size:");
+    /* -/+ change the size by 1 and keep fractions (6.5 -> 7.5), clamped to
+     * 1..2000 (observed on Paint.NET 5.2); the wheel and Up/Down step
+     * through the presets (K-TB-WIDTH-WHEEL, K-TB-WIDTH-ARROWS) */
     if (small_button(a, "##brush_size", "##minus", UI_ICON_MINUS, "Smaller brush"))
-        set_width(a, width_step(a->ts.width, -1));
+        set_width(a, a->ts.width - 1.0f);
     r = opt_rect(a, WIDTH_DIP);
     note(a, "##brush_size", NULL, r);
     tr = r;
@@ -743,7 +746,7 @@ void paint_opt_width(app *a)
     }
     ui_tooltip(ui, "Brush size ([ and ] change it, Ctrl for steps of 5)");
     if (small_button(a, "##brush_size", "##plus", UI_ICON_PLUS, "Larger brush"))
-        set_width(a, width_step(a->ts.width, 1));
+        set_width(a, a->ts.width + 1.0f);
     ui_pop_id(ui);
 }
 

@@ -2,7 +2,7 @@
  * Layout order per tool (TOOLS.md section 4 and the 5.1 documentation
  * toolbar images), bar sliders (percent bar, -/+ with the value, Spacing's
  * square-root scale, the mouse wheel except on Tolerance), the brush size
- * box (-/+ through the presets, wheel, preset list, typed decimals,
+ * box (-/+ by one, wheel through the presets, preset list, typed decimals,
  * invalid values not applied), the fill style dropdown with previews, the
  * split toggles and their menus, and settings loaded at startup. */
 #include "pc_test.h"
@@ -136,11 +136,20 @@ static void t_brush_size(void)
     a->ts.width = 2.0f;
     CHECK(b_widget(a, "##brush_size+", 0.5f, 0.5f));
     CHECK(a->ts.width == 3.0f);
-    a->ts.width = 15.0f;
+    a->ts.width = 15.0f;                     /* -/+ step by 1 (observed), not presets */
     CHECK(b_widget(a, "##brush_size+", 0.5f, 0.5f));
-    CHECK(a->ts.width == 20.0f);
+    CHECK(a->ts.width == 16.0f);
     CHECK(b_widget(a, "##brush_size-", 0.5f, 0.5f));
-    CHECK(a->ts.width == 15.0f);
+    CHECK(b_widget(a, "##brush_size-", 0.5f, 0.5f));
+    CHECK(a->ts.width == 14.0f);
+    a->ts.width = 6.5f;
+    CHECK(b_widget(a, "##brush_size+", 0.5f, 0.5f));
+    CHECK(a->ts.width == 7.5f);
+    a->ts.width = 1.5f;
+    CHECK(b_widget(a, "##brush_size-", 0.5f, 0.5f));
+    CHECK(a->ts.width == 1.0f);
+    CHECK(b_widget(a, "##brush_size-", 0.5f, 0.5f));
+    CHECK(a->ts.width == 1.0f);
     a->ts.width = 500.0f;
     CHECK(b_wheel(a, "##brush_size", 1.0f));
     CHECK(a->ts.width == 550.0f);
