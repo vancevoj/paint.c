@@ -466,7 +466,12 @@ BCDECDEF void bcdec_bc5_float(const void* compressedBlock, void* decompressedBlo
 
 /* http://graphics.stanford.edu/~seander/bithacks.html#VariableSignExtend */
 static int bcdec__extend_sign(int val, int bits) {
-    return (val << (32 - bits)) >> (32 - bits);
+    /* paint.c patch: well-defined sign extension. The original
+       (val << (32 - bits)) >> (32 - bits) shifts into the sign bit, which is
+       undefined behavior in C and trips UBSan on arbitrary input. */
+    unsigned int m = 1u << (bits - 1);
+    unsigned int v = (unsigned int)val & ((m << 1) - 1u);
+    return (int)(v ^ m) - (int)m;
 }
 
 static int bcdec__transform_inverse(int val, int a0, int bits, int isSigned) {
@@ -562,7 +567,7 @@ static float bcdec__half_to_float_quick(unsigned short half) {
         o.f -= magic.f;                                     /* renormalize */
     }
 
-    o.u |= (half & 0x8000) << 16;                           /* sign bit */
+    o.u |= ((unsigned int)half & 0x8000u) << 16;            /* sign bit (paint.c: unsigned shift) */
     return o.f;
 }
 
@@ -640,7 +645,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
 
     switch (mode) {
         /* mode 1 */
-        case 0b00: {
+        case 0x00: /* 0b00 */ {
             /* Partitition indices: 46 bits
                Partition: 5 bits
                Color Endpoints: 75 bits (10.555, 10.555, 10.555) */
@@ -668,7 +673,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
         } break;
 
         /* mode 2 */
-        case 0b01: {
+        case 0x01: /* 0b01 */ {
             /* Partitition indices: 46 bits
                Partition: 5 bits
                Color Endpoints: 75 bits (7666, 7666, 7666) */
@@ -700,7 +705,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
         } break;
 
         /* mode 3 */
-        case 0b00010: {
+        case 0x02: /* 0b00010 */ {
             /* Partitition indices: 46 bits
                Partition: 5 bits
                Color Endpoints: 72 bits (11.555, 11.444, 11.444) */
@@ -727,7 +732,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
         } break;
 
         /* mode 4 */
-        case 0b00110: {
+        case 0x06: /* 0b00110 */ {
             /* Partitition indices: 46 bits
                Partition: 5 bits
                Color Endpoints: 72 bits (11.444, 11.555, 11.444) */
@@ -756,7 +761,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
         } break;
 
         /* mode 5 */
-        case 0b01010: {
+        case 0x0A: /* 0b01010 */ {
             /* Partitition indices: 46 bits
                Partition: 5 bits
                Color Endpoints: 72 bits (11.444, 11.444, 11.555) */
@@ -785,7 +790,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
         } break;
 
         /* mode 6 */
-        case 0b01110: {
+        case 0x0E: /* 0b01110 */ {
             /* Partitition indices: 46 bits
                Partition: 5 bits
                Color Endpoints: 72 bits (9555, 9555, 9555) */
@@ -813,7 +818,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
         } break;
 
         /* mode 7 */
-        case 0b10010: {
+        case 0x12: /* 0b10010 */ {
             /* Partitition indices: 46 bits
                Partition: 5 bits
                Color Endpoints: 72 bits (8666, 8555, 8555) */
@@ -841,7 +846,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
         } break;
 
         /* mode 8 */
-        case 0b10110: {
+        case 0x16: /* 0b10110 */ {
             /* Partitition indices: 46 bits
                Partition: 5 bits
                Color Endpoints: 72 bits (8555, 8666, 8555) */
@@ -871,7 +876,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
         } break;
 
         /* mode 9 */
-        case 0b11010: {
+        case 0x1A: /* 0b11010 */ {
             /* Partitition indices: 46 bits
                Partition: 5 bits
                Color Endpoints: 72 bits (8555, 8555, 8666) */
@@ -901,7 +906,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
         } break;
 
         /* mode 10 */
-        case 0b11110: {
+        case 0x1E: /* 0b11110 */ {
             /* Partitition indices: 46 bits
                Partition: 5 bits
                Color Endpoints: 72 bits (6666, 6666, 6666) */
@@ -933,7 +938,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
         } break;
 
         /* mode 11 */
-        case 0b00011: {
+        case 0x03: /* 0b00011 */ {
             /* Partitition indices: 63 bits
                Partition: 0 bits
                Color Endpoints: 60 bits (10.10, 10.10, 10.10) */
@@ -947,7 +952,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
         } break;
 
         /* mode 12 */
-        case 0b00111: {
+        case 0x07: /* 0b00111 */ {
             /* Partitition indices: 63 bits
                Partition: 0 bits
                Color Endpoints: 60 bits (11.9, 11.9, 11.9) */
@@ -964,7 +969,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
         } break;
 
         /* mode 13 */
-        case 0b01011: {
+        case 0x0B: /* 0b01011 */ {
             /* Partitition indices: 63 bits
                Partition: 0 bits
                Color Endpoints: 60 bits (12.8, 12.8, 12.8) */
@@ -981,7 +986,7 @@ BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlo
         } break;
 
         /* mode 14 */
-        case 0b01111: {
+        case 0x0F: /* 0b01111 */ {
             /* Partitition indices: 63 bits
                Partition: 0 bits
                Color Endpoints: 60 bits (16.4, 16.4, 16.4) */
@@ -1247,12 +1252,12 @@ BCDECDEF void bcdec_bc7(const void* compressedBlock, void* decompressedBlock, in
     static int aWeight3[] = { 0, 9, 18, 27, 37, 46, 55, 64 };
     static int aWeight4[] = { 0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64 };
 
-    static unsigned char sModeHasPBits = 0b11001011;
+    static unsigned char sModeHasPBits = 0xCB; /* 0b11001011 (paint.c: no binary literal) */
 
     bcdec__bitstream_t bstream;
     int mode, partition, numPartitions, numEndpoints, i, j, k, rotation, partitionSet;
     int indexSelectionBit, indexBits, indexBits2, index, index2;
-    int endpoints[6][4];
+    int endpoints[6][4] = { { 0 } }; /* paint.c: alpha stays defined for modes without it */
     char indices[4][4];
     int r, g, b, a;
     int* weights, * weights2;

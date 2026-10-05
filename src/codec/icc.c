@@ -110,8 +110,10 @@ static pc_status icc_xf_make(icc_xf *x, const uint8_t *icc, size_t len)
         cmsHTRANSFORM g;
         uint8_t codes[256], bgr[256 * 3];
         if (cmsGetColorSpace(in) != cmsSigGrayData) { st = PC_ERR_FORMAT; goto done; }
+        /* built once per call, so skip the 8-bit optimizer: its curve
+         * approximation is several codes off near black */
         g = cmsCreateTransformTHR(x->ctx, in, TYPE_GRAY_8, out, TYPE_BGR_8, INTENT_PERCEPTUAL,
-                                  cmsFLAGS_NOCACHE);
+                                  cmsFLAGS_NOCACHE | cmsFLAGS_NOOPTIMIZE);
         if (!g) { st = PC_ERR_FORMAT; goto done; }
         for (int i = 0; i < 256; i++) codes[i] = (uint8_t)i;
         cmsDoTransform(g, codes, bgr, 256);

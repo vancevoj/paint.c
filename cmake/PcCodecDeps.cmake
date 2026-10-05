@@ -247,6 +247,11 @@ list(SORT _pc_lcms2_srcs)
 add_library(pc_lcms2 STATIC ${_pc_lcms2_srcs})
 target_include_directories(pc_lcms2 SYSTEM PUBLIC ${pc_lcms2_src_SOURCE_DIR}/include)
 target_link_libraries(pc_lcms2 PRIVATE Threads::Threads)
+# Malformed profiles can drive Little-CMS fixed-point math into signed
+# overflow; -fwrapv makes that defined (wrapping) instead of UB.
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(pc_lcms2 PRIVATE -fwrapv)
+endif()
 _pc_tp_libm(pc_lcms2)
 set_target_properties(pc_lcms2 PROPERTIES POSITION_INDEPENDENT_CODE ON C_EXTENSIONS ON)
 
