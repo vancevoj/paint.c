@@ -3,6 +3,8 @@ pc_add_tests(pc_pal SDL3::SDL3)
 
 # White-box access to the pure helpers in src/pal/pal_internal.h.
 target_include_directories(test_pal PRIVATE ${PROJECT_SOURCE_DIR}/src/pal)
+# main() goes through SDL_main.h for UTF-8 arguments on Windows.
+pc_sdl_main(test_pal)
 
 # Plugin fixture for pal_lib_*: a module next to the test executable, named
 # like the plugins the app will load (no "lib" prefix, pal_lib_suffix()).

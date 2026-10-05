@@ -18,9 +18,9 @@
 #include "pal_internal.h"
 
 #include <SDL3/SDL.h>
-/* main() stays ours; SDL_RunApp below provides UTF-8 arguments on Windows
- * (the C runtime's argv is in the ANSI code page there). */
-#define SDL_MAIN_HANDLED 1
+/* SDL's entry point gives main() UTF-8 arguments on Windows, like the app
+ * gets them (the C runtime's argv is in the ANSI code page there). MinGW
+ * links it with -municode through pc_sdl_main() in CMakeLists.txt. */
 #include <SDL3/SDL_main.h>
 
 #if !defined(_WIN32)
@@ -1344,7 +1344,7 @@ static void t_single_instance(void)
     (void)SDL_unsetenv_unsafe("PAINTC_SI_FILE");
 }
 
-static int SDLCALL test_main(int argc, char **argv)
+int main(int argc, char **argv)
 {
     if (argc >= 2 && strcmp(argv[1], "--si-child") == 0) return si_child(argc, argv);
     pc_test_init(argc, argv);
@@ -1387,17 +1387,4 @@ static int SDLCALL test_main(int argc, char **argv)
     CHECK(!pal_is_dir(g_root));
     SDL_Quit();
     return pc_test_finish();
-}
-
-int main(int argc, char **argv)
-{
-#if defined(_WIN32)
-    /* argc 0 and argv NULL: SDL rebuilds UTF-8 arguments from the wide
-     * command line, as SDL_main does for the app. */
-    (void)argc;
-    (void)argv;
-    return SDL_RunApp(0, NULL, test_main, NULL);
-#else
-    return test_main(argc, argv);
-#endif
 }
