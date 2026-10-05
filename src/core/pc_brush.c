@@ -559,23 +559,29 @@ static pc_status rasterize_batch(pc_brush *b)
 
 /* ---- painting the changed pixels -------------------------------------------------- */
 
-static int cmp_order(const void *pa, const void *pb, const chg_tile *chg)
+/* Sort the changed entries by (ty, tx): keys hold ty, tx (each < 2^21,
+ * tiles per side <= 1024) and the entry index (< 2^21 entries). */
+static int cmp_u64(const void *pa, const void *pb)
 {
-    const chg_tile *a = &chg[*(const uint32_t *)pa], *c = &chg[*(const uint32_t *)pb];
-    if (a->ty != c->ty) return a->ty < c->ty ? -1 : 1;
-    if (a->tx != c->tx) return a->tx < c->tx ? -1 : 1;
-    return 0;
+    uint64_t a = *(const uint64_t *)pa, c = *(const uint64_t *)pb;
+    return a < c ? -1 : (a > c ? 1 : 0);
 }
 
-/* insertion sort (n is small: tiles changed by one event) */
-static void sort_order(uint32_t *o, size_t n, const chg_tile *chg)
+static bool sort_order(pc_brush *b, uint32_t *o, size_t n)
 {
-    for (size_t i = 1; i < n; i++) {
-        uint32_t v = o[i];
-        size_t k = i;
-        while (k > 0u && cmp_order(&o[k - 1u], &v, chg) > 0) { o[k] = o[k - 1u]; k--; }
-        o[k] = v;
+    uint64_t *k;
+    size_t bytes;
+    if (!pc_mul_size(n, sizeof *k, &bytes) || pc_fault_check()) return false;
+    k = (uint64_t *)malloc(bytes);
+    if (!k) return false;
+    for (size_t i = 0; i < n; i++) {
+        const chg_tile *c = &b->chg[o[i]];
+        k[i] = ((uint64_t)(uint32_t)c->ty << 42) | ((uint64_t)(uint32_t)c->tx << 21) | o[i];
     }
+    qsort(k, n, sizeof *k, cmp_u64);
+    for (size_t i = 0; i < n; i++) o[i] = (uint32_t)(k[i] & 0x1FFFFFu);
+    free(k);
+    return true;
 }
 
 static bool grow_buf(uint8_t **buf, size_t *cap, size_t need)
@@ -659,7 +665,7 @@ static pc_status paint_changes(pc_brush *b)
     if ((uint64_t)(tx1 - tx0 + 1) * (uint64_t)(ty1 - ty0 + 1) <= 2u * (uint64_t)n + 4u)
         return paint_group(b, b->order, n);
     /* sparse: one mask per tile row */
-    sort_order(b->order, n, b->chg);
+    if (!sort_order(b, b->order, n)) return PC_ERR_NOMEM;
     for (size_t i = 0; i < n && st == PC_OK;) {
         size_t k = i + 1u;
         while (k < n && b->chg[b->order[k]].ty == b->chg[b->order[i]].ty) k++;

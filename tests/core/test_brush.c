@@ -339,6 +339,41 @@ static void t_stroke_many_dabs(void)
     pc_brush_destroy(b);
 }
 
+/* Long thin strokes in one event touch tiles far apart: the changed tiles
+ * are painted one tile row at a time (sparse grouping). */
+static void t_stroke_sparse(void)
+{
+    pc_brush *b = pc_brush_create();
+    for (int k = 0; k < 3; k++) {
+        tdoc td;
+        stroke_case c;
+        pc_surf got;
+        uint32_t W = 1500u, H = 1100u;
+        uint8_t *cov = (uint8_t *)malloc((size_t)W * H);
+        tdoc_init(&td, W, H, k == 0 ? FILL_RANDOM : FILL_PATTERN);
+        if (k == 2)
+            CHECK(pc_sel_apply_rect(td.h, pc_rect_make(100, 0, 900, 1100), PC_SEL_REPLACE,
+                                    "sel") == PC_OK);
+        memset(&c, 0, sizeof c);
+        c.p = pc_brush_params_default();
+        c.p.width = k == 1 ? 1.0 : 2.5;
+        c.p.tip = k == 1 ? PC_BRUSH_TIP_PENCIL : PC_BRUSH_TIP_ROUND;
+        c.p.smoothing = k == 2;
+        c.p.sel_pixelated = k == 2;
+        pc_brush_paint_color(pxc(250, 10, 120, 170), PC_BLEND_DIFFERENCE, true, &c.src, &c.opts);
+        c.n = 4;
+        c.s[0] = smp(3.5, 2.5, 1.0);
+        c.s[1] = smp(1490.5, 1095.5, 1.0);
+        c.s[2] = smp(10.5, 1090.5, 1.0);
+        c.s[3] = smp(1480.5, 6.5, 1.0);
+        run_case(&td, &c, NULL, b, &got, cov, true);
+        pc_surf_free(&got);
+        free(cov);
+        tdoc_free(&td);
+    }
+    pc_brush_destroy(b);
+}
+
 /* ---- semantics --------------------------------------------------------------------------- */
 
 static void collect(pc_brush *b, dab_log *L)
@@ -1068,6 +1103,7 @@ int main(int argc, char **argv)
     RUN(t_accumulate);
     RUN(t_stroke_reference);
     RUN(t_stroke_many_dabs);
+    RUN(t_stroke_sparse);
     RUN(t_spacing);
     RUN(t_event_split);
     RUN(t_no_double_blend);
