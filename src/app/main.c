@@ -29,7 +29,15 @@
  *                                     the settings file before the window opens,
  *                                     so it also helps when the app cannot start
  *                                     (scripted runs without a settings folder
- *                                     only change the running app)
+ *                                     only change the running app). When a
+ *                                     paintc already runs with the same settings
+ *                                     folder, the values are handed to it (lane
+ *                                     UIB, src/app/cli_set.h): it applies and
+ *                                     saves them at once
+ *
+ * Single instance (lane UIB): one instance per settings folder. A launch
+ * with another --config-dir is another profile and starts its own window
+ * instead of forwarding its files to one that uses different settings.
  *
  * --diagnostics (K-CLI-DIAG, lane KEYS) needs no display: it starts SDL's
  * event subsystem only, prints the version, platform, processors, memory,
@@ -48,6 +56,7 @@
 
 #include "app_internal.h"
 #include "app/app_io.h"
+#include "cli_set.h"
 #include "keys_os.h"
 
 typedef struct cli {
@@ -301,14 +310,50 @@ static void apply_sets(app *a, const cli *c)
     if (c->nsets > 0) app_tool_settings_changed(a);
 }
 
+/* lane UIB (wave 4 item 9): settings that later launches left for this
+ * instance (--set while it runs), applied live and saved. */
+static void take_forwarded_sets(app *a)
+{
+    app_settings *st = app_settings_create();
+    if (!st) return;
+    if (app_cli_take_pending(app_cli_config_dir(a), st) > 0) (void)app_cli_apply_settings(a, st);
+    app_settings_destroy(st);
+}
+
 /* Forwarded paths from later launches (single instance). */
 static void forwarded(void *ud, const char *const *paths, int n, int filter)
 {
     app *a = (app *)ud;
     (void)filter;
     if (!a) return;
+    take_forwarded_sets(a);
     if (n > 0 && paths) app_open_paths(a, paths, n);
     if (a->win) SDL_RaiseWindow(a->win);
+}
+
+/* lane UIB: a new primary writes pending values it finds (left by a launch
+ * whose instance went away before taking them, or its own) into the
+ * settings file before the app reads it. */
+static void take_leftover_sets(const char *config_dir)
+{
+    const char *dir = config_dir ? config_dir : pal_dir(PAL_DIR_CONFIG);
+    app_settings *pend, *st;
+    char path[1024];
+    if (!dir || !*dir) return;
+    pend = app_settings_create();
+    if (!pend) return;
+    if (app_cli_take_pending(dir, pend) > 0 && (st = app_settings_create()) != NULL) {
+        pal_path_join(path, sizeof path, dir, "settings.ini");
+        (void)app_settings_load(st, path);
+        for (size_t i = 0; i < app_settings_count(pend); i++) {
+            const char *k = NULL, *v = NULL;
+            if (app_settings_at(pend, i, &k, &v)) (void)app_settings_set(st, k, v);
+        }
+        if (app_settings_save(st, path) != PC_OK)
+            fprintf(stderr, "paintc: cannot write %s\n", path);
+        app_settings_destroy(st);
+    }
+    app_settings_destroy(pend);
 }
 
 /* Autosave and recovery: on for the editor, off for scripted runs unless
@@ -408,6 +453,7 @@ int main(int argc, char **argv)
     app *a;
     int rc = 0;
     bool interactive, primary = false;
+    char si_id[96];
     if (!parse(argc, argv, &c) || c.help) {
         usage(argc > 0 ? argv[0] : "paintc");
         free((void *)c.files);
@@ -437,15 +483,38 @@ int main(int argc, char **argv)
         free((void *)c.files);
         return 1;
     }
+    app_cli_instance_id(c.config_dir, si_id, sizeof si_id);      /* lane UIB */
     if (interactive && !c.headless) {
-        if (!pal_single_instance(APP_ID, c.nfiles, c.files, forwarded, NULL)) {
+        /* lane UIB (wave 4 item 9): --set values wait in the settings
+         * folder for the running instance, which takes them when the
+         * forwarded message arrives */
+        const char *cfg = c.config_dir ? c.config_dir : pal_dir(PAL_DIR_CONFIG);
+        bool queued = false;
+        if (c.nsets > 0 && cfg && *cfg) {
+            if (!app_cli_queue_settings(cfg, c.sets, c.nsets)) {
+                fprintf(stderr, "paintc: cannot write the --set values to %s\n", cfg);
+                pal_quit();
+                SDL_Quit();
+                free((void *)c.files);
+                return 1;
+            }
+            queued = true;
+        }
+        if (!pal_single_instance(si_id, c.nfiles, c.files, forwarded, NULL)) {
             /* a running paint.c opens the files (forwarded) */
+            if (c.nsets > 0 && queued)
+                printf("paintc: %d setting%s handed to the running paint.c\n", c.nsets,
+                       c.nsets == 1 ? "" : "s");
+            else if (c.nsets > 0)
+                fprintf(stderr, "paintc: --set needs a settings folder to reach the running "
+                                "paint.c; nothing was changed\n");
             pal_quit();
             SDL_Quit();
             free((void *)c.files);
             return 0;
         }
         primary = true;
+        take_leftover_sets(c.config_dir);
     }
     app_opts_default(&o);
     o.headless = c.headless;
@@ -477,7 +546,7 @@ int main(int argc, char **argv)
         return 1;
     }
     if (interactive && !c.headless) {
-        (void)pal_single_instance(APP_ID, 0, NULL, forwarded, a);
+        (void)pal_single_instance(si_id, 0, NULL, forwarded, a);
         app_wake_poll(a, 200u);        /* forwarded opens arrive while idle */
     }
     apply_sets(a, &c);

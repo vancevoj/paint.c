@@ -2,16 +2,21 @@
  * About dialog, lane M, plus small shell commands (Reset Windows, brush
  * width keys K-TB-WIDTH-*). The Settings dialog lives in mod_m_settings.c.
  *
- * Help items open the project's pages in the browser (paint.c's own
- * project, never Paint.NET's): Documentation (F1; a bundled docs/index.html
- * next to the executable when present), Website, Search (Ctrl+E, the
- * project search), Forum (the project's discussions), Tutorials and
- * Plugins (the project wiki pages for tutorials and for the plugin index,
- * lane KEYS: F-MENU-HELP-FORUM, -TUTORIALS, -PLUGINS), Send Feedback or Bug
- * Report (a new issue prefilled with a template and the Diagnostics text)
- * and About. Donate has no paint.c counterpart and stays hidden. The links
- * are defined once below (M_URL_*). Headless apps only record the URL
- * (m_last_url) so tests never start a browser.
+ * Help items open pages in the browser (paint.c's own, never Paint.NET's).
+ * lane UIB (wave 4 items 4 to 6): Documentation (F1), Search (Ctrl+E),
+ * Tutorials and Plugins open the user guide that ships inside paint.c
+ * (src/app/help/help.h: the Markdown pages in docs/help rendered to local
+ * HTML files and opened through file:// URLs), so they work offline and
+ * never lead to a missing page. The project repository is private, its wiki is empty and
+ * Discussions are off, so the old wiki and discussion links were dead.
+ * Forum opens the project's issue list and exists only in builds of a
+ * public repository (cmake -DPC_PROJECT_PUBLIC=ON); otherwise it stays
+ * hidden and the guide's troubleshooting page says why. Website and Send
+ * Feedback or Bug Report (a new issue prefilled with a template and the
+ * Diagnostics text) still lead to the repository, which its members can
+ * open. About shows the credits. Donate has no paint.c counterpart and
+ * stays hidden. The links are defined once below (M_URL_*). Headless apps
+ * only record the URL (m_last_url) so tests never start a browser.
  *
  * About (MENUS.md "About dialog", F-DLG-ABOUT): product name, version and
  * build, renderer, license, the not-affiliated statement and the complete
@@ -23,18 +28,19 @@
 #include "../edit/m_help.h"
 #include "../edit/m_settings.h"
 #include "../edit/m_ui.h"
+#include "../help/help.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define M_URL_HOME     "https://github.com/vancevoj/paint.c"
-#define M_URL_DOCS     M_URL_HOME "#readme"
-#define M_URL_SEARCH   M_URL_HOME "/search"
 #define M_URL_FEEDBACK M_URL_HOME "/issues/new"
-#define M_URL_FORUM     M_URL_HOME "/discussions"
-#define M_URL_TUTORIALS M_URL_HOME "/wiki/Tutorials"
-#define M_URL_PLUGINS   M_URL_HOME "/wiki/Plugins"
+#define M_URL_FORUM    M_URL_HOME "/issues"          /* lane UIB: only when public */
+
+#ifndef PC_PROJECT_PUBLIC
+#define PC_PROJECT_PUBLIC 0
+#endif
 
 /* The NOTICE file of the source tree, embedded at build time by
  * cmake/PcEmbed.cmake (src/app/CMakeLists.txt), so About can never drift from
@@ -165,25 +171,17 @@ static void url_append(char *out, size_t cap, const char *s)
     out[k] = '\0';
 }
 
-static void cmd_docs(app *a, const app_cmd *c)
+/* lane UIB: a page of the bundled guide (help.h); c->arg indexes k_pages. */
+static void cmd_guide(app *a, const app_cmd *c)
 {
-    const char *exe = pal_dir(PAL_DIR_EXE);
-    char local[1100];
-    (void)c;
-    local[0] = '\0';
-    if (exe) {
-        char docs[1024];
-        pal_path_join(docs, sizeof docs, exe, "docs");
-        pal_path_join(local, sizeof local, docs, "index.html");
-    }
-    if (local[0] && pal_file_exists(local)) m_open_url(a, local);
-    else m_open_url(a, M_URL_DOCS);
+    static const char *const k_pages[] = { "index", "search", "tutorials", "plugins" };
+    size_t i = (size_t)c->arg;
+    (void)app_help_open(a, i < sizeof k_pages / sizeof k_pages[0] ? k_pages[i] : "index");
 }
 
 static void cmd_link(app *a, const app_cmd *c)
 {
-    static const char *const urls[] = { M_URL_HOME, M_URL_SEARCH, M_URL_FORUM, M_URL_TUTORIALS,
-                                        M_URL_PLUGINS };
+    static const char *const urls[] = { M_URL_HOME, M_URL_FORUM };
     size_t i = (size_t)c->arg;
     m_open_url(a, i < sizeof urls / sizeof urls[0] ? urls[i] : M_URL_HOME);
 }
@@ -243,12 +241,14 @@ static void reg(app *a, const char *id, const char *label, ui_icon icon, uint32_
 void mod_help(app *a)
 {
     const uint32_t nc = APP_CMD_NO_COMMIT;
-    reg(a, "help.docs", "Documentation", UI_ICON_HELP, nc, cmd_docs, NULL, 0);
+    reg(a, "help.docs", "Documentation", UI_ICON_HELP, nc, cmd_guide, NULL, 0);
     reg(a, "help.website", "Website", UI_ICON_NONE, nc, cmd_link, NULL, 0);
-    reg(a, "help.search", "Search", UI_ICON_NONE, nc, cmd_link, NULL, 1);
-    reg(a, "help.forum", "Forum", UI_ICON_NONE, nc, cmd_link, NULL, 2);         /* lane KEYS */
-    reg(a, "help.tutorials", "Tutorials", UI_ICON_NONE, nc, cmd_link, NULL, 3);
-    reg(a, "help.plugins", "Plugins", UI_ICON_NONE, nc, cmd_link, NULL, 4);
+    reg(a, "help.search", "Search", UI_ICON_NONE, nc, cmd_guide, NULL, 1);
+#if PC_PROJECT_PUBLIC
+    reg(a, "help.forum", "Forum", UI_ICON_NONE, nc, cmd_link, NULL, 1);         /* lane UIB */
+#endif
+    reg(a, "help.tutorials", "Tutorials", UI_ICON_NONE, nc, cmd_guide, NULL, 2);
+    reg(a, "help.plugins", "Plugins", UI_ICON_NONE, nc, cmd_guide, NULL, 3);
     reg(a, "help.feedback", "Send Feedback or Bug Report", UI_ICON_NONE, nc, cmd_feedback, NULL,
         0);
     reg(a, "help.about", "About", UI_ICON_INFO, nc, cmd_about, NULL, 0);

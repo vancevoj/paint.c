@@ -568,10 +568,31 @@ void app_menu_rights(app *a)
     app_request_frame(a);
 }
 
+/* lane UIB (wave 4 item 11): with the menu bar focused by a lone Alt, a
+ * letter that is no menu title runs the command bound to Alt + that letter,
+ * so a lone Alt then X opens Settings exactly like Alt+X (the access key of
+ * the Settings button at the right of the menu bar, MENUS.md). */
+static bool alt_letter_cmd(app *a, int32_t key)
+{
+    if (key < 'a' || key > 'z') return false;
+    for (int32_t i = 0; i < a->ncmds; i++) {
+        const app_cmd *c = a->cmds[i];
+        for (int k = 0; k < c->nkeys; k++) {
+            if (c->keys[k].key != key || c->keys[k].mods != UI_MOD_ALT) continue;
+            ui_menubar_unfocus(a->ui);
+            (void)app_cmd_exec(a, c->id);
+            app_request_frame(a);
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Alt+H opens the Help menu behind the "?" button (K-UI-HELPMENU), Alt+T
  * the tool dropdown of the toolbar (K-UI-TOOLDROP); with the menu bar
- * focused by a lone Alt, H and T alone do the same. Any other press is
- * swallowed while a menu owns the keyboard (F-KEY-UI-MENU-MNEMONIC). */
+ * focused by a lone Alt, H and T alone do the same, and so does any other
+ * Alt + letter command (alt_letter_cmd). Any other press is swallowed while
+ * a menu owns the keyboard (F-KEY-UI-MENU-MNEMONIC). */
 static bool menu_keys(app *a, int32_t key, uint32_t mods)
 {
     ui_ctx *ui = a->ui;
@@ -584,6 +605,7 @@ static bool menu_keys(app *a, int32_t key, uint32_t mods)
         app_request_frame(a);
         return true;
     }
+    if (focused && m == 0u && alt_letter_cmd(a, key)) return true;
     return ui_menu_keyboard(ui);
 }
 
@@ -656,40 +678,18 @@ static bool edge_key(app *a, const app_cmd *c)
 /* K-NAV-TOOLMOVE(-10), K-PAN-DRAG: arrows that no tool or command used
  * move the pointer over the canvas by one image pixel (ten with Ctrl), at
  * least one screen pixel, like 3.36. The tool sees an ordinary pointer
- * motion (a held button keeps dragging: Pan pans), and the system cursor
- * follows where the platform allows warping. */
+ * motion (a held button keeps dragging), and the system cursor follows
+ * where the platform allows warping.
+ * lane UIB (wave 4 item 32): the move itself is app_tool_nudge_pointer
+ * (tool.c, lane TOOLA), the same function the tools with their own arrow
+ * handling call, so every tool shares one 3.36 keyboard acceleration (a
+ * held arrow speeds up after 15 quick repeats) and one repeat counter.
+ * Only the modifier rule stays here: Alt + arrows never nudge. */
 static bool nudge_pointer(app *a, int32_t key, uint32_t mods)
 {
-    app_doc *d = app_active_doc(a);
     uint32_t m = mods & (UI_MOD_CTRL | UI_MOD_ALT | UI_MOD_GUI);
-    float ppp = a->fi.px_per_point > 0.0f ? a->fi.px_per_point : 1.0f;
-    gfx_view v;
-    double off;
-    int dx, dy;
-    SDL_Event e;
-    if (!is_arrow(key) || !d || (m != 0u && m != UI_MOD_CTRL && m != UI_MOD_GUI)) return false;
-    if (!a->cv.captured && !(a->cv.hovered && a->cv.mouse_in)) return false;
-    v = app_doc_gview(a, d);
-    off = ceil(v.zoom - 1e-9);
-    if (off < 1.0) off = 1.0;
-    if (m) off *= 10.0;
-    arrow_dir(key, &dx, &dy);
-    memset(&e, 0, sizeof e);
-    e.type = SDL_EVENT_MOUSE_MOTION;
-    e.motion.x = (a->cv.mx + (float)((double)dx * off)) / ppp;
-    e.motion.y = (a->cv.my + (float)((double)dy * off)) / ppp;
-    e.motion.xrel = (float)((double)dx * off) / ppp;
-    e.motion.yrel = (float)((double)dy * off) / ppp;
-    e.motion.timestamp = SDL_GetTicksNS();
-    if (a->win) {
-        e.motion.windowID = SDL_GetWindowID(a->win);
-        e.motion.state = SDL_GetMouseState(NULL, NULL);
-    }
-    app_event(a, &e);
-    if (a->win && SDL_GetMouseFocus() == a->win)
-        SDL_WarpMouseInWindow(a->win, e.motion.x, e.motion.y);
-    app_request_frame(a);
-    return true;
+    if (!is_arrow(key) || (m != 0u && m != UI_MOD_CTRL && m != UI_MOD_GUI)) return false;
+    return app_tool_nudge_pointer(a, key, mods);
 }
 
 bool app_key_press(app *a, int32_t key, uint32_t mods, bool repeat)

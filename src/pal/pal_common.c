@@ -85,6 +85,20 @@ uint64_t pal__rand64(void)
     return splitmix64(x ^ pc_atomic_inc(&counter));
 }
 
+/* lane UIB (wave 4 item 36): see pal_internal.h. Short waits first, so a
+ * brief hold costs a millisecond or two; then 100 ms steps up to the
+ * budget, the same total as the .NET clipboard default (10 x 100 ms). */
+int pal__clip_retry_delay(int attempt, uint32_t elapsed_ms)
+{
+    int d;
+    if (attempt < 0 || elapsed_ms >= PAL__CLIP_RETRY_BUDGET_MS) return -1;
+    d = attempt < 7 ? 1 << attempt : 100;
+    if (d > 100) d = 100;
+    if ((uint32_t)d > PAL__CLIP_RETRY_BUDGET_MS - elapsed_ms)
+        d = (int)(PAL__CLIP_RETRY_BUDGET_MS - elapsed_ms);
+    return d;
+}
+
 /* ---- logging --------------------------------------------------------------------- */
 static pal__spin     g_log_lock;
 static void         *g_log_io;              /* guarded by g_log_lock */

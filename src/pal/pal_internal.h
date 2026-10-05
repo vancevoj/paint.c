@@ -37,6 +37,16 @@ uint64_t pal__rand64(void);
 /* True for '/' and '\\' (path helpers accept both on every OS). */
 bool  pal__is_sep(char c);
 
+/* ---- clipboard retry policy (pal_common.c; lane UIB, wave 4 item 36) -------- */
+/* Opening the system clipboard fails while another program holds it open
+ * (clipboard managers, remote desktop, apps that render on demand). The
+ * Windows shim retries on this schedule: attempt counts the failed opens
+ * so far (0 after the first), elapsed_ms the time spent since the first.
+ * Returns the delay before the next attempt in ms (1, 2, 4, ... then 100),
+ * or -1 to give up once PAL__CLIP_RETRY_BUDGET_MS have passed. Pure. */
+#define PAL__CLIP_RETRY_BUDGET_MS 1000u
+int pal__clip_retry_delay(int attempt, uint32_t elapsed_ms);
+
 /* ---- path and glob helpers (pal_path.c) ------------------------------------- */
 /* Case-insensitive (ASCII) glob match of name against one or more patterns
  * separated by ';'. '*' matches any run of bytes, '?' one byte. A NULL or

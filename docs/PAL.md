@@ -144,7 +144,10 @@ index is -1 when the user cancelled or the platform cannot tell.
   format, then CF_DIBV5, then CF_DIB (a validated DIB becomes a BMP file,
   `image/bmp`). Copy offers "PNG" and, with `pal_clip_set_image_bgra`,
   CF_DIBV5 with an alpha mask (Windows synthesizes CF_DIB and CF_BITMAP).
-  Text uses CF_UNICODETEXT with CRLF conversion.
+  Text uses CF_UNICODETEXT with CRLF conversion. While another program
+  holds the clipboard open, opening it is retried with growing waits (1, 2,
+  4 ... 64 ms, then 100 ms) for up to one second (`pal__clip_retry_delay`,
+  lane UIB); only then does a call fail, with a log line naming the holder.
 - Returned buffers come from `malloc` (caller frees). PNG bytes from the
   Windows clipboard may carry trailing padding after IEND.
 - Note for the BMP codec: 32-bit BI_RGB DIBs from screenshots usually have
