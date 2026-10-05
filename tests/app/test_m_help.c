@@ -48,8 +48,15 @@ static void t_links(void)
     u = m_last_url(a);
     CHECK(u && strstr(u, "/issues/new?body=") != NULL && strstr(u, "Diagnostics") != NULL);
     CHECK(strchr(u, ' ') == NULL && strchr(u, '\n') == NULL);      /* encoded */
-    /* the optional items have no paint.c counterpart and stay hidden */
-    CHECK(!app_cmd_exists(a, "help.donate") && !app_cmd_exists(a, "help.forum"));
+    /* Donate has no paint.c counterpart and stays hidden; Forum, Tutorials
+     * and Plugins open the project's pages (lane KEYS, F-MENU-HELP-*) */
+    CHECK(!app_cmd_exists(a, "help.donate"));
+    CHECK(app_cmd_exec(a, "help.forum") && m_last_url(a) &&
+          strstr(m_last_url(a), "github.com/vancevoj/paint.c/discussions") != NULL);
+    CHECK(app_cmd_exec(a, "help.tutorials") && m_last_url(a) &&
+          strstr(m_last_url(a), "/wiki/Tutorials") != NULL);
+    CHECK(app_cmd_exec(a, "help.plugins") && m_last_url(a) &&
+          strstr(m_last_url(a), "/wiki/Plugins") != NULL);
     /* About opens once */
     CHECK(app_cmd_exec(a, "help.about"));
     at_frames(a, 2);

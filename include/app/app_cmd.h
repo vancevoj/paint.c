@@ -122,6 +122,16 @@ bool           app_key_matches(app_key b, int32_t key, uint32_t mods);
  * without Ctrl/Alt/Cmd are ignored while a text field has focus. Returns
  * true when something consumed it. */
 bool           app_key_press(app *a, int32_t key, uint32_t mods, bool repeat);
+/* lane KEYS: the same with the typed character of the press (ui_key_press
+ * sym and sym_mods; sym 0 = unknown). Shortcuts on the characters [ ] , . /
+ * match the typed character, so they work on layouts that need Shift or
+ * AltGr for them (K-OS-3); everything else matches the keycode. While a
+ * menu owns the keyboard (ui_menu_keyboard) presses are swallowed, except
+ * Alt+H (Help menu) and Alt+T (tool dropdown). Space + arrows pan the
+ * view, Home / End pressed again at the edge go to the corner, and arrows
+ * no tool or command used nudge the pointer over the canvas. */
+bool           app_key_press_ex(app *a, int32_t key, int32_t sym, uint32_t sym_mods,
+                                uint32_t mods, bool repeat);
 
 #ifdef __cplusplus
 }
