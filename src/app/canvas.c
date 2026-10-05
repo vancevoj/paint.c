@@ -1498,9 +1498,17 @@ void app_canvas_prepare(app *a)
     }
     if (c->need_more) app_request_frame(a);
     /* marching ants animation at the display refresh rate (V-SEL-ANTS) */
-    if (pc_sel_is_active(d->doc) && !app_canvas_ants_paused(a)) {
-        float hz = app_canvas_ants_hz(a);
-        uint64_t ms = (uint64_t)(1000.0f / hz);
-        app_request_frame_at(a, a->now + (ms > 0u ? ms : 1u));
+    {
+        uint64_t t = app_canvas_ants_wake(a);
+        if (t) app_request_frame_at(a, t);
     }
+}
+
+uint64_t app_canvas_ants_wake(app *a)
+{
+    app_doc *d = app_active_doc(a);
+    uint64_t ms;
+    if (!d || !pc_sel_is_active(d->doc) || app_canvas_ants_paused(a)) return 0u;
+    ms = (uint64_t)(1000.0f / app_canvas_ants_hz(a));
+    return a->now + (ms > 0u ? ms : 1u);
 }

@@ -47,6 +47,8 @@ typedef struct shell_cm {
     bool      disp_dirty;                 /* re-read before the next use */
     uint64_t  disp_ms;
     bool      disp_srgb;                  /* the display profile is equivalent to sRGB */
+    bool      disp_matrix;                /* a matrix/TRC profile the view can target */
+    char      disp_desc[128];             /* its description */
     /* the last image profile seen (inspecting a profile is not free) */
     const uint8_t *src_ptr;
     size_t    src_len;
@@ -105,6 +107,22 @@ static uint64_t fnv(const uint8_t *p, size_t n)
 }
 
 /* ---- display profile ------------------------------------------------------------------------ */
+/* Take ownership of a validated RGB display profile (or clear it). */
+static void display_set(shell_cm *c, uint8_t *icc, size_t len, const pc_icc_info *info)
+{
+    m_icc_rgb rgb;
+    free(c->disp);
+    c->disp = icc;
+    c->disp_len = icc ? len : 0u;
+    c->disp_hash = icc ? fnv(icc, len) : 0u;
+    c->disp_srgb = icc && info && info->is_srgb;
+    c->disp_matrix = icc && m_icc_parse(icc, len, &rgb) == PC_OK;
+    c->disp_desc[0] = '\0';
+    if (icc && info)
+        snprintf(c->disp_desc, sizeof c->disp_desc, "%s",
+                 info->desc[0] ? info->desc : "Unnamed display profile");
+}
+
 static void display_refresh(app *a, shell_cm *c)
 {
     void *p;
@@ -121,22 +139,14 @@ static void display_refresh(app *a, shell_cm *c)
             if (copy) {
                 pc_icc_info info;
                 memcpy(copy, p, n);
-                if (pc_icc_inspect(copy, n, &info) == PC_OK && info.space == PC_ICC_SPACE_RGB) {
-                    free(c->disp);
-                    c->disp = copy;
-                    c->disp_len = n;
-                    c->disp_hash = h;
-                    c->disp_srgb = info.is_srgb;
-                } else {
+                if (pc_icc_inspect(copy, n, &info) == PC_OK && info.space == PC_ICC_SPACE_RGB)
+                    display_set(c, copy, n, &info);
+                else
                     free(copy);
-                }
             }
         }
     } else if (c->disp) {
-        free(c->disp);
-        c->disp = NULL;
-        c->disp_len = 0;
-        c->disp_hash = 0;
+        display_set(c, NULL, 0u, NULL);
     }
     if (p) SDL_free(p);
 }
@@ -161,35 +171,28 @@ const uint8_t *app_cm_display_profile(app *a, size_t *len)
 void app_cm_set_display_profile_override(app *a, const uint8_t *icc, size_t len)
 {
     shell_cm *c = cm_state(a);
+    pc_icc_info info;
+    uint8_t *copy = NULL;
     if (!c) return;
-    free(c->disp);
-    c->disp = NULL;
-    c->disp_len = 0;
-    c->disp_hash = 0;
     c->disp_override = icc != NULL;
     c->disp_dirty = true;
-    if (icc && len) {
-        pc_icc_info info;
-        c->disp = (uint8_t *)malloc(len);
-        if (c->disp) {
-            memcpy(c->disp, icc, len);
-            c->disp_len = len;
-            c->disp_hash = fnv(icc, len);
-            c->disp_srgb = pc_icc_inspect(icc, len, &info) == PC_OK && info.is_srgb;
-        }
+    if (icc && len && pc_icc_inspect(icc, len, &info) == PC_OK && info.space == PC_ICC_SPACE_RGB)
+        copy = (uint8_t *)malloc(len);
+    if (copy) {
+        memcpy(copy, icc, len);
+        display_set(c, copy, len, &info);
+    } else {
+        display_set(c, NULL, 0u, NULL);
     }
     app_request_frame(a);
 }
 
 void app_cm_display_describe(app *a, char *out, size_t cap)
 {
-    size_t n = 0;
-    const uint8_t *p = app_cm_display_profile(a, &n);
-    pc_icc_info info;
+    shell_cm *c = cm_state(a);
     if (cap) out[0] = '\0';
-    if (!p) return;
-    if (pc_icc_inspect(p, n, &info) == PC_OK)
-        snprintf(out, cap, "%s", info.desc[0] ? info.desc : "Unnamed display profile");
+    if (!c || !app_cm_display_profile(a, NULL)) return;
+    snprintf(out, cap, "%s", c->disp_desc);
 }
 
 void app_cm_set_use_display(app *a, bool on)
@@ -214,7 +217,9 @@ static uint64_t dest_hash(app *a, shell_cm *c)
 {
     if (!c->use_display) return 0u;
     display_refresh(a, c);
-    if (!c->disp || c->disp_srgb) return 0u;
+    /* sRGB-like displays and profiles the view cannot target (LUT based)
+     * get the sRGB conversion */
+    if (!c->disp || c->disp_srgb || !c->disp_matrix) return 0u;
     return c->disp_hash;
 }
 
@@ -385,7 +390,10 @@ void app_cm_status(app *a, char *out, size_t cap)
         if (cap) out[0] = '\0';
         return;
     }
-    if (c->use_display && desc[0])
+    if (c->use_display && desc[0] && !c->disp_matrix)
+        snprintf(out, cap, "The display profile \"%s\" is not a matrix profile, so images are "
+                           "shown converted to sRGB.", desc);
+    else if (c->use_display && desc[0])
         snprintf(out, cap, "Images are shown converted to the display profile \"%s\".", desc);
     else if (c->use_display)
         snprintf(out, cap, "The display reports no color profile, so images are shown "

@@ -43,6 +43,9 @@ double   app_view_key_pan_step(const app *a);
  * battery saver flag). */
 float    app_canvas_ants_hz(app *a);
 bool     app_canvas_ants_paused(app *a);
+/* When the ants want the next frame (ms, a->now based), 0 when they do
+ * not animate (no selection, or paused). */
+uint64_t app_canvas_ants_wake(app *a);
 /* Testing hook: force the battery saver state (-1 = measure, 0 off, 1 on). */
 void     app_canvas_force_power_saver(app *a, int state);
 

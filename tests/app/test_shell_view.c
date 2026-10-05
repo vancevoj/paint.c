@@ -481,11 +481,10 @@ static void t_ants(void)
     at_frames(a, 1);
     now = a->now;
     CHECK(a->wake_at > 0u && a->wake_at <= now + 17u);     /* one frame per refresh */
+    CHECK(app_canvas_ants_wake(a) > now && app_canvas_ants_wake(a) <= now + 17u);
     app_canvas_force_power_saver(a, 1);
     CHECK(app_canvas_ants_paused(a));
-    a->wake_at = 0;
-    at_frames(a, 1);
-    CHECK(a->wake_at == 0u || a->wake_at > a->now + 17u);
+    CHECK(app_canvas_ants_wake(a) == 0u);
     app_canvas_force_power_saver(a, 0);
     a->focused = false;
     CHECK(app_canvas_ants_paused(a));
