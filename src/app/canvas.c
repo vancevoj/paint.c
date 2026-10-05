@@ -235,6 +235,9 @@ static SDL_Cursor *cursor_for(app *a, app_cursor k)
     case APP_CURSOR_ARROW:
         a->cv.cursors[k] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT);
         break;
+    case APP_CURSOR_ROTATE:       /* lane C: rotate corridors of shapes */
+        a->cv.cursors[k] = make_icon_cursor(UI_ICON_ROTATE_CW, size, size / 2, size / 2);
+        break;
     case APP_CURSOR_TEXT:
         a->cv.cursors[k] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT);
         break;

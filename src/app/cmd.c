@@ -491,11 +491,20 @@ bool app_cmd_checked(app *a, const char *id)
     return c && c->checked && c->checked(a, c);
 }
 
+/* lane C: Undo and Redo step through the edits of a live object whose
+ * tool records every edit in history (APP_TOOL_HISTORY_EDITS). */
+static bool keeps_live_edit(app *a, const app_cmd *c)
+{
+    const app_tool *t = app_tool_current(a);
+    if (!t || !(t->flags & APP_TOOL_HISTORY_EDITS)) return false;
+    return strcmp(c->id, "edit.undo") == 0 || strcmp(c->id, "edit.redo") == 0;
+}
+
 bool app_cmd_exec(app *a, const char *id)
 {
     const app_cmd *c = app_cmd_find(a, id);
     if (!c || !cmd_enabled(a, c)) return false;
-    if (!(c->flags & APP_CMD_NO_COMMIT)) app_tool_finish(a);
+    if (!(c->flags & APP_CMD_NO_COMMIT) && !keeps_live_edit(a, c)) app_tool_finish(a);
     /* the commit may have changed what is enabled (e.g. a live wand) */
     if (!cmd_enabled(a, c)) return false;
     c->run(a, c);

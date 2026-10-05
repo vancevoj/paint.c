@@ -25,6 +25,9 @@
  *   frames N                  run N frames
  *   wait                      finish background work
  *   screenshot PATH           write the frame as BMP
+ *   type TEXT                 text input (SDL_EVENT_TEXT_INPUT; lane C, Text tool)
+ *   ime TEXT                  IME composition string (SDL_EVENT_TEXT_EDITING; lane C)
+ *   set KEY VALUE             write a settings key and notify the tool (lane C)
  *   expect pixel X Y #AARRGGBB   composite of the visible layers
  *   expect dirty 0|1 | layers N | size W H | docs N | history N | tool ID
  */
@@ -261,6 +264,29 @@ static int run_line(app *a, char **tok, int n, int ln, char *err, size_t cap)
             mouse_event(a, SDL_EVENT_MOUSE_BUTTON_UP, sx, sy, btn);
             settle(a, 2);
         }
+    } else if ((strcmp(c, "type") == 0 || strcmp(c, "ime") == 0) && n >= 2) {
+        /* lane C: typing for the Text tool, through SDL text events */
+        SDL_Event e;
+        memset(&e, 0, sizeof e);
+        rest_of(tok, n, buf, sizeof buf);
+        if (c[0] == 't') {
+            e.type = SDL_EVENT_TEXT_INPUT;
+            e.text.text = buf;
+            e.text.timestamp = SDL_GetTicksNS();
+        } else {
+            e.type = SDL_EVENT_TEXT_EDITING;
+            e.edit.text = buf;
+            e.edit.start = (Sint32)strlen(buf);
+            e.edit.length = 0;
+            e.edit.timestamp = SDL_GetTicksNS();
+        }
+        app_event(a, &e);
+        settle(a, 2);
+    } else if (strcmp(c, "set") == 0 && n >= 3) {
+        /* lane C: tool options kept in the settings store */
+        if (!app_settings_set(a->settings, tok[1], tok[2])) return fail(err, cap, ln, "set");
+        app_tool_settings_changed(a);
+        settle(a, 1);
     } else if (strcmp(c, "sleep") == 0 && n >= 2) {
         SDL_Delay((Uint32)atoi(tok[1]));
         settle(a, 1);

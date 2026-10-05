@@ -42,6 +42,10 @@ pc_warnings(pc_app)
 if(NOT MSVC)
   target_link_libraries(pc_app PRIVATE m)
 endif()
+# lane C: the Text tool's font backend (tools/text_font.c) and IME adapter
+# (tools/text_ime.c) use pc_ui internals until ui.h exposes glyph outlines,
+# text input and composition; src/ui/ui_font_internal.h includes stb_truetype.h.
+target_include_directories(pc_app SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/third_party/stb_truetype)
 
 # ---- the executable ---------------------------------------------------------
 set(PC_APP_PLATFORM_SRCS)

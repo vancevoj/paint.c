@@ -77,6 +77,7 @@ typedef enum app_cursor {
     APP_CURSOR_MOVE,
     APP_CURSOR_NOT_ALLOWED,
     APP_CURSOR_HIDDEN,
+    APP_CURSOR_ROTATE,       /* lane C: curved arrow over rotate corridors */
     APP_CURSOR_COUNT
 } app_cursor;
 
@@ -115,6 +116,10 @@ void   app_ov_xor_line(app_overlay *o, double x0, double y0, double x1, double y
 #define APP_TOOL_PAINTS     2u   /* edits pixels of the active layer */
 #define APP_TOOL_TEXT_INPUT 4u   /* wants SDL text input while active (Text tool) */
 #define APP_TOOL_NO_SPACE_PAN 8u /* Space types instead of panning (Text tool editing) */
+/* lane C: every edit of the tool's live object is its own history step
+ * (T-FW-HISTORY), so Undo and Redo walk through them instead of finishing
+ * the live edit first. */
+#define APP_TOOL_HISTORY_EDITS 16u
 
 struct app_tool {
     const char *id;             /* "pencil"; matches the file tool_<id>.c */
