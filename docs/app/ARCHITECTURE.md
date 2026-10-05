@@ -347,7 +347,10 @@ runs scripts (`paintc --script file`), its own end-to-end check
 * The tool chooser (icon, full name, list with "Name (S, 4 times)"
   tooltips) opens with a click, `app_tool_menu_open` or Alt+T (command
   `tool.choose`, tools/mod_toola.c); its popup id `##tool_choice` also
-  answers the toolkit's open requests.
+  answers the toolkit's open requests. Alt+T and `app_tool_menu_open` both
+  open it through `ui_open_request`, so the toolkit's menu keys apply (first
+  tool highlighted, a letter starting one name chooses it); the wheel over
+  the closed button steps through the tools (K-TB-WHEEL, integration).
 * `app_tool_nudge_pointer`: arrow keys move the pointer one image pixel
   (Ctrl ten, 3.36 acceleration); a held drag follows. Tools call it for
   arrows they do not use; the key dispatch may use it as the fallback.
