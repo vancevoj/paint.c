@@ -242,20 +242,32 @@ static void doc_closing(app *a, app_doc *d, void *ud)
     }
 }
 
-static double handle_offset(const app *a) { return paint_hit_radius(a, PAINT_GRAD_HANDLE_DIP); }
+/* The four-arrow handle: 35 px beyond the end point along the gradient,
+ * down right at 45 degrees when the points coincide (Paint.NET 5.2). */
+static pc_pt handle_pos(const app *a, const grad_params *c)
+{
+    double off = paint_hit_radius(a, PAINT_GRAD_HANDLE_DIP);
+    pc_gradient_desc d = pc_gradient_desc_default();
+    if (c->start.x == c->end.x && c->start.y == c->end.y)
+        return pc_pt_make(c->end.x + off * 0.70710678, c->end.y + off * 0.70710678);
+    d.start = c->start;
+    d.end = c->end;
+    return pc_gradient_move_handle(&d, off);
+}
 
 static pc_grad_handle hit(const app *a, const grad_state *g, double x, double y)
 {
     const grad_params *c = cur(g);
-    pc_gradient_desc d;
-    pc_pt p;
+    double r = paint_hit_radius(a, 8.0f), rm = paint_hit_radius(a, PAINT_MOVE_DIP * 0.5f + 2.0f);
+    pc_pt mh;
     if (!c) return PC_GRAD_HANDLE_NONE;
-    d = pc_gradient_desc_default();
-    d.start = c->start;
-    d.end = c->end;
-    p.x = x;
-    p.y = y;
-    return pc_gradient_hit(&d, p, paint_hit_radius(a, 8.0f), handle_offset(a));
+    if ((x - c->end.x) * (x - c->end.x) + (y - c->end.y) * (y - c->end.y) <= r * r)
+        return PC_GRAD_HANDLE_END;
+    if ((x - c->start.x) * (x - c->start.x) + (y - c->start.y) * (y - c->start.y) <= r * r)
+        return PC_GRAD_HANDLE_START;
+    mh = handle_pos(a, c);
+    if (fabs(x - mh.x) <= rm && fabs(y - mh.y) <= rm) return PC_GRAD_HANDLE_MOVE;
+    return PC_GRAD_HANDLE_NONE;
 }
 
 static void drag_to(grad_state *g, double x, double y, bool shift)
@@ -430,18 +442,15 @@ static void grad_overlay(app *a, void *st, app_overlay *o)
 {
     grad_state *g = (grad_state *)st;
     const grad_params *c;
-    pc_gradient_desc d;
     pc_pt mh;
     pc_grad_handle h;
     flush(a, g);                 /* once per frame, after the pointer events */
     sync(a, g);
     c = g->drag != DRAG_NONE ? &g->work : cur(g);
     if (!c || !paint_live_doc(a, &g->L)) return;
-    h = g->hover && g->drag == DRAG_NONE ? hit(a, g, g->hx, g->hy) : PC_GRAD_HANDLE_NONE;
-    d = pc_gradient_desc_default();
-    d.start = c->start;
-    d.end = c->end;
-    mh = pc_gradient_move_handle(&d, handle_offset(a));
+    h = g->hover && g->drag == DRAG_NONE && app_canvas_over(a) ? hit(a, g, g->hx, g->hy)
+                                                               : PC_GRAD_HANDLE_NONE;
+    mh = handle_pos(a, c);
     paint_ov_nub(o, c->start.x, c->start.y, g->drag == DRAG_START || h == PC_GRAD_HANDLE_START);
     paint_ov_nub(o, c->end.x, c->end.y, g->drag == DRAG_END || h == PC_GRAD_HANDLE_END);
     if (g->drag != DRAG_CREATE)

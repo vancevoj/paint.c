@@ -161,7 +161,10 @@ static void clone_deactivate(app *a, void *st)
     ((clone_state *)st)->s.hover = false;
 }
 
-static void clone_init(app *a, void *st) { (void)app_hook_add(a, APP_HOOK_DOC_CLOSING, doc_closing, st); }
+static void clone_init(app *a, void *st)
+{
+    (void)app_hook_add(a, APP_HOOK_DOC_CLOSING, doc_closing, st);
+}
 
 static void clone_fini(app *a, void *st)
 {

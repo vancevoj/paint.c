@@ -61,7 +61,12 @@ static pc_doc *reference(app *a, pc_doc *snap, uint32_t layer_id, const path *p,
     pc_rect r;
     pc_px32 color = button == APP_BTN_LEFT ? app_primary(a) : app_secondary(a);
     CHECK(h && t && b);
-    if (!h || !t || !b) { pc_brush_destroy(b); if (t) pc_txn_cancel(t); pc_hist_destroy(h); return snap; }
+    if (!h || !t || !b) {
+        pc_brush_destroy(b);
+        if (t) pc_txn_cancel(t);
+        pc_hist_destroy(h);
+        return snap;
+    }
     if (k == REF_ERASE) {
         pc_brush_paint_eraser(color, true, &src, &o);
     } else {

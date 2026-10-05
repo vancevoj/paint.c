@@ -376,7 +376,8 @@ static void bucket_overlay(app *a, void *st, app_overlay *o)
     if (c && paint_live_doc(a, &b->L)) {
         double cx = (double)c->ox + 0.5, cy = (double)c->oy + 0.5;
         double off = (double)ui_px(o->ui, PAINT_MOVE_OFFSET_DIP) / app_ov_zoom(o);
-        bool hot = b->dragging || (b->hover && over_origin(a, b, b->hx, b->hy));
+        bool hot = b->dragging ||
+                   (b->hover && app_canvas_over(a) && over_origin(a, b, b->hx, b->hy));
         paint_ov_point(o, cx, cy, hot);
         paint_ov_move_handle(o, cx + off, cy + off, hot);
     }

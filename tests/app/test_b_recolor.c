@@ -41,7 +41,8 @@ static void t_sampling_once(void)
     CHECK(strcmp(b_top_label(a), "Recolor") == 0 && b_history(a) == 3u);
     for (int32_t x = 25; x < 55; x += 7) {
         got = at_doc_px(a, x, 20);
-        want = pc_recolor_pixel(img(x, 20), img(20, 20), green, 30u, PC_RECOLOR_ALPHA_PREMULTIPLIED);
+        want = pc_recolor_pixel(img(x, 20), img(20, 20), green, 30u,
+                                PC_RECOLOR_ALPHA_PREMULTIPLIED);
         CHECK(b_eq(got, want));
         CHECK(got.g >= 195 && got.r < 60);          /* recolored, variation kept */
     }

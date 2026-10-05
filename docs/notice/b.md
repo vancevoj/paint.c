@@ -4,9 +4,12 @@ No code was copied or translated from any Paint.NET release. Paint.NET
 4.x, 5.x and 6.x were never decompiled or disassembled (P-01, ADR-002).
 Behavior comes from the Paint.NET 5.1 documentation mirror (text in
 /ai/work/paintc-research/pdn-docs; the toolbar images of the online
-documentation were looked at for the order of the options), the earlier
-lanes' black-box observations of Paint.NET 5.2 under Wine
-(docs/inventory/OBSERVED.md, docs/core/brush.md, docs/core/fills.md),
+documentation were looked at for the order of the options), black-box
+observations of Paint.NET 5.2 under Wine (the earlier lanes' in
+docs/inventory/OBSERVED.md, docs/core/brush.md, docs/core/fills.md, and
+this lane's own probes of the toolbar buttons, nubs and fine-grained
+history, listed in docs/app/paint_tools.md; screenshots only, nothing
+was read from the program's files),
 and the MIT-licensed Paint.NET 3.36.7 source (mirror:
 github.com/rivy/OpenPDN, Copyright dotPDN LLC, Rick Brewster, Tom
 Jackson and contributors, MIT, see NOTICE), which was read only for the

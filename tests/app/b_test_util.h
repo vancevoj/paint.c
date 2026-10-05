@@ -180,8 +180,8 @@ static inline pc_px32 b_layer_px(app *a, int32_t x, int32_t y)
     app_doc *d = app_active_doc(a);
     pc_px32 p;
     memset(&p, 0, sizeof p);
-    if (d && app_doc_layer(d)) pc_layer_read_rect(d->doc, app_doc_layer(d), pc_rect_make(x, y, 1, 1),
-                                                  &p, 1u);
+    if (d && app_doc_layer(d))
+        pc_layer_read_rect(d->doc, app_doc_layer(d), pc_rect_make(x, y, 1, 1), &p, 1u);
     return p;
 }
 
