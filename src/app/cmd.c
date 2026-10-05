@@ -505,7 +505,13 @@ static bool keeps_live_edit(app *a, const app_cmd *c)
 bool app_cmd_exec(app *a, const char *id)
 {
     const app_cmd *c = app_cmd_find(a, id);
-    if (!c || !cmd_enabled(a, c)) return false;
+    if (!c) return false;
+    /* lane W4-MODAL: a modal dialog owns the input (Paint.NET disables the
+     * main window under it); like the key dispatch, nothing else runs, so a
+     * script or another programmatic caller cannot cut, save or open more
+     * dialogs over it */
+    if (app_dialog_active(a) && !(c->flags & APP_CMD_IN_DIALOG)) return false;
+    if (!cmd_enabled(a, c)) return false;
     if (!(c->flags & APP_CMD_NO_COMMIT) && !keeps_live_edit(a, c)) app_tool_finish(a);
     /* the commit may have changed what is enabled (e.g. a live wand) */
     if (!cmd_enabled(a, c)) return false;

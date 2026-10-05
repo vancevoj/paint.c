@@ -5,11 +5,14 @@
  * "view.zoom_in") with a label, an icon, optional enabled / checked
  * predicates and a run callback. Menus, toolbar buttons, panel buttons and
  * keyboard shortcuts all execute commands through app_cmd_exec, which:
- *   1. refuses disabled commands (predicate, or APP_CMD_NEEDS_DOC without
+ *   1. refuses every command while a modal dialog is open (Paint.NET
+ *      disables the main window then; lane W4-MODAL), except commands
+ *      flagged APP_CMD_IN_DIALOG,
+ *   2. refuses disabled commands (predicate, or APP_CMD_NEEDS_DOC without
  *      an open image),
- *   2. finishes the live tool edit first (TOOLS.md T-FW-FINISH) unless the
+ *   3. finishes the live tool edit first (TOOLS.md T-FW-FINISH) unless the
  *      command has APP_CMD_NO_COMMIT,
- *   3. runs the callback and requests a frame.
+ *   4. runs the callback and requests a frame.
  *
  * Shortcuts: the default keymap (src/app/cmd.c, mirrors
  * docs/inventory/SHORTCUTS.md) binds ids to keys, so a module only
@@ -43,6 +46,9 @@ extern "C" {
 #define APP_CMD_WEAK      32u   /* provisional implementation: a later registration
                                    of the same id replaces it (wave 2a stand-ins
                                    that feature lanes supersede by adding files) */
+#define APP_CMD_IN_DIALOG 64u   /* lane W4-MODAL: may run while a modal dialog is
+                                   open (touches neither the images nor the
+                                   dialog stack's flows) */
 
 typedef struct app_cmd app_cmd;
 typedef void (*app_cmd_fn)(app *a, const app_cmd *c);
@@ -93,7 +99,8 @@ const app_cmd *app_cmd_find(const app *a, const char *id);
 bool           app_cmd_exists(const app *a, const char *id);
 bool           app_cmd_enabled(app *a, const char *id);    /* false for unknown ids */
 bool           app_cmd_checked(app *a, const char *id);
-/* Execute (see the rules above). false when unknown or disabled. */
+/* Execute (see the rules above). false when unknown, disabled or refused
+ * because a modal dialog is open. */
 bool           app_cmd_exec(app *a, const char *id);
 /* Number of commands and the i-th one (registration order). */
 int32_t        app_cmd_count(const app *a);

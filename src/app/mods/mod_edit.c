@@ -98,8 +98,12 @@ static pc_status erase_to_color(app_doc *d, uint32_t layer_id, pc_px32 color, co
     pc_txn *t;
     pc_status st = PC_OK;
     if (pc_rect_is_empty(r)) return PC_ERR_STATE;
+    /* lane W4-MODAL: another edit holds the image's transaction (an effect
+     * preview, INV-TXN-EXCLUSIVE); that is "not now", not out of memory */
+    if (doc->open_txns) return PC_ERR_STATE;
     cov = (uint8_t *)malloc(PC_TILE_PX);
-    t = cov ? pc_txn_begin(doc, label) : NULL;
+    if (!cov) return PC_ERR_NOMEM;
+    t = pc_txn_begin(doc, label);
     if (!t) {
         free(cov);
         return PC_ERR_NOMEM;
@@ -310,7 +314,12 @@ static void cmd_cut(app *a, const app_cmd *c)
     app_doc *d = app_active_doc(a);
     pc_status st;
     (void)c;
-    if (!app_doc_layer(d) || !do_copy(a, false)) return;
+    if (!app_doc_layer(d)) return;
+    /* lane W4-MODAL: the image must be editable before anything reaches the
+     * clipboard; while another edit holds its transaction Cut does nothing,
+     * like Erase Selection */
+    if (d->txn || d->doc->open_txns) return;
+    if (!do_copy(a, false)) return;
     st = erase_and_deselect(a, d, app_px_make(255, 255, 255, 0), "Cut");
     if (st != PC_OK && st != PC_ERR_STATE) app_error(a, "Cut failed: %s.", pc_status_str(st));
 }
