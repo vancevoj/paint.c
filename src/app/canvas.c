@@ -727,17 +727,20 @@ static void draw_cb(SDL_Renderer *r, ui_rect clip, void *ud)
     memset(&st, 0, sizeof st);
     st.checker_a = gfx_rgba_make(p->checker_a.r, p->checker_a.g, p->checker_a.b, 255);
     st.checker_b = gfx_rgba_make(p->checker_b.r, p->checker_b.g, p->checker_b.b, 255);
-    /* lane M: Settings > Canvas checkerboard brightness (0.75 = theme colors) */
+    /* lane M: Settings > Canvas checkerboard brightness: 0.75 = the theme
+     * colors, lower scales them toward black, higher lifts them toward
+     * white (at most a quarter of the way, so the squares stay distinct) */
     if (a->m_cv_checker > 0.0f && (a->m_cv_checker < 0.749f || a->m_cv_checker > 0.751f)) {
-        float k = a->m_cv_checker / 0.75f;
-        float ca[3] = { (float)st.checker_a.r, (float)st.checker_a.g, (float)st.checker_a.b };
-        float cb[3] = { (float)st.checker_b.r, (float)st.checker_b.g, (float)st.checker_b.b };
-        for (int i = 0; i < 3; i++) {
-            ca[i] = ca[i] * k > 255.0f ? 255.0f : ca[i] * k;
-            cb[i] = cb[i] * k > 255.0f ? 255.0f : cb[i] * k;
+        float b = a->m_cv_checker;
+        float c[6] = { (float)st.checker_a.r, (float)st.checker_a.g, (float)st.checker_a.b,
+                       (float)st.checker_b.r, (float)st.checker_b.g, (float)st.checker_b.b };
+        for (int i = 0; i < 6; i++) {
+            if (b < 0.75f) c[i] = c[i] * b / 0.75f;
+            else c[i] = c[i] + (255.0f - c[i]) * (b - 0.75f);
+            if (c[i] > 255.0f) c[i] = 255.0f;
         }
-        st.checker_a = gfx_rgba_make((uint8_t)ca[0], (uint8_t)ca[1], (uint8_t)ca[2], 255);
-        st.checker_b = gfx_rgba_make((uint8_t)cb[0], (uint8_t)cb[1], (uint8_t)cb[2], 255);
+        st.checker_a = gfx_rgba_make((uint8_t)c[0], (uint8_t)c[1], (uint8_t)c[2], 255);
+        st.checker_b = gfx_rgba_make((uint8_t)c[3], (uint8_t)c[4], (uint8_t)c[5], 255);
     }
     st.checker_cell = ui_px(a->ui, 8.0f);
     st.grid = a->grid;

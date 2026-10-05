@@ -234,7 +234,13 @@ static void t_canvas_prefs(void)
     CHECK(a->m_cv_checker == 0.25f && l25 < l75 / 2);
     CHECK(app_settings_set_double(s, "canvas.checker", 5.0));     /* clamped */
     m_settings_apply(a);
+    at_frames(a, 2);
     CHECK(a->m_cv_checker == 1.0f);
+    /* the brightest setting is lighter and still shows two kinds of squares */
+    {
+        uint32_t c0 = image_px(a, 3.0, 3.0), c1 = image_px(a, 12.0, 3.0);
+        CHECK(c0 != c1 && lum(c0) + lum(c1) > l75);
+    }
     /* history memory limit */
     CHECK(app_settings_set_int(s, "history.limit_mb", 64));
     m_settings_apply(a);
