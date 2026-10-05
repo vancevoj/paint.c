@@ -782,8 +782,7 @@ static pc_status decode_tiles(const tif *t, pc_rowsink *rs, bool *trunc)
                               (uint32_t)(k * per + (uint64_t)ty * across + tx));
         for (uint32_t r0 = 0; r0 < rows && st == PC_OK; r0 += PC_TILE_DIM) {
             uint32_t nr = rows - r0 < PC_TILE_DIM ? rows - r0 : PC_TILE_DIM;
-            memset(band, 0, (size_t)nr * t->w * sizeof *band);
-            memset(full, 0, PC_TILE_DIM);
+            memset(full, 0, PC_TILE_DIM);           /* band rows are cleared on first use */
             for (uint32_t tx = 0; tx < across; tx++) {
                 uint32_t x0 = tx * t->tw, cols = t->w - x0 < t->tw ? t->w - x0 : t->tw;
                 seg *ts = &sg[(size_t)tx * planes];
@@ -796,6 +795,7 @@ static pc_status decode_tiles(const tif *t, pc_rowsink *rs, bool *trunc)
                     }
                     if (!ok) { *trunc = true; continue; }       /* stays transparent */
                     convert_px(t, buf, cols, tmp);
+                    if (!full[r]) memset(band + (size_t)r * t->w, 0, (size_t)t->w * sizeof *band);
                     memcpy(band + (size_t)r * t->w + x0, tmp, (size_t)cols * sizeof *tmp);
                     full[r] = 1u;
                 }

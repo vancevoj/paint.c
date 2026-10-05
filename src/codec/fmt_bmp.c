@@ -3,8 +3,10 @@
  * Reader: BITMAPCOREHEADER, OS/2 2.x, BITMAPINFOHEADER and V2..V5 headers;
  * 1/2/4/8-bit palettes, 16-bit (555, 565, bit fields), 24-bit, 32-bit (bit
  * fields with or without alpha, BI_ALPHABITFIELDS), RLE4 and RLE8 with
- * delta, end-of-line and end-of-bitmap escapes (writes past a row end are
- * rejected, skipped pixels are transparent), top-down and bottom-up rows,
+ * delta, end-of-line and end-of-bitmap escapes (skipped pixels are
+ * transparent; runs that reach past the 32-bit padded row are rejected,
+ * pixels in the padding are dropped, since ImageMagick pads odd rows that
+ * way), top-down and bottom-up rows,
  * resolution, embedded V5 ICC profiles. Embedded JPEG/PNG, Huffman and
  * RLE24 bitmaps report PC_ERR_UNSUPPORTED. The fourth byte of a 32-bit
  * BI_RGB bitmap is used as alpha unless it is zero in every pixel (then the
@@ -310,6 +312,7 @@ static pc_status decode_rle(const uint8_t *p, size_t n, const bmp_info *bi, pc_r
                             pc_px32 *row, bool *holes)
 {
     uint32_t w = (uint32_t)bi->w, h = (uint32_t)bi->h, x = 0, y = 0;
+    uint32_t pw = (uint32_t)((((uint64_t)w * bi->bpp + 31u) / 32u) * 32u / bi->bpp);
     bool rle4 = bi->comp == BI_RLE4, dirty = false;
     size_t pos = bi->data;
     uint64_t written = 0;
@@ -319,12 +322,11 @@ static pc_status decode_rle(const uint8_t *p, size_t n, const bmp_info *bi, pc_r
         uint32_t c0 = p[pos], c1 = p[pos + 1u];
         pos += 2u;
         if (c0) {                                         /* encoded run */
-            if (c0 > w - x) return PC_ERR_FORMAT;
-            for (uint32_t i = 0; i < c0; i++) {
+            if (c0 > pw - x) return PC_ERR_FORMAT;
+            for (uint32_t i = 0; i < c0; i++, x++) {
                 uint32_t v = rle4 ? ((i & 1u) ? (c1 & 15u) : (c1 >> 4)) : c1;
-                row[x++] = pal_px(bi, v);
+                if (x < w) { row[x] = pal_px(bi, v); written++; }
             }
-            written += c0;
             dirty = true;
         } else if (c1 == 0u || c1 == 1u) {                /* end of line / bitmap */
             st = pc_rowsink_put(rs, y, row);
@@ -339,7 +341,7 @@ static pc_status decode_rle(const uint8_t *p, size_t n, const bmp_info *bi, pc_r
             if (pos + 1u >= n) break;
             dx = p[pos]; dy = p[pos + 1u];
             pos += 2u;
-            if (dx > w - x) return PC_ERR_FORMAT;
+            if (dx > pw - x) return PC_ERR_FORMAT;
             x += dx;
             if (dy) {
                 st = pc_rowsink_put(rs, y, row);
@@ -351,15 +353,14 @@ static pc_status decode_rle(const uint8_t *p, size_t n, const bmp_info *bi, pc_r
         } else {                                          /* absolute run */
             size_t bytes = rle4 ? (size_t)((c1 + 1u) / 2u) : (size_t)c1;
             bytes = (bytes + 1u) & ~(size_t)1u;
-            if (c1 > w - x) return PC_ERR_FORMAT;
+            if (c1 > pw - x) return PC_ERR_FORMAT;
             if (bytes > n - pos) break;                   /* truncated */
-            for (uint32_t i = 0; i < c1; i++) {
+            for (uint32_t i = 0; i < c1; i++, x++) {
                 uint32_t v = rle4 ? ((i & 1u) ? (p[pos + i / 2u] & 15u) : (p[pos + i / 2u] >> 4))
                                   : p[pos + i];
-                row[x++] = pal_px(bi, v);
+                if (x < w) { row[x] = pal_px(bi, v); written++; }
             }
             pos += bytes;
-            written += c1;
             dirty = true;
         }
     }
@@ -404,6 +405,11 @@ static pc_status bmp_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
     bi = (bmp_info *)malloc(sizeof *bi);
     if (!bi) return PC_ERR_NOMEM;
     st = parse_header(p, n, bi);
+    if (st == PC_OK) {
+        pc_codec_limits dl;
+        if (!lim) { pc_codec_limits_default(&dl); lim = &dl; }
+        st = pc_codec_check_size(lim, (uint64_t)bi->w, (uint64_t)bi->h, 1u);
+    }
     if (st == PC_OK && bi->comp != BI_RLE4 && bi->comp != BI_RLE8 && !raw_complete(n, bi))
         st = PC_ERR_FORMAT;                       /* truncated: fail before allocating */
     if (st == PC_OK)
