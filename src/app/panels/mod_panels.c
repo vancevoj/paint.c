@@ -120,11 +120,20 @@ void mod_panels(app *a)
                       APP_CMD_NO_COMMIT, cmd_toggle_slot, NULL);
     (void)app_cmd_add(a, "colors.reset", "Reset Colors", UI_ICON_RESET_COLORS, APP_CMD_NO_COMMIT,
                       cmd_reset_colors, NULL);
-    (void)app_cmd_add(a, "window.reset_all", "Reset Window Layout", UI_ICON_RESET,
-                      APP_CMD_NO_COMMIT, cmd_reset_layout, NULL);
-    /* paint.c extra: all four windows back to their default places (the same
-     * as --reset-windows); a View menu item after the documented ones */
-    (void)app_menu_extra(a, "View", "window.reset_all", NULL);
+    /* Reset Window Layout: all four windows back to their default places,
+     * the same as --reset-windows. The command is "window.reset_all"
+     * (mods/mod_help.c registers it, with a stand-in here when it is not
+     * there); a paint.c extra in the View menu after the documented items */
+    if (!app_cmd_exists(a, "window.reset_all")) {
+        memset(&cd, 0, sizeof cd);
+        cd.id = "window.reset_all";
+        cd.label = "Reset Window Layout";
+        cd.icon = UI_ICON_RESET;
+        cd.flags = APP_CMD_NO_COMMIT | APP_CMD_WEAK;
+        cd.run = cmd_reset_layout;
+        (void)app_cmd_register(a, &cd);
+    }
+    (void)app_menu_extra(a, "View", "window.reset_all", "Reset Window Layout");
 
     /* K-IMG-CTX: the image list context menu of the active image */
     memset(&cd, 0, sizeof cd);

@@ -456,6 +456,36 @@ static void t_palette_menu(void)
             pal_free_names(names, n);
         }
     }
+    /* many palette files: the menu keeps its size and scrolls */
+    {
+        static const char one[] = "FF000000\n";
+        for (int i = 0; i < 30; i++) {
+            char nm[64], fp[1400];
+            snprintf(nm, sizeof nm, "P%02d.txt", i);
+            pal_path_join(fp, sizeof fp, dir, nm);
+            CHECK(pal_write_file_atomic(fp, one, sizeof one - 1u) == PC_OK);
+        }
+        CHECK(pt_click_rect(a, "colors.palmenu", SDL_BUTTON_LEFT));
+        at_frames(a, 3);
+        {
+            ui_rect save = pnl_rect(a, "palmenu.save"), it0 = pnl_rect(a, "palmenu.item0");
+            SDL_Event e;
+            CHECK(!ui_rect_empty(save) && save.y + save.h <= 800);
+            CHECK(!ui_rect_empty(it0));
+            memset(&e, 0, sizeof e);
+            e.type = SDL_EVENT_MOUSE_WHEEL;
+            e.wheel.y = -3.0f;
+            e.wheel.mouse_x = pt_cx(it0);
+            e.wheel.mouse_y = pt_cy(it0);
+            at_mouse(a, SDL_EVENT_MOUSE_MOTION, pt_cx(it0), pt_cy(it0), 0);
+            at_frames(a, 1);
+            app_event(a, &e);
+            at_frames(a, 2);
+            CHECK(pnl_rect(a, "palmenu.item0").y < it0.y);
+        }
+        pt_key(a, SDLK_ESCAPE, SDL_KMOD_NONE);
+        at_frames(a, 2);
+    }
     /* the palette and the expanded mode come back with the next start */
     pnl_colors_set_expanded(a, true);
     app_destroy(a);

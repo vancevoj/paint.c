@@ -46,6 +46,7 @@
 #define GAP_DIP     2.0f
 #define COLS        16
 #define CHAN_ROW    24.0f
+#define MENU_ROWS   16        /* palette files shown before the list scrolls */
 
 enum { CH_R = 0, CH_G, CH_B, CH_H, CH_S, CH_V, CH_A, CH_COUNT };
 
@@ -749,7 +750,19 @@ static void palette_menu(app *a, colors_state *c)
     ui_ctx *ui = a->ui;
     char dir[1024];
     bool has_dir = pnl_palettes_dir(a, dir, sizeof dir);
+    bool scroll = c->nnames > MENU_ROWS;
     if (!ui_popup_begin(ui, "##palette_menu")) return;
+    if (scroll) {
+        /* many palette files: a scrolling part with the wheel (R 4.2.1) */
+        int32_t ih = ui_px(ui, ui_get_theme(ui)->m.menu_item_h);
+        ui_size cell = ui_size_px(260.0f);
+        ui_rect area;
+        ui_layout_row(ui, 0.0f, 1, &cell);
+        area = ui_layout_next(ui, ui_px(ui, 260.0f), ih * MENU_ROWS);
+        ui_layout_column(ui);
+        ui_scroll_begin(ui, "##palette_scroll", area, UI_SCROLL_NO_BG);
+        ui_layout_set_spacing(ui, 0.0f);
+    }
     for (int i = 0; i < c->nnames; i++) {
         char lbl[160];
         snprintf(lbl, sizeof lbl, "%s##palette_item%d", c->names[i], i);
@@ -761,6 +774,7 @@ static void palette_menu(app *a, colors_state *c)
         }
         if (i == 0) pnl_rect_set(a, "palmenu.item0", ui_last_rect(ui));
     }
+    if (scroll) ui_scroll_end(ui);
     if (c->nnames > 0) ui_menu_separator(ui);
     if (ui_menu_item_icon(ui, UI_ICON_SAVE, "Save Current Palette As...", NULL, has_dir))
         open_save_dialog(a);

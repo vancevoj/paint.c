@@ -587,6 +587,9 @@ static bool src_texture(app *a, const th_state *t, th_src *s, SDL_Texture **tex,
         *tex = upload(a, *tex, cw, ch, tw, th, buf);
         s->need_upload = false;
         s->upload_ms = a->now;
+        /* the UI of this frame was declared before the upload: show the new
+         * thumbnail in the next one (rendering is on demand) */
+        app_request_frame(a);
     }
     free(buf);
     return *tex != NULL;
