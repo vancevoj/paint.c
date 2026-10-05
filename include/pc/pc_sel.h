@@ -125,13 +125,15 @@ pc_status pc_sel_invert(pc_hist *h, const char *label);
 
 /* ---- Move Selection: affine transforms of the selection ----------------------------
  * m maps old document coordinates to new ones (move, rotate about a point,
- * scale). Coverage is resampled bilinearly at pixel centers; when m
- * magnifies, edges are re-sharpened by the magnification so hard edges
- * stay one antialiased pixel wide. Integer translations and quarter turns
- * about pixel corners or centers are exact. Coverage that lands outside
- * the document is dropped, so tools that drag a selection should transform
- * from the selection at drag start (pc_sel_snap) with the cumulative
- * matrix rather than chaining small transforms. */
+ * scale, flip with a negative scale). Coverage is resampled bilinearly at
+ * pixel centers, separably along the source axes; along an axis that m
+ * stretches, edge ramps are steepened by that stretch (kept within the two
+ * neighbor values) so magnified hard edges stay one antialiased pixel
+ * wide and uniform areas keep their value. Integer translations and
+ * quarter turns about pixel corners or centers are exact. Coverage that
+ * lands outside the document is dropped, so tools that drag a selection
+ * should transform from the selection at drag start (pc_sel_snap) with the
+ * cumulative matrix rather than chaining small transforms. */
 typedef struct pc_sel_snap {
     pc_tile **grid;          /* retained copy of the grid (NULL = empty) */
     uint32_t  w, h, tiles_x, tiles_y;
@@ -145,6 +147,8 @@ typedef struct pc_sel_snap {
 pc_status pc_sel_snap_take(const pc_doc *d, pc_sel_snap *s);
 void      pc_sel_snap_free(pc_sel_snap *s);          /* NULL-safe; zeroes *s */
 
+/* Transform the current selection (records nothing when nothing is
+ * selected). PC_ERR_ARG for a singular or non-finite m. */
 pc_status pc_sel_transform(pc_hist *h, const pc_affine *m, const char *label);
 /* Replace the selection with snap transformed by m. snap must have been
  * taken from the same document at its current size. */
@@ -219,12 +223,13 @@ void      pc_sel_src_state(pc_sel_src *s, const pc_sel_state *st);
  * sel_gen and gen). pc_sel_state_exchange already does this. */
 void      pc_sel_touch(pc_doc *d);
 
-/* Edit > Copy Selection / Paste Selection helpers: the selection outline
- * as the polygon-list text (*out malloc'ed, caller frees with free()); like
- * Paint.NET's own text, each polygon starts at its top-left vertex and
- * outer boundaries run clockwise on screen. And
- * the text applied with a combine mode (even-odd fill, pixelated or
- * antialiased). Pasting untrusted text is safe: see pc_poly_from_json. */
+/* Edit > Copy Selection: the selection outline as polygon-list text (*out
+ * is malloc'ed, the caller frees it with free()). Like Paint.NET's own
+ * text, each polygon starts at its top-left vertex and outer boundaries
+ * run clockwise on screen; nothing selected gives an empty list.
+ * Edit > Paste Selection: the text applied with a combine mode (even-odd
+ * fill, pixelated or antialiased). Untrusted text is safe to paste: see
+ * pc_poly_from_json. */
 pc_status pc_sel_copy_text(const pc_doc *d, char **out, size_t *len);
 pc_status pc_sel_paste_text(pc_hist *h, const char *text, size_t n, bool antialias,
                             pc_sel_mode mode, const char *label);
