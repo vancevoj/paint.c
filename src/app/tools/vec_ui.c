@@ -71,7 +71,7 @@ const char *vec_curve_name(int32_t type)
     return type >= 0 && type < 3 ? k[type] : "";
 }
 
-/* ---- drawing helpers ---------------------------------------------------------------------------- */
+/* ---- drawing helpers ------------------------------------------------------------------------- */
 static float lw_px(ui_ctx *ui, float dip)
 {
     float w = (float)ui_px(ui, dip);
@@ -296,7 +296,7 @@ void vec_icon_fill(ui_ctx *ui, int32_t fill, ui_rect r, pc_px32 fg, pc_px32 bg)
         }
 }
 
-/* ---- dropdown plumbing ------------------------------------------------------------------------------ */
+/* ---- dropdown plumbing ----------------------------------------------------------------------- */
 /* Frame in which each dropdown's popup was last seen open: a press on the
  * button that just dismissed the popup (outside click) must not reopen it.
  * A small table keyed by the popup id; main thread only. */
@@ -333,7 +333,8 @@ static ui_rect drop_button(app *a, const char *id, const char *pid, float w_dip,
     ui_color bg = !enabled ? p->field : (open || in.held) ? p->raised_active
                   : in.hovered ? p->raised_hover : p->raised;
     ui_draw_rrect(ui, r, rad, bg);
-    ui_draw_rrect_outline(ui, r, rad, ui_px_line(ui, 1.0f), in.hovered ? p->border_strong : p->border);
+    ui_draw_rrect_outline(ui, r, rad, ui_px_line(ui, 1.0f),
+                          in.hovered ? p->border_strong : p->border);
     ui_draw_icon(ui, UI_ICON_CHEVRON_DOWN, ui_rect_make(r.x + r.w - aw, r.y, aw, r.h),
                  ui_px(ui, 10.0f), enabled ? p->text_dim : p->text_disabled, p->icon_accent);
     if (tip) ui_tooltip(ui, tip);
@@ -393,7 +394,7 @@ static void popup_heading(ui_ctx *ui, const char *text)
     ui_label_ex(ui, text, UI_LABEL_DIM | UI_LABEL_SMALL);
 }
 
-/* ---- option widgets ---------------------------------------------------------------------------------- */
+/* ---- option widgets -------------------------------------------------------------------------- */
 bool vec_opt_fill(app *a, int32_t *fill)
 {
     ui_ctx *ui = app_ui(a);
@@ -610,7 +611,7 @@ bool vec_opt_corner(app *a, double *corner, bool enabled)
     return true;
 }
 
-/* ---- canvas handles -------------------------------------------------------------------------------------- */
+/* ---- canvas handles -------------------------------------------------------------------------- */
 float vec_pulse(app *a)
 {
     uint64_t now = app_now_ms(a);
@@ -656,14 +657,17 @@ void vec_ov_move_handle(app_overlay *o, double x, double y, float pulse)
     /* four arrows */
     ui_draw_line(ui, ui_vec2_make(c.x - s + a, c.y), ui_vec2_make(c.x + s - a, c.y), lw, dark);
     ui_draw_line(ui, ui_vec2_make(c.x, c.y - s + a), ui_vec2_make(c.x, c.y + s - a), lw, dark);
-    ui_draw_triangle(ui, ui_vec2_make(c.x - s + 1.0f, c.y), ui_vec2_make(c.x - s + a + 1.0f, c.y - a),
-                     ui_vec2_make(c.x - s + a + 1.0f, c.y + a), dark);
-    ui_draw_triangle(ui, ui_vec2_make(c.x + s - 1.0f, c.y), ui_vec2_make(c.x + s - a - 1.0f, c.y + a),
-                     ui_vec2_make(c.x + s - a - 1.0f, c.y - a), dark);
-    ui_draw_triangle(ui, ui_vec2_make(c.x, c.y - s + 1.0f), ui_vec2_make(c.x + a, c.y - s + a + 1.0f),
-                     ui_vec2_make(c.x - a, c.y - s + a + 1.0f), dark);
-    ui_draw_triangle(ui, ui_vec2_make(c.x, c.y + s - 1.0f), ui_vec2_make(c.x - a, c.y + s - a - 1.0f),
-                     ui_vec2_make(c.x + a, c.y + s - a - 1.0f), dark);
+    {
+        float in1 = s - 1.0f, in2 = s - a - 1.0f;
+        ui_draw_triangle(ui, ui_vec2_make(c.x - in1, c.y), ui_vec2_make(c.x - in2, c.y - a),
+                         ui_vec2_make(c.x - in2, c.y + a), dark);
+        ui_draw_triangle(ui, ui_vec2_make(c.x + in1, c.y), ui_vec2_make(c.x + in2, c.y + a),
+                         ui_vec2_make(c.x + in2, c.y - a), dark);
+        ui_draw_triangle(ui, ui_vec2_make(c.x, c.y - in1), ui_vec2_make(c.x + a, c.y - in2),
+                         ui_vec2_make(c.x - a, c.y - in2), dark);
+        ui_draw_triangle(ui, ui_vec2_make(c.x, c.y + in1), ui_vec2_make(c.x - a, c.y + in2),
+                         ui_vec2_make(c.x + a, c.y + in2), dark);
+    }
 }
 
 void vec_ov_pivot(app_overlay *o, double x, double y)

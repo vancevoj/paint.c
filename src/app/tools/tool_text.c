@@ -501,7 +501,7 @@ static void process_input(app *a, text_state *s, app_overlay *o)
     }
 }
 
-/* ---- options bar ------------------------------------------------------------------------------- */
+/* ---- options bar ----------------------------------------------------------------------------- */
 static double size_step(double v, int dir)
 {
     if (dir > 0) {
@@ -552,7 +552,8 @@ static bool ci_contains(const char *hay, const char *needle)
     if (!n) return true;
     for (; *hay; hay++) {
         size_t k = 0;
-        while (k < n && hay[k] && tolower((unsigned char)hay[k]) == tolower((unsigned char)needle[k]))
+        while (k < n && hay[k] &&
+               tolower((unsigned char)hay[k]) == tolower((unsigned char)needle[k]))
             k++;
         if (k == n) return true;
     }
@@ -574,7 +575,8 @@ static bool font_picker(app *a, text_state *s, text_fonts *tf)
     int32_t aw = ui_px(ui, 16.0f);
     ui_draw_rrect(ui, r, rad, open || in.held ? p->raised_active : in.hovered ? p->raised_hover
                                                                          : p->raised);
-    ui_draw_rrect_outline(ui, r, rad, ui_px_line(ui, 1.0f), in.hovered ? p->border_strong : p->border);
+    ui_draw_rrect_outline(ui, r, rad, ui_px_line(ui, 1.0f),
+                          in.hovered ? p->border_strong : p->border);
     ui_draw_text_box(ui, ui_font_regular(ui), ui_font_px(ui),
                      ui_rect_make(r.x + ui_px(ui, 8.0f), r.y, r.w - aw - ui_px(ui, 10.0f), r.h),
                      UI_ALIGN_LEFT, UI_TEXT_ELLIPSIS, p->text, s->family, strlen(s->family));

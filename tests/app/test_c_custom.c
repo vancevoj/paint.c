@@ -198,7 +198,8 @@ static void t_folder_and_tool(void)
     at_drag(a, 20.2, 20.2, 120.2, 120.2, 5, SDL_BUTTON_LEFT);
     {
         const vec_obj *o = vec_live_obj((vec_live *)app_tool_state(a, app_tool_find(a, "shapes")));
-        CHECK(o && o->shape.kind == PC_SHAPE_CUSTOM && o->shape.custom == &vec_custom_at(a, 1)->path);
+        CHECK(o && o->shape.kind == PC_SHAPE_CUSTOM &&
+              o->shape.custom == &vec_custom_at(a, 1)->path);
     }
     CHECK(px_eq(at_doc_px(a, 70, 100), 0, 0, 0, 255));   /* inside the triangle */
     CHECK(px_eq(at_doc_px(a, 25, 25), 255, 255, 255, 255));   /* outside, top left */

@@ -195,8 +195,10 @@ void vec_label(const vec_live *lv, vec_edit_kind k, char *out, size_t cap)
     const char *noun = lv->noun ? lv->noun : "Shape";
     const vec_obj *o = lv->op ? &lv->op_obj : vec_live_obj(lv);
     if (k == VEC_EDIT_CREATE) {
-        if (o && !o->is_line) (void)snprintf(out, cap, "%s: %s", noun, pc_shape_name(o->shape.kind));
-        else (void)snprintf(out, cap, "%s", noun);
+        if (o && !o->is_line)
+            (void)snprintf(out, cap, "%s: %s", noun, pc_shape_name(o->shape.kind));
+        else
+            (void)snprintf(out, cap, "%s", noun);
         return;
     }
     if ((unsigned)k >= sizeof verbs / sizeof verbs[0]) k = VEC_EDIT_DRAG;
@@ -681,7 +683,7 @@ bool vec_live_sync(app *a, vec_live *lv)
     return changed;
 }
 
-/* ---- hooks ------------------------------------------------------------------------------------ */
+/* ---- hooks ----------------------------------------------------------------------------------- */
 static const char *const k_vec_tools[] = { "shapes", "line_curve" };
 
 static vec_live *tool_live(app *a, const char *id, const app_tool **out)
