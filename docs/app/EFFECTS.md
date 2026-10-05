@@ -100,16 +100,23 @@ one control per `fx_prop` in schema order, like Paint.NET's property dialogs
 
 | Kind | Control |
 |---|---|
-| INT, REAL | label; slider, numeric up/down (typing, arrows, wheel, drag) and reset button; `FXP_F_SLIDER_LOG`, `FXP_F_PERCENT`, decimals from `step`; an empty label gives the row without a label line (Posterize levels under their check boxes) |
+| INT, REAL | label; slider, numeric up/down (typing, arrows, wheel, drag) and reset button; `FXP_F_PERCENT`, decimals from `step`; `FXP_F_SLIDER_LOG` is Paint.NET's non-linear "exponential scale" (W3B-FXCORE: `UI_SLIDER_EXP`, value = min + span t^2, ranges across zero keep zero at its linear place, measured O-UI-NONLIN); an empty label gives the row without a label line (Posterize levels under their check boxes) |
 | BOOL | check box |
 | CHOICE | `Label:` and a drop-down on one row |
-| COLOR | header; color wheel, R G B A channel bars with numbers, swatch, hex entry and reset (to the palette color for `FX_COLOR_PRIMARY` / `FX_COLOR_SECONDARY`) |
+| COLOR | header; color wheel, R G B A channel bars with numbers, swatch, hex entry and reset (to the palette color for `FX_COLOR_PRIMARY` / `FX_COLOR_SECONDARY`); `FXP_F_COLOR_NO_ALPHA` (fx_abi_ext.h, W3B-FXCORE) drops the A bar and stores alpha 255 (Drop Shadow) |
 | ANGLE | header; dial with numeric box (Shift snaps to 15 degrees) and reset |
 | POINT | header; pan pad over a thumbnail of the selection area, X and Y sliders with numeric boxes and reset buttons |
 | SEED | a button with the prop's label ("Randomize") that draws a new seed; other values never reseed |
 | CUSTOM | the widget registered for the prop's hint, hidden otherwise |
 
 `enabled_if` disables and dims a control while its condition is false.
+W3B-FXCORE: after every edit the builder applies the property rules of
+`fx_run.h` (`fx_props_rules`, with the member edited last remembered per
+params blob): `link:<bool>` groups move together while the check box is on
+(Posterize levels, Morphology width and height), and a `minmax:<key>` prop
+pushes its partner up (Frosted Glass); a session applies them once when it
+opens (`fx_params_apply_rules`). Drop Shadow (FX_FLAG_NO_SEL_CLIP) renders
+the whole layer and is blended without the selection mask.
 Effects with two or more color props and other props get two tabs, the
 effect name and "Colors" (Clouds). Dialog widths: 380 DIPs, Curves 340,
 Levels 540. Enter is OK (also from a numeric field, which commits first),

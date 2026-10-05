@@ -263,20 +263,24 @@ static ui_color_edit *color_edit(app *a, const void *params, uint32_t offset, ui
 
 /* ---- property rules (W3B-FXCORE) ---------------------------------------------------------- */
 /* fx_props_rules keeps, per link group, the member edited last; that state
- * lives as long as the dialog's params blob, so it is cached per blob like
- * the color edit state ("propdlg.links"). */
+ * lives as long as the dialog, so it is cached per (params blob, schema)
+ * like the color edit state ("propdlg.links") and forgotten when the slot
+ * missed a frame (a dialog that closed and opened again starts fresh, even
+ * when its new blob reuses the old address). */
 #define LINK_SLOTS 8
 #define LINK_PROPS 64u
 
 typedef struct link_slot {
-    const void *params;
-    uint32_t    n;
-    uint32_t    last[LINK_PROPS];
+    const void    *params;
+    const fx_prop *props;
+    uint32_t       n;
+    uint64_t       frame;          /* last frame that used it */
+    uint32_t       last[LINK_PROPS];
 } link_slot;
 
 typedef struct link_cache { link_slot s[LINK_SLOTS]; } link_cache;
 
-static uint32_t *link_state(app *a, const void *params, uint32_t n)
+static uint32_t *link_state(app *a, const fx_prop *props, const void *params, uint32_t n)
 {
     link_cache *c = (link_cache *)app_ext_get(a, "propdlg.links");
     link_slot *s = NULL;
@@ -290,14 +294,19 @@ static uint32_t *link_state(app *a, const void *params, uint32_t n)
         if (!c) return NULL;
     }
     for (int i = 0; i < LINK_SLOTS; i++)
-        if (c->s[i].params == params && c->s[i].n == n) s = &c->s[i];
+        if (c->s[i].params == params && c->s[i].props == props && c->s[i].n == n)
+            s = &c->s[i];
     if (!s) {
         memmove(&c->s[1], &c->s[0], (size_t)(LINK_SLOTS - 1) * sizeof c->s[0]);
         s = &c->s[0];
         memset(s, 0, sizeof *s);
         s->params = params;
+        s->props = props;
         s->n = n;
+    } else if (a->frame_no > s->frame + 1u) {
+        memset(s->last, 0, sizeof s->last);           /* a new dialog on an old address */
     }
+    s->frame = a->frame_no;
     return s->last;
 }
 
@@ -603,7 +612,12 @@ uint32_t afx_props_ui(app *a, const fx_prop *props, uint32_t n, void *params,
                       const app_props_ctx *ctx, const uint8_t *show)
 {
     ui_ctx *ui = a->ui;
-    uint32_t res = 0;
+    uint32_t res = 0, *links = NULL;
+    /* W3B-FXCORE: the link-rule state, touched every frame the dialog is
+     * drawn so it lives exactly as long as the dialog */
+    for (uint32_t i = 0; i < n && !links; i++)
+        if (fx_prop_link_source(props, n, i) != FX_RULE_NONE)
+            links = link_state(a, props, params, n);
     ui_push_id(ui, ctx && ctx->id ? ctx->id : "##props");
     for (uint32_t i = 0; i < n; i++) {
         const fx_prop *p = &props[i];
@@ -704,7 +718,7 @@ uint32_t afx_props_ui(app *a, const fx_prop *props, uint32_t n, void *params,
         if (changed) {
             /* W3B-FXCORE: linked values and soft min/max pairs follow the
              * edit (fx_run.h property rules); they show from the next frame */
-            (void)fx_props_rules(props, n, params, i, link_state(a, params, n));
+            (void)fx_props_rules(props, n, params, i, links);
             res |= APP_PROPS_CHANGED;
             if (!(p->flags & FXP_F_NO_PREVIEW)) res |= APP_PROPS_PREVIEW;
         }

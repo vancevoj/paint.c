@@ -87,6 +87,32 @@ static void t_posterize_link(void)
     at_frames(a, 1);
     CHECK(f_param(a, "linked") == 1.0);
     CHECK(f_param(a, "red") == g && f_param(a, "green") == g && f_param(a, "alpha") == g);
+    /* unlinked values remembered by OK; a new dialog starts its own rule
+     * state: linking syncs to the first member (Red), not to the Blue
+     * edited in the previous dialog */
+    r = afx_prop_hit(a, "linked", AFX_HIT_MAIN);
+    f_click(a, (float)r.x + 8.0f, (float)r.y + (float)r.h * 0.5f, SDL_BUTTON_LEFT);
+    r = afx_prop_hit(a, "red", AFX_HIT_MAIN);
+    f_click(a, (float)r.x + (float)r.w * 0.15f, (float)r.y + (float)r.h * 0.5f,
+            SDL_BUTTON_LEFT);
+    r = afx_prop_hit(a, "blue", AFX_HIT_MAIN);
+    f_click(a, (float)r.x + (float)r.w * 0.45f, (float)r.y + (float)r.h * 0.5f,
+            SDL_BUTTON_LEFT);
+    at_frames(a, 1);
+    {
+        double red = f_param(a, "red"), blue = f_param(a, "blue");
+        CHECK(red != blue && f_param(a, "linked") == 0.0);
+        CHECK(afx_session_ok(a, afx_active(a)));
+        CHECK(afx_wait_idle(a, 400));
+        CHECK(app_cmd_exec(a, "adjust.org.paintc.adjust.posterize"));
+        at_frames(a, 3);
+        CHECK(f_param(a, "red") == red && f_param(a, "blue") == blue);   /* remembered */
+        r = afx_prop_hit(a, "linked", AFX_HIT_MAIN);
+        f_click(a, (float)r.x + 8.0f, (float)r.y + (float)r.h * 0.5f, SDL_BUTTON_LEFT);
+        at_frames(a, 1);
+        CHECK(f_param(a, "linked") == 1.0);
+        CHECK(f_param(a, "blue") == red && f_param(a, "green") == red);
+    }
     afx_session_cancel(a, afx_active(a));
     at_frames(a, 2);
     app_destroy(a);
