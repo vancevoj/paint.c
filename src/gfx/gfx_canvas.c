@@ -733,16 +733,20 @@ static bool fine_plan(const pc_view_cache *vc, uint32_t level, double s, int64_t
 static void fine_build(const fine_src *fs, double s, int64_t u, int64_t v, uint32_t lw,
                        uint32_t lh, uint8_t *out)
 {
+    int64_t cx[PC_TILE_DIM];
+    float cw[PC_TILE_DIM][3];
+    for (int32_t i = 0; i < (int32_t)PC_TILE_DIM; i++)
+        fine_weights(u * PC_TILE_DIM + i, s, &cx[i], cw[i]);
     for (int32_t j = 0; j < (int32_t)PC_TILE_DIM; j++) {
         int64_t fy;
         float wy[3];
         uint8_t *row = out + (size_t)j * PC_TILE_DIM * 4u;
         fine_weights(v * PC_TILE_DIM + j, s, &fy, wy);
         for (int32_t i = 0; i < (int32_t)PC_TILE_DIM; i++) {
-            int64_t fx;
-            float wx[3], acc[3] = { 0.0f, 0.0f, 0.0f }, aw = 0.0f;
+            int64_t fx = cx[i];
+            const float *wx = cw[i];
+            float acc[3] = { 0.0f, 0.0f, 0.0f }, aw = 0.0f;
             uint8_t *o = row + (size_t)i * 4u;
-            fine_weights(u * PC_TILE_DIM + i, s, &fx, wx);
             for (int b = 0; b < 3; b++) {
                 if (wy[b] <= 0.0f || fy + b >= (int64_t)lh) continue;
                 for (int k = 0; k < 3; k++) {
