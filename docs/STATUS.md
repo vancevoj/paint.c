@@ -22,3 +22,4 @@
 - 2026-10-05 wave 1 lanes L0, L1A, L1B, L5A, L5B, L5C, L6B, L6C merged; 39 CTest executables pass, full pc_tests 20,488,758 checks pass. MinGW timespec fallback and MSVC narrowing casts applied from docs/patches.
 - 2026-10-05 CI green on all nine jobs (run 37266845400): Linux GCC/Clang/ASan+UBSan/TSan, mingw-w64 + Wine, Windows MSVC /W4 /WX and clang-cl, macOS 14 arm64 and macOS 15 Intel; 40/40 tests each. macOS jobs now run on dispatch, tags or [mac] commits.
 - 2026-10-05 W1-L6A merged: BMP, TGA, GIF, TIFF (own, hardened) read/write + quant.h (octree/median cut + k-means, Floyd-Steinberg level 0..8); PNG 8-bit save now uses it. 46 CTest executables pass.
+- 2026-10-05 W1-L3 merged: pc_ui toolkit over SDL_Renderer, embedded Inter, stb_truetype behind a font validator, 98 original icons, all widgets, gallery (paintc_ui_gallery). 57 CTest executables pass. Wave 1 complete.

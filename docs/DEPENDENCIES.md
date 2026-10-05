@@ -49,3 +49,5 @@ licenses below are permissive and compatible with the project's MIT license
 - Little-CMS is compiled with -fwrapv (GCC, Clang): malformed profiles can push
   its fixed-point math into signed overflow, which then wraps instead of being
   undefined behavior.
+| stb_truetype | v1.26 (commit 6e9f34d5429cf16790ec43c9bac3f1ee4ad1f760) | vendored third_party/stb_truetype | ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab | MIT or public domain (outline extraction only, behind src/ui/ui_font_check.c) |
+| Inter | 4.1 | embedded from assets/fonts | zip 9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e | SIL OFL 1.1 (UI font) |

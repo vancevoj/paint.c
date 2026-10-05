@@ -55,6 +55,10 @@ Third-party components (full license texts ship in licenses/ with every binary p
     libwebp 1.6.0              BSD 3-Clause          https://chromium.googlesource.com/webm/libwebp
     Little-CMS 2.19.1          MIT                   https://littlecms.com
     bcdec, stb_dxt, bc7enc     MIT or public domain  (see third_party/*/LICENSE*)
-    stb_truetype               MIT or public domain  (see third_party/stb_truetype)
+    stb_truetype 1.26          MIT or public domain, Copyright (c) 2017 Sean Barrett
+    Inter 4.1 (UI font)        SIL OFL 1.1, Copyright 2016 The Inter Project Authors
+                               (assets/fonts/OFL.txt)
+    Test fixtures only: subsets of Inter and Noto Sans CJK JP (SIL OFL 1.1, Copyright
+    2014-2021 Adobe, Reserved Font Name 'Source'), see tests/ui/data/README.md
 
 This software is based in part on the work of the Independent JPEG Group.
