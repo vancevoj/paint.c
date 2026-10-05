@@ -1066,6 +1066,22 @@ void ui_replay_root(ui_ctx *ctx, ui_root *root)
         }
         if (c->ni == 0) continue;
         if (c->filter >= 0) SDL_SetTextureScaleMode(c->tex, (SDL_ScaleMode)c->filter);
+        if (root->alpha < 0.999f && root->alpha >= 0.0f) {
+            /* lane SHELL: a translucent root (utility windows) */
+            const SDL_Vertex *src = dl->v + c->v0;
+            if (c->nv > ctx->fade_cap) {
+                SDL_Vertex *nv = (SDL_Vertex *)realloc(ctx->fade_v, (size_t)c->nv * sizeof *nv);
+                if (!nv) continue;
+                ctx->fade_v = nv;
+                ctx->fade_cap = c->nv;
+            }
+            for (int32_t k = 0; k < c->nv; k++) {
+                ctx->fade_v[k] = src[k];
+                ctx->fade_v[k].color.a *= root->alpha;
+            }
+            SDL_RenderGeometry(ctx->r, c->tex, ctx->fade_v, c->nv, dl->ix + c->i0, c->ni);
+            continue;
+        }
         SDL_RenderGeometry(ctx->r, c->tex, dl->v + c->v0, c->nv, dl->ix + c->i0, c->ni);
     }
 }

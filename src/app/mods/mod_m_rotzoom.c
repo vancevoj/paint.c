@@ -14,6 +14,8 @@
  *   Quality        1..8 supersamples, default 1
  *   Tiling Mode    None, Repeat, Mirror (default None)
  *   Sampling       Nearest Neighbor, Bilinear (default Bilinear)
+ * Sampling and supersampling run in linear light (gamma correct, lane
+ * SHELL), and the dialog leaves the canvas undimmed.
  * The active layer previews live through the document transaction
  * (pc_layerop_rotate_zoom_txn renders the original layer every time a
  * value changes, through the selection like any effect); OK commits one
@@ -94,6 +96,7 @@ void m_rz_to_rotzoom(const m_rz_values *v, pc_rotzoom *rz)
     rz->quality = (uint32_t)(v->quality < 1.0 ? 1.0 : (v->quality > 8.0 ? 8.0 : v->quality));
     rz->tiling = v->tiling == 1 ? PC_WRAP_REPEAT : (v->tiling == 2 ? PC_WRAP_MIRROR : PC_WRAP_NONE);
     rz->sampling = v->sampling == 0 ? PC_SAMPLE_NEAREST : PC_SAMPLE_BILINEAR;
+    rz->gamma = true;     /* lane SHELL: gamma-correct sampling (5.0.4+ parity) */
 }
 
 static void rz_free(void *p)
@@ -248,7 +251,8 @@ static bool rz_frame(app *a, void *st)
     uint32_t r;
     bool enter;
     if (!d || !pc_doc_layer_by_id(d->doc, g->layer_id)) return false;
-    ui_dialog_begin(ui, "Rotate / Zoom##rotzoom", 520.0f, 0.0f);
+    /* the canvas behind is the live preview: no dimmed backdrop (lane SHELL) */
+    ui_dialog_begin_ex(ui, "Rotate / Zoom##rotzoom", 520.0f, 0.0f, UI_DIALOG_NO_DIM);
     enter = app_dialog_take_enter(a);
     cells[0] = ui_size_px(170.0f);
     cells[1] = ui_size_fr(1.0f);

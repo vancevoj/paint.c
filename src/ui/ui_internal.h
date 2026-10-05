@@ -83,6 +83,7 @@ typedef struct ui_root {
     uint32_t prev_frame;
     uint32_t order;                 /* panels: z; modals and popups: open sequence */
     ui_dl    dl;
+    float    alpha;                 /* lane SHELL: opacity of the whole root, 1 by default */
 } ui_root;
 
 /* ---- layout -------------------------------------------------------------- */
@@ -272,6 +273,9 @@ struct ui_ctx {
     ui_id          prev_focus_roots[UI_MAX_FOCUS];
     int32_t        prev_nfocus;
     ui_id          autofocus_root;  /* focus the first widget of this root */
+    /* lane SHELL (O-UI-FOCUS): the first enabled text or numeric field of
+     * the autofocus root this frame and last frame; autofocus prefers it */
+    ui_id          autofocus_edit, prev_autofocus_edit;
 
     ui_id          last_id;
     ui_rect        last_rect;
@@ -341,6 +345,8 @@ struct ui_ctx {
     ui_cache       cache;
     ui_path        scratch_path;
     ui_path        scratch_stroke;
+    SDL_Vertex    *fade_v;          /* lane SHELL: vertices of a translucent root */
+    int32_t        fade_cap;
     uint8_t       *scratch;         /* coverage scratch for sprites */
     uint8_t        gamma[256];      /* glyph coverage curve */
     size_t         scratch_cap;

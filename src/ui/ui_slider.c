@@ -158,7 +158,18 @@ static bool number_rect(ui_ctx *ctx, ui_id id, ui_rect r, double *v, double min,
     if (!st || !ui_state_text(st, NUM_BUF)) return false;
     if (step <= 0.0) step = 1.0;
     focused = ctx->focus == eid;
-    if (!focused) format_num(st->text, NUM_BUF, *v, decimals, flags);
+    /* st->i[1]: frame of the last declaration; a field that was not shown
+     * last frame (a dialog opened again) starts clean */
+    if ((uint32_t)st->i[1] + 1u != ctx->frame) st->i[3] = 0;
+    st->i[1] = (int32_t)ctx->frame;
+    /* lane SHELL (O-UI-CLAMP): when the focus just left the field (Tab,
+     * click elsewhere) after the user typed into it, the typed text is
+     * still committed (and clamped) below, so it is not overwritten with
+     * the old value first. st->i[3]: typed since the last commit. */
+    if (!focused) {
+        const ui_state *es = ui_state_find(ctx, eid);
+        if (!(es && es->i[0] && st->i[3])) format_num(st->text, NUM_BUF, *v, decimals, flags);
+    }
     /* frame for the whole control */
     ui_draw_rrect(ctx, r, ctx->px.radius,
                   disabled ? ui_color_lerp(p->field, p->panel, 0.6f) : p->field);
@@ -178,18 +189,23 @@ static bool number_rect(ui_ctx *ctx, ui_id id, ui_rect r, double *v, double min,
                        NULL, UI_ALIGN_RIGHT);
     if (er & UI_EDIT_CHANGED) {
         double nv;
+        st->i[3] = 1;
         if (parse_num(st->text, &nv) && nv >= min && nv <= max) *v = nv;
     }
     if (er & (UI_EDIT_SUBMIT | UI_EDIT_DEACTIVATED)) {
         double nv;
         if (parse_num(st->text, &nv)) *v = round_dec(ui_clampd(nv, min, max), decimals);
         format_num(st->text, NUM_BUF, *v, decimals, flags);
+        st->i[3] = 0;
         if (ctx->edit.id == eid) { ctx->edit.anchor = 0; ctx->edit.cursor = strlen(st->text); }
     }
     /* Escape restores the value the field had when editing started (typed
      * values in range apply live, so "old" may already be an edit) */
     if (ctx->edit.id == eid && !editing) st->d[1] = old;
-    if (er & UI_EDIT_CANCEL) *v = editing ? st->d[1] : old;
+    if (er & UI_EDIT_CANCEL) {
+        *v = editing ? st->d[1] : old;
+        st->i[3] = 0;
+    }
     /* keys while focused: Up/Down step, PageUp/PageDown ten steps */
     if (ctx->focus == eid && !disabled) {
         double d = 0.0;

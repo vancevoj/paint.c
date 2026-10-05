@@ -5,8 +5,10 @@
  * (the current image profile, the built-in sRGB, Adobe RGB (1998), Display
  * P3 and ProPhoto RGB, or an imported .icc / .icm file), and has Import,
  * Export (writes the current profile), Assign, Convert and Close. Assign
- * and Convert are one history step each (edit/m_profile.h). The display's
- * own profile is not offered: SDL exposes no display profile (gap).
+ * and Convert are one history step each (edit/m_profile.h). Lane SHELL:
+ * the display's own profile is offered too when the platform reports one
+ * (SDL_GetWindowICCProfile through shell_cm.c: Windows, macOS and X11;
+ * Wayland reports none).
  *
  * Thread rules: main thread; Convert transforms tiles on the worker pool.
  * Ownership: dialog state is owned by the dialog stack; an imported
@@ -15,6 +17,7 @@
 #include "../edit/m_hist.h"
 #include "../edit/m_icc.h"
 #include "../edit/m_profile.h"
+#include "../shell_ext.h"
 #include "pc/pc_icc.h"
 
 #include <stdio.h>
@@ -247,9 +250,10 @@ static void blob_free(void *v)
 
 typedef struct profile_dlg {
     uint32_t doc_id;
-    int      choice;          /* 0 current, 1..4 built-ins, 5 imported */
+    int      choice;          /* 0 current, 1..4 built-ins, 5 imported, 6 display */
     icc_blob imported;        /* owned bytes */
     char     msg[200];
+    app     *a;               /* borrowed (lane SHELL: display profile lookups) */
 } profile_dlg;
 
 static void profile_free(void *p)
@@ -323,6 +327,10 @@ static pc_status selected_bytes(profile_dlg *g, app_doc *d, const uint8_t **icc,
         *len = g->imported.n;
         return PC_OK;
     }
+    if (g->choice == 6) {                        /* the display's profile (lane SHELL) */
+        *icc = app_cm_display_profile(g->a, len);
+        return *icc ? PC_OK : PC_ERR_STATE;
+    }
     if (g->choice == 1) return PC_OK;            /* sRGB: no embedded profile */
     {
         pc_status st = m_icc_builtin_profile((m_icc_builtin)(g->choice - 1), tmp, len);
@@ -336,12 +344,14 @@ static bool profile_frame(app *a, void *st)
     profile_dlg *g = (profile_dlg *)st;
     ui_ctx *ui = a->ui;
     app_doc *d = find_doc(a, g->doc_id);
-    const char *items[6];
-    char cur[200], buf[240];
+    const char *items[7];
+    int kinds[7];
+    char cur[200], buf[240], disp_name[200], ddesc[160];
     ui_size cells[4];
-    int n = 5, action = 0;
+    int n = 5, action = 0, sel = 0;
     uint32_t r;
     if (!d) return false;
+    g->a = a;
     {
         icc_blob *b = (icc_blob *)app_ext_get(a, IMPORT_KEY);
         if (b && b->p) {          /* a profile arrived from the Import dialog */
@@ -355,8 +365,25 @@ static bool profile_frame(app *a, void *st)
     m_profile_describe(d, cur, sizeof cur);
     snprintf(buf, sizeof buf, "Current image profile: %s", cur);
     items[0] = buf;
-    for (int i = 0; i < 4; i++) items[i + 1] = m_icc_builtin_name((m_icc_builtin)i);
-    if (g->imported.p) items[n++] = g->imported.name;
+    kinds[0] = 0;
+    for (int i = 0; i < 4; i++) {
+        items[i + 1] = m_icc_builtin_name((m_icc_builtin)i);
+        kinds[i + 1] = i + 1;
+    }
+    if (g->imported.p) {
+        kinds[n] = 5;
+        items[n++] = g->imported.name;
+    }
+    app_cm_display_describe(a, ddesc, sizeof ddesc);
+    if (ddesc[0]) {
+        snprintf(disp_name, sizeof disp_name, "Display: %s", ddesc);
+        kinds[n] = 6;
+        items[n++] = disp_name;
+    } else if (g->choice == 6) {
+        g->choice = 0;                           /* the display profile went away */
+    }
+    for (int i = 0; i < n; i++)
+        if (kinds[i] == g->choice) sel = i;
     ui_dialog_begin(ui, "Color Profile##colorprofile", 560.0f, 0.0f);
     ui_heading(ui, "Current profile");
     ui_label(ui, cur);
@@ -365,7 +392,7 @@ static bool profile_frame(app *a, void *st)
     cells[0] = ui_size_fr(1.0f);
     cells[1] = ui_size_auto();
     ui_layout_row(ui, 0.0f, 2, cells);
-    (void)ui_combo(ui, "##choice", &g->choice, items, n);
+    if (ui_combo(ui, "##choice", &sel, items, n) && sel >= 0 && sel < n) g->choice = kinds[sel];
     if (ui_button_ex(ui, "Import...##iccimport", UI_ICON_OPEN, 0)) {
         io_req *rq = (io_req *)calloc(1u, sizeof *rq);
         if (rq && a->win) {

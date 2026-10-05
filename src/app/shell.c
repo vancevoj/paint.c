@@ -169,7 +169,10 @@ static void top_row(app *a, ui_rect r)
         (void)app_cmd_exec(a, "app.settings");
     {
         ui_rect hb = place(a, &x, r.y + r.h / 2, 32.0f, 32.0f);
-        if (ui_icon_button(ui, "##help", UI_ICON_HELP, "Help"))
+        if (ui_icon_button(ui, "##help", UI_ICON_HELP, "Help (Alt+H)"))
+            ui_popup_open(ui, "##help_menu", hb, UI_POPUP_BELOW);
+        /* lane SHELL (MENUS.md, K-UI-HELPMENU): Alt+H opens the Help menu */
+        if (!app_dialog_active(a) && ui_key_take(ui, SDLK_H, UI_MOD_ALT))
             ui_popup_open(ui, "##help_menu", hb, UI_POPUP_BELOW);
         if (ui_popup_begin(ui, "##help_menu")) {
             app_help_menu(a);

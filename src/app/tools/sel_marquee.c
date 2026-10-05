@@ -28,7 +28,10 @@ static void load_opts(app *a, sel_marquee *m)
     m->ratio_h = app_settings_double(s, "tool.rect_select.ratio_h", 3.0);
     m->size_w = app_settings_double(s, "tool.rect_select.size_w", 400.0);
     m->size_h = app_settings_double(s, "tool.rect_select.size_h", 300.0);
-    m->size_units = (int)app_settings_int(s, "tool.rect_select.size_units", APP_UNITS_PX);
+    /* lane SHELL (V-UNITS-WHERE): until the user picks units, the fixed
+     * size uses the View units */
+    m->size_units = (int)app_settings_int(s, "tool.rect_select.size_units",
+                                          (int64_t)app_get_units(a));
     if (!(m->ratio_w > 0.0) || m->ratio_w > 65535.0) m->ratio_w = 4.0;
     if (!(m->ratio_h > 0.0) || m->ratio_h > 65535.0) m->ratio_h = 3.0;
     if (!(m->size_w > 0.0) || m->size_w > 65535.0) m->size_w = 400.0;

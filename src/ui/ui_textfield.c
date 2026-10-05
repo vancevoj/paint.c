@@ -105,6 +105,10 @@ uint32_t ui_edit_field(ui_ctx *ctx, ui_id id, ui_rect r, char *buf, size_t cap, 
     len = strlen(buf);
     in = ui_interact(ctx, id, r, UI_INTERACT_FOCUSABLE | UI_INTERACT_NO_KEYS |
                                      (disabled ? UI_INTERACT_DISABLED : 0u));
+    /* lane SHELL: candidate for a dialog's initial focus (O-UI-FOCUS) */
+    if (ctx->autofocus_root && !ctx->autofocus_edit && !disabled && !(flags & UI_EDIT_READONLY) &&
+        ctx->roots[ctx->cur_root].id == ctx->autofocus_root)
+        ctx->autofocus_edit = id;
     focused = in.focused && !disabled;
     if (in.hovered) ui_set_cursor(ctx, UI_CURSOR_TEXT);
 

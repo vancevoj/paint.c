@@ -1,5 +1,5 @@
-/* test_mip.c - display cache: premultiplied level 0 and the 2x2 box mip
- * chain against a reference downsample at every level, incremental updates
+/* test_mip.c - display cache: premultiplied level 0 and the gamma-correct
+ * 2x2 mip chain against a reference downsample at every level, incremental updates
  * rebuild exactly the ancestors of a changed tile, global-key short cut,
  * change lists, LRU budget with streaming of zoomed-out views, shuffled
  * fake threads, document size changes, OOM recovery. */
@@ -8,8 +8,31 @@
 #include "pc/pc_geom.h"
 #include "pc/pc_mip.h"
 
-/* Reference pyramid: level k as a contiguous premultiplied image. */
+#include <math.h>
+
+/* Reference pyramid: level k as a contiguous premultiplied image. Levels
+ * above 0 follow the gamma-correct contract of pc_mip.h (lane SHELL wave
+ * 3b; was the plain box average), computed here independently with libm. */
 typedef struct ref_level { uint32_t w, h; uint8_t *px; } ref_level;
+
+static double ref_dec(double c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
+
+static uint32_t g_lin[256], g_mid[255];
+
+static void ref_tables(void)
+{
+    for (uint32_t i = 0; i < 256u; i++)
+        g_lin[i] = (uint32_t)floor(65535.0 * ref_dec((double)i / 255.0) + 0.5);
+    for (uint32_t i = 0; i < 255u; i++)
+        g_mid[i] = (uint32_t)floor(65535.0 * ref_dec(((double)i + 0.5) / 255.0));
+}
+
+static uint32_t ref_enc(uint32_t v)
+{
+    uint32_t n = 0;
+    while (n < 255u && v > g_mid[n]) n++;     /* g_mid ascends */
+    return n;
+}
 
 static void ref_build(const pc_doc *d, const pc_comp_opts *o, ref_level lv[PC_MIP_LEVELS])
 {
@@ -31,15 +54,33 @@ static void ref_build(const pc_doc *d, const pc_comp_opts *o, ref_level lv[PC_MI
         b->px = (uint8_t *)malloc((size_t)b->w * b->h * 4u);
         if (!b->px) abort();
         for (uint32_t y = 0; y < b->h; y++)
-            for (uint32_t x = 0; x < b->w; x++)
-                for (uint32_t c = 0; c < 4u; c++) {
-                    uint32_t s = 2u;
-                    for (uint32_t q = 0; q < 4u; q++) {
-                        uint32_t sx = 2u * x + (q & 1u), sy = 2u * y + (q >> 1);
-                        if (sx < a->w && sy < a->h) s += a->px[((size_t)sy * a->w + sx) * 4u + c];
-                    }
-                    b->px[((size_t)y * b->w + x) * 4u + c] = (uint8_t)(s >> 2);
+            for (uint32_t x = 0; x < b->w; x++) {
+                uint8_t ch[4][4];
+                uint32_t A = 0, al;
+                uint8_t *out = b->px + ((size_t)y * b->w + x) * 4u;
+                for (uint32_t q = 0; q < 4u; q++) {
+                    uint32_t sx = 2u * x + (q & 1u), sy = 2u * y + (q >> 1);
+                    if (sx < a->w && sy < a->h)
+                        memcpy(ch[q], a->px + ((size_t)sy * a->w + sx) * 4u, 4u);
+                    else
+                        memset(ch[q], 0, 4u);
+                    A += ch[q][3];
                 }
+                if (A == 0u) { memset(out, 0, 4u); continue; }
+                al = (A + 2u) >> 2;
+                for (uint32_t c = 0; c < 3u; c++) {
+                    uint64_t S = 0;
+                    for (uint32_t q = 0; q < 4u; q++) {
+                        uint32_t av = ch[q][3], v;
+                        if (!av) continue;
+                        v = ((uint32_t)ch[q][c] * 255u + av / 2u) / av;
+                        if (v > 255u) v = 255u;
+                        S += (uint64_t)g_lin[v] * av;
+                    }
+                    out[c] = (uint8_t)pc_mul255(ref_enc((uint32_t)((S + A / 2u) / A)), al);
+                }
+                out[3] = (uint8_t)al;
+            }
     }
 }
 
@@ -387,6 +428,7 @@ static void t_mip_oom(void)
 int main(int argc, char **argv)
 {
     pc_test_init(argc, argv);
+    ref_tables();
     RUN(t_level_geometry);
     RUN(t_mip_reference);
     RUN(t_mip_incremental);

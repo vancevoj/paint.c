@@ -28,6 +28,7 @@
  * when their document closed; textures stay in app_doc (thumb, lthumbs) as
  * before, so app_thumbs_free still drops them on device resets. */
 #include "app_internal.h"
+#include "shell_ext.h"
 #include "panels/pnl.h"
 
 #include <math.h>
@@ -575,8 +576,31 @@ static bool src_step(app *a, th_state *t, const app_doc *d, th_src *s, const pc_
     return s->need_upload || !have_tex;
 }
 
-static bool src_texture(app *a, const th_state *t, th_src *s, SDL_Texture **tex, int32_t *cw,
-                        int32_t *ch)
+/* Lane SHELL (V-RENDER-CM): thumbnails show the pixels as the canvas does
+ * (the image's profile converted for display). rgba is n RGBA pixels. */
+static void cm_rgba(app *a, const app_doc *d, uint8_t *rgba, size_t n)
+{
+    pc_px32 *px;
+    if (!d || !app_cm_view_key(a, d)) return;
+    px = (pc_px32 *)malloc(n * sizeof *px);
+    if (!px) return;
+    for (size_t i = 0; i < n; i++) {
+        px[i].r = rgba[4u * i];
+        px[i].g = rgba[4u * i + 1u];
+        px[i].b = rgba[4u * i + 2u];
+        px[i].a = rgba[4u * i + 3u];
+    }
+    app_cm_to_display(a, d, px, n);
+    for (size_t i = 0; i < n; i++) {
+        rgba[4u * i] = px[i].r;
+        rgba[4u * i + 1u] = px[i].g;
+        rgba[4u * i + 2u] = px[i].b;
+    }
+    free(px);
+}
+
+static bool src_texture(app *a, const th_state *t, const app_doc *d, th_src *s,
+                        SDL_Texture **tex, int32_t *cw, int32_t *ch)
 {
     int32_t tw, th;
     uint8_t *buf;
@@ -584,6 +608,7 @@ static bool src_texture(app *a, const th_state *t, th_src *s, SDL_Texture **tex,
     buf = (uint8_t *)malloc((size_t)tw * (size_t)th * 4u);
     if (!buf) return false;
     if (src_output(t, s, tw, th, buf)) {
+        cm_rgba(a, d, buf, (size_t)tw * (size_t)th);
         *tex = upload(a, *tex, cw, ch, tw, th, buf);
         s->need_upload = false;
         s->upload_ms = a->now;
@@ -614,12 +639,14 @@ static app_layer_thumb *lthumb(app_doc *d, uint32_t id)
 static void update_doc(app *a, th_state *t, app_doc *d, bool layers)
 {
     th_doc *r;
+    uint64_t cm;
     if (!d->doc || d->doc->w == 0u) return;
     r = doc_rec(t, d->id);
     if (!r) return;
+    cm = app_cm_view_key(a, d);                /* lane SHELL: display transform */
     /* composite (image list) */
-    if (src_step(a, t, d, &r->comp, NULL, comp_stamp(d), d->thumb != NULL) &&
-        src_texture(a, t, &r->comp, &d->thumb, &d->thumb_w, &d->thumb_h)) {
+    if (src_step(a, t, d, &r->comp, NULL, mix(comp_stamp(d), cm), d->thumb != NULL) &&
+        src_texture(a, t, d, &r->comp, &d->thumb, &d->thumb_w, &d->thumb_h)) {
         d->thumb_gen = d->doc->gen;
         d->thumb_time = a->now;
     }
@@ -632,9 +659,9 @@ static void update_doc(app *a, th_state *t, app_doc *d, bool layers)
         app_layer_thumb *lt = lthumb(d, l->id);
         if (!s || !lt) continue;
         s->seen = true;
-        if (src_step(a, t, d, s, l, layer_stamp(d, l), lt->tex != NULL)) {
+        if (src_step(a, t, d, s, l, mix(layer_stamp(d, l), cm), lt->tex != NULL)) {
             int32_t cw = lt->tex ? lt->w : 0, chh = lt->tex ? lt->h : 0;
-            if (src_texture(a, t, s, &lt->tex, &cw, &chh)) {
+            if (src_texture(a, t, d, s, &lt->tex, &cw, &chh)) {
                 lt->w = cw;
                 lt->h = chh;
                 lt->gen = l->gen;

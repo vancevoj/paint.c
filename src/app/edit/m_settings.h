@@ -12,6 +12,9 @@
 
 /* Open the Settings dialog on page (0 User Interface ... 7 Diagnostics). */
 void   m_settings_open(app *a, int page);
+/* The page the open Settings dialog shows, -1 when it is closed (lane
+ * SHELL; Effects > Plugin Errors opens page 6). */
+int    m_settings_page(const app *a);
 
 /* Read the preferences from the settings store into the app (canvas
  * shadow, border color, checkerboard brightness, pen input, history
@@ -38,7 +41,8 @@ bool   m_settings_set_plugin_errors(app *a, const char *const *files,
                                     const char *const *details, int n);
 
 /* Folder paths: which 0 = plugins (PAL_DIR_DATA/plugins), 1 = crash logs
- * (PAL_DIR_STATE/crash). */
+ * (PAL_DIR_STATE/crash, or <config dir>/crash when the app runs with a
+ * private --config-dir; lane SHELL). */
 void   m_settings_folder(app *a, int which, char *out, size_t cap);
 
 /* The Diagnostics page text (one item per line). */

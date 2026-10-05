@@ -7,29 +7,41 @@
  * settings store (saved at exit). Pages, in Paint.NET's order, with the
  * options that apply to paint.c:
  *   User Interface    language (English only so far; changing it needs a
- *                     restart), color scheme (Automatic, Light, Dark),
- *                     scrolling past the edge of the image
+ *                     restart), color scheme (Default = follow the system,
+ *                     Blue, Light, Dark), translucent windows, scrolling
+ *                     past the edge of the image, auto-scroll when drawing
+ *                     at the edge of the window (lane SHELL)
  *   Canvas            drop shadow around the canvas (on), custom border
  *                     color (off; 128, 128, 128), transparency checkerboard
  *                     brightness 0.25..1.00 (0.75) with reset
  *   Tools             default tool (Paintbrush) and the defaults of every
- *                     shared toolbar option, Load from Toolbar, Reset; once
+ *                     toolbar option, shared and per tool (selection draw
+ *                     mode and fixed size, Move Selected Pixels sampling,
+ *                     text, gradient, color picker, shapes, line / curve,
+ *                     recolor; lane SHELL), Load from Toolbar, Reset; once
  *                     set, the defaults apply at every start (keys tooldef.*
- *                     copied over tool.* before the toolbar is loaded)
+ *                     copied over tool.* before the toolbar is loaded and
+ *                     again at exit, for tools that read their options when
+ *                     they are created)
  *   Pen & Tablet      enable pen input (on; off = pens act as a mouse)
  *   Graphics          hardware acceleration (on), rendering device (SDL
  *                     render driver), worker threads, history memory limit
  *                     (OD-10 default: 25 % of RAM, at least 1 GiB)
- *   Color Management  status (paint.c shows images as sRGB; no HDR output)
- *   Plugin Errors     plugin load errors (none until a loader reports some
- *                     through m_settings_set_plugin_errors) and a button
- *                     that opens the plugins folder
- *   Diagnostics       system and app information, Copy to Clipboard, Open
- *                     Crash Log Folder
+ *   Color Management  use the display's color profile (off: images are
+ *                     shown as sRGB), the display profile and a status line
+ *                     (lane SHELL, shell_cm.c); no HDR output
+ *   Plugin Errors     the plugin loader's errors (afx_plugins.c; Effects >
+ *                     Plugin Errors opens this page), errors other loaders
+ *                     report through m_settings_set_plugin_errors, and a
+ *                     button that opens the plugins folder
+ *   Diagnostics       system and app information (renderer and GPU, pointer
+ *                     devices, plugin libraries), Copy to Clipboard, Open
+ *                     Crash Log Folder (crash logs: pal_crash.h)
  * The Updates page is not applicable (no updater; distribution channels
  * own updates).
  *
  * Settings keys: ui.language, ui.theme (app.c), view.overscroll (app.c),
+ * ui.translucent, ui.autoscroll, cm.use_display (lane SHELL),
  * canvas.shadow, canvas.border_custom, canvas.border_color (#RRGGBB),
  * canvas.checker, pen.enabled, gfx.software, gfx.renderer, gfx.workers,
  * history.limit_mb, tooldef.<option> and tooldef.tool.
@@ -39,7 +51,13 @@
 #include "../app_internal.h"
 #include "../edit/m_settings.h"
 #include "../edit/m_ui.h"
+#include "../fx/afx.h"
+#include "../shell_ext.h"
+#include "../tools/text_font.h"
+#include "pal/pal_crash.h"
+#include "pc/pc_gradient.h"
 #include "pc/pc_pattern.h"
+#include "pc/pc_shapes.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -132,12 +150,16 @@ const char *m_tooldef_tool(app *a)
     return t && *t && app_tool_find(a, t) ? t : "paintbrush";
 }
 
+static void opts_reset(app_settings *s);
+static void opts_from_toolbar(app_settings *s);
+
 void m_tooldef_reset(app *a)
 {
     app_tool_settings f;
     app_tool_settings_reset(&f);
     (void)app_settings_set(app_settings_of(a), "tooldef.tool", "paintbrush");
     m_tooldef_set(a, &f);
+    opts_reset(app_settings_of(a));            /* lane SHELL: per-tool options */
 }
 
 void m_tooldef_load_from_toolbar(app *a)
@@ -145,6 +167,214 @@ void m_tooldef_load_from_toolbar(app *a)
     const app_tool *t = app_tool_current(a);
     m_tooldef_set(a, app_tool_settings_get(a));
     if (t) (void)app_settings_set(app_settings_of(a), "tooldef.tool", t->id);
+    opts_from_toolbar(app_settings_of(a));     /* lane SHELL */
+}
+
+/* ---- per-tool defaults (lane SHELL, TOOLS.md 12, OBSERVED 9 and 10) ----------------------- */
+/* Options a tool keeps under tool.<key> in the settings store (the tool
+ * reads them; factory values as the tools use them when the key is
+ * absent). Settings > Tools stores the defaults as tooldef.<key>. */
+enum { TO_CHOICE, TO_BOOL, TO_NUM, TO_TEXT };
+typedef struct tool_opt {
+    const char         *key;
+    const char         *label;
+    int                 type;
+    double              def, lo, hi;      /* TO_NUM range; TO_CHOICE / TO_BOOL default */
+    int                 decimals;
+    const char *const  *names;            /* TO_CHOICE labels, or name_fn */
+    const char       *(*name_fn)(int i);
+    int                 n;
+    const int          *values;           /* stored value of each label (NULL = index) */
+} tool_opt;
+
+typedef struct tool_group {
+    const char     *title;
+    const tool_opt *opts;
+    int             n;
+} tool_group;
+
+static const char *const k_draw_modes[] = { "Any Size", "Fixed Ratio", "Fixed Size" };
+static const char *const k_size_units[] = { "Same as the view", "Pixels", "Inches",
+                                            "Centimeters" };
+static const int k_size_unit_values[] = { -1, 0, 1, 2 };
+static const char *const k_mp_sampling[] = { "Nearest Neighbor", "Bilinear",
+                                             "Multisample Bilinear", "Anisotropic", "Bicubic" };
+static const char *const k_text_units[] = { "Points (image DPI)", "Fixed (96 DPI)" };
+static const char *const k_text_modes[] = { "Smooth", "Sharp (Modern)", "Sharp (Classic)" };
+static const char *const k_text_align[] = { "Left", "Center", "Right" };
+static const char *const k_pick_size[] = { "Single Pixel", "3 \xC3\x97 3 pixels",
+                                           "5 \xC3\x97 5 pixels", "11 \xC3\x97 11 pixels",
+                                           "31 \xC3\x97 31 pixels", "51 \xC3\x97 51 pixels" };
+static const char *const k_pick_after[] = { "Do not switch tool", "Switch to previous tool",
+                                            "Switch to Pencil tool" };
+static const char *const k_shape_draw[] = { "Draw Shape Outline", "Draw Filled Shape",
+                                            "Draw Filled Shape With Outline" };
+static const char *const k_curve_types[] = { "Straight", "Spline", "Bezier" };
+static const char *const k_caps[] = { "Flat", "Arrow", "Filled Arrow", "Rounded" };
+static const int k_cap_values[] = { 0, 3, 4, 1 };      /* PC_CAP_BUTT, ARROW, ARROW_FILLED, ROUND */
+static const char *const k_dashes[] = { "Solid", "Dashes", "Dotted", "Dash, Dot",
+                                        "Dash, Dot, Dot" };
+static const char *const k_recolor[] = { "Sampling Once", "Sampling Secondary Color" };
+
+static const char *grad_type(int i) { return pc_grad_type_name((pc_grad_type)i); }
+static const char *grad_mode(int i) { return pc_grad_mode_name((pc_grad_mode)i); }
+static const char *grad_repeat(int i) { return pc_grad_repeat_name((pc_grad_repeat)i); }
+static const char *shape_name(int i) { return pc_shape_name((pc_shape_kind)i); }
+
+#define CH(k, l, d, names, n) { k, l, TO_CHOICE, d, 0, 0, 0, names, NULL, n, NULL }
+#define CF(k, l, d, fn, n) { k, l, TO_CHOICE, d, 0, 0, 0, NULL, fn, n, NULL }
+#define BO(k, l, d) { k, l, TO_BOOL, d, 0, 1, 0, NULL, NULL, 0, NULL }
+#define NU(k, l, d, lo, hi, dec) { k, l, TO_NUM, d, lo, hi, dec, NULL, NULL, 0, NULL }
+
+static const tool_opt k_opts_rect[] = {
+    CH("rect_select.draw_mode", "Draw mode:", 0, k_draw_modes, 3),
+    NU("rect_select.ratio_w", "Fixed ratio width:", 4.0, 0.01, 65535.0, 2),
+    NU("rect_select.ratio_h", "Fixed ratio height:", 3.0, 0.01, 65535.0, 2),
+    NU("rect_select.size_w", "Fixed width:", 400.0, 0.01, 65535.0, 2),
+    NU("rect_select.size_h", "Fixed height:", 300.0, 0.01, 65535.0, 2),
+    { "rect_select.size_units", "Fixed size units:", TO_CHOICE, -1, 0, 0, 0, k_size_units, NULL,
+      4, k_size_unit_values },
+};
+static const tool_opt k_opts_move[] = {
+    CH("move_pixels.sampling", "Sampling:", 4, k_mp_sampling, 5),
+    BO("move_pixels.gamma", "Gamma corrected", 1),
+};
+static const tool_opt k_opts_text[] = {
+    { "text.font", "Font:", TO_TEXT, 0, 0, 0, 0, NULL, NULL, 0, NULL },
+    NU("text.size", "Size:", 12.0, 1.0, 2000.0, 2),
+    CH("text.unit", "Size unit:", 0, k_text_units, 2),
+    BO("text.bold", "Bold", 0),
+    BO("text.italic", "Italic", 0),
+    BO("text.underline", "Underline", 0),
+    BO("text.strikeout", "Strikethrough", 0),
+    CH("text.mode", "Rendering:", 0, k_text_modes, 3),
+    CH("text.align", "Alignment:", 0, k_text_align, 3),
+};
+static const tool_opt k_opts_grad[] = {
+    CF("gradient.type", "Type:", 0, grad_type, PC_GRAD_TYPE_COUNT),
+    CF("gradient.mode", "Mode:", 0, grad_mode, 2),
+    CF("gradient.repeat", "Repeat:", 0, grad_repeat, PC_GRAD_REPEAT_COUNT),
+};
+static const tool_opt k_opts_pick[] = {
+    CH("color_picker.size", "Sampling size:", 0, k_pick_size, 6),
+    CH("color_picker.after", "After click:", 0, k_pick_after, 3),
+};
+static const tool_opt k_opts_shape[] = {
+    CF("shapes.kind", "Shape:", 0, shape_name, PC_SHAPE_BUILTIN_COUNT),
+    CH("shapes.draw", "Draw mode:", 0, k_shape_draw, 3),
+    NU("shapes.corner", "Corner size:", 10.0, 0.0, 2000.0, 2),
+};
+static const tool_opt k_opts_line[] = {
+    CH("line_curve.type", "Curve type:", 1, k_curve_types, 3),
+    { "line_curve.start_cap", "Start cap:", TO_CHOICE, 0, 0, 0, 0, k_caps, NULL, 4, k_cap_values },
+    { "line_curve.end_cap", "End cap:", TO_CHOICE, 0, 0, 0, 0, k_caps, NULL, 4, k_cap_values },
+    CH("dash", "Dash style:", 0, k_dashes, 5),
+};
+static const tool_opt k_opts_recolor[] = {
+    CH("recolor.sampling", "Sampling:", 0, k_recolor, 2),
+};
+
+#undef CH
+#undef CF
+#undef BO
+#undef NU
+
+#define NOPTS(x) ((int)(sizeof x / sizeof x[0]))
+static const tool_group k_groups[] = {
+    { "Rectangle Select", k_opts_rect, NOPTS(k_opts_rect) },
+    { "Move Selected Pixels", k_opts_move, NOPTS(k_opts_move) },
+    { "Text", k_opts_text, NOPTS(k_opts_text) },
+    { "Gradient", k_opts_grad, NOPTS(k_opts_grad) },
+    { "Color Picker", k_opts_pick, NOPTS(k_opts_pick) },
+    { "Shapes", k_opts_shape, NOPTS(k_opts_shape) },
+    { "Line / Curve and Shapes style", k_opts_line, NOPTS(k_opts_line) },
+    { "Recolor", k_opts_recolor, NOPTS(k_opts_recolor) },
+};
+#define N_GROUPS ((int)(sizeof k_groups / sizeof k_groups[0]))
+
+static const char *opt_label(const tool_opt *o, int i)
+{
+    return o->names ? o->names[i] : (o->name_fn ? o->name_fn(i) : "");
+}
+
+static int choice_value(const tool_opt *o, int i) { return o->values ? o->values[i] : i; }
+
+static int choice_index(const tool_opt *o, int64_t v)
+{
+    for (int i = 0; i < o->n; i++)
+        if (choice_value(o, i) == (int)v) return i;
+    return -1;
+}
+
+/* Is the stored text of an option valid? (wrong values fall back to the
+ * factory default) */
+static bool opt_valid(const tool_opt *o, const app_settings *s, const char *key)
+{
+    if (!app_settings_get(s, key)) return false;
+    if (o->type == TO_CHOICE) return choice_index(o, app_settings_int(s, key, -99)) >= 0;
+    if (o->type == TO_NUM) {
+        double v = app_settings_double(s, key, o->def);
+        return v >= o->lo && v <= o->hi;
+    }
+    return true;
+}
+
+/* Write the factory value of o under prefix.<key>. size_units "same as
+ * the view" and the default font are stored too (apply removes the tool
+ * key for the view-units case). */
+static void opt_store_factory(app_settings *s, const char *prefix, const tool_opt *o)
+{
+    char key[96];
+    key_of(key, sizeof key, prefix, o->key);
+    switch (o->type) {
+    case TO_CHOICE: (void)app_settings_set_int(s, key, (int64_t)o->def); break;
+    case TO_BOOL: (void)app_settings_set_bool(s, key, o->def != 0.0); break;
+    case TO_NUM: (void)app_settings_set_double(s, key, o->def); break;
+    default: (void)app_settings_set(s, key, TEXT_DEFAULT_FAMILY); break;
+    }
+}
+
+static void opts_reset(app_settings *s)
+{
+    for (int g = 0; g < N_GROUPS; g++)
+        for (int i = 0; i < k_groups[g].n; i++)
+            opt_store_factory(s, "tooldef", &k_groups[g].opts[i]);
+}
+
+/* Load from Toolbar: the tool.<key> values the tools wrote (factory
+ * values for options never changed). */
+static void opts_from_toolbar(app_settings *s)
+{
+    for (int g = 0; g < N_GROUPS; g++)
+        for (int i = 0; i < k_groups[g].n; i++) {
+            const tool_opt *o = &k_groups[g].opts[i];
+            char tkey[96], dkey[96];
+            key_of(tkey, sizeof tkey, "tool", o->key);
+            key_of(dkey, sizeof dkey, "tooldef", o->key);
+            if (opt_valid(o, s, tkey)) (void)app_settings_set(s, dkey, app_settings_get(s, tkey));
+            else if (strcmp(o->key, "rect_select.size_units") == 0)
+                (void)app_settings_set_int(s, dkey, -1);
+            else opt_store_factory(s, "tooldef", o);
+        }
+}
+
+/* tooldef.<key> -> tool.<key> for every per-tool option (a missing or
+ * invalid default, and "same as the view" units, remove the tool key so
+ * the tool's own default applies). */
+static void opts_apply(app_settings *s)
+{
+    for (int g = 0; g < N_GROUPS; g++)
+        for (int i = 0; i < k_groups[g].n; i++) {
+            const tool_opt *o = &k_groups[g].opts[i];
+            char tkey[96], dkey[96];
+            key_of(tkey, sizeof tkey, "tool", o->key);
+            key_of(dkey, sizeof dkey, "tooldef", o->key);
+            if (opt_valid(o, s, dkey) && !(o->values == k_size_unit_values &&
+                                           app_settings_int(s, dkey, -1) < 0))
+                (void)app_settings_set(s, tkey, app_settings_get(s, dkey));
+            else
+                (void)app_settings_remove(s, tkey);
+        }
 }
 
 /* Start of the app: once tool defaults exist (tooldef.tool is set by Load
@@ -167,6 +397,19 @@ static void apply_tool_defaults_at_start(app *a)
         else (void)app_settings_remove(s, tkey);
     }
     (void)app_settings_set(s, "tool.current", m_tooldef_tool(a));
+    opts_apply(s);                             /* lane SHELL: per-tool options */
+}
+
+/* Lane SHELL: tools that read their options when they are created (before
+ * the modules run) see the defaults at the next start, because the exit
+ * writes them over the toolbar values (the settings are saved after the
+ * quit hooks). */
+static void tool_defaults_at_quit(app *a, app_doc *d, void *ud)
+{
+    app_settings *s = app_settings_of(a);
+    (void)d;
+    (void)ud;
+    if (s && app_settings_get(s, "tooldef.tool")) opts_apply(s);
 }
 
 /* ---- preferences -> app state ------------------------------------------------------------ */
@@ -202,6 +445,10 @@ void m_settings_apply(app *a)
     if (ck > 1.0) ck = 1.0;
     a->m_cv_checker = (float)ck;
     a->m_pen_off = !app_settings_bool(s, "pen.enabled", true);
+    /* lane SHELL: User Interface and Color Management */
+    app_canvas_set_autoscroll(a, app_settings_bool(s, "ui.autoscroll", true));
+    app_panels_set_translucent(a, app_settings_bool(s, "ui.translucent", true));
+    app_cm_set_use_display(a, app_settings_bool(s, "cm.use_display", false));
     if (mb > 0) {
         uint64_t b = (uint64_t)mb << 20;
 #if SIZE_MAX < UINT64_MAX
@@ -269,7 +516,8 @@ bool m_settings_set_plugin_errors(app *a, const char *const *files, const char *
 void m_settings_folder(app *a, int which, char *out, size_t cap)
 {
     const char *base = pal_dir(which == 0 ? PAL_DIR_DATA : PAL_DIR_STATE);
-    (void)a;
+    /* lane SHELL: a private --config-dir keeps the crash logs with it */
+    if (which == 1 && a && a->opts.config_dir && a->opts.config_dir[0]) base = a->opts.config_dir;
     pal_path_join(out, cap, base ? base : "", which == 0 ? "plugins" : "crash");
 }
 
@@ -295,6 +543,7 @@ static const ui_icon k_page_icons[PG_COUNT] = {
 };
 
 typedef struct settings_dlg {
+    app          *a;             /* borrowed (lane SHELL: m_settings_page) */
     int           page;
     ui_color_edit border;        /* border color being edited */
     int           plugin_sel;    /* selected plugin error */
@@ -319,9 +568,15 @@ static void page_ui(app *a)
 {
     ui_ctx *ui = a->ui;
     static const char *const langs[] = { "English" };
-    static const char *const themes[] = { "Automatic (follow the system)", "Light", "Dark" };
-    int lang = 0, t = (int)app_theme(a);
+    /* OBSERVED 10: Default, Blue, Light, Dark (Default follows the system) */
+    static const char *const themes[] = { "Default (follow the system)", "Blue", "Light",
+                                          "Dark" };
+    static const app_theme_pref k_theme_of[] = { APP_THEME_AUTO, APP_THEME_BLUE, APP_THEME_LIGHT,
+                                                 APP_THEME_DARK };
+    int lang = 0, t = 0;
     bool os = a->overscroll;
+    for (int i = 0; i < 4; i++)
+        if (k_theme_of[i] == app_theme(a)) t = i;
     ui_heading(ui, "Language");
     if (ui_combo(ui, "##lang", &lang, langs, 1))
         (void)app_settings_set(app_settings_of(a), "ui.language", "en");
@@ -329,13 +584,21 @@ static void page_ui(app *a)
                 "restarting paint.c.");
     ui_layout_space(ui, 8.0f);
     ui_heading(ui, "Color scheme");
-    if (ui_radio_group(ui, "##theme", &t, themes, 3, false)) app_set_theme(a, (app_theme_pref)t);
+    if (ui_radio_group(ui, "##theme", &t, themes, 4, false) && t >= 0 && t < 4)
+        app_set_theme(a, k_theme_of[t]);
+    ui_layout_space(ui, 8.0f);
+    ui_heading(ui, "Windows");
+    /* lane SHELL: utility windows fade while the pointer is elsewhere */
+    check_pref(a, "Translucent windows##translucent", "ui.translucent", true);
     ui_layout_space(ui, 8.0f);
     ui_heading(ui, "Canvas navigation");
-    if (ui_checkbox(ui, "Allow scrolling past the edge of the image##os", &os)) {
+    if (ui_checkbox(ui, "Scrolling past the edge of the image (overscroll)##os", &os)) {
         a->overscroll = os;
         app_request_frame(a);
     }
+    /* lane SHELL: V-AUTOSCROLL */
+    check_pref(a, "Auto-scroll when drawing at the edge of the window##autoscroll",
+               "ui.autoscroll", true);
 }
 
 static void page_canvas(app *a, settings_dlg *g)
@@ -389,6 +652,87 @@ static const char *const k_clip[] = { "Pixelated", "Antialiased" };
 static const char *const k_flood[] = { "Contiguous", "Global" };
 static const char *const k_sampling[] = { "Layer", "Image" };
 static const char *const k_tol_alpha[] = { "Premultiplied", "Straight" };
+
+/* Lane SHELL: the per-tool option defaults, grouped by tool. Editing one
+ * marks that defaults exist (tooldef.tool), like the shared options. */
+static void page_tool_options(app *a, ui_size cells[2])
+{
+    ui_ctx *ui = a->ui;
+    app_settings *s = app_settings_of(a);
+    for (int g = 0; g < N_GROUPS; g++) {
+        ui_heading(ui, k_groups[g].title);
+        ui_layout_row(ui, 0.0f, 2, cells);
+        for (int i = 0; i < k_groups[g].n; i++) {
+            const tool_opt *o = &k_groups[g].opts[i];
+            char key[96], wid[112];
+            bool changed = false;
+            key_of(key, sizeof key, "tooldef", o->key);
+            snprintf(wid, sizeof wid, "##td_%s", o->key);
+            if (o->type == TO_BOOL) {
+                bool v = opt_valid(o, s, key) ? app_settings_bool(s, key, false) : o->def != 0.0;
+                (void)ui_layout_next(ui, 0, 0);
+                snprintf(wid, sizeof wid, "%s##td_%s", o->label, o->key);
+                if (ui_checkbox(ui, wid, &v)) {
+                    (void)app_settings_set_bool(s, key, v);
+                    changed = true;
+                }
+                if (changed && !app_settings_get(s, "tooldef.tool"))
+                    (void)app_settings_set(s, "tooldef.tool", m_tooldef_tool(a));
+                continue;
+            }
+            ui_label_ex(ui, o->label, UI_LABEL_DIM);
+            if (o->type == TO_CHOICE) {
+                const char *names[PC_SHAPE_BUILTIN_COUNT + 4];
+                int idx = choice_index(o, opt_valid(o, s, key) ? app_settings_int(s, key, 0)
+                                                                : (int64_t)o->def);
+                int n = o->n < (int)(sizeof names / sizeof names[0]) ? o->n
+                                                                     : (int)(sizeof names /
+                                                                             sizeof names[0]);
+                for (int k = 0; k < n; k++) names[k] = opt_label(o, k);
+                if (idx < 0) idx = 0;
+                if (ui_combo(ui, wid, &idx, names, n) && idx >= 0 && idx < n) {
+                    (void)app_settings_set_int(s, key, choice_value(o, idx));
+                    changed = true;
+                }
+            } else if (o->type == TO_NUM) {
+                double v = opt_valid(o, s, key) ? app_settings_double(s, key, o->def) : o->def;
+                if (ui_number_double(ui, wid, &v, o->lo, o->hi, 1.0, o->decimals, 0)) {
+                    (void)app_settings_set_double(s, key, v);
+                    changed = true;
+                }
+            } else {
+                /* the font: the families paint.c found, or a typed name */
+                text_fonts *tf = text_fonts_get(a);
+                const char *cur = app_settings_get(s, key);
+                int32_t nf = tf ? text_fonts_family_count(tf) : 0;
+                if (!cur || !*cur) cur = TEXT_DEFAULT_FAMILY;
+                if (nf > 0) {
+                    const char **fam = (const char **)malloc((size_t)nf * sizeof *fam);
+                    int idx = (int)text_fonts_find_family(tf, cur);
+                    if (fam) {
+                        for (int32_t k = 0; k < nf; k++) fam[k] = text_fonts_family(tf, k);
+                        if (idx < 0) idx = 0;
+                        if (ui_combo(ui, wid, &idx, fam, (int)nf) && idx >= 0 && idx < nf) {
+                            (void)app_settings_set(s, key, fam[idx]);
+                            changed = true;
+                        }
+                        free(fam);
+                    }
+                } else {
+                    char buf[96];
+                    app_copy_str(buf, sizeof buf, cur);
+                    if (ui_text_field(ui, wid, buf, sizeof buf, 0) & UI_EDIT_CHANGED) {
+                        (void)app_settings_set(s, key, buf[0] ? buf : TEXT_DEFAULT_FAMILY);
+                        changed = true;
+                    }
+                }
+            }
+            if (changed && !app_settings_get(s, "tooldef.tool"))
+                (void)app_settings_set(s, "tooldef.tool", m_tooldef_tool(a));
+        }
+        ui_layout_column(ui);
+    }
+}
 
 static void page_tools(app *a)
 {
@@ -518,6 +862,7 @@ static void page_tools(app *a)
     }
     ui_layout_column(ui);
     if (changed) m_tooldef_set(a, &def);
+    page_tool_options(a, cells);
 }
 
 static void page_pen(app *a)
@@ -584,21 +929,40 @@ static void page_gfx(app *a)
 
 static void page_cm(app *a)
 {
-    ui_label_ex(a->ui, "Advanced color (HDR and wide color gamut) output: not available",
+    ui_ctx *ui = a->ui;
+    char desc[160], line[400];
+    bool use = app_cm_use_display(a);
+    /* lane SHELL (shell_cm.c): images are converted from their profile to
+     * sRGB, or to the display's profile when the platform reports one */
+    if (ui_checkbox(ui, "Use the display's color profile##cmdisp", &use)) {
+        (void)app_settings_set_bool(app_settings_of(a), "cm.use_display", use);
+        m_settings_apply(a);
+    }
+    app_cm_display_describe(a, desc, sizeof desc);
+    snprintf(line, sizeof line, "Display profile: %s",
+             desc[0] ? desc
+                     : "none reported (Wayland and some X11 setups do not provide one)");
+    dim_text(a, line);
+    ui_layout_space(ui, 6.0f);
+    ui_heading(ui, "Status");
+    app_cm_status(a, line, sizeof line);
+    ui_text_wrapped(ui, line, 0);
+    ui_label_ex(ui, "Advanced color (HDR and wide color gamut) output: not available",
                 UI_LABEL_DIM | UI_DISABLED);
-    dim_text(a, "Status: standard dynamic range. paint.c shows images as sRGB; images with "
-                "another color profile are shown without conversion. Advanced color output "
-                "is not available.");
+    dim_text(a, "Without the display profile, colors are accurate when the display itself is "
+                "set to sRGB.");
 }
 
 static void page_plugins(app *a, settings_dlg *g)
 {
     ui_ctx *ui = a->ui;
     const plugin_errors *e = (const plugin_errors *)app_ext_get(a, PLUGIN_ERR_KEY);
+    size_t nload = afx_plugins_error_count(afx_app_plugins(a));
     char dir[1024];
-    if (!e || e->n == 0) {
-        ui_label(ui, "There were no errors while loading plugins.");
-    } else {
+    /* lane SHELL: the plugin loader's own errors (file list and details) */
+    if (nload > 0u || !e || e->n == 0) afx_plugin_errors_ui(a, 300.0f);
+    if (e && e->n > 0) {
+        if (nload > 0u) ui_layout_space(ui, 8.0f);
         for (int i = 0; i < e->n; i++) {
             ui_push_id_int(ui, i);
             (void)ui_radio(ui, e->file[i], &g->plugin_sel, i);
@@ -639,16 +1003,63 @@ void m_settings_diagnostics(app *a, char *out, size_t cap)
     LINE("Video driver: %s\n", SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "none");
     LINE("Renderer: %s\n", a->ren && SDL_GetRendererName(a->ren) ? SDL_GetRendererName(a->ren)
                                                                  : "?");
+    {
+        /* lane SHELL: graphics adapter and driver (WINDOWS.md 8.9) */
+        char gpu[640];
+        gfx_renderer_describe(a->ren, gpu, sizeof gpu);
+        LINE("Graphics: %s\n", gpu);
+    }
     LINE("Display scale: %.2f\n", (double)ui_scale(a->ui));
     LINE("Logical processors: %u, worker threads: %u\n", (unsigned)pal_cpu_count(),
          (unsigned)pc_par_threads(&a->par));
     LINE("Memory: %.1f GiB, history limit per image: %.0f MiB\n",
          (double)pal_ram_bytes() / (1024.0 * 1024.0 * 1024.0),
          (double)a->hist_budget / 1048576.0);
+    /* lane SHELL: pointer devices (mice, touch screens and touchpads that
+     * report fingers; pens are listed once they were used) */
+    {
+        int nm = 0, nt = 0;
+        SDL_MouseID *mice = SDL_WasInit(SDL_INIT_VIDEO) ? SDL_GetMice(&nm) : NULL;
+        SDL_TouchID *touch = SDL_WasInit(SDL_INIT_VIDEO) ? SDL_GetTouchDevices(&nt) : NULL;
+        LINE("Pointer devices: %d mouse device%s, %d touch device%s%s\n", nm, nm == 1 ? "" : "s",
+             nt, nt == 1 ? "" : "s", app_canvas_pen_seen(a) ? ", a pen" : "");
+        for (int i = 0; i < nm && i < 8; i++) {
+            const char *n = SDL_GetMouseNameForID(mice[i]);
+            LINE("  Mouse: %s\n", n && *n ? n : "(unnamed)");
+        }
+        for (int i = 0; i < nt && i < 8; i++) {
+            const char *n = SDL_GetTouchDeviceName(touch[i]);
+            SDL_TouchDeviceType ty = SDL_GetTouchDeviceType(touch[i]);
+            LINE("  Touch: %s (%s)\n", n && *n ? n : "(unnamed)",
+                 ty == SDL_TOUCH_DEVICE_DIRECT ? "touch screen" : "touchpad");
+        }
+        SDL_free(mice);
+        SDL_free(touch);
+    }
     LINE("Effects and adjustments: %u\n", (unsigned)fx_registry_count(a->fx));
+    /* lane SHELL: loaded plugin libraries */
+    {
+        afx_plugins *pl = afx_app_plugins(a);
+        size_t nl = afx_plugins_lib_count(pl);
+        const char *seen[16];
+        size_t ns = 0;
+        LINE("Plugin libraries: %u loaded, %u failed\n", (unsigned)nl,
+             (unsigned)afx_plugins_error_count(pl));
+        for (uint32_t i = 0; pl && a->fx && i < fx_registry_count(a->fx) && ns < 16u; i++) {
+            const afx_plugin_info *in = afx_plugins_info(pl, fx_registry_at(a->fx, i));
+            bool dup = false;
+            if (!in || !in->path) continue;
+            for (size_t q = 0; q < ns; q++)
+                if (strcmp(seen[q], in->path) == 0) dup = true;
+            if (dup) continue;
+            seen[ns++] = in->path;
+            LINE("  %s%s%s\n", in->path, in->version && *in->version ? ", version " : "",
+                 in->version ? in->version : "");
+        }
+    }
     LINE("Open images: %d\n", (int)app_doc_count(a));
     LINE("Settings: %s\n", a->settings_enabled ? a->settings_path : "(not saved)");
-    LINE("Crash logs: %s\n", dir);
+    LINE("Crash logs: %s (%d)\n", dir, pal_crash_count(dir));
 #undef LINE
 }
 
@@ -762,14 +1173,33 @@ static bool settings_open_pred(app *a, const app_cmd *c)
     return !app_dialog_active(a);
 }
 
+#define OPEN_KEY "shell.settings_open"
+
+static void settings_free(void *p)
+{
+    settings_dlg *g = (settings_dlg *)p;
+    if (!g) return;
+    if (g->a && app_ext_get(g->a, OPEN_KEY) == (void *)g)
+        (void)app_ext_set(g->a, OPEN_KEY, NULL, NULL);
+    free(g);
+}
+
 void m_settings_open(app *a, int page)
 {
     settings_dlg *g;
     if (app_dialog_active(a)) return;
     g = (settings_dlg *)calloc(1u, sizeof *g);
     if (!g) return;
+    g->a = a;
     g->page = page >= 0 && page < PG_COUNT ? page : 0;
-    (void)app_dialog_push(a, settings_frame, g, free);
+    if (app_dialog_push(a, settings_frame, g, settings_free))
+        (void)app_ext_set(a, OPEN_KEY, g, NULL);
+}
+
+int m_settings_page(const app *a)
+{
+    const settings_dlg *g = (const settings_dlg *)app_ext_get(a, OPEN_KEY);
+    return g ? g->page : -1;
 }
 
 static void cmd_settings(app *a, const app_cmd *c)
@@ -790,5 +1220,21 @@ void mod_m_settings(app *a)
     d.enabled = settings_open_pred;
     (void)app_cmd_register(a, &d);
     apply_tool_defaults_at_start(a);
+    (void)app_hook_add(a, APP_HOOK_QUIT, tool_defaults_at_quit, NULL);   /* lane SHELL */
     m_settings_apply(a);
+    /* lane SHELL: crash logs for the interactive app (never for headless
+     * runs and tests); the folder keeps the newest PAL_CRASH_KEEP logs */
+    if (a->win && !a->opts.headless) {
+        char dir[1024], info[600];
+        int v = SDL_GetVersion();
+        m_settings_folder(a, 1, dir, sizeof dir);
+        if (pal_mkdirs(dir)) {
+            snprintf(info, sizeof info, "%s %s\nPlatform: %s\nSDL: %d.%d.%d\nVideo driver: %s",
+                     APP_NAME, APP_VERSION, SDL_GetPlatform(), SDL_VERSIONNUM_MAJOR(v),
+                     SDL_VERSIONNUM_MINOR(v), SDL_VERSIONNUM_MICRO(v),
+                     SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "none");
+            (void)pal_crash_prune(dir, PAL_CRASH_KEEP);
+            (void)pal_crash_install(dir, info);
+        }
+    }
 }

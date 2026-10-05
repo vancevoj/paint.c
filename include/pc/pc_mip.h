@@ -6,10 +6,17 @@
  * Level 0 tile (tx, ty) is the composite of document tile (tx, ty) (see
  * pc_comp_tile), converted to premultiplied form: each color channel c
  * becomes pc_mul255(c, a) = round(c * a / 255), alpha unchanged. Level
- * k + 1 is the 2 x 2 box average of level k on premultiplied bytes,
- * (p0 + p1 + p2 + p3 + 2) >> 2 per channel, with pixels outside level k
- * reading as zero. Level k is ceil(w / 2^k) x ceil(h / 2^k) pixels in
- * 64 x 64 tiles; level 6 is 1:64.
+ * k + 1 is the gamma-correct 2 x 2 average of level k (V-RENDER-DOWN, lane
+ * SHELL wave 3b), with pixels outside level k reading as zero: for the
+ * four children (premultiplied p, alpha a) A = a0 + a1 + a2 + a3, the
+ * alpha is (A + 2) >> 2, and each color channel is
+ *   c_i = a_i ? min(255, (p_i * 255 + a_i / 2) / a_i) : 0   (unpremultiplied)
+ *   v = (sum of lin16(c_i) * a_i + A / 2) / A               (linear light)
+ *   out = pc_mul255(enc(v), alpha)
+ * where lin16(c) = round(65535 * sRGB-decode(c / 255)) and enc(v) is the
+ * number of k in 0..254 with v > floor(65535 * sRGB-decode((k + 0.5) /
+ * 255)); all zero when A == 0. Level k is ceil(w / 2^k) x ceil(h / 2^k)
+ * pixels in 64 x 64 tiles; level 6 is 1:64.
  *
  * Staleness without dirty lists: every cached tile remembers the signature
  * it was built from (pc_comp_tile_sig for level 0, a hash of the four

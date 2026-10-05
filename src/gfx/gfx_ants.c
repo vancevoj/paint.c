@@ -13,6 +13,41 @@ static bool seg_outside(double ax, double ay, double bx, double by, double x0, d
            (ay > y1 && by > y1);
 }
 
+/* One black dash covering distances [t0, t1) along the segment a -> b
+ * (pixel k of the segment covers [k, k + 1)). Pixels the dash covers
+ * completely are drawn opaque; the pixels at its two ends get the covered
+ * fraction as alpha, so a fractional phase moves the dashes smoothly
+ * (V-SEL-ANTS: animated at the display refresh rate). */
+static void dash_span(SDL_Renderer *r, double ax, double ay, double bx, double by, double len,
+                      double t0, double t1)
+{
+    double ux = (bx - ax) / len, uy = (by - ay) / len;
+    double k0 = floor(t0), k1 = floor(t1);
+    double f0 = ceil(t0), f1 = k1 - 1.0;          /* fully covered pixels f0 .. f1 */
+    if (t1 <= t0) return;
+    if (f1 >= f0)
+        SDL_RenderLine(r, (float)(ax + ux * f0), (float)(ay + uy * f0), (float)(ax + ux * f1),
+                       (float)(ay + uy * f1));
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    if (k0 == k1) {
+        double cov = t1 - t0;
+        SDL_SetRenderDrawColor(r, 0, 0, 0, (Uint8)(cov * 255.0 + 0.5));
+        SDL_RenderPoint(r, (float)(ax + ux * k0), (float)(ay + uy * k0));
+    } else {
+        double c0 = f0 - t0, c1 = t1 - k1;
+        if (c0 > 1e-6 && k0 < f0) {
+            SDL_SetRenderDrawColor(r, 0, 0, 0, (Uint8)(c0 * 255.0 + 0.5));
+            SDL_RenderPoint(r, (float)(ax + ux * k0), (float)(ay + uy * k0));
+        }
+        if (c1 > 1e-6 && k1 < len) {
+            SDL_SetRenderDrawColor(r, 0, 0, 0, (Uint8)(c1 * 255.0 + 0.5));
+            SDL_RenderPoint(r, (float)(ax + ux * k1), (float)(ay + uy * k1));
+        }
+    }
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
+}
+
 void gfx_draw_ants(SDL_Renderer *r, const gfx_view *v, const pc_poly *p, double phase,
                    double dash, pc_rect clip)
 {
@@ -55,10 +90,7 @@ void gfx_draw_ants(SDL_Renderer *r, const gfx_view *v, const pc_poly *p, double 
                     if (in_period < dash) {
                         double end = t + (dash - in_period);
                         double t1 = end < len ? end : len;
-                        double fx0 = ax + (bx - ax) * (t / len), fy0 = ay + (by - ay) * (t / len);
-                        double fx1 = ax + (bx - ax) * (t1 / len),
-                               fy1 = ay + (by - ay) * (t1 / len);
-                        SDL_RenderLine(r, (float)fx0, (float)fy0, (float)fx1, (float)fy1);
+                        dash_span(r, ax, ay, bx, by, len, t, t1);
                         step = t1 - t;
                     } else {
                         step = period - in_period;

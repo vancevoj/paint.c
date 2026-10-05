@@ -87,10 +87,14 @@ void app_apply_theme(app *a)
     ui_theme th;
     bool dark;
     if (a->theme == APP_THEME_DARK) dark = true;
-    else if (a->theme == APP_THEME_LIGHT) dark = false;
+    else if (a->theme == APP_THEME_LIGHT || a->theme == APP_THEME_BLUE) dark = false;
     else dark = a->opts.headless ? false : SDL_GetSystemTheme() == SDL_SYSTEM_THEME_DARK;
     a->dark = dark;
-    ui_theme_init(&th, dark ? UI_THEME_DARK : UI_THEME_LIGHT, ui_theme_default_accent());
+    /* lane SHELL: the Blue scheme is the light palette with blue chrome */
+    ui_theme_init(&th,
+                  dark ? UI_THEME_DARK
+                       : (a->theme == APP_THEME_BLUE ? UI_THEME_BLUE : UI_THEME_LIGHT),
+                  ui_theme_default_accent());
     ui_set_theme(a->ui, &th);
     app_request_frame(a);
 }
@@ -126,8 +130,9 @@ static void load_prefs(app *a)
 {
     app_settings *s = a->settings;
     int64_t th = app_settings_int(s, "ui.theme", APP_THEME_AUTO);
-    a->theme = th >= 0 && th <= 2 ? (app_theme_pref)th : APP_THEME_AUTO;
-    if (a->opts.theme >= 0 && a->opts.theme <= 2) a->theme = (app_theme_pref)a->opts.theme;
+    /* 3 = Blue (lane SHELL) */
+    a->theme = th >= 0 && th <= 3 ? (app_theme_pref)th : APP_THEME_AUTO;
+    if (a->opts.theme >= 0 && a->opts.theme <= 3) a->theme = (app_theme_pref)a->opts.theme;
     a->grid = app_settings_bool(s, "view.pixel_grid", false);
     a->rulers = app_settings_bool(s, "view.rulers", false);
     a->overscroll = app_settings_bool(s, "view.overscroll", true);

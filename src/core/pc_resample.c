@@ -636,7 +636,33 @@ typedef struct wp_ctx {
     pc_tile      **out_grid;
     uint32_t       dst_w, dst_h, dbx;
     pc_atomic_u32  fail;
+    /* linear light (pc_warp_grid_ex): sRGB code -> 255 * linear, and the
+     * linear values halfway between neighbouring codes (encoding) */
+    bool           lin;
+    float          s2l[256];
+    float          mid[255];
 } wp_ctx;
+
+static void wp_lin_tables(wp_ctx *c)
+{
+    c->lin = true;
+    for (uint32_t i = 0; i < 256u; i++)
+        c->s2l[i] = (float)(255.0 * srgb_to_linear((double)i / 255.0));
+    for (uint32_t i = 0; i < 255u; i++)
+        c->mid[i] = (float)(255.0 * srgb_to_linear(((double)i + 0.5) / 255.0));
+}
+
+/* 255 * linear -> nearest sRGB code (rounded in the encoded domain). */
+static uint8_t wp_encode(const wp_ctx *c, float v)
+{
+    uint32_t lo = 0, hi = 255;               /* answer in [lo, hi] */
+    while (lo < hi) {
+        uint32_t m = (lo + hi) >> 1;
+        if (v > c->mid[m]) lo = m + 1u;
+        else hi = m;
+    }
+    return (uint8_t)lo;
+}
 
 static void wp_fetch(const wp_ctx *c, int32_t x, int32_t y, float o[4])
 {
@@ -654,6 +680,14 @@ static void wp_fetch(const wp_ctx *c, int32_t x, int32_t y, float o[4])
                               ((uint32_t)x & (PC_TILE_DIM - 1u))) * 4u;
     }
     if (!p) { o[0] = o[1] = o[2] = o[3] = 0.0f; return; }
+    if (c->lin) {
+        float k = (float)p[3] * (1.0f / 255.0f);
+        o[0] = c->s2l[p[0]] * k;
+        o[1] = c->s2l[p[1]] * k;
+        o[2] = c->s2l[p[2]] * k;
+        o[3] = (float)p[3];
+        return;
+    }
     cvt_bgra(p, o, NULL);
 }
 
@@ -780,6 +814,19 @@ static void wp_pixel(const wp_ctx *c, int32_t X, int32_t Y, uint8_t *out)
         float k = 1.0f / (float)(q * q);
         acc[0] *= k; acc[1] *= k; acc[2] *= k; acc[3] *= k;
     }
+    if (c->lin) {
+        float A = acc[3];
+        if (!(A >= 0.5f)) { out[0] = out[1] = out[2] = out[3] = 0u; return; }
+        if (A > 255.0f) A = 255.0f;
+        for (int ch = 0; ch < 3; ch++) {
+            float v = acc[ch];
+            if (!(v > 0.0f)) v = 0.0f;
+            if (v > A) v = A;
+            out[ch] = wp_encode(c, v * 255.0f / A);
+        }
+        out[3] = round_u8(A);
+        return;
+    }
     fin_bgra(acc, out, NULL);
 }
 
@@ -797,24 +844,31 @@ static bool wp_init(wp_ctx *c, const pc_warp *w, int32_t sw, int32_t sh)
     return !pc_rect_is_empty(c->R);
 }
 
+static bool wp_tile(const wp_ctx *c, uint32_t dst_w, uint32_t dst_h, uint32_t tx, uint32_t ty,
+                    pc_px32 *px)
+{
+    bool any = false;
+    uint32_t x0 = tx * PC_TILE_DIM, y0 = ty * PC_TILE_DIM;
+    memset(px, 0, PC_TILE_PX * sizeof *px);
+    for (uint32_t y = 0; y < PC_TILE_DIM && y0 + y < dst_h; y++)
+        for (uint32_t x = 0; x < PC_TILE_DIM && x0 + x < dst_w; x++) {
+            uint8_t *p = (uint8_t *)&px[(size_t)y * PC_TILE_DIM + x];
+            wp_pixel(c, (int32_t)(x0 + x), (int32_t)(y0 + y), p);
+            any |= (p[0] | p[1] | p[2] | p[3]) != 0u;
+        }
+    return any;
+}
+
 bool pc_warp_grid_tile(const pc_grid *src, const pc_warp *w, uint32_t dst_w,
                        uint32_t dst_h, uint32_t tx, uint32_t ty, pc_px32 *px)
 {
     wp_ctx c;
-    bool any = false;
-    uint32_t x0 = tx * PC_TILE_DIM, y0 = ty * PC_TILE_DIM;
     memset(px, 0, PC_TILE_PX * sizeof *px);
     memset(&c, 0, sizeof c);
     if (!grid_ok(src) || src->bpp != 4u) return false;
     c.g = src;
     if (!wp_init(&c, w, (int32_t)src->w, (int32_t)src->h)) return false;
-    for (uint32_t y = 0; y < PC_TILE_DIM && y0 + y < dst_h; y++)
-        for (uint32_t x = 0; x < PC_TILE_DIM && x0 + x < dst_w; x++) {
-            uint8_t *p = (uint8_t *)&px[(size_t)y * PC_TILE_DIM + x];
-            wp_pixel(&c, (int32_t)(x0 + x), (int32_t)(y0 + y), p);
-            any |= (p[0] | p[1] | p[2] | p[3]) != 0u;
-        }
-    return any;
+    return wp_tile(&c, dst_w, dst_h, tx, ty, px);
 }
 
 static void wp_job(void *ud, uint32_t job, uint32_t worker)
@@ -826,7 +880,7 @@ static void wp_job(void *ud, uint32_t job, uint32_t worker)
     if (c->out_grid) {
         pc_px32 buf[PC_TILE_PX];
         pc_tile *t;
-        if (!pc_warp_grid_tile(c->g, &c->w, c->dst_w, c->dst_h, bx, by, buf)) return;
+        if (!wp_tile(c, c->dst_w, c->dst_h, bx, by, buf)) return;
         if (pc_atomic_load(&c->fail)) return;
         t = pc_tile_new_zero(4u);
         if (!t) { pc_atomic_store(&c->fail, 1u); return; }
@@ -866,6 +920,12 @@ pc_status pc_warp_surf(const pc_surf *src, const pc_warp *w, pc_surf *dst,
 pc_status pc_warp_grid(const pc_grid *src, const pc_warp *w, uint32_t dst_w,
                        uint32_t dst_h, const pc_par *par, pc_tile ***out)
 {
+    return pc_warp_grid_ex(src, w, false, dst_w, dst_h, par, out);
+}
+
+pc_status pc_warp_grid_ex(const pc_grid *src, const pc_warp *w, bool linear, uint32_t dst_w,
+                          uint32_t dst_h, const pc_par *par, pc_tile ***out)
+{
     wp_ctx c;
     uint32_t dby;
     size_t n;
@@ -875,6 +935,7 @@ pc_status pc_warp_grid(const pc_grid *src, const pc_warp *w, uint32_t dst_w,
     memset(&c, 0, sizeof c);
     c.g = src;
     if (!wp_init(&c, w, (int32_t)src->w, (int32_t)src->h)) return PC_ERR_ARG;
+    if (linear) wp_lin_tables(&c);
     c.dst_w = dst_w;
     c.dst_h = dst_h;
     c.dbx = (dst_w + RS_BLOCK - 1u) / RS_BLOCK;

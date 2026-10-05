@@ -64,7 +64,7 @@ static void t_zoom_commands(void)
     CHECK(near(d->view.zoom, 1.5, 1e-9) && near(d->view.cx, 150.0, 1.0));
     tap(a, SDLK_MINUS, SDL_KMOD_LCTRL);
     tap(a, SDLK_MINUS, SDL_KMOD_LCTRL);
-    CHECK(near(d->view.zoom, 0.67, 1e-9));
+    CHECK(near(d->view.zoom, 1.0 / 1.5, 1e-9));   /* OBSERVED 8 ladder (lane SHELL) */
     /* Actual Size (Ctrl+0) keeps the view center */
     v = app_doc_gview(a, d);
     tap(a, SDLK_0, SDL_KMOD_LCTRL);

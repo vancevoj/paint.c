@@ -594,6 +594,12 @@ bool ui_context_menu_begin(ui_ctx *ctx, const char *id);
  * the content. Draggable by its title bar. Always returns true; declare the
  * content, optionally ui_dialog_buttons, then ui_dialog_end. */
 bool ui_dialog_begin(ui_ctx *ctx, const char *title, float w_dip, float h_dip);
+/* ui_dialog_begin with flags (lane SHELL, wave 3b): UI_DIALOG_NO_DIM draws
+ * no dimmed backdrop, for dialogs whose preview is the canvas behind them
+ * (the dialog stays modal). */
+#define UI_DIALOG_NO_DIM 1u
+bool ui_dialog_begin_ex(ui_ctx *ctx, const char *title, float w_dip, float h_dip,
+                        uint32_t flags);
 /* Footer with the given UI_DLG_* buttons (right aligned, def is the default
  * button bound to Enter). */
 void ui_dialog_buttons(ui_ctx *ctx, uint32_t buttons, uint32_t def);
@@ -630,6 +636,12 @@ bool ui_panel_begin(ui_ctx *ctx, const char *title, ui_panel_state *st, uint32_t
 void ui_panel_end(ui_ctx *ctx);
 /* Current pixel rectangle of an open panel (empty when not shown). */
 ui_rect ui_panel_rect(ui_ctx *ctx, const char *title);
+/* Lane SHELL (wave 3b), between ui_panel_begin and ui_panel_end:
+ * ui_panel_set_alpha draws the whole panel with this opacity (0..1, reset
+ * to 1 every frame; translucent utility windows); ui_panel_held is true
+ * while a widget of the panel (or its title bar) holds the mouse. */
+void ui_panel_set_alpha(ui_ctx *ctx, float alpha);
+bool ui_panel_held(const ui_ctx *ctx);
 
 #ifdef __cplusplus
 }

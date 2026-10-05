@@ -6,7 +6,8 @@
  * order), Visible (check box). The canvas previews every change live while
  * the dialog is open; Cancel (Esc, the close button) restores the layer;
  * OK records one "Layer Properties" history step when anything changed.
- * An empty name keeps the old one.
+ * An empty name keeps the old one. The dialog does not dim the window
+ * (lane SHELL), so opacity and blend mode are judged on the real canvas.
  *
  * Thread rules: main thread. The dialog state is owned by the dialog stack
  * (freed with free()); the layer is found by document and layer id every
@@ -56,7 +57,8 @@ static bool props_frame(app *a, void *st)
     uint32_t r;
     bool enter;
     if (!l) return false;
-    ui_dialog_begin(ui, "Layer Properties##pnl_layer_props", 400.0f, 0.0f);
+    /* the canvas behind is the live preview: no dimmed backdrop (lane SHELL) */
+    ui_dialog_begin_ex(ui, "Layer Properties##pnl_layer_props", 400.0f, 0.0f, UI_DIALOG_NO_DIM);
     enter = app_dialog_take_enter(a);
     c2[0] = ui_size_px(92.0f);
     c2[1] = ui_size_fr(1.0f);

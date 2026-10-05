@@ -161,15 +161,17 @@ static void t_wheel_zoom(void)
         at_frames(a, 1);
         CHECK(d->view.cx > cx);
     }
-    /* Ctrl+B fits, Ctrl+B again restores (V-ZOOM-WINDOW) */
+    /* Ctrl+B fits, Ctrl+B again restores the zoom, centered (V-ZOOM-WINDOW,
+     * V-ZOOM-RECENTER: ViewTools "Centering an Image"; lane SHELL) */
     {
-        double z = d->view.zoom, cx = d->view.cx;
+        double z = d->view.zoom;
         CHECK(app_cmd_exec(a, "view.zoom_window"));
         at_frames(a, 1);
         CHECK(d->view.zoom < z && d->view.fit_mode);
         CHECK(app_cmd_exec(a, "view.zoom_window"));
         at_frames(a, 1);
-        CHECK(d->view.zoom == z && d->view.cx == cx && !d->view.fit_mode);
+        CHECK(d->view.zoom == z && !d->view.fit_mode);
+        CHECK(d->view.cx == (double)d->doc->w * 0.5 && d->view.cy == (double)d->doc->h * 0.5);
     }
     app_destroy(a);
 }

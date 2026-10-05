@@ -6,10 +6,13 @@
  * Grid and Rulers (check items sharing the toolbar state; enabled with an
  * image open) and the units radio group (Pixels, Inches, Centimeters,
  * always enabled, persisted). None of them finishes a live tool.
+ * Lane SHELL: Home or End pressed twice goes to the top left or bottom
+ * right corner (K-NAV-HOME2, K-NAV-END2).
  *
  * Thread rules: main thread. */
 #include "../app_internal.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 static bool can_in(app *a, const app_cmd *c)
@@ -87,7 +90,50 @@ static void cmd_scroll(app *a, const app_cmd *c)
     app_view_pan_px(a, d, dx, dy);
 }
 
-static void cmd_home(app *a, const app_cmd *c) { app_view_home(a, app_active_doc(a), (int)c->arg); }
+/* K-NAV-HOME2 / K-NAV-END2 (lane SHELL): Home scrolls to the left edge,
+ * a second Home (nothing changed the view in between) scrolls to the top
+ * left like Shift+Home; End and End likewise to the bottom right. */
+typedef struct home_mem {
+    uint32_t doc_id;
+    int      which;            /* 0 Home, 1 End, -1 none */
+    double   zoom, cx, cy;     /* the view the first press left */
+} home_mem;
+
+static home_mem *home_state(app *a)
+{
+    home_mem *m = (home_mem *)app_ext_get(a, "shell.home");
+    if (!m) {
+        m = (home_mem *)calloc(1u, sizeof *m);
+        if (!m) return NULL;
+        m->which = -1;
+        if (!app_ext_set(a, "shell.home", m, free)) {
+            free(m);
+            return NULL;
+        }
+    }
+    return m;
+}
+
+static void cmd_home(app *a, const app_cmd *c)
+{
+    app_doc *d = app_active_doc(a);
+    home_mem *m = home_state(a);
+    int which = (int)c->arg;
+    if (!d) return;
+    if ((which == 0 || which == 1) && m) {
+        bool second = m->which == which && m->doc_id == d->id && m->zoom == d->view.zoom &&
+                      m->cx == d->view.cx && m->cy == d->view.cy;
+        app_view_home(a, d, second ? which + 2 : which);
+        m->which = second ? -1 : which;
+        m->doc_id = d->id;
+        m->zoom = d->view.zoom;
+        m->cx = d->view.cx;
+        m->cy = d->view.cy;
+        return;
+    }
+    if (m) m->which = -1;
+    app_view_home(a, d, which);
+}
 
 static void reg(app *a, const char *id, const char *label, ui_icon icon, uint32_t flags,
                 app_cmd_fn run, app_cmd_pred en, app_cmd_pred chk, intptr_t arg)

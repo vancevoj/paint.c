@@ -66,6 +66,9 @@ struct pc_view_cache {
     pc_comp_opts        o;
     const pc_par       *par;
     uint32_t            lw[PC_MIP_LEVELS], lh[PC_MIP_LEVELS];   /* tiles per level */
+    /* sRGB code of every 16-bit linear value v / 16, rounded down to the
+     * bucket start (enc_fast corrects by one), filled at create */
+    uint8_t             enc[4096];
 };
 
 /* ---- small helpers ----------------------------------------------------------- */
@@ -276,6 +279,8 @@ static void evict_to_budget(pc_view_cache *c)
 }
 
 /* ---- lifecycle -------------------------------------------------------------------- */
+static uint32_t enc16(uint32_t v);
+
 pc_view_cache *pc_view_cache_create(size_t budget_bytes)
 {
     pc_view_cache *c;
@@ -284,6 +289,7 @@ pc_view_cache *pc_view_cache_create(size_t budget_bytes)
     if (!c) return NULL;
     c->budget = budget_bytes ? budget_bytes : VC_DEFAULT;
     c->st.epoch = 1u;
+    for (uint32_t b = 0; b < 4096u; b++) c->enc[b] = (uint8_t)enc16(b << 4);
     return c;
 }
 
@@ -476,7 +482,126 @@ static void premultiply(uint8_t *p)
     }
 }
 
-static void downsample(const uint8_t *const ch[4], uint8_t *dst)
+/* Gamma-correct downsampling (V-RENDER-DOWN, lane SHELL wave 3b): the
+ * colors of the four children are averaged in linear light, weighted by
+ * their alpha. k_lin16[c] = round(65535 * sRGB-decode(c / 255));
+ * k_mid16[k] = floor(65535 * sRGB-decode((k + 0.5) / 255)), the linear
+ * value halfway between codes k and k + 1. */
+static const uint16_t k_lin16[256] = {
+        0,    20,    40,    60,    80,    99,   119,   139,   159,   179,   199,   219,
+      241,   264,   288,   313,   340,   367,   396,   427,   458,   491,   526,   562,
+      599,   637,   677,   718,   761,   805,   851,   898,   947,   997,  1048,  1101,
+     1156,  1212,  1270,  1330,  1391,  1453,  1517,  1583,  1651,  1720,  1790,  1863,
+     1937,  2013,  2090,  2170,  2250,  2333,  2418,  2504,  2592,  2681,  2773,  2866,
+     2961,  3058,  3157,  3258,  3360,  3464,  3570,  3678,  3788,  3900,  4014,  4129,
+     4247,  4366,  4488,  4611,  4736,  4864,  4993,  5124,  5257,  5392,  5530,  5669,
+     5810,  5953,  6099,  6246,  6395,  6547,  6700,  6856,  7014,  7174,  7335,  7500,
+     7666,  7834,  8004,  8177,  8352,  8528,  8708,  8889,  9072,  9258,  9445,  9635,
+     9828, 10022, 10219, 10417, 10619, 10822, 11028, 11235, 11446, 11658, 11873, 12090,
+    12309, 12530, 12754, 12980, 13209, 13440, 13673, 13909, 14146, 14387, 14629, 14874,
+    15122, 15371, 15623, 15878, 16135, 16394, 16656, 16920, 17187, 17456, 17727, 18001,
+    18277, 18556, 18837, 19121, 19407, 19696, 19987, 20281, 20577, 20876, 21177, 21481,
+    21787, 22096, 22407, 22721, 23038, 23357, 23678, 24002, 24329, 24658, 24990, 25325,
+    25662, 26001, 26344, 26688, 27036, 27386, 27739, 28094, 28452, 28813, 29176, 29542,
+    29911, 30282, 30656, 31033, 31412, 31794, 32179, 32567, 32957, 33350, 33745, 34143,
+    34544, 34948, 35355, 35764, 36176, 36591, 37008, 37429, 37852, 38278, 38706, 39138,
+    39572, 40009, 40449, 40891, 41337, 41785, 42236, 42690, 43147, 43606, 44069, 44534,
+    45002, 45473, 45947, 46423, 46903, 47385, 47871, 48359, 48850, 49344, 49841, 50341,
+    50844, 51349, 51858, 52369, 52884, 53401, 53921, 54445, 54971, 55500, 56032, 56567,
+    57105, 57646, 58190, 58737, 59287, 59840, 60396, 60955, 61517, 62082, 62650, 63221,
+    63795, 64372, 64952, 65535,
+};
+static const uint16_t k_mid16[255] = {
+        9,    29,    49,    69,    89,   109,   129,   149,   169,   188,   208,   229,
+      252,   275,   300,   326,   353,   381,   411,   442,   474,   508,   543,   579,
+      617,   656,   697,   739,   782,   827,   874,   922,   971,  1022,  1074,  1128,
+     1184,  1241,  1299,  1359,  1421,  1485,  1550,  1616,  1684,  1754,  1826,  1899,
+     1974,  2051,  2129,  2209,  2291,  2375,  2460,  2547,  2636,  2726,  2819,  2913,
+     3009,  3107,  3207,  3308,  3411,  3517,  3624,  3733,  3843,  3956,  4071,  4187,
+     4306,  4426,  4549,  4673,  4799,  4927,  5058,  5190,  5324,  5460,  5598,  5739,
+     5881,  6025,  6172,  6320,  6470,  6623,  6777,  6934,  7093,  7254,  7417,  7582,
+     7749,  7918,  8090,  8264,  8439,  8617,  8797,  8980,  9164,  9351,  9540,  9731,
+     9924, 10120, 10317, 10517, 10719, 10924, 11131, 11340, 11551, 11764, 11980, 12198,
+    12419, 12642, 12867, 13094, 13324, 13556, 13790, 14027, 14266, 14507, 14751, 14997,
+    15246, 15497, 15750, 16006, 16264, 16524, 16787, 17053, 17320, 17591, 17863, 18138,
+    18416, 18696, 18979, 19263, 19551, 19841, 20133, 20428, 20726, 21026, 21328, 21633,
+    21941, 22251, 22563, 22879, 23196, 23517, 23839, 24165, 24493, 24823, 25157, 25492,
+    25831, 26172, 26515, 26861, 27210, 27562, 27916, 28272, 28632, 28994, 29358, 29726,
+    30096, 30468, 30844, 31222, 31602, 31986, 32372, 32761, 33152, 33546, 33943, 34343,
+    34746, 35151, 35559, 35969, 36383, 36799, 37218, 37639, 38064, 38491, 38921, 39354,
+    39789, 40228, 40669, 41113, 41560, 42010, 42462, 42917, 43376, 43837, 44300, 44767,
+    45237, 45709, 46184, 46662, 47143, 47627, 48114, 48604, 49096, 49592, 50090, 50591,
+    51095, 51603, 52113, 52626, 53141, 53660, 54182, 54707, 55234, 55765, 56299, 56835,
+    57375, 57917, 58463, 59011, 59563, 60117, 60674, 61235, 61798, 62365, 62934, 63507,
+    64082, 64661, 65243,
+};
+
+/* The sRGB code nearest to a 16-bit linear value (rounded in the encoded
+ * domain): the number of midpoints below v. */
+static uint32_t enc16(uint32_t v)
+{
+    uint32_t lo = 0, hi = 255;
+    while (lo < hi) {
+        uint32_t m = (lo + hi) >> 1;
+        if (v > k_mid16[m]) lo = m + 1u;
+        else hi = m;
+    }
+    return lo;
+}
+
+/* enc16 through the bucket table: at most one midpoint lies in a bucket
+ * of 16 linear values (the closest midpoints are 20 apart), so one
+ * correction step gives the exact code. */
+static uint32_t enc_fast(const uint8_t *t, uint32_t v)
+{
+    uint32_t c = t[v >> 4];
+    if (c < 255u && v > k_mid16[c]) c++;
+    return c;
+}
+
+/* One level pixel from four premultiplied children (contract in pc_mip.h). */
+static void down_px(const uint8_t *t, const uint8_t *p0, const uint8_t *p1, const uint8_t *p2,
+                    const uint8_t *p3, uint8_t *d)
+{
+    const uint8_t *p[4];
+    uint32_t A = (uint32_t)p0[3] + p1[3] + p2[3] + p3[3], al;
+    if (memcmp(p0, p1, 4u) == 0 && memcmp(p0, p2, 4u) == 0 && memcmp(p0, p3, 4u) == 0) {
+        /* four equal pixels: the contract gives the same pixel back
+         * (unpremultiplying and premultiplying again round trips, and
+         * enc16(lin16(c)) == c) */
+        memcpy(d, p0, 4u);
+        return;
+    }
+    if (A == 0u) { d[0] = d[1] = d[2] = d[3] = 0u; return; }
+    if (A == 4u * 255u) {
+        /* opaque: (sum * 255 + 510) / 1020 == (sum + 2) / 4 */
+        for (uint32_t k = 0; k < 3u; k++)
+            d[k] = (uint8_t)enc_fast(t, ((uint32_t)k_lin16[p0[k]] + k_lin16[p1[k]] +
+                                         k_lin16[p2[k]] + k_lin16[p3[k]] + 2u) >> 2);
+        d[3] = 255u;
+        return;
+    }
+    p[0] = p0; p[1] = p1; p[2] = p2; p[3] = p3;
+    al = (A + 2u) >> 2;
+    for (uint32_t k = 0; k < 3u; k++) {
+        uint32_t S = 0;
+        for (uint32_t i = 0; i < 4u; i++) {
+            uint32_t a = p[i][3], c;
+            if (a == 0u) continue;
+            if (a == 255u) {
+                c = p[i][k];
+            } else {
+                c = ((uint32_t)p[i][k] * 255u + a / 2u) / a;
+                if (c > 255u) c = 255u;
+            }
+            S += (uint32_t)k_lin16[c] * a;
+        }
+        d[k] = (uint8_t)pc_mul255(enc_fast(t, (S + A / 2u) / A), al);
+    }
+    d[3] = (uint8_t)al;
+}
+
+static void downsample(const uint8_t *t, const uint8_t *const ch[4], uint8_t *dst)
 {
     for (uint32_t q = 0; q < 4u; q++) {
         const uint8_t *s = ch[q];
@@ -488,9 +613,8 @@ static void downsample(const uint8_t *const ch[4], uint8_t *dst)
             r0 = s + (size_t)(2u * y) * PC_TILE_DIM * 4u;
             r1 = r0 + PC_TILE_DIM * 4u;
             for (uint32_t x = 0; x < 32u; x++)
-                for (uint32_t k = 0; k < 4u; k++)
-                    d[4u * x + k] = (uint8_t)(((uint32_t)r0[8u * x + k] + r0[8u * x + 4u + k] +
-                                               r1[8u * x + k] + r1[8u * x + 4u + k] + 2u) >> 2);
+                down_px(t, r0 + 8u * x, r0 + 8u * x + 4u, r1 + 8u * x, r1 + 8u * x + 4u,
+                        d + 4u * x);
         }
     }
 }
@@ -515,7 +639,7 @@ static void run_job(void *ud, uint32_t i, uint32_t worker)
                 idx = find_idx(c, key_of(j->level - 1u, cx, cy));
             ch[q] = idx == VC_NONE ? NULL : c->e[idx].px;
         }
-        downsample(ch, j->buf);
+        downsample(c->enc, ch, j->buf);
     }
 }
 
