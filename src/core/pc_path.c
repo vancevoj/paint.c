@@ -573,6 +573,32 @@ pc_status pc_path_add_polygon(pc_path *p, const pc_pt *pts, size_t n, bool close
     return st;
 }
 
+pc_status pc_path_add_spline(pc_path *p, const pc_pt *pts, size_t n, double tension,
+                             bool closed)
+{
+    pc_status st;
+    size_t nseg;
+    double k;
+    if (n < 2u || !pts || !isfinite(tension)) return PC_ERR_ARG;
+    for (size_t i = 0; i < n; i++)
+        if (!fin2(pts[i].x, pts[i].y)) return PC_ERR_ARG;
+    k = tension * 0.3;
+    nseg = closed ? n : n - 1u;
+    st = pc_path_move_to(p, pts[0].x, pts[0].y);
+    for (size_t i = 0; i < nseg && st == PC_OK; i++) {
+        size_t i1 = (i + 1u) % n;
+        pc_pt pm = pts[i > 0u ? i - 1u : (closed ? n - 1u : 0u)];
+        pc_pt p0 = pts[i], p1 = pts[i1];
+        pc_pt p2 = pts[i1 + 1u < n ? i1 + 1u : (closed ? (i1 + 1u) % n : n - 1u)];
+        if (k == 0.0) st = pc_path_line_to(p, p1.x, p1.y);
+        else st = pc_path_cubic_to(p, p0.x + k * (p1.x - pm.x), p0.y + k * (p1.y - pm.y),
+                                   p1.x - k * (p2.x - p0.x), p1.y - k * (p2.y - p0.y), p1.x, p1.y);
+    }
+    if (st == PC_OK && closed) st = pc_path_close(p);
+    if (st == PC_OK && !closed) p->has_cur = false;
+    return st;
+}
+
 void pc_path_transform(pc_path *p, const pc_affine *m)
 {
     size_t k = 0;
@@ -769,7 +795,15 @@ pc_status pc_path_flatten(const pc_path *p, const pc_affine *m, double tol, pc_p
             break;
         }
         case PC_PATH_CLOSE:
-            if (open) st = pc_poly_end(dst, true);
+            if (open) {
+                /* drop a final point that repeats the start (closing
+                 * segments, full ellipses) */
+                size_t s0 = dst->open_start, e = dst->n_pts;
+                if (e - s0 > 1u && fabs(dst->pts[e - 1u].x - dst->pts[s0].x) <= 1e-9 &&
+                    fabs(dst->pts[e - 1u].y - dst->pts[s0].y) <= 1e-9)
+                    dst->n_pts--;
+                st = pc_poly_end(dst, true);
+            }
             open = false;
             break;
         }

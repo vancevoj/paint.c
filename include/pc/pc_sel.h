@@ -127,7 +127,9 @@ typedef struct pc_sel_snap {
     uint64_t  gen;           /* d->sel_gen when taken */
 } pc_sel_snap;
 
-/* Retain the current selection (cheap: one reference per tile). */
+/* Retain the current selection (cheap: one reference per tile). The
+ * snapshot is owned by the caller, stays valid across any later edits
+ * (tiles are immutable) and must be released with pc_sel_snap_free. */
 pc_status pc_sel_snap_take(const pc_doc *d, pc_sel_snap *s);
 void      pc_sel_snap_free(pc_sel_snap *s);          /* NULL-safe; zeroes *s */
 
@@ -171,13 +173,17 @@ pc_status pc_sel_contour_preview(const pc_doc *d, const pc_mask *src, pc_sel_mod
  *     tile counts with the payload, never allocates, and bumps sel_gen.
  *  3. Destroy releases the payload with pc_sel_state_free. */
 typedef struct pc_sel_state {
-    pc_tile **grid;          /* NULL = nothing selected */
+    pc_tile **grid;          /* NULL = nothing selected; owned (one reference
+                                per tile plus the array) */
     uint32_t  tiles_x, tiles_y;
     bool      active;
 } pc_sel_state;
 
+/* *out is owned by the caller (normally moved into a history payload). */
 pc_status pc_sel_state_build(const pc_doc *d, uint32_t new_w, uint32_t new_h,
                              const pc_affine *m, bool clear, pc_sel_state *out);
+/* Ownership of the two grids moves: the document takes s's grid, s takes
+ * the document's. Main thread, inside a history swap. */
 void      pc_sel_state_exchange(pc_doc *d, pc_sel_state *s);
 void      pc_sel_state_free(pc_sel_state *s);       /* NULL-safe; zeroes *s */
 
@@ -186,8 +192,9 @@ void      pc_sel_state_free(pc_sel_state *s);       /* NULL-safe; zeroes *s */
 void      pc_sel_touch(pc_doc *d);
 
 /* Edit > Copy Selection / Paste Selection helpers: the selection outline
- * as the polygon-list text, and the text applied with a combine mode (even
- * odd fill, pixelated or antialiased). */
+ * as the polygon-list text (*out malloc'ed, caller frees with free()), and
+ * the text applied with a combine mode (even-odd fill, pixelated or
+ * antialiased). Pasting untrusted text is safe: see pc_poly_from_json. */
 pc_status pc_sel_copy_text(const pc_doc *d, char **out, size_t *len);
 pc_status pc_sel_paste_text(pc_hist *h, const char *text, size_t n, bool antialias,
                             pc_sel_mode mode, const char *label);

@@ -39,7 +39,8 @@ static void t_affine(void)
         CHECK(near(c.x, 10, 1e-12) && near(c.y, 21, 1e-12));
         v = pc_affine_apply_vec(&r, pc_pt_make(1, 0));
         CHECK(near(v.x, 0, 1e-12) && near(v.y, 1, 1e-12));
-        CHECK(near(pc_affine_max_scale(&sc), 3, 1e-12) && near(pc_affine_min_scale(&sc), 0.5, 1e-12));
+        CHECK(near(pc_affine_max_scale(&sc), 3, 1e-12));
+        CHECK(near(pc_affine_min_scale(&sc), 0.5, 1e-12));
         CHECK(near(pc_affine_max_scale(&r), 1, 1e-12) && near(pc_affine_min_scale(&r), 1, 1e-12));
         CHECK(!pc_affine_invert(&sing, &out));
         sing.a = NAN;
@@ -95,8 +96,9 @@ static void t_flatten(void)
         CHECK(f.pts[0].x == p0.x && f.pts[f.n_pts - 1].x == p0.x);
         for (int i = 0; i <= 400; i++) {
             double t = i / 400.0, s = 1 - t;
-            pc_pt c = { s * s * s * p0.x + 3 * s * s * t * c1.x + 3 * s * t * t * c2.x + t * t * t * p3.x,
-                        s * s * s * p0.y + 3 * s * s * t * c1.y + 3 * s * t * t * c2.y + t * t * t * p3.y };
+            double b0 = s * s * s, b1 = 3 * s * s * t, b2 = 3 * s * t * t, b3 = t * t * t;
+            pc_pt c = { b0 * p0.x + b1 * c1.x + b2 * c2.x + b3 * p3.x,
+                        b0 * p0.y + b1 * c1.y + b2 * c2.y + b3 * p3.y };
             pc_pt q = { s * s * p3.x + 2 * s * t * c1.x + t * t * p0.x,
                         s * s * p3.y + 2 * s * t * c2.y + t * t * p0.y };
             double dc = poly_dist(c, &f, 0) / tol, dq = poly_dist(q, &f, 0) / tol;
@@ -107,7 +109,8 @@ static void t_flatten(void)
         pc_path_clear(&p);
         pc_poly_clear(&f);
         {
-            double rx = 1 + frand() * 300, ry = 1 + frand() * 300, cx = frand() * 50, cy = frand() * 50;
+            double rx = 1 + frand() * 300, ry = 1 + frand() * 300;
+            double cx = frand() * 50, cy = frand() * 50;
             pc_affine rot = pc_affine_rotate_about(frand() * 3, cx, cy);
             CHECK(pc_path_add_ellipse(&p, cx, cy, rx, ry) == PC_OK);
             CHECK(pc_path_flatten(&p, &rot, tol, &f) == PC_OK);
@@ -142,7 +145,8 @@ static void t_build(void)
     CHECK(pc_path_arc_to(&p, 5, 5, 0, false, true, 10, 0) == PC_OK);
     CHECK(p.cur.x == 10 && p.cur.y == 0);
     CHECK(pc_path_bounds(&p, &mn, &mx));
-    CHECK(near(mn.y, -5, 1e-9) && near(mx.y, 0, 1e-9) && near(mn.x, 0, 1e-9) && near(mx.x, 10, 1e-9));
+    CHECK(near(mn.y, -5, 1e-9) && near(mx.y, 0, 1e-9));
+    CHECK(near(mn.x, 0, 1e-9) && near(mx.x, 10, 1e-9));
     CHECK(pc_path_flatten(&p, NULL, 0.01, &f) == PC_OK);
     CHECK(near(f.pts[f.n_pts - 1].x, 10, 1e-9) && near(f.pts[f.n_pts - 1].y, 0, 1e-9));
     /* radii too small get scaled up; zero radius is a line */
@@ -174,7 +178,8 @@ static void t_build(void)
         }
     }
     CHECK(pc_path_bounds(&p, &mn, &mx));
-    CHECK(near(mn.x, 6, 1e-9) && near(mx.x, 240, 1e-9) && near(mn.y, 0, 1e-9) && near(mx.y, 60, 1e-9));
+    CHECK(near(mn.x, 6, 1e-9) && near(mx.x, 240, 1e-9));
+    CHECK(near(mn.y, 0, 1e-9) && near(mx.y, 60, 1e-9));
     /* transform: flatten(transform(p)) == flatten(p, m) */
     {
         pc_affine m = pc_affine_rotate_about(0.7, 3, 4);
@@ -189,6 +194,28 @@ static void t_build(void)
         for (size_t i = 0; i < f.n_pts && i < g.n_pts; i++)
             CHECK(near(f.pts[i].x, g.pts[i].x, 1e-9) && near(f.pts[i].y, g.pts[i].y, 1e-9));
         pc_poly_free(&g);
+    }
+    /* cardinal splines pass through every point; tension 0 is straight */
+    {
+        pc_pt sp[5] = { { 0, 0 }, { 30, 40 }, { 60, 0 }, { 90, 50 }, { 120, 10 } };
+        pc_path_clear(&q);
+        pc_poly_clear(&f);
+        CHECK(pc_path_add_spline(&q, sp, 5, 0.5, false) == PC_OK);
+        CHECK(q.n_verbs == 5 && q.verbs[4] == PC_PATH_CUBIC);
+        CHECK(pc_path_flatten(&q, NULL, 0.05, &f) == PC_OK);
+        for (int i = 0; i < 5; i++) {
+            bool hit = false;
+            for (size_t k = 0; k < f.n_pts; k++)
+                hit |= f.pts[k].x == sp[i].x && f.pts[k].y == sp[i].y;
+            CHECK(hit);
+        }
+        CHECK(pc_path_bounds(&q, &mn, &mx) && mx.y > 50);     /* overshoot */
+        pc_path_clear(&q);
+        pc_poly_clear(&f);
+        CHECK(pc_path_add_spline(&q, sp, 5, 0.0, true) == PC_OK);
+        CHECK(pc_path_flatten(&q, NULL, 0.05, &f) == PC_OK);
+        CHECK(f.n_pts == 5 && f.closed[0] == 1);
+        CHECK(pc_path_add_spline(&q, sp, 1, 0.5, false) == PC_ERR_ARG);
     }
     /* errors */
     CHECK(pc_path_line_to(&p, NAN, 0) == PC_ERR_ARG);
@@ -275,7 +302,8 @@ static void t_stroke_basic(void)
     line(&p, sq, 4, true);
     CHECK(fabs(stroke_area(&p, &s, win) - (110.0 * 110 - 90.0 * 90)) < qtol(800, 0));
     s.join = PC_JOIN_BEVEL;
-    CHECK(fabs(stroke_area(&p, &s, win) - (110.0 * 110 - 90.0 * 90 - 4 * w * w / 8)) < qtol(800, 0));
+    CHECK(fabs(stroke_area(&p, &s, win) - (110.0 * 110 - 90.0 * 90 - 4 * w * w / 8)) <
+          qtol(800, 0));
     /* zero-length subpath: round caps make a disk, butt caps nothing */
     {
         pc_pt dot[2] = { { 60, 60 }, { 60, 60 } };
@@ -568,7 +596,7 @@ static void t_stroke_distance(void)
     for (int k = 0; k < iters; k++) {
         pc_stroke s;
         int n = 2 + (int)rndu(8);
-        bool closed = rndu(3) == 0 && n >= 3;
+        bool closed = rndu(3) == 0 && n >= 3, dashed;
         double hw, lim;
         pc_poly_clear(&p);
         pc_poly_clear(&out);
@@ -581,6 +609,13 @@ static void t_stroke_distance(void)
         s.join = (pc_join)rndu(3);
         s.miter_limit = 1 + frand() * 4;
         s.start_cap = s.end_cap = PC_CAP_ROUND;
+        dashed = s.join == PC_JOIN_ROUND && rndu(2) == 0;
+        if (dashed) {
+            /* round dashes stay inside the round solid stroke */
+            double pat[4] = { frand() * 3, 0.2 + frand() * 3, frand() * 2, 0.2 + frand() * 2 };
+            CHECK(pc_stroke_set_dash(&s, pat, 2u + 2u * rndu(2), frand() * 10) == PC_OK);
+            s.dash_cap = PC_CAP_ROUND;
+        }
         hw = s.width / 2;
         lim = hw * (s.join == PC_JOIN_MITER ? s.miter_limit : 1.0);
         CHECK(pc_poly_stroke(&p, &s, 0.02, &out) == PC_OK);
@@ -613,7 +648,9 @@ static void t_stroke_distance(void)
                     }
                 }
                 tested++;
-                if (s.join == PC_JOIN_ROUND) {
+                if (dashed) {
+                    if (dmin > hw + 0.71 && v != 0) bad_out++;
+                } else if (s.join == PC_JOIN_ROUND) {
                     if (dmin < hw - 0.71 && v != 255) bad_in++;
                     if (dmin > hw + 0.71 && v != 0) bad_out++;
                 } else {

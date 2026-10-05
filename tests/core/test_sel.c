@@ -109,7 +109,9 @@ static void rand_mask(pc_mask *m, const pc_doc *d)
 
 static void t_combine_ops(void)
 {
-    static const uint32_t dims[][2] = { { 150, 97 }, { 64, 64 }, { 1, 1 }, { 200, 33 }, { 65, 129 } };
+    static const uint32_t dims[][2] = {
+        { 150, 97 }, { 64, 64 }, { 1, 1 }, { 200, 33 }, { 65, 129 }
+    };
     int ops = g_quick ? 120 : 600;
     size_t t0, b0;
     pc_tile_stats(&t0, &b0);
@@ -130,10 +132,12 @@ static void t_combine_ops(void)
                 ref_apply(&r, d, &m, mode);
                 pc_mask_free(&m);
             } else if (what == 8) {
-                pc_rect rr = pc_rect_make((int32_t)rndu(d->w + 20) - 10, (int32_t)rndu(d->h + 20) - 10,
+                pc_rect rr = pc_rect_make((int32_t)rndu(d->w + 20) - 10,
+                                          (int32_t)rndu(d->h + 20) - 10,
                                           (int32_t)rndu(d->w), (int32_t)rndu(d->h));
                 CHECK(pc_sel_apply_rect(h, rr, mode, "Rectangle Select") == PC_OK);
-                if (pc_mask_alloc(&m, pc_rect_is_empty(rr) ? pc_rect_make(0, 0, 1, 1) : rr) == PC_OK) {
+                pc_rect mr = pc_rect_is_empty(rr) ? pc_rect_make(0, 0, 1, 1) : rr;
+                if (pc_mask_alloc(&m, mr) == PC_OK) {
                     if (!pc_rect_is_empty(rr)) memset(m.px, 255, (size_t)m.w * m.h);
                     ref_apply(&r, d, &m, mode);
                     pc_mask_free(&m);
@@ -192,7 +196,8 @@ static void t_semantics(void)
     /* invert and deselect with nothing selected record nothing */
     CHECK(pc_sel_invert(h, "Invert Selection") == PC_OK && h->cur == n0);
     CHECK(pc_sel_deselect(h, "Deselect") == PC_OK && h->cur == n0);
-    CHECK(pc_sel_transform(h, &(pc_affine){ 1, 0, 0, 1, 5, 5 }, "Move Selection") == PC_OK && h->cur == n0);
+    CHECK(pc_sel_transform(h, &(pc_affine){ 1, 0, 0, 1, 5, 5 }, "Move Selection") == PC_OK);
+    CHECK(h->cur == n0);
     /* select all: active, full, shared tiles */
     CHECK(pc_sel_select_all(h, "Select All") == PC_OK && h->cur != n0);
     CHECK(pc_sel_is_active(d) && rect_eq(pc_sel_bounds(d), pc_doc_rect(d)));
@@ -214,7 +219,8 @@ static void t_semantics(void)
     {
         pc_hist_node *c = h->cur;
         CHECK(pc_sel_select_all(h, "Select All") == PC_OK && h->cur == c);
-        CHECK(pc_sel_apply_rect(h, pc_rect_make(3, 3, 5, 5), PC_SEL_UNION, "x") == PC_OK && h->cur == c);
+        CHECK(pc_sel_apply_rect(h, pc_rect_make(3, 3, 5, 5), PC_SEL_UNION, "x") == PC_OK);
+        CHECK(h->cur == c);
     }
     /* inverting everything deselects */
     CHECK(pc_sel_invert(h, "Invert Selection") == PC_OK);
@@ -235,12 +241,15 @@ static void t_semantics(void)
     CHECK(pc_sel_apply_rect(h, pc_rect_make(10, 10, 20, 20), PC_SEL_XOR, "Rect") == PC_OK);
     CHECK(!pc_sel_is_active(d));
     CHECK(pc_hist_undo(h));
-    CHECK(pc_sel_apply_rect(h, pc_rect_make(500, 500, 20, 20), PC_SEL_REPLACE, "Off canvas") == PC_OK);
+    CHECK(pc_sel_apply_rect(h, pc_rect_make(500, 500, 20, 20), PC_SEL_REPLACE, "Off") == PC_OK);
     CHECK(!pc_sel_is_active(d));
     /* combine rule table */
-    CHECK(pc_sel_combine(PC_SEL_UNION, 10, 200) == 200 && pc_sel_combine(PC_SEL_EXCLUDE, 10, 200) == 0);
-    CHECK(pc_sel_combine(PC_SEL_EXCLUDE, 200, 10) == 190 && pc_sel_combine(PC_SEL_XOR, 10, 200) == 190);
-    CHECK(pc_sel_combine(PC_SEL_INTERSECT, 10, 200) == 10 && pc_sel_combine(PC_SEL_REPLACE, 10, 200) == 200);
+    CHECK(pc_sel_combine(PC_SEL_UNION, 10, 200) == 200);
+    CHECK(pc_sel_combine(PC_SEL_EXCLUDE, 10, 200) == 0);
+    CHECK(pc_sel_combine(PC_SEL_EXCLUDE, 200, 10) == 190);
+    CHECK(pc_sel_combine(PC_SEL_XOR, 10, 200) == 190);
+    CHECK(pc_sel_combine(PC_SEL_INTERSECT, 10, 200) == 10);
+    CHECK(pc_sel_combine(PC_SEL_REPLACE, 10, 200) == 200);
     /* open transaction blocks selection edits */
     {
         pc_txn *t = pc_txn_begin(d, "Paint");
@@ -345,7 +354,10 @@ static void t_history(void)
 }
 
 /* ---- transforms ---------------------------------------------------------------- */
-static void read_all(const pc_doc *d, uint8_t *buf) { pc_sel_read_rect(d, pc_doc_rect(d), buf, d->w, false); }
+static void read_all(const pc_doc *d, uint8_t *buf)
+{
+    pc_sel_read_rect(d, pc_doc_rect(d), buf, d->w, false);
+}
 
 static void t_transform(void)
 {
@@ -360,7 +372,8 @@ static void t_transform(void)
     CHECK(pc_sel_apply_rect(h, pc_rect_make(20, 30, 50, 40), PC_SEL_REPLACE, "R") == PC_OK);
     CHECK(pc_sel_apply(h, &m, PC_SEL_XOR, "M") == PC_OK);
     pc_mask_free(&m);
-    if (!pc_sel_is_active(d)) CHECK(pc_sel_apply_rect(h, pc_rect_make(5, 5, 9, 9), PC_SEL_UNION, "R") == PC_OK);
+    if (!pc_sel_is_active(d))
+        CHECK(pc_sel_apply_rect(h, pc_rect_make(5, 5, 9, 9), PC_SEL_UNION, "R") == PC_OK);
     read_all(d, a);
     fp = pc_doc_fingerprint(d);
     /* integer translation is exact; out-of-canvas parts drop */
@@ -403,13 +416,14 @@ static void t_transform(void)
             pc_affine r = pc_affine_rotate_about(0.4, 50, 60), s = pc_affine_scale(1.3, 0.8);
             pc_affine mm = pc_affine_compose(&r, &s);
             pc_mask pv;
-            CHECK(pc_sel_transform_preview(d, &snap, &mm, pc_rect_make(-10, -10, 200, 200), &pv) == PC_OK);
+            pc_rect big = pc_rect_make(-10, -10, 200, 200), off = pc_rect_make(200, 200, 5, 5);
+            CHECK(pc_sel_transform_preview(d, &snap, &mm, big, &pv) == PC_OK);
             CHECK(pv.x == 0 && pv.w == 128);
             CHECK(pc_sel_transform_snap(h, &snap, &mm, "Rotate") == PC_OK);
             read_all(d, b);
             CHECK(memcmp(pv.px, b, 128 * 128) == 0);
             pc_mask_free(&pv);
-            CHECK(pc_sel_transform_preview(d, NULL, &mm, pc_rect_make(200, 200, 5, 5), &pv) == PC_ERR_ARG);
+            CHECK(pc_sel_transform_preview(d, NULL, &mm, off, &pv) == PC_ERR_ARG);
         }
         pc_sel_snap_free(&snap);
         CHECK(snap.grid == NULL);
@@ -437,7 +451,8 @@ static void t_transform(void)
         CHECK(pc_sel_apply_poly(h, &p, PC_FILL_NONZERO, true, PC_SEL_REPLACE, "Ellipse") == PC_OK);
         read_all(d, a);
         for (int i = 0; i < 128 * 128; i++) s0 += a[i];
-        CHECK(pc_sel_transform(h, &(pc_affine){ cos(0.5), sin(0.5), -sin(0.5), cos(0.5), 30, -25 }, "Rot") == PC_OK);
+        pc_affine rot = { cos(0.5), sin(0.5), -sin(0.5), cos(0.5), 30, -25 };
+        CHECK(pc_sel_transform(h, &rot, "Rot") == PC_OK);
         read_all(d, b);
         for (int i = 0; i < 128 * 128; i++) s1 += b[i];
         CHECK(fabs(s1 - s0) / s0 < 0.005);
@@ -497,7 +512,8 @@ static void t_poly_preview_contour(void)
         CHECK(pc_mask_alloc(&m, pc_rect_make(290, 190, 30, 30)) == PC_OK);
         memset(m.px, 255, 900);
         pc_sel_preview_rect(d, &m, PC_SEL_REPLACE, pc_rect_make(295, 195, 10, 10), small, 10);
-        CHECK(small[0] == 255 && small[4 * 10 + 4] == 255 && small[5 * 10 + 5] == 0 && small[9] == 0);
+        CHECK(small[0] == 255 && small[4 * 10 + 4] == 255);
+        CHECK(small[5 * 10 + 5] == 0 && small[9] == 0);
         pc_mask_free(&m);
     }
     /* copy selection text and paste it back (hard selections round trip) */
@@ -545,7 +561,10 @@ static void t_state_exchange(void)
     read_all(d, a);
     fp = pc_doc_fingerprint(d);
     /* "crop" to (50, 50, 100, 80): the selection for the new canvas */
-    CHECK(pc_sel_state_build(d, 100, 80, &(pc_affine){ 1, 0, 0, 1, -50, -50 }, false, &st) == PC_OK);
+    {
+        pc_affine crop = pc_affine_translate(-50, -50);
+        CHECK(pc_sel_state_build(d, 100, 80, &crop, false, &st) == PC_OK);
+    }
     CHECK(st.active && st.grid && st.tiles_x == 2 && st.tiles_y == 2);
     for (int y = 0; y < 80; y++)
         for (int x = 0; x < 100; x++) {
@@ -617,7 +636,8 @@ static void t_large(void)
     CHECK(c.n_contours == 1 && c.n_pts == 4);
     /* 16K x 16K rectangle: 4 long segments */
     pc_poly_clear(&c);
-    CHECK(pc_sel_apply_rect(h, pc_rect_make(777, 1234, 16384, 16384), PC_SEL_REPLACE, "R") == PC_OK);
+    CHECK(pc_sel_apply_rect(h, pc_rect_make(777, 1234, 16384, 16384), PC_SEL_REPLACE, "R") ==
+          PC_OK);
     tm = pc_test_now();
     CHECK(pc_sel_contour(d, 0.0, &c) == PC_OK);
     tm = pc_test_now() - tm;
@@ -630,7 +650,8 @@ static void t_large(void)
     INFO("invert 65535^2: %.1f ms", tm * 1e3);
     CHECK(pc_sel_coverage(d, 0, 0) == 255 && pc_sel_coverage(d, 1000, 2000) == 0);
     CHECK(pc_sel_deselect(h, "Deselect") == PC_OK && !pc_sel_is_active(d));
-    CHECK(pc_hist_undo(h) && pc_sel_coverage(d, 1000, 2000) == 0 && pc_sel_coverage(d, 0, 0) == 255);
+    CHECK(pc_hist_undo(h) && pc_sel_coverage(d, 1000, 2000) == 0);
+    CHECK(pc_sel_coverage(d, 0, 0) == 255);
     CHECK(pc_hist_undo(h) && pc_sel_coverage(d, 1000, 2000) == 255);
     CHECK(pc_hist_redo(h) && pc_hist_redo(h) && !pc_sel_is_active(d));
     /* a large ellipse rasterized band by band */

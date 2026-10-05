@@ -169,6 +169,13 @@ pc_status pc_path_add_ellipse(pc_path *p, double cx, double cy, double rx,
                               double ry);
 /* Polygon through n points (n >= 1), closed when closed is true. */
 pc_status pc_path_add_polygon(pc_path *p, const pc_pt *pts, size_t n, bool closed);
+/* Cardinal spline through all n points (n >= 2) as cubic Bezier
+ * segments, the "Spline" curve type of the Line/Curve tool. The tangent at
+ * P[i] is tension * 0.3 * (P[i+1] - P[i-1]) per control point (the GDI+
+ * AddCurve convention; tension 0.5 is the default there, 0 gives straight
+ * segments). Open splines repeat their end points; closed ones wrap. */
+pc_status pc_path_add_spline(pc_path *p, const pc_pt *pts, size_t n, double tension,
+                             bool closed);
 
 void      pc_path_transform(pc_path *p, const pc_affine *m);
 /* Bounds of every stored point (control points included, arcs use their

@@ -327,7 +327,7 @@ static pc_status clean(stk *k, const pc_poly *src, size_t ci, bool closed)
 }
 
 /* Remove length len from the start (from_start) or end of an open
- * polyline in b. Returns the remaining point count (0 when consumed). */
+ * polyline in b. b->n drops to 0 when the whole polyline is consumed. */
 static void trim(pbuf *b, double len, bool from_start)
 {
     while (b->n >= 2u && len > 0.0) {

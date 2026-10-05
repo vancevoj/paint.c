@@ -29,7 +29,8 @@ static void t_rect_and_pixel(void)
         CHECK(mn.x == 103 && mn.y == 55 && mx.x == 131 && mx.y == 67);
         CHECK(pc_poly_area(&p) == -(28.0 * 12.0));       /* outer: CCW on screen */
         for (size_t i = 0; i < 4; i++)
-            CHECK((p.pts[i].x == 103 || p.pts[i].x == 131) && (p.pts[i].y == 55 || p.pts[i].y == 67));
+            CHECK((p.pts[i].x == 103 || p.pts[i].x == 131) &&
+                  (p.pts[i].y == 55 || p.pts[i].y == 67));
     }
     /* touching the mask border: still closed, still 4 corners */
     pc_poly_clear(&p);
@@ -65,7 +66,8 @@ static void t_rect_and_pixel(void)
     pc_poly_clear(&p);
     memset(m.px, 0, (size_t)m.w * m.h);
     for (int y = 2; y < 20; y++)
-        for (int x = 2; x < 20; x++) m.px[y * m.stride + x] = (x > 6 && x < 12 && y > 6 && y < 10) ? 0 : 255;
+        for (int x = 2; x < 20; x++)
+            m.px[y * m.stride + x] = (x > 6 && x < 12 && y > 6 && y < 10) ? 0 : 255;
     CHECK(pc_contour_mask(&m, 0.0, &p) == PC_OK);
     CHECK(p.n_contours == 2);
     CHECK(pc_poly_area(&p) == -(18.0 * 18.0 - 5.0 * 3.0));
@@ -115,7 +117,8 @@ static void t_random_hard(void)
         int w = 1 + (int)rndu(140), h = 1 + (int)rndu(140), dens = (int)rndu(100);
         int expect;
         uint8_t *pad;
-        CHECK(pc_mask_alloc(&m, pc_rect_make((int)rndu(300) - 150, (int)rndu(300) - 150, w, h)) == PC_OK);
+        pc_rect mr = pc_rect_make((int)rndu(300) - 150, (int)rndu(300) - 150, w, h);
+        CHECK(pc_mask_alloc(&m, mr) == PC_OK);
         /* blobs: random noise smoothed by a majority filter for structure */
         for (int i = 0; i < w * h; i++) m.px[i] = (int)rndu(100) < dens ? 255 : 0;
         if (k & 1)
@@ -225,7 +228,8 @@ static void t_antialiased(void)
  * as uniform where possible. */
 typedef struct big_field { pc_rect in; long calls; } big_field;
 
-static const uint8_t *big_block(void *ud, int32_t bx, int32_t by, uint8_t *scratch, uint8_t *uniform)
+static const uint8_t *big_block(void *ud, int32_t bx, int32_t by, uint8_t *scratch,
+                                uint8_t *uniform)
 {
     big_field *f = (big_field *)ud;
     pc_rect b = pc_rect_make(bx * 64, by * 64, 64, 64), c = pc_rect_intersect(b, f->in);
@@ -253,8 +257,8 @@ static void t_huge(void)
     t0 = pc_test_now();
     CHECK(pc_contour_field(&f, 0.0, &p) == PC_OK);
     t0 = pc_test_now() - t0;
-    INFO("16384^2 rectangle in a 65535^2 field: %zu contour(s), %zu points, %.1f ms, %ld block reads",
-         p.n_contours, p.n_pts, t0 * 1e3, bf.calls);
+    INFO("16384^2 rectangle in a 65535^2 field: %zu contour(s), %zu points, %.1f ms, "
+         "%ld block reads", p.n_contours, p.n_pts, t0 * 1e3, bf.calls);
     CHECK(p.n_contours == 1 && p.n_pts == 4);
     CHECK(pc_poly_area(&p) == -16384.0 * 16384.0);
     /* the whole area selected: outline is the area border */
@@ -296,8 +300,8 @@ static void t_json(void)
     free(s);
     /* tolerant syntax: other keys, exponents, spaces */
     {
-        const char *t = " { \"x\" : [1, {\"a\": \"]\"}], \"polygonList\" : [ \" 1e1 , -2.5,3,4 ,5.0E0,6\" ],"
-                        " \"z\": null } ";
+        const char *t = " { \"x\" : [1, {\"a\": \"]\"}], "
+                        "\"polygonList\" : [ \" 1e1 , -2.5,3,4 ,5.0E0,6\" ], \"z\": null } ";
         pc_poly_clear(&q);
         CHECK(pc_poly_from_json(t, strlen(t), &q) == PC_OK);
         CHECK(q.n_pts == 3 && q.pts[0].x == 10 && q.pts[0].y == -2.5 && q.pts[2].x == 5);
@@ -332,6 +336,54 @@ static void t_json(void)
     pc_poly_free(&q);
 }
 
+/* Mutated polygon lists never crash the parser and only ever return
+ * PC_OK, PC_ERR_FORMAT or PC_ERR_LIMIT (ASan checks the reads). */
+static void t_json_fuzz(void)
+{
+    static const char seed[] = "{\"polygonList\":[\"3,4,9,4,9,19,3,19,3,4\",\"1.5,2.25,7,8,9e0,1\"],"
+                               "\"other\":{\"a\":[1,2,{\"b\":null}]}}";
+    static const char alphabet[] = "{}[]\",:.-+eE0123456789 \\ap";
+    int iters = g_quick ? 3000 : 30000, ok = 0, fmt = 0, lim = 0, other = 0;
+    pc_poly q;
+    pc_poly_init(&q);
+    for (int k = 0; k < iters; k++) {
+        size_t n = sizeof seed - 1u, edits = 1u + rndu(6);
+        char *buf = (char *)malloc(n + 16u);
+        pc_status st;
+        memcpy(buf, seed, n);
+        for (size_t e = 0; e < edits; e++) {
+            uint32_t op = rndu(3), at = rndu((uint32_t)n);
+            char ch = alphabet[rndu(sizeof alphabet - 1u)];
+            if (op == 0) buf[at] = ch;                                 /* replace */
+            else if (op == 1 && n > 1) {                                /* delete */
+                memmove(buf + at, buf + at + 1, n - at - 1u);
+                n--;
+            } else if (n < sizeof seed + 10u) {                         /* insert */
+                memmove(buf + at + 1, buf + at, n - at);
+                buf[at] = ch;
+                n++;
+            }
+        }
+        if (rndu(4) == 0) n = rndu((uint32_t)n + 1u);                  /* truncate */
+        {
+            char *exact = (char *)malloc(n ? n : 1u);
+            memcpy(exact, buf, n);
+            pc_poly_clear(&q);
+            st = pc_poly_from_json(exact, n, &q);
+            free(exact);
+        }
+        if (st == PC_OK) ok++;
+        else if (st == PC_ERR_FORMAT) fmt++;
+        else if (st == PC_ERR_LIMIT) lim++;
+        else other++;
+        if (st != PC_OK) CHECK(q.n_contours == 0 && q.n_pts == 0);
+        free(buf);
+    }
+    INFO("json fuzz: %d ok, %d format, %d limit, %d other", ok, fmt, lim, other);
+    CHECK(other == 0 && ok > 0 && fmt > 0);
+    pc_poly_free(&q);
+}
+
 int main(int argc, char **argv)
 {
     pc_test_init(argc, argv);
@@ -341,5 +393,6 @@ int main(int argc, char **argv)
     RUN(t_antialiased);
     RUN(t_huge);
     RUN(t_json);
+    RUN(t_json_fuzz);
     return pc_test_finish();
 }

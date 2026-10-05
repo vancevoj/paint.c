@@ -151,7 +151,8 @@ uint8_t pc_sel_coverage(const pc_doc *d, int32_t x, int32_t y)
     if (!d->sel_active) return 255u;
     t = tile_at(d, (uint32_t)x >> PC_TILE_SHIFT, (uint32_t)y >> PC_TILE_SHIFT);
     if (!t) return 0u;
-    return t->data[((size_t)y & (PC_TILE_DIM - 1u)) * PC_TILE_DIM + ((size_t)x & (PC_TILE_DIM - 1u))];
+    return t->data[((size_t)y & (PC_TILE_DIM - 1u)) * PC_TILE_DIM +
+                   ((size_t)x & (PC_TILE_DIM - 1u))];
 }
 
 void pc_sel_read_rect(const pc_doc *d, pc_rect r, uint8_t *dst, size_t stride,
@@ -452,7 +453,11 @@ static void put(sel_build *b, size_t idx, pc_tile *t)
     if (b->n == b->cap) {
         size_t nc = b->cap ? b->cap * 2u : 256u, bytes;
         sel_change *n2;
-        if (!pc_mul_size(nc, sizeof *n2, &bytes)) { b->st = PC_ERR_LIMIT; pc_tile_release(t); return; }
+        if (!pc_mul_size(nc, sizeof *n2, &bytes)) {
+            b->st = PC_ERR_LIMIT;
+            pc_tile_release(t);
+            return;
+        }
         n2 = (sel_change *)realloc(b->ch, bytes);
         if (!n2) { b->st = PC_ERR_NOMEM; pc_tile_release(t); return; }
         b->ch = n2;
@@ -917,7 +922,8 @@ static double src_px(sampler *s, int32_t x, int32_t y)
     if (x < 0 || y < 0 || (uint32_t)x >= s->w || (uint32_t)y >= s->h) return 0.0;
     p = src_tile_data(s, x >> PC_TILE_SHIFT, y >> PC_TILE_SHIFT);
     if (!p) return 0.0;
-    return (double)p[((size_t)y & (PC_TILE_DIM - 1u)) * PC_TILE_DIM + ((size_t)x & (PC_TILE_DIM - 1u))];
+    return (double)p[((size_t)y & (PC_TILE_DIM - 1u)) * PC_TILE_DIM +
+                     ((size_t)x & (PC_TILE_DIM - 1u))];
 }
 
 /* Linear interpolation between a and b, steepened by k around the 50%
@@ -954,8 +960,8 @@ static uint8_t sample(sampler *s, double dx, double dy)
     v = fx > 0.0 ? lerp_sharp(src_px(s, ix, iy), src_px(s, ix + 1, iy), fx, s->kx)
                  : src_px(s, ix, iy);
     if (fy > 0.0) {
-        double v1 = fx > 0.0 ? lerp_sharp(src_px(s, ix, iy + 1), src_px(s, ix + 1, iy + 1), fx, s->kx)
-                             : src_px(s, ix, iy + 1);
+        double v1 = src_px(s, ix, iy + 1);
+        if (fx > 0.0) v1 = lerp_sharp(v1, src_px(s, ix + 1, iy + 1), fx, s->kx);
         v = lerp_sharp(v, v1, fy, s->ky);
     }
     if (v <= 0.0) return 0u;
@@ -1285,7 +1291,8 @@ static const uint8_t *sel_block(void *ud, int32_t bx, int32_t by, uint8_t *scrat
             int32_t px = bx * TD + x, py = by * TD + y;
             uint8_t a = t ? t->data[(size_t)y * PC_TILE_DIM + (size_t)x] : 0u;
             uint8_t v = 0u;
-            if (pc_rect_contains(tr, px, py)) v = pc_sel_combine(f->mode, a, pc_mask_at(f->src, px, py));
+            if (pc_rect_contains(tr, px, py))
+                v = pc_sel_combine(f->mode, a, pc_mask_at(f->src, px, py));
             scratch[(size_t)y * PC_TILE_DIM + (size_t)x] = v;
         }
     return scratch;

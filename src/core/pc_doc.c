@@ -20,6 +20,9 @@ pc_doc *pc_doc_create(uint32_t w, uint32_t h)
     d->tiles_x = (w + PC_TILE_DIM - 1u) >> PC_TILE_SHIFT;
     d->tiles_y = (h + PC_TILE_DIM - 1u) >> PC_TILE_SHIFT;
     d->next_layer_id = 1u;
+    /* Selection (lane L1a): sel_grid stays NULL and sel_active false until
+     * the apply phase of the first selection edit allocates the grid
+     * (pc_sel.c); deselect hands the grid to history and leaves NULL. */
     return d;
 }
 

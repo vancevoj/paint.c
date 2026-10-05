@@ -39,8 +39,9 @@ void       pc_raster_reset(pc_raster *r);       /* drop edges, keep memory */
 
 /* Add the contours of p (each implicitly closed), mapped through m (NULL =
  * identity). Contours with fewer than 2 points add nothing. PC_ERR_ARG for
- * non-finite coordinates (nothing is added then), PC_ERR_LIMIT beyond
- * PC_GEOM_MAX_POINTS edges. */
+ * coordinates that are not finite or exceed 1e12 in magnitude after
+ * mapping (nothing is added then), PC_ERR_LIMIT beyond PC_GEOM_MAX_POINTS
+ * edges. */
 pc_status  pc_raster_add_poly(pc_raster *r, const pc_poly *p, const pc_affine *m);
 pc_status  pc_raster_add_contour(pc_raster *r, const pc_pt *pts, size_t n,
                                  const pc_affine *m);
