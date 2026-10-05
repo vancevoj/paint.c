@@ -321,12 +321,12 @@ static size_t make_exif(uint8_t *out, int orientation, uint32_t xres, int unit, 
     size_t pos;
     int n = 0;
     memcpy(out, "Exif\0\0", 6);
-#define W16(p, v) do { if (be) { (p)[0] = (uint8_t)((v) >> 8); (p)[1] = (uint8_t)(v); } \
-                       else { (p)[0] = (uint8_t)(v); (p)[1] = (uint8_t)((v) >> 8); } } while (0)
-#define W32(p, v) do { if (be) { (p)[0] = (uint8_t)((v) >> 24); (p)[1] = (uint8_t)((v) >> 16); \
-                       (p)[2] = (uint8_t)((v) >> 8); (p)[3] = (uint8_t)(v); } \
-                       else { (p)[0] = (uint8_t)(v); (p)[1] = (uint8_t)((v) >> 8); \
-                       (p)[2] = (uint8_t)((v) >> 16); (p)[3] = (uint8_t)((v) >> 24); } } while (0)
+#define W16(p, v) do { if (be) { (p)[0] = (uint8_t)(((v) >> 8) & 0xFFu); (p)[1] = (uint8_t)((v) & 0xFFu); } \
+                       else { (p)[0] = (uint8_t)((v) & 0xFFu); (p)[1] = (uint8_t)(((v) >> 8) & 0xFFu); } } while (0)
+#define W32(p, v) do { if (be) { (p)[0] = (uint8_t)(((v) >> 24) & 0xFFu); (p)[1] = (uint8_t)(((v) >> 16) & 0xFFu); \
+                       (p)[2] = (uint8_t)(((v) >> 8) & 0xFFu); (p)[3] = (uint8_t)((v) & 0xFFu); } \
+                       else { (p)[0] = (uint8_t)((v) & 0xFFu); (p)[1] = (uint8_t)(((v) >> 8) & 0xFFu); \
+                       (p)[2] = (uint8_t)(((v) >> 16) & 0xFFu); (p)[3] = (uint8_t)(((v) >> 24) & 0xFFu); } } while (0)
     t[0] = t[1] = be ? 'M' : 'I';
     W16(t + 2, 42u);
     W32(t + 4, 8u);

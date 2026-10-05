@@ -76,7 +76,7 @@ struct pc_txn {
 };
 
 /* All-zero tile returned by pc_txn_peek for transparent private tiles. */
-static const uint64_t k_zero_tile[PC_TILE_PX * 4u / sizeof(uint64_t)];
+static const uint64_t k_zero_tile[PC_TILE_PX * 4u / sizeof(uint64_t)] = {0};
 
 static uint64_t mix64(uint64_t x)
 {

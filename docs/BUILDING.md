@@ -111,11 +111,15 @@ The toolchain file (`cmake/toolchains/mingw-w64-x86_64.cmake`):
 - links libgcc and winpthread statically, so the `.exe` files need no extra
   DLLs;
 - sets `CMAKE_CROSSCOMPILING_EMULATOR` to
-  `env -u DISPLAY -u WAYLAND_DISPLAY WINEPREFIX=<prefix> WINEDEBUG=-all wine`,
+  `env -u DISPLAY -u WAYLAND_DISPLAY LC_ALL=C.UTF-8 WINEPREFIX=<prefix> WINEDEBUG=-all wine`,
   so plain `ctest` runs every test under Wine, headless. Without a display
   Wine keeps its clipboard private, so the clipboard tests can never touch
-  the desktop clipboard. The prefix is `PC_WINEPREFIX`, else `$WINEPREFIX`
-  at configure time, else `<build>/wineprefix`.
+  the desktop clipboard. Wine stores Windows file names in the Unix
+  locale's charset, so under the C locale (a bare container) the UTF-8 file
+  name tests would fail; the emulator forces `C.UTF-8`. The prefix is `PC_WINEPREFIX`, else `$WINEPREFIX`
+  at configure time, else `<build>/wineprefix`. Wine refuses to create a
+  prefix inside a directory that another user owns (as root in a CI
+  container over a runner-owned checkout), so CI keeps it in `/tmp`.
 
 A single test can also be run by hand:
 `WINEPREFIX=... WINEDEBUG=-all wine build-mingw/tests/pal/test_pal.exe --quick`.
@@ -135,9 +139,17 @@ Xcode command line tools, CMake and Ninja (`brew install cmake ninja`):
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPC_VENDOR_SDL=ON \
-      -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+      -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_OSX_SYSROOT=macosx
 cmake --build build && ctest --test-dir build --output-on-failure
 ```
+
+Keep `-DCMAKE_OSX_SYSROOT=macosx` (or an SDK path, or `SDKROOT` in the
+environment). CMake 4 no longer passes an SDK to the compiler, and Apple
+clang without one adds `-I/usr/local/include`, which is searched before every
+`-isystem` directory. On Intel Macs that is Homebrew's prefix, so its
+`jpeglib.h` (jpeg-turbo built with `JPEG_LIB_VERSION 80`), `lcms2.h` and
+`webp/` headers shadow the vendored ones; the JPEG tests then fail with
+"Wrong JPEG library version: library is 62, caller expects 80".
 
 `-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"` builds universal binaries.
 

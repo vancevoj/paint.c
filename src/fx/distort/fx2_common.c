@@ -135,7 +135,9 @@ fx_pxf fx2_sample(const fx_img *im, double fx, double fy, int edge)
 {
     fx_pxf z = fx2_pxf_zero(), o;
     double x, y;
-    int32_t x0, y0, xi[2], yi[2];
+    /* xi/yi are only read where xv/yv is nonzero; the zero init keeps GCC's
+     * -Wmaybe-uninitialized from flagging the FX2_EDGE_TRANSPARENT path. */
+    int32_t x0, y0, xi[2] = {0, 0}, yi[2] = {0, 0};
     int xv[2], yv[2], k;
     float tx, ty, w[4];
     if (!isfinite(fx) || !isfinite(fy) || im->r.w <= 0 || im->r.h <= 0) return z;

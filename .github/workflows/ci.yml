@@ -9,7 +9,7 @@ name: ci
 
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, 'ci/**']
   pull_request:
   workflow_dispatch:
 
@@ -24,6 +24,17 @@ env:
   CMAKE_BUILD_PARALLEL_LEVEL: 4
   CTEST_OUTPUT_ON_FAILURE: 1
   PC_DEPS: ${{ github.workspace }}/.deps-cache
+  # Ubuntu packages for building SDL3 from source with its default X11 and
+  # Wayland options (the list in docs/BUILDING.md). Every Linux job uses this
+  # one list: vendored SDL3 fails to configure when an enabled backend such
+  # as XScreenSaver (libxss-dev) has no development package.
+  SDL3_APT_DEPS: >-
+    ninja-build pkg-config
+    libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev
+    libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols
+    libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev libdrm-dev
+    libgbm-dev libdbus-1-dev libibus-1.0-dev libudev-dev libasound2-dev
+    libpulse-dev libpipewire-0.3-dev
 
 jobs:
   linux:
@@ -35,15 +46,10 @@ jobs:
         cc: [gcc, clang]
     steps:
       - uses: actions/checkout@v4
-      - name: Install build tools and SDL3 build dependencies (X11, Wayland)
+      - name: Install build tools and SDL3 build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config \
-            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev \
-            libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols \
-            libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev libdrm-dev \
-            libgbm-dev libdbus-1-dev libibus-1.0-dev libudev-dev libasound2-dev \
-            libpulse-dev libpipewire-0.3-dev
+          sudo apt-get install -y --no-install-recommends $SDL3_APT_DEPS
       - uses: actions/cache@v4
         with:
           path: .deps-cache
@@ -84,10 +90,7 @@ jobs:
       - name: Install build tools and SDL3 build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config \
-            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev \
-            libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev \
-            libdbus-1-dev libudev-dev
+          sudo apt-get install -y --no-install-recommends $SDL3_APT_DEPS
       - uses: actions/cache@v4
         with:
           path: .deps-cache
@@ -115,10 +118,7 @@ jobs:
       - name: Install build tools and SDL3 build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config \
-            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev \
-            libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev \
-            libdbus-1-dev libudev-dev
+          sudo apt-get install -y --no-install-recommends $SDL3_APT_DEPS
       - name: Allow TSan shadow mappings (high ASLR entropy breaks TSan)
         run: sudo sysctl vm.mmap_rnd_bits=28
       - uses: actions/cache@v4
@@ -166,12 +166,21 @@ jobs:
           path: .deps-cache
           key: deps-${{ hashFiles('cmake/*.cmake') }}
           restore-keys: deps-
+      # The container runs as root but the checkout belongs to the runner
+      # user, and Wine refuses to create a prefix inside a directory that
+      # another user owns. Keep the prefix in /tmp and boot it once here, so
+      # the first test does not pay for (or time out on) prefix creation.
+      - name: Create the Wine prefix
+        run: |
+          WINEPREFIX=/tmp/pc-wine WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=" \
+            env -u DISPLAY -u WAYLAND_DISPLAY wineboot -i
+          WINEPREFIX=/tmp/pc-wine wineserver -w
       - name: Configure
         run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64-x86_64.cmake
           -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$GITHUB_WORKSPACE/.deps-cache"
-          -DPC_WINEPREFIX="$GITHUB_WORKSPACE/.wine"
+          -DPC_WINEPREFIX=/tmp/pc-wine
       - name: Build
         run: cmake --build build
       - name: Test under Wine
@@ -232,11 +241,16 @@ jobs:
           path: .deps-cache
           key: deps-${{ hashFiles('cmake/*.cmake') }}
           restore-keys: deps-
+      # CMAKE_OSX_SYSROOT=macosx: CMake 4 no longer passes an SDK to the
+      # compiler, and Apple clang without one adds -I/usr/local/include,
+      # which is searched before every -isystem directory. On the Intel image
+      # Homebrew's jpeg-turbo (JPEG_LIB_VERSION 80), little-cms2 and webp
+      # headers there then shadow the vendored ones (docs/BUILDING.md).
       - name: Configure
         run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$PC_DEPS"
-          -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_OSX_SYSROOT=macosx
       - name: Build
         run: cmake --build build
       - name: Test
