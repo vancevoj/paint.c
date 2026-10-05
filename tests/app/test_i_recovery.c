@@ -65,10 +65,20 @@ static int count_entries(const char *dir, const char *glob)
     return n < 0 ? 0 : n;
 }
 
-static app *make_app(const char *root, double interval, bool exclusive)
+static app *make_app_ex(const char *root, double interval, bool exclusive, bool startup_doc)
 {
-    app *a = at_app(900, 640);
+    app *a;
     app_autosave_cfg c;
+    app_opts o;
+    app_opts_default(&o);
+    o.headless = true;
+    o.width = 900;
+    o.height = 640;
+    o.workers = 3;
+    o.config_dir = "";
+    o.theme = APP_THEME_LIGHT;
+    o.no_default_doc = !startup_doc;
+    a = app_create(&o);
     if (!a) return NULL;
     app_autosave_cfg_default(&c);
     c.root = root;
@@ -80,6 +90,11 @@ static app *make_app(const char *root, double interval, bool exclusive)
         return NULL;
     }
     return a;
+}
+
+static app *make_app(const char *root, double interval, bool exclusive)
+{
+    return make_app_ex(root, interval, exclusive, false);
 }
 
 /* Run frames for ms milliseconds (timers fire, background work finishes). */
@@ -169,9 +184,10 @@ static void t_two_apps(void)
     CHECK(script(a, "new 50 40\ntool pencil\nprimary #FF00A000\nstroke 5 5 45 5 6 left\n"
                     "cmd layers.add_new\nprimary #FFC00000\nstroke 5 30 45 30 6 left\n"
                     "expect layers 2\nautosave\nexpect autosaved 1\n") == 0);
-    b = make_app(root, 0.0, false);
+    b = make_app_ex(root, 0.0, false, true);         /* with the startup image */
     CHECK(b != NULL);
     if (!b) { app_destroy(a); return; }
+    CHECK(app_doc_count(b) == 1);
     /* a is alive: not offered (heartbeat fresh, or its pid on Linux) */
     CHECK(app_recovery_scan(b) == 0);
     {
@@ -190,7 +206,7 @@ static void t_two_apps(void)
     CHECK(app_recovery_restore(b, -1) == 1);
     app_tasks_wait(b);
     at_frames(b, 3);
-    CHECK(app_doc_count(b) == 1);
+    CHECK(app_doc_count(b) == 1);                     /* it replaced the untouched startup image */
     CHECK(script(b, "expect layers 2\nexpect dirty 1\nexpect name Untitled\n"
                     "expect pixel 5 5 #FF00A000\nexpect pixel 5 30 #FFC00000\n"
                     "expect pixel 25 18 #FFFFFFFF\n") == 0);

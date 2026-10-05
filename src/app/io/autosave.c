@@ -752,7 +752,18 @@ static void restore_done(app *a, as_state *s, as_job *j)
     }
     app_copy_str(d->name, sizeof d->name, j->item.info.name);
     d->saved_seq = UINT64_MAX;                   /* unsaved: never equal to a history seq */
-    if (!app_add_doc(a, d)) return;
+    {
+        /* like opening a file: an untouched startup image makes room */
+        app_doc *startup = NULL;
+        for (int32_t k = 0; k < a->ndocs; k++) {
+            app_doc *o = a->docs[k];
+            if (a->startup_doc && o->id == a->startup_doc_id && !o->path && !app_doc_dirty(o) &&
+                o->hist->cur == o->hist->root && o->hist->count == 1u)
+                startup = o;
+        }
+        if (!app_add_doc(a, d)) return;
+        if (startup) app_close_doc_now(a, startup);
+    }
     {
         as_doc *ad = get_doc(s, d->id);
         if (ad) {
