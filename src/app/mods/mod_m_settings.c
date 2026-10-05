@@ -516,7 +516,8 @@ bool m_settings_set_plugin_errors(app *a, const char *const *files, const char *
 void m_settings_folder(app *a, int which, char *out, size_t cap)
 {
     const char *base = pal_dir(which == 0 ? PAL_DIR_DATA : PAL_DIR_STATE);
-    (void)a;
+    /* lane SHELL: a private --config-dir keeps the crash logs with it */
+    if (which == 1 && a && a->opts.config_dir && a->opts.config_dir[0]) base = a->opts.config_dir;
     pal_path_join(out, cap, base ? base : "", which == 0 ? "plugins" : "crash");
 }
 

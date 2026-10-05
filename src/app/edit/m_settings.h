@@ -41,7 +41,8 @@ bool   m_settings_set_plugin_errors(app *a, const char *const *files,
                                     const char *const *details, int n);
 
 /* Folder paths: which 0 = plugins (PAL_DIR_DATA/plugins), 1 = crash logs
- * (PAL_DIR_STATE/crash). */
+ * (PAL_DIR_STATE/crash, or <config dir>/crash when the app runs with a
+ * private --config-dir; lane SHELL). */
 void   m_settings_folder(app *a, int which, char *out, size_t cap);
 
 /* The Diagnostics page text (one item per line). */
