@@ -37,7 +37,7 @@ struct gfx_canvas {
     size_t               nrects_cap;
 };
 
-static const uint8_t k_zero_tile[PC_TILE_PX * 4u];
+static const uint8_t k_zero_tile[PC_TILE_PX * 4u] = {0};
 
 gfx_canvas *gfx_canvas_create(SDL_Renderer *r, uint32_t page_budget)
 {

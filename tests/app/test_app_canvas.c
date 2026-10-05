@@ -247,6 +247,7 @@ static void t_budget(void)
     gfx_view v;
     gfx_stats st;
     int steps = g_quick ? 24 : 120;
+    memset(&st, 0, sizeof st);                 /* MSVC C4701: steps could be 0 */
     CHECK(rig_open(&g, 4) && d && l && vc);
     if (!l) { rig_close(&g); pc_doc_destroy(d); pc_view_cache_destroy(vc); return; }
     for (uint32_t i = 0; i < 64; i++) {

@@ -187,7 +187,7 @@ static int32_t stroke_height(app *a, int32_t x)
 static void t_pen_pressure(void)
 {
     app *a = with_image(300, 200, app_px_make(255, 255, 255, 255));
-    float sx0, sy0, sx1, sy1;
+    float sx0 = 0.0f, sy0 = 0.0f, sx1 = 0.0f, sy1 = 0.0f;
     CHECK(a != NULL);
     if (!a) return;
     CHECK(app_tool_select(a, "paintbrush"));
