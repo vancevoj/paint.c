@@ -1,0 +1,6 @@
+# ThreadSanitizer suppressions for the pal tests (TSAN_OPTIONS=suppressions=...).
+# libdbus (not instrumented) takes its connection and bus locks in both
+# orders during SDL_Init / SDL_Quit; TSan reports a lock-order inversion
+# inside libdbus that has nothing to do with paint.c.
+deadlock:libdbus-1.so
+called_from_lib:libdbus-1.so
