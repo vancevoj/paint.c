@@ -208,13 +208,26 @@ void paint_ov_nub(app_overlay *o, double x, double y, bool hot)
     ui_ctx *ui = o->ui;
     const ui_palette *p = ui_pal(ui);
     double sx, sy;
-    int32_t s = ui_px(ui, PAINT_NUB_DIP), h = s / 2;
+    float r = (float)ui_px(ui, PAINT_NUB_DIP) * 0.5f, lw = (float)ui_px_line(ui, 1.0f);
+    ui_vec2 c;
+    app_ov_to_screen(o, x, y, &sx, &sy);
+    c = ui_vec2_make((float)sx, (float)sy);
+    ui_draw_circle_outline(ui, c, r, lw * 3.0f, ui_rgba(0, 0, 0, 170));
+    ui_draw_circle_outline(ui, c, r, lw, hot ? p->accent : ui_rgba(255, 255, 255, 255));
+}
+
+void paint_ov_point(app_overlay *o, double x, double y, bool hot)
+{
+    ui_ctx *ui = o->ui;
+    const ui_palette *p = ui_pal(ui);
+    double sx, sy;
+    int32_t s = ui_px(ui, 5.0f), h = s / 2;
     ui_rect r;
     app_ov_to_screen(o, x, y, &sx, &sy);
     r = ui_rect_make((int32_t)floor(sx) - h, (int32_t)floor(sy) - h, s, s);
-    ui_draw_rect(ui, ui_rect_inset(r, -1, -1), ui_rgba(0, 0, 0, 210));
+    ui_draw_rect(ui, ui_rect_inset(r, -1, -1), ui_rgba(0, 0, 0, 200));
     ui_draw_rect(ui, r, hot ? p->accent : ui_rgba(255, 255, 255, 255));
-    ui_draw_rect_outline(ui, ui_rect_inset(r, 1, 1), 1, ui_rgba(0, 0, 0, 60));
+    ui_draw_rect(ui, ui_rect_inset(r, 1, 1), ui_rgba(60, 60, 60, 255));
 }
 
 static void arrow_head(ui_ctx *ui, float cx, float cy, float dx, float dy, float len, ui_color c)
@@ -233,13 +246,12 @@ void paint_ov_move_handle(app_overlay *o, double x, double y, bool hot)
     double sx, sy;
     int32_t s = ui_px(ui, PAINT_MOVE_DIP), h = s / 2;
     float cx, cy, arm, head, lw = (float)ui_px_line(ui, 1.0f);
-    ui_color ink = ui_rgba(20, 20, 20, 255);
+    ui_color ink = ui_rgba(0, 0, 0, 230);
     ui_rect r;
     app_ov_to_screen(o, x, y, &sx, &sy);
     r = ui_rect_make((int32_t)floor(sx) - h, (int32_t)floor(sy) - h, s, s);
-    ui_draw_rect(ui, ui_rect_inset(r, -1, -1), ui_rgba(0, 0, 0, 210));
-    ui_draw_rect(ui, r, hot ? ui_color_lerp(ui_rgba(255, 255, 255, 255), p->accent, 0.35f)
-                            : ui_rgba(255, 255, 255, 255));
+    ui_draw_rect_outline(ui, ui_rect_inset(r, -1, -1), 1, ui_rgba(0, 0, 0, 120));
+    ui_draw_rect(ui, r, hot ? ui_color_fade(p->accent, 0.70f) : ui_rgba(255, 255, 255, 150));
     cx = (float)r.x + (float)r.w * 0.5f;
     cy = (float)r.y + (float)r.h * 0.5f;
     arm = (float)s * 0.40f;

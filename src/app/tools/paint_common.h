@@ -114,6 +114,10 @@ void paint_opt_tolerance(app *a);    /* "Tolerance:" bar, no mouse wheel */
 void paint_opt_tol_alpha(app *a);    /* split button: Premultiplied / Straight */
 void paint_opt_sampling(app *a);     /* "Sampling:" Layer / Image */
 
+/* Finish button (O-FINISH) enabled while live; true when clicked. Tools
+ * with fine-grained history finish explicitly through it. */
+bool paint_opt_finish(app *a, bool live);
+
 /* Building blocks for tool specific options. A toggle button with a glyph
  * (true when clicked). */
 bool paint_glyph_button(app *a, const char *id, paint_glyph g, bool selected, const char *tip);
@@ -148,16 +152,20 @@ const char *paint_fill_name(int32_t style);
  * (x, y) drawn dark under light so it shows on any image, plus the center
  * point. */
 void paint_ov_brush(app_overlay *o, double x, double y, double diameter);
-/* Small square nub (gradient end points, bucket origin). */
+/* Ring nub of the gradient end points (a small circle, dark under light). */
 void paint_ov_nub(app_overlay *o, double x, double y, bool hot);
-/* Four-arrow move handle (white square with four arrows). */
+/* Small square nub on the clicked pixel (Paint Bucket origin). */
+void paint_ov_point(app_overlay *o, double x, double y, bool hot);
+/* Four-arrow move handle: a translucent white square with four dark
+ * arrows (Paint.NET 5.2: 13 px, 18 px below right of the bucket origin,
+ * 35 px beyond the gradient end along its direction). */
 void paint_ov_move_handle(app_overlay *o, double x, double y, bool hot);
 /* Size of the nubs in DIPs and their hit radius in document units. */
-#define PAINT_NUB_DIP    9.0f
-#define PAINT_MOVE_DIP   15.0f
+#define PAINT_NUB_DIP          9.0f
+#define PAINT_MOVE_DIP        13.0f
+#define PAINT_MOVE_OFFSET_DIP 18.0f    /* bucket handle: down right of the origin */
+#define PAINT_GRAD_HANDLE_DIP 35.0f    /* gradient handle: beyond the end point */
 double paint_hit_radius(const app *a, float dip);
-/* Offset of a move handle from its anchor, in DIPs (down right). */
-#define PAINT_MOVE_OFFSET_DIP 16.0f
 
 /* ---- status ------------------------------------------------------------------- */
 /* Length in the current units with its unit ("53.85 px", "0.56 in"). */

@@ -470,6 +470,14 @@ int paint_split_button(app *a, const char *id, paint_glyph g, ui_icon icon, cons
     return im.clicked ? 1 : 0;
 }
 
+bool paint_opt_finish(app *a, bool live)
+{
+    ui_ctx *ui = a->ui;
+    ui_rect r = app_opt_next(a, 84.0f);
+    note(a, "##finish", NULL, r);
+    return ui_button_ex(ui, "Finish##paint_finish", UI_ICON_CHECK, live ? 0u : UI_DISABLED);
+}
+
 bool paint_menu_item(app *a, const char *label, bool selected)
 {
     bool r = ui_menu_radio(a->ui, label, NULL, selected, true);
