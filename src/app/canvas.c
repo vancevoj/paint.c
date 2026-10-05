@@ -332,7 +332,7 @@ static SDL_Cursor *cursor_for(app *a, app_cursor k)
     float ds;
     if (!a->win || (int)k < 0 || k >= APP_CURSOR_COUNT) return NULL;
     if (a->cv.cursors[k]) return a->cv.cursors[k];
-    ds = SDL_GetWindowDisplayScale(a->win);
+    ds = app_ui_scale_target(a);                 /* lane UIA: --scale too */
     size = ds > 1.4f ? 32 : 24;
     /* lane TOOLA: the closed hand and the selection mode glyph cursors */
     a->cv.cursors[k] = app_tool_cursor_make(a, k, size);

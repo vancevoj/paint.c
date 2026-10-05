@@ -171,7 +171,7 @@ bool app_tools_init(app *a)
     a->tool_prev = -1;
     /* the display scale (no frame has run yet, so not ui_scale) */
     if (a->opts.headless) s = a->opts.scale;
-    else if (a->win) s = SDL_GetWindowDisplayScale(a->win);
+    else if (a->win) s = app_ui_scale_target(a);   /* lane UIA: --scale too */
     g_width_scale = s > 0.25f && s < 16.0f ? s : 1.0f;
     app_tool_settings_reset(&a->ts);
     (void)fw_make(a);
