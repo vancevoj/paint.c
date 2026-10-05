@@ -109,6 +109,54 @@ static void mouse_event(app *a, Uint32 type, float x, float y, int button)
     app_event(a, &e);
 }
 
+static void key_event(app *a, SDL_Keycode key, SDL_Scancode sc, SDL_Keymod mod, bool down)
+{
+    SDL_Event e;
+    memset(&e, 0, sizeof e);
+    e.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+    e.key.key = key;
+    e.key.scancode = sc;
+    e.key.mod = mod;
+    e.key.down = down;
+    e.key.timestamp = SDL_GetTicksNS();
+    app_event(a, &e);
+}
+
+/* "key COMBO" like a real keyboard (lane UIB, wave 4 item 10): each
+ * modifier goes down first (its event carries the modifiers held so far),
+ * then the key goes down and up with all of them, then the modifiers come
+ * up in reverse order, the last release carrying no modifier. Before, the
+ * key up carried the modifiers and no modifier was ever released, so the
+ * app kept seeing Ctrl or Alt held: a later scripted drag with Move
+ * Selected Pixels became a Ctrl copy, and access key underlines stayed. */
+static void key_combo(app *a, const app_key *k)
+{
+    static const struct {
+        uint32_t     ui;
+        SDL_Keycode  key;
+        SDL_Scancode sc;
+        SDL_Keymod   mod;
+    } mk[4] = {
+        { UI_MOD_CTRL, SDLK_LCTRL, SDL_SCANCODE_LCTRL, SDL_KMOD_LCTRL },
+        { UI_MOD_SHIFT, SDLK_LSHIFT, SDL_SCANCODE_LSHIFT, SDL_KMOD_LSHIFT },
+        { UI_MOD_ALT, SDLK_LALT, SDL_SCANCODE_LALT, SDL_KMOD_LALT },
+        { UI_MOD_GUI, SDLK_LGUI, SDL_SCANCODE_LGUI, SDL_KMOD_LGUI },
+    };
+    SDL_Keymod held = SDL_KMOD_NONE;
+    for (int i = 0; i < 4; i++) {
+        if (!(k->mods & mk[i].ui)) continue;
+        held = (SDL_Keymod)(held | mk[i].mod);
+        key_event(a, mk[i].key, mk[i].sc, held, true);
+    }
+    key_event(a, (SDL_Keycode)k->key, SDL_SCANCODE_UNKNOWN, held, true);
+    key_event(a, (SDL_Keycode)k->key, SDL_SCANCODE_UNKNOWN, held, false);
+    for (int i = 3; i >= 0; i--) {
+        if (!(k->mods & mk[i].ui)) continue;
+        held = (SDL_Keymod)(held & ~mk[i].mod);
+        key_event(a, mk[i].key, mk[i].sc, held, false);
+    }
+}
+
 static pc_px32 parse_color(const char *s, bool *ok)
 {
     unsigned long v;
@@ -287,26 +335,13 @@ static int run_line(app *a, char **tok, int n, int ln, char *err, size_t cap)
     } else if (strcmp(c, "key") == 0 && n >= 2) {
         /* through SDL events, so widgets and dialogs see the key too */
         app_key k;
-        SDL_Event e;
 #if defined(__APPLE__)
         bool mac = true;
 #else
         bool mac = false;
 #endif
         if (app_key_parse(tok[1], mac, &k, 1) != 1) return fail(err, cap, ln, "bad key");
-        memset(&e, 0, sizeof e);
-        e.type = SDL_EVENT_KEY_DOWN;
-        e.key.key = (SDL_Keycode)k.key;
-        e.key.mod = (SDL_Keymod)(((k.mods & UI_MOD_CTRL) ? SDL_KMOD_LCTRL : 0) |
-                                 ((k.mods & UI_MOD_SHIFT) ? SDL_KMOD_LSHIFT : 0) |
-                                 ((k.mods & UI_MOD_ALT) ? SDL_KMOD_LALT : 0) |
-                                 ((k.mods & UI_MOD_GUI) ? SDL_KMOD_LGUI : 0));
-        e.key.down = true;
-        e.key.timestamp = SDL_GetTicksNS();
-        app_event(a, &e);
-        e.type = SDL_EVENT_KEY_UP;
-        e.key.down = false;
-        app_event(a, &e);
+        key_combo(a, &k);
         settle(a, 2);
     } else if ((strcmp(c, "down") == 0 || strcmp(c, "up") == 0 || strcmp(c, "move") == 0) &&
                n >= 3) {
