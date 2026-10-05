@@ -446,6 +446,39 @@ static char *read_text(const char *path)
     return (char *)data;            /* NUL-terminated by pal_read_file */
 }
 
+#if !defined(_WIN32) && !defined(__APPLE__)
+/* SDL 3.2+ falls back to XWayland when the compositor lacks wp_fifo_v1
+ * (KWin before 6.4, for example) to protect the frame pacing of GPU-bound
+ * games. paint.c redraws on demand, so on a Wayland session it asks for the
+ * native Wayland driver first: fractional scaling, tablet-v2 pen input and
+ * crisp text. SDL_VIDEO_DRIVER in the environment still wins, and the
+ * setting gfx.video_driver = x11 (Settings > Graphics > Display server)
+ * keeps XWayland. Reads settings.ini directly because pal is not up yet. */
+static void choose_video_driver(const cli *c)
+{
+    const char *env = getenv("SDL_VIDEO_DRIVER");
+    const char *wl = getenv("WAYLAND_DISPLAY"), *xdg = getenv("XDG_CONFIG_HOME");
+    const char *home = getenv("HOME"), *pref = NULL;
+    char path[4096];
+    app_settings *st;
+    if ((env && *env) || !wl || !*wl) return;
+    if (c->config_dir && *c->config_dir)
+        snprintf(path, sizeof path, "%s/settings.ini", c->config_dir);
+    else if (xdg && *xdg)
+        snprintf(path, sizeof path, "%s/paintc/settings.ini", xdg);
+    else
+        snprintf(path, sizeof path, "%s/.config/paintc/settings.ini", home ? home : ".");
+    st = app_settings_create();
+    if (st) {
+        (void)app_settings_load(st, path);
+        pref = app_settings_get(st, "gfx.video_driver");
+    }
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER,
+                (pref && strcmp(pref, "x11") == 0) ? "x11,wayland" : "wayland,x11");
+    app_settings_destroy(st);
+}
+#endif
+
 int main(int argc, char **argv)
 {
     cli c;
@@ -472,6 +505,9 @@ int main(int argc, char **argv)
         return drc;
     }
     SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "composition");
+#if !defined(_WIN32) && !defined(__APPLE__)
+    if (!c.headless) choose_video_driver(&c);
+#endif
     if (!SDL_Init(c.headless ? SDL_INIT_EVENTS : (SDL_INIT_VIDEO | SDL_INIT_EVENTS))) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         free((void *)c.files);

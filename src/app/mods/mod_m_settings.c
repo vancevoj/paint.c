@@ -925,6 +925,17 @@ static void page_gfx(app *a)
     ui_label_ex(ui, "Worker threads:", UI_LABEL_DIM);
     if (ui_number_int(ui, "##workers", &workers, 0, (int32_t)pal_cpu_count(), 1, 0))
         (void)app_settings_set_int(s, "gfx.workers", workers);
+#if !defined(_WIN32) && !defined(__APPLE__)
+    {   /* main.c choose_video_driver: native Wayland unless x11 is chosen */
+        static const char *const k_vd[] = { "Native Wayland when available",
+                                            "X11 (XWayland on Wayland sessions)" };
+        const char *vd = app_settings_get(s, "gfx.video_driver");
+        int vsel = (vd && strcmp(vd, "x11") == 0) ? 1 : 0;
+        ui_label_ex(ui, "Display server:", UI_LABEL_DIM);
+        if (ui_combo(ui, "##videodrv", &vsel, k_vd, 2))
+            (void)app_settings_set(s, "gfx.video_driver", vsel == 1 ? "x11" : "wayland");
+    }
+#endif
     ui_layout_column(ui);
     snprintf(line, sizeof line,
              "In use: %s on %s, %u worker threads. Changes take effect after restarting "
