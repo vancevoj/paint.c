@@ -238,6 +238,7 @@ struct app {
     /* lane UIA (wave 4): --scale in window mode overrides the display
      * scale (0 = follow the display) */
     float            uia_scale;
+    int32_t          uia_min_cap_w, uia_min_cap_h;   /* window minimum size caps (units) */
 };
 
 /* ---- cross-file internals --------------------------------------------------------- */

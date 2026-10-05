@@ -219,10 +219,14 @@ void pnl_image_list(app *a, ui_rect r)
     /* the list button follows the last thumbnail, or sits at the right end
      * when the thumbnails overflow */
     strip = ui_rect_make(r.x, r.y, r.w - ctrl - gap, r.h);
+    if (strip.w < 0) strip.w = 0;
     overflow = total > strip.w;
     if (!overflow) strip.w = total > 0 ? total : 0;
     listb = ui_rect_make(strip.x + strip.w + gap, r.y + (r.h - ctrl) / 2, ctrl, ctrl);
-    if (overflow) {
+    /* lane UIA (wave 4): the scroll arrows only when a whole thumbnail
+     * still fits between them (the wheel, Ctrl+Tab and the list button
+     * reach the others) */
+    if (overflow && strip.w - 2 * (ctrl + gap) >= tw) {
         ui_rect lb = ui_rect_make(strip.x, r.y + (r.h - ctrl) / 2, ctrl, ctrl);
         ui_rect rb = ui_rect_make(strip.x + strip.w - ctrl, lb.y, ctrl, ctrl);
         strip.x += ctrl + gap;

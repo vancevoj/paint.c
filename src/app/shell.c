@@ -147,22 +147,57 @@ static void window_buttons(app *a, ui_rect r, int32_t *x)
     }
 }
 
+/* Lane UIA (wave 4): in a narrow window the window toggles fold into one
+ * button with a menu of the windows (checked while shown; F5..F8 as
+ * shortcuts), so the image list keeps room for a thumbnail and its list
+ * button. */
+static void window_menu_button(app *a, ui_rect r, int32_t *x)
+{
+    ui_ctx *ui = a->ui;
+    ui_rect br = place(a, x, r.y + r.h / 2, 32.0f, 32.0f);
+    *x += ui_px(ui, 2.0f);
+    if (ui_icon_button(ui, "##wt_menu", UI_ICON_WIN_TOOLS, "Windows"))
+        ui_popup_open(ui, "##wt_menu_pop", br, UI_POPUP_BELOW);
+    pnl_rect_set(a, "top.windows", br);
+    if (ui_popup_begin(ui, "##wt_menu_pop")) {
+        for (int32_t ord = 1; ord <= 64; ord++)
+            for (int32_t i = 0; i < a->npanels; i++) {
+                app_panel *pn = &a->panels[i];
+                char id[96], label[160];
+                bool on;
+                if (pn->def.toggle_order != ord) continue;
+                snprintf(id, sizeof id, "window.%s", pn->id);
+                snprintf(label, sizeof label, "%s##wtm_%s", pn->title, pn->id);
+                on = pn->st.open;
+                if (ui_menu_check(ui, label, app_cmd_shortcut_text(a, id), &on, true))
+                    app_panel_toggle(a, pn->id);
+            }
+        ui_popup_end(ui);
+    }
+}
+
 static void top_row(app *a, ui_rect r)
 {
     ui_ctx *ui = a->ui;
     const ui_palette *p = ui_pal(ui);
     int32_t menus_end = r.x, mh = ui_px(ui, ui_get_theme(ui)->m.menubar_h);
-    int32_t bsz = ui_px(ui, 32.0f), nb = 0, x, right;
+    int32_t bsz = ui_px(ui, 32.0f), nb = 0, x, right, base;
+    bool fold;
     ui_rect bar = ui_rect_make(r.x, r.y + (r.h - mh) / 2, r.w, mh);
     ui_draw_rect(ui, r, p->window);
     app_menubar(a, bar, &menus_end);
     /* right side: window toggles (panels with toggle_order), Settings, Help */
     for (int32_t i = 0; i < a->npanels; i++)
         if (a->panels[i].def.toggle_order > 0) nb++;
-    right = r.x + r.w - ui_px(ui, 6.0f) - (nb + 2) * bsz - nb * ui_px(ui, 2.0f) -
-            ui_px(ui, 8.0f);
+    base = r.x + r.w - ui_px(ui, 6.0f) - 2 * bsz - ui_px(ui, 8.0f);
+    right = base - nb * bsz - nb * ui_px(ui, 2.0f);
+    /* lane UIA: fold the toggles when the image list would get less than
+     * a thumbnail and its list button (110 DIPs with the margins) */
+    fold = nb > 1 && right - menus_end < ui_px(ui, 22.0f + 110.0f);
+    if (fold) right = base - bsz - ui_px(ui, 2.0f);
     x = right;
-    window_buttons(a, r, &x);
+    if (fold) window_menu_button(a, r, &x);
+    else window_buttons(a, r, &x);
     x += ui_px(ui, 8.0f);
     place(a, &x, r.y + r.h / 2, 32.0f, 32.0f);
     if (ui_icon_button(ui, "##settings", UI_ICON_SETTINGS, "Settings (Alt+X)"))
@@ -171,18 +206,22 @@ static void top_row(app *a, ui_rect r)
         ui_rect hb = place(a, &x, r.y + r.h / 2, 32.0f, 32.0f);
         if (ui_icon_button(ui, "##help", UI_ICON_HELP, "Help (Alt+H)"))
             ui_popup_open(ui, "##help_menu", hb, UI_POPUP_BELOW);
-        /* lane SHELL (MENUS.md, K-UI-HELPMENU): Alt+H opens the Help menu */
-        if (!app_dialog_active(a) && ui_key_take(ui, SDLK_H, UI_MOD_ALT))
-            ui_popup_open(ui, "##help_menu", hb, UI_POPUP_BELOW);
+        /* Alt+H (K-UI-HELPMENU) is cmd.c's menu key: it asks this popup to
+         * open for the keyboard (highlighted item, access keys), like Alt+F
+         * for the menus; lane UIA (wave 4) removed the plain open here */
         if (ui_popup_begin(ui, "##help_menu")) {
             app_help_menu(a);
             ui_popup_end(ui);
         }
     }
-    /* the image list between the menus and the buttons */
+    /* the image list between the menus and the buttons; lane UIA: its
+     * list button stays reachable however narrow the window is */
     {
         int32_t x0 = menus_end + ui_px(ui, 12.0f), x1 = right - ui_px(ui, 10.0f);
-        if (x1 - x0 > ui_px(ui, 60.0f))
+        int32_t least = ui_px(ui, 28.0f);
+        if (x1 - x0 < least) x0 = x1 - least;
+        if (x0 < r.x) x0 = r.x;
+        if (x1 - x0 > 0)
             pnl_image_list(a, ui_rect_make(x0, r.y + ui_px(ui, 1.0f), x1 - x0,
                                            r.h - ui_px(ui, 2.0f)));
     }

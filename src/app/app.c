@@ -339,6 +339,27 @@ static void geom_usable(app_win_geom *g, SDL_DisplayID id)
     }
 }
 
+/* The smallest window the layout is made for (600 x 380 DIPs: the menus,
+ * the image list button and the right-hand buttons in one row), never
+ * more than the window was created with (an explicit --size, a small
+ * screen). cap_w / cap_h 0: keep the caps of the last call. */
+static void apply_min_size(app *a, int32_t cap_w, int32_t cap_h)
+{
+    static const double min_w = 600.0, min_h = 380.0;
+    double upd = (double)app_window_upd(a);
+    int32_t w, h;
+    if (!a->win) return;
+    if (cap_w > 0 && cap_h > 0) {
+        a->uia_min_cap_w = cap_w;
+        a->uia_min_cap_h = cap_h;
+    }
+    w = units(min_w, upd);
+    h = units(min_h, upd);
+    if (a->uia_min_cap_w > 0 && w > a->uia_min_cap_w) w = a->uia_min_cap_w;
+    if (a->uia_min_cap_h > 0 && h > a->uia_min_cap_h) h = a->uia_min_cap_h;
+    SDL_SetWindowMinimumSize(a->win, w, h);
+}
+
 /* ---- create / destroy --------------------------------------------------------------- */
 static bool create_window(app *a)
 {
@@ -382,6 +403,7 @@ static bool create_window(app *a)
         app_window_geometry(&g);
         SDL_SetWindowSize(a->win, g.w, g.h);
     }
+    apply_min_size(a, g.w, g.h);
     if (g.set_pos)
         SDL_SetWindowPosition(a->win, g.x, g.y);
     else
@@ -864,10 +886,13 @@ void app_event(app *a, const SDL_Event *e)
         a->focused = false;
         app_request_frame(a);
         break;
+    case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
+        if (a->win && e->window.windowID == SDL_GetWindowID(a->win)) apply_min_size(a, 0, 0);
+        app_request_frame(a);
+        break;
     case SDL_EVENT_WINDOW_EXPOSED:
     case SDL_EVENT_WINDOW_RESIZED:
     case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-    case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
     case SDL_EVENT_WINDOW_SHOWN:
     case SDL_EVENT_WINDOW_RESTORED:
     case SDL_EVENT_WINDOW_MAXIMIZED:
