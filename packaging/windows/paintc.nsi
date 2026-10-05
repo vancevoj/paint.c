@@ -106,10 +106,14 @@ Function .onInit
     Abort
   ${EndIf}
   SetRegView 64
+  ; per-machine install: the Start menu shortcut goes to All Users, not to
+  ; the profile of the administrator account that UAC elevated to
+  SetShellVarContext all
 FunctionEnd
 
 Function un.onInit
   SetRegView 64
+  SetShellVarContext all
 FunctionEnd
 
 Section "paint.c" SecMain

@@ -1,9 +1,11 @@
 # Building paint.c
 
-paint.c is C17 built with CMake (3.20 or newer) and Ninja. The only
-mandatory third-party library at the platform level is SDL3; it comes from
-the system (3.2 or newer) or is built from the pinned 3.4.18 release
-(`PC_VENDOR_SDL=ON`). Codec libraries are pinned in `cmake/PcCodecDeps.cmake`.
+paint.c is C17 built with CMake (3.20 or newer; 3.22 for the bundled AVIF
+build) and Ninja. The only mandatory third-party library at the platform
+level is SDL3; it is built from the pinned 3.4.18 release by default
+(`PC_VENDOR_SDL=ON`, ADR-022) or comes from the system (3.4 or newer). Codec
+libraries are pinned in `cmake/PcCodecDeps.cmake` and, for AVIF and JPEG XL,
+`cmake/PcAvifJxl.cmake`.
 
 Every test is an executable `tests/<lane>/test_*.c`; CTest runs each one with
 `--quick` (under 30 s, also under sanitizers). `./build/pc_tests` without
@@ -20,6 +22,7 @@ arguments runs the full reference suite.
 | `PC_BUILD_TESTS` | ON | Build the test executables |
 | `PC_DOWNLOAD_CACHE` | empty | Folder that keeps dependency archives between builds |
 | `PC_WINEPREFIX` | see below | Wine prefix for cross-built Windows tests |
+| `PC_WITH_AVIF`, `PC_WITH_JXL` | AUTO | AVIF and JPEG XL: `AUTO` (system library if usable), `ON`, `BUNDLED` (pinned static build, needs a C++17 compiler, Perl and on x86 NASM; every release package uses it) or `OFF`; docs/codecs/avif_jxl.md |
 
 ## Linux (Wayland and X11)
 
@@ -135,13 +138,59 @@ long paths and the UTF-8 code page.
 
 ## macOS
 
-Xcode command line tools, CMake and Ninja (`brew install cmake ninja`):
+paint.c 0.1.0 has no prebuilt macOS package (ADR-021): build it from the
+source archive of the release (`paintc-<version>-source.tar.gz`) or from a
+checkout. macOS 13 or newer, Apple silicon or Intel.
+
+Requirements: the Xcode command line tools (`xcode-select --install`; they
+bring clang, `codesign`, `hdiutil` and Perl) and, from Homebrew:
 
 ```sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPC_VENDOR_SDL=ON \
-      -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_OSX_SYSROOT=macosx
-cmake --build build && ctest --test-dir build --output-on-failure
+brew install cmake ninja nasm
 ```
+
+NASM is only used on Intel Macs (libaom's x86 SIMD; without it the bundled
+AV1 codec falls back to slower C code). The configure step downloads SDL3
+and the codec sources (SHA-256 checked), so it needs network access once;
+`-DPC_DOWNLOAD_CACHE=<dir>` keeps the archives for later builds.
+
+```sh
+# from the release: check and unpack the source archive
+grep source.tar.gz SHA256SUMS.txt | shasum -a 256 -c -
+tar -xzf paintc-0.1.0-source.tar.gz && cd paintc-0.1.0
+
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPC_VENDOR_SDL=ON \
+      -DPC_WITH_AVIF=BUNDLED -DPC_WITH_JXL=BUNDLED \
+      -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_OSX_SYSROOT=macosx
+cmake --build build
+ctest --test-dir build --output-on-failure          # optional
+build/paint.c.app/Contents/MacOS/paintc --self-test --headless
+open build/paint.c.app
+```
+
+The build produces the app bundle `build/paint.c.app` (icon, Info.plist
+with the document types, licenses in `Contents/Resources/licenses`). AVIF
+and JPEG XL: `BUNDLED` builds the pinned static libraries, as every
+release package does; `brew install libavif jpeg-xl` with the default
+`AUTO` links Homebrew's libraries instead (the app then runs only where
+those libraries are installed).
+
+Install it signed ad hoc, as a disk image or straight into a folder:
+
+```sh
+packaging/macos/make-dmg.sh build dist     # dist/paintc-<version>-macos-<arch>.dmg
+# or
+cmake --install build --prefix ~/Applications --component paintc
+codesign --force --deep --sign - ~/Applications/paint.c.app
+codesign --verify --deep --strict --verbose=2 ~/Applications/paint.c.app
+```
+
+`make-dmg.sh` runs the same `codesign --force --deep --sign -` (ad hoc,
+no Developer ID) and the verification before it packs the .dmg. An app
+built on the same Mac carries no quarantine flag and starts directly; a
+.dmg downloaded or copied from elsewhere does, so Gatekeeper asks once
+(Control-click the app, Open), or clear the flag with
+`xattr -dr com.apple.quarantine /Applications/paint.c.app`.
 
 Keep `-DCMAKE_OSX_SYSROOT=macosx` (or an SDK path, or `SDKROOT` in the
 environment). CMake 4 no longer passes an SDK to the compiler, and Apple
@@ -151,7 +200,16 @@ clang without one adds `-I/usr/local/include`, which is searched before every
 `webp/` headers shadow the vendored ones; the JPEG tests then fail with
 "Wrong JPEG library version: library is 62, caller expects 80".
 
-`-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"` builds universal binaries.
+`-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"` builds universal binaries with
+`PC_WITH_AVIF`/`PC_WITH_JXL` `OFF` (or `AUTO` with universal libraries).
+The bundled libaom is configured for one architecture, so with `BUNDLED`
+build each architecture separately (a universal BUNDLED build has not been
+tried).
+
+Verification status: the macOS CI jobs (macos-14 arm64, macos-15-intel,
+deployment target 13.0) were green on commit 'ADR-017' and configured and
+built in run 37331223253 (Homebrew libavif, jpeg-xl); the BUNDLED codec
+path and later changes have not run on a Mac (ADR-021, docs/codecs/avif_jxl.md).
 
 ## Runtime environment variables (platform layer)
 

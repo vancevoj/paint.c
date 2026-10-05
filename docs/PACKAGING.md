@@ -58,6 +58,22 @@ and `gtk-update-icon-cache` as usual.
   `dist/paintc-<version>-linux-x86_64.AppImage`. It works without FUSE
   (`APPIMAGE_EXTRACT_AND_RUN=1`). Verified locally and in CI with
   `--self-test --headless` inside the AppImage.
+* **Release AppImage (glibc 2.31 floor, OD-4)**:
+  `packaging/linux/build-appimage-docker.sh <work dir> [<output dir>]`
+  builds in an Ubuntu 20.04 container (image pinned by digest, GCC 13 from
+  the ubuntu-toolchain-r PPA, CMake 3.31 from pip, SDL3's X11 and Wayland
+  build dependencies, libdecor 0.2.2 from its release archive), with the
+  source mounted read-only, vendored SDL3 and AVIF/JPEG XL `BUNDLED`.
+  libstdc++ and libgcc are linked statically (a folder holding only
+  `libstdc++.a` is searched first, because the codec link names
+  `-lstdc++`), so `paintc` needs only glibc. The script then runs
+  build-appimage.sh in the container and fails unless no symbol needs a
+  glibc newer than 2.31, DT_NEEDED lists only glibc libraries, no `.so` is
+  bundled, and the AppImage passes `--self-test --headless` on Ubuntu
+  20.04. `PC_RUN_TESTS=1` also runs every test in the container;
+  `PC_DOCKER_CPUS`, `PC_DOCKER_CPUSET`, `PC_DOCKER_MEMORY`, `PC_JOBS` and
+  `PC_NICE` limit its load. The AppImage uses the static type 2 runtime
+  (needs `fusermount` or `--appimage-extract-and-run`, no libfuse2).
 * **Flatpak**: `flatpak-builder --user --install --force-clean build-flatpak
   packaging/flatpak/org.paintc.paintc.yml`. Runtime org.freedesktop.Platform
   24.08, Wayland with X11 fallback, DRI, home folder access (recent files
@@ -79,10 +95,18 @@ numeric constants, so windres, rc.exe and llvm-rc all build it).
   `paintc-<version>-windows-x64-portable.zip`. Settings live in
   `%APPDATA%\paintc`, autosave copies in `%LOCALAPPDATA%\paintc\State`;
   `--config-dir DIR` keeps settings and autosaves under DIR instead.
+* **Cross-built release packages**:
+  `packaging/windows/build-mingw-release.sh <work dir> [<output dir>]`
+  builds with the mingw-w64 toolchain file (Release, vendored SDL3,
+  AVIF/JPEG XL `BUNDLED`), installs the stripped tree into
+  `<work dir>/stage/paintc-<version>-windows-x64` and writes the portable
+  zip (that folder at its top) and the installer (makensis on Linux takes
+  `-D` options). `PC_RUN_TESTS=1` runs every test under Wine in
+  `<work dir>/wineprefix`.
 * **Installer**: `makensis /DVERSION=<v> /DSTAGE=<abs stage>
   /DOUTFILE=<abs exe> packaging\windows\paintc.nsi` (NSIS 3, Unicode,
   per-machine, 64-bit registry view). It installs to Program Files, adds a
-  Start menu shortcut and an uninstaller (Apps & features entry), registers
+  Start menu shortcut for all users and an uninstaller (Apps & features entry), registers
   the program ids `paintc.Image` and `paintc.pdn`, an "Open with" entry for
   every extension, the RegisteredApplications capabilities (Settings >
   Default apps), `Applications\paintc.exe\SupportedTypes`, and makes .pdn
@@ -127,6 +151,24 @@ which paint.c opens directly) and `NSHighResolutionCapable`.
 runs, macOS included because the ref is a tag), downloads the `pkg-*`
 artifacts, writes SHA256SUMS.txt and creates the GitHub release with all of
 them (`gh release create --generate-notes`).
+
+### Local releases (no GitHub Actions)
+
+When Actions cannot run (0.1.0: billing, ADR-021) a release is built on a
+Linux machine with Docker, mingw-w64, NSIS and Wine: the AppImage with
+build-appimage-docker.sh, the Windows zip and installer with
+build-mingw-release.sh, then `packaging/release-dist.sh <dist> <commit>`
+adds `git archive --prefix=paintc-<v>/` of the release commit as
+`paintc-<v>-source.tar.gz` (macOS builds from it, docs/BUILDING.md),
+`SHA256SUMS.txt` over all packages and `release-notes.md`
+(packaging/RELEASE_NOTES_<v>.md with its `@CHECKSUMS@` line replaced by
+the sums; the committed notes keep the placeholder because the source
+archive contains them). Then
+`gh release create v<v> <packages> SHA256SUMS.txt --target <commit> --notes-file <dist>/release-notes.md`.
+The notes say how each platform was verified. Creating the release creates
+the tag, which triggers release.yml; while Actions cannot start jobs that
+run fails at once, and if it does run, its publish step stops because the
+release already exists.
 
 ## Out of scope (documented gaps)
 
