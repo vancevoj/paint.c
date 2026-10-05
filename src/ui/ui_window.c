@@ -136,7 +136,8 @@ uint32_t ui_dialog_end(ui_ctx *ctx)
     h = (l->max_y - l->rect.y) + pad + pad / 2;
     if (st && st->i[0] != h) { st->i[0] = h; ctx->want_frame = true; }
     if (!r) {
-        if (def && (ui_key_take(ctx, SDLK_RETURN, 0) || ui_key_take(ctx, SDLK_KP_ENTER, 0)))
+        if (def && (ui_key_take(ctx, SDLK_RETURN, 0) || ui_key_take(ctx, SDLK_KP_ENTER, 0) ||
+                    ctx->edit_submit_root == id))
             r = def;
         else if (ui_key_take(ctx, SDLK_ESCAPE, 0)) r = UI_DLG_CANCEL | 0x80000000u;
     }

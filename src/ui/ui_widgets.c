@@ -369,7 +369,7 @@ bool ui_radio_group(ui_ctx *ctx, const char *id_str, int *v, const char *const *
         ui_interaction in = ui_interact(ctx, id, r, (*v == i || (*v < 0 && i == 0))
                                                         ? UI_INTERACT_FOCUSABLE
                                                         : 0u);
-        if (in.pressed) { ctx->focus = id; ctx->focus_root = ui_root_cur(ctx)->id; }
+        if (in.pressed) ui_focus_take(ctx, id);
         if (in.clicked && *v != i) { *v = i; changed = true; }
         if (ctx->focus == id) group_focus = true;
         box = ui_rect_make(r.x, r.y + (r.h - c) / 2, c, c);
@@ -393,7 +393,7 @@ bool ui_radio_group(ui_ctx *ctx, const char *id_str, int *v, const char *const *
         if (nv != *v) {
             *v = nv;
             changed = true;
-            ctx->focus = ui_hash(&nv, (ptrdiff_t)sizeof nv, gid);
+            ui_focus_take(ctx, ui_hash(&nv, (ptrdiff_t)sizeof nv, gid));
             ctx->focus_visible = true;
             ctx->want_frame = true;
         }

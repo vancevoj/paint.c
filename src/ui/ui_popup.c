@@ -93,10 +93,26 @@ static int32_t nav_step(const ui_popup *p, int32_t from, int32_t dir)
     return from;
 }
 
+/* Close the innermost popup by keyboard. Its parent forgets the submenu row
+ * (it would reopen the child at once) and restarts the hover delay. */
+static void close_top(ui_ctx *ctx)
+{
+    if (ctx->npopups <= 0) return;
+    ctx->npopups--;
+    if (ctx->npopups > 0) {
+        ui_popup *p = &ctx->popups[ctx->npopups - 1];
+        p->sub_item = -1;
+        p->keyboard = true;
+        p->hover_since = ctx->now;
+    }
+    ctx->want_frame = true;
+}
+
 void ui_popups_frame_begin(ui_ctx *ctx)
 {
     uint32_t pressed = ctx->fin.pressed & 7u;
     ui_popup *top;
+    int32_t nav0;
     if (!ctx->npopups) return;
     if (pressed) {
         int b = (pressed & 1u) ? 0 : ((pressed & 2u) ? 1 : 2);
@@ -118,12 +134,13 @@ void ui_popups_frame_begin(ui_ctx *ctx)
         }
     }
     if (ui_key_take(ctx, SDLK_ESCAPE, 0)) {
-        ctx->npopups--;
-        ctx->want_frame = true;
+        close_top(ctx);
         return;
     }
     top = &ctx->popups[ctx->npopups - 1];
-    if (top->kind == 2) return;
+    /* custom popups without menu items keep their keys for their widgets */
+    if (top->kind == 2 && top->prev_nitems == 0) return;
+    nav0 = top->nav;
     while (ui_key_take(ctx, SDLK_DOWN, 0)) {
         top->nav = nav_step(top, top->nav, 1);
         top->keyboard = true;
@@ -145,12 +162,15 @@ void ui_popups_frame_begin(ui_ctx *ctx)
             top->open_sub = true;
         else if (ctx->popups[0].owner)
             ctx->mb_switch = 1;
+        ctx->want_frame = true;
     }
     if (ui_key_take(ctx, SDLK_LEFT, 0)) {
-        if (ctx->npopups > 1) ctx->npopups--;
+        if (ctx->npopups > 1) close_top(ctx);
         else if (top->owner) ctx->mb_switch = -1;
+        ctx->want_frame = true;
     }
-    ctx->want_frame = true;
+    /* redraw only when the keyboard changed something (render on demand) */
+    if (top->nav != nav0 || top->activate) ctx->want_frame = true;
 }
 
 void ui_popups_frame_end(ui_ctx *ctx)

@@ -643,6 +643,35 @@ static void tab_once(ui_ctx *ctx, uint32_t mods)
 
 /* Every queued Tab press counts; Ctrl+Tab and other chords stay with the
  * app (document switching). */
+/* Resolve the hovered widget at the current pointer position against the
+ * previous frame's hit list (last declared wins, as with hover_cand), so
+ * overlapping widgets route a press correctly even when the pointer moved
+ * since that frame. */
+static void begin_hot(ui_ctx *ctx)
+{
+    const ui_hit *prev;
+    int32_t n;
+    ui_id h = 0;
+    ui_rect hr = ui_rect_make(0, 0, 0, 0);
+    ctx->hit_cur ^= 1;
+    ctx->nhits[ctx->hit_cur] = 0;
+    prev = ctx->hits[ctx->hit_cur ^ 1];
+    n = ctx->nhits[ctx->hit_cur ^ 1];
+    if (ctx->fin.mouse_in && ctx->hover_root) {
+        for (int32_t i = 0; i < n; i++) {
+            const ui_hit *e = &prev[i];
+            if (e->root != ctx->hover_root && !(e->popup == 2 && ctx->npopups > 0)) continue;
+            if (ctx->npopups > 0 && !e->popup) continue;
+            if (ui_rect_contains(e->r, ctx->fin.mx, ctx->fin.my)) { h = e->id; hr = e->r; }
+        }
+    }
+    if (h != ctx->hot) {
+        ctx->hot = h;
+        ctx->hot_since = ctx->now;
+    }
+    ctx->hot_rect = hr;
+}
+
 static void begin_tab(ui_ctx *ctx)
 {
     if (ctx->npopups > 0) return;
@@ -710,6 +739,7 @@ void ui_begin_frame(ui_ctx *ctx, const ui_frame_info *fi)
     ctx->lay_depth = 0;
     ctx->id_depth = 0;
     ctx->dlg_id = 0;
+    ctx->edit_submit_root = 0;
     ctx->text_input_want = false;
     ctx->active_seen = false;
     for (int i = 0; i < UI_MAX_ROOTS; i++) {
@@ -721,6 +751,7 @@ void ui_begin_frame(ui_ctx *ctx, const ui_frame_info *fi)
     }
     ui_popups_frame_begin(ctx);       /* outside clicks, Escape */
     begin_hover(ctx);
+    begin_hot(ctx);
     ui_panels_frame_begin(ctx);       /* raise on press */
     begin_autofocus(ctx);
     begin_tab(ctx);
@@ -793,7 +824,10 @@ void ui_end_frame(ui_ctx *ctx)
     }
     ctx->hot_rect = ctx->hover_cand_rect;
     if (ctx->active && !ctx->active_seen) ctx->active = 0;
-    if ((ctx->fin.pressed & 1u) && !ctx->press_taken[UI_MOUSE_LEFT] && ctx->focus) {
+    /* a press on no widget drops the focus (keys go back to the app), except
+     * inside a modal dialog or on its backdrop */
+    if ((ctx->fin.pressed & 1u) && !ctx->press_taken[UI_MOUSE_LEFT] && ctx->focus &&
+        !(ctx->top_modal && ctx->hover_root == ctx->top_modal)) {
         ctx->focus = 0;
         ctx->want_frame = true;
     }
@@ -802,6 +836,14 @@ void ui_end_frame(ui_ctx *ctx)
     memcpy(ctx->prev_focus_list, ctx->focus_list, (size_t)ctx->nfocus * sizeof(ui_id));
     memcpy(ctx->prev_focus_roots, ctx->focus_roots, (size_t)ctx->nfocus * sizeof(ui_id));
     ctx->prev_nfocus = ctx->nfocus;
+    /* modal state as of this frame, for ui_wants_keyboard after it */
+    ctx->top_modal = 0;
+    {
+        int order[UI_MAX_ROOTS], n = sorted_roots(ctx, ctx->frame, order);
+        for (int i = 0; i < n; i++)
+            if (ctx->roots[order[i]].kind == UI_ROOT_MODAL)
+                ctx->top_modal = ctx->roots[order[i]].id;
+    }
     apply_text_input(ctx);
     apply_cursor(ctx);
     ctx->pmx = ctx->fin.mx;
@@ -906,6 +948,14 @@ ui_interaction ui_interact(ui_ctx *ctx, ui_id id, ui_rect r, uint32_t flags)
     memset(&res, 0, sizeof res);
     res.mouse = m;
     res.press_pos = ctx->fin.press_pos[UI_MOUSE_LEFT];
+    if (!disabled && ctx->nhits[ctx->hit_cur] < UI_MAX_HITS) {
+        ui_hit *h = &ctx->hits[ctx->hit_cur][ctx->nhits[ctx->hit_cur]++];
+        h->id = id;
+        h->root = ui_root_cur(ctx)->id;
+        h->r = ui_rect_intersect(r, ui_current_clip(ctx));
+        h->popup = (uint8_t)((flags & UI_INTERACT_MENUBAR) ? 2u
+                             : ui_root_cur(ctx)->kind == UI_ROOT_POPUP ? 1u : 0u);
+    }
     over = inside && ui_root_hovered(ctx) && !disabled;
     if (over && ctx->npopups > 0 && ui_root_cur(ctx)->kind != UI_ROOT_POPUP &&
         !(flags & UI_INTERACT_MENUBAR))
@@ -1001,9 +1051,16 @@ bool ui_focus_visible(const ui_ctx *ctx) { return ctx->focus_visible; }
 
 void ui_set_focus(ui_ctx *ctx, ui_id id)
 {
+    ui_focus_take(ctx, id);
+    ctx->want_frame = true;
+}
+
+void ui_focus_take(ui_ctx *ctx, ui_id id)
+{
     ctx->focus = id;
     ctx->focus_root = id ? ui_root_cur(ctx)->id : 0;
-    ctx->want_frame = true;
+    /* the widget may have registered earlier this frame: keep the focus */
+    ctx->focus_seen = id != 0;
 }
 
 void ui_draw_focus_ring(ui_ctx *ctx, ui_rect r, float radius)

@@ -221,10 +221,23 @@ void ui_path_arc(ui_path *p, float rx, float ry, float rot_deg, bool large, bool
     if (!sweep && dth > 0.0f) dth -= 2.0f * UI_PI;
     if (sweep && dth < 0.0f) dth += 2.0f * UI_PI;
     n = arc_steps(rx > ry ? rx : ry, dth, p->tol);
-    for (int32_t i = 1; i < n; i++) {
-        float t = th1 + dth * (float)i / (float)n;
-        float ex = rx * cosf(t), ey = ry * sinf(t);
-        push_point(p, cx + cs * ex - sn * ey, cy + sn * ex + cs * ey);
+    {
+        /* Interior vertices sit slightly outside the arc so the polygon
+         * keeps the exact area of the sector (an inscribed polyline would
+         * lose a sliver per segment); the end points stay exact. Solves
+         * (n - 2) k^2 + 2 k = n th / sin th for the radius factor k. */
+        float th = fabsf(dth) / (float)n, ratio = th > 1e-4f ? th / sinf(th) : 1.0f, k;
+        if (n > 2) {
+            float a = (float)(n - 2), q = 4.0f + 4.0f * a * (float)n * ratio;
+            k = (-2.0f + sqrtf(q)) / (2.0f * a);
+        } else {
+            k = ratio;
+        }
+        for (int32_t i = 1; i < n; i++) {
+            float t = th1 + dth * (float)i / (float)n;
+            float ex = rx * k * cosf(t), ey = ry * k * sinf(t);
+            push_point(p, cx + cs * ex - sn * ey, cy + sn * ex + cs * ey);
+        }
     }
     push_point(p, x, y);
     p->cx = x; p->cy = y;
@@ -243,7 +256,13 @@ void ui_path_end(ui_path *p)
 void ui_path_ellipse(ui_path *p, float cx, float cy, float rx, float ry)
 {
     int32_t n = arc_steps(rx > ry ? rx : ry, 2.0f * UI_PI, p->tol);
+    float th, k;
     if (n < 8) n = 8;
+    /* area-preserving polygon: vertices at k r with n/2 k^2 sin(th) = pi */
+    th = 2.0f * UI_PI / (float)n;
+    k = sqrtf(th / sinf(th));
+    rx *= k;
+    ry *= k;
     ui_path_move(p, cx + rx, cy);
     for (int32_t i = 1; i < n; i++) {
         float t = 2.0f * UI_PI * (float)i / (float)n;
@@ -424,7 +443,6 @@ void ui_path_stroke(const ui_path *src, float width, int join, int cap, float mi
 
 /* ---- filling ------------------------------------------------------------- */
 typedef struct edge { float x0, y0, x1, y1, dxdy; int32_t dir; } edge;
-typedef struct xing { float x; int32_t dir; } xing;
 
 static int cmp_edge(const void *a, const void *b)
 {
@@ -483,14 +501,50 @@ static uint8_t combine(uint8_t d, uint8_t c, int mode)
     }
 }
 
+/* Active edge with its crossing at the current sub-scanline. */
+typedef struct act { float x; int32_t e; } act;
+
+static int cmp_act(const void *a, const void *b)
+{
+    float xa = ((const act *)a)->x, xb = ((const act *)b)->x;
+    return xa < xb ? -1 : (xa > xb ? 1 : 0);
+}
+
+/* The active list stays sorted from one sub-scanline to the next, so an
+ * insertion sort is close to linear. Paths whose edges cross a lot (many
+ * inversions) fall back to qsort, which bounds the cost at n log n. */
+static void sort_acts(act *a, int32_t n)
+{
+    int64_t moves = 0, budget = 8 * (int64_t)n + 64;
+    for (int32_t i = 1; i < n; i++) {
+        act t = a[i];
+        int32_t j = i - 1;
+        while (j >= 0 && a[j].x > t.x) {
+            a[j + 1] = a[j];
+            j--;
+            if (++moves > budget) {
+                a[j + 1] = t;
+                qsort(a, (size_t)n, sizeof *a, cmp_act);
+                return;
+            }
+        }
+        a[j + 1] = t;
+    }
+}
+
+static bool finite4(float a, float b, float c, float d)
+{
+    return isfinite(a) && isfinite(b) && isfinite(c) && isfinite(d);
+}
+
 pc_status ui_raster_fill(const ui_path *p, int rule, bool aa, uint8_t *dst, int32_t w,
                          int32_t h, int32_t stride, int mode)
 {
     edge *edges = NULL;
-    int32_t ne = 0, *active = NULL, nact = 0, next = 0;
-    xing *xs = NULL;
+    act *acts = NULL;
+    int32_t ne = 0, nact = 0, next = 0;
     float *area = NULL, *cover = NULL;
-    size_t bytes;
+    size_t bytes, abytes;
     float ymin = 0.0f, ymax = 0.0f;
     int32_t row0, row1;
     const int32_t sub = aa ? SUBSAMPLES : 1;
@@ -498,14 +552,15 @@ pc_status ui_raster_fill(const ui_path *p, int rule, bool aa, uint8_t *dst, int3
     if (mode == UI_RASTER_SET)
         for (int32_t y = 0; y < h; y++) memset(dst + (size_t)y * (size_t)stride, 0, (size_t)w);
     if (p->n == 0) return PC_OK;
-    if (!pc_mul_size((size_t)p->n, sizeof(edge), &bytes)) return PC_ERR_NOMEM;
+    if (!pc_mul_size((size_t)p->n, sizeof(edge), &bytes) ||
+        !pc_mul_size((size_t)p->n, sizeof(act), &abytes))
+        return PC_ERR_NOMEM;
     edges = (edge *)malloc(bytes);
-    active = (int32_t *)malloc((size_t)p->n * sizeof(int32_t));
-    xs = (xing *)malloc((size_t)p->n * sizeof(xing));
+    acts = (act *)malloc(abytes);
     area = (float *)calloc((size_t)w + 2u, sizeof(float));
     cover = (float *)calloc((size_t)w + 2u, sizeof(float));
-    if (!edges || !active || !xs || !area || !cover) {
-        free(edges); free(active); free(xs); free(area); free(cover);
+    if (!edges || !acts || !area || !cover) {
+        free(edges); free(acts); free(area); free(cover);
         return PC_ERR_NOMEM;
     }
     for (int32_t c = 0; c < p->nc; c++) {
@@ -516,7 +571,7 @@ pc_status ui_raster_fill(const ui_path *p, int rule, bool aa, uint8_t *dst, int3
             float x0 = p->xy[2 * i], y0 = p->xy[2 * i + 1];
             float x1 = p->xy[2 * j], y1 = p->xy[2 * j + 1];
             edge *ed;
-            if (y0 == y1 || !(y0 == y0) || !(y1 == y1) || !(x0 == x0) || !(x1 == x1)) continue;
+            if (y0 == y1 || !finite4(x0, y0, x1, y1)) continue;   /* NaN and inf dropped */
             ed = &edges[ne++];
             if (y0 < y1) {
                 ed->x0 = x0; ed->y0 = y0; ed->x1 = x1; ed->y1 = y1; ed->dir = 1;
@@ -524,6 +579,7 @@ pc_status ui_raster_fill(const ui_path *p, int rule, bool aa, uint8_t *dst, int3
                 ed->x0 = x1; ed->y0 = y1; ed->x1 = x0; ed->y1 = y0; ed->dir = -1;
             }
             ed->dxdy = (ed->x1 - ed->x0) / (ed->y1 - ed->y0);
+            if (!isfinite(ed->dxdy)) { ne--; continue; }
             if (ne == 1 || ed->y0 < ymin) ymin = ed->y0;
             if (ne == 1 || ed->y1 > ymax) ymax = ed->y1;
         }
@@ -536,34 +592,36 @@ pc_status ui_raster_fill(const ui_path *p, int rule, bool aa, uint8_t *dst, int3
         int32_t minx = w, maxx = -1;
         for (int32_t s = 0; s < sub; s++) {
             float ys = aa ? (float)y + ((float)s + 0.5f) / (float)sub : (float)y + 0.5f;
-            int32_t nx = 0, wind = 0;
-            while (next < ne && edges[next].y0 <= ys) active[nact++] = next++;
-            for (int32_t k = 0; k < nact;) {
-                const edge *ed = &edges[active[k]];
-                if (ed->y1 <= ys) { active[k] = active[--nact]; continue; }
-                if (ed->y0 <= ys) {
-                    xs[nx].x = ed->x0 + (ys - ed->y0) * ed->dxdy;
-                    xs[nx].dir = ed->dir;
-                    nx++;
+            int32_t m = 0, wind = 0;
+            /* drop finished edges (keeping the order), move the rest to ys */
+            for (int32_t k = 0; k < nact; k++) {
+                const edge *ed = &edges[acts[k].e];
+                if (ed->y1 <= ys) continue;
+                acts[m].e = acts[k].e;
+                acts[m].x = ed->x0 + (ys - ed->y0) * ed->dxdy;
+                m++;
+            }
+            nact = m;
+            while (next < ne && edges[next].y0 <= ys) {
+                const edge *ed = &edges[next];
+                if (ed->y1 > ys) {
+                    acts[nact].e = next;
+                    acts[nact].x = ed->x0 + (ys - ed->y0) * ed->dxdy;
+                    nact++;
                 }
-                k++;
+                next++;
             }
-            for (int32_t i = 1; i < nx; i++) {       /* insertion sort by x */
-                xing t = xs[i];
-                int32_t j = i - 1;
-                while (j >= 0 && xs[j].x > t.x) { xs[j + 1] = xs[j]; j--; }
-                xs[j + 1] = t;
-            }
-            for (int32_t i = 0; i + 1 < nx; i++) {
+            sort_acts(acts, nact);
+            for (int32_t i = 0; i + 1 < nact; i++) {
                 bool inside;
-                wind += xs[i].dir;
+                wind += edges[acts[i].e].dir;
                 inside = rule == UI_FILL_EVENODD ? (wind & 1) != 0 : wind != 0;
                 if (!inside) continue;
                 if (aa)
-                    add_span(area, cover, w, xs[i].x, xs[i + 1].x, 1.0f / (float)sub, &minx,
-                             &maxx);
+                    add_span(area, cover, w, acts[i].x, acts[i + 1].x, 1.0f / (float)sub,
+                             &minx, &maxx);
                 else
-                    add_span_aliased(cover, w, xs[i].x, xs[i + 1].x, &minx, &maxx);
+                    add_span_aliased(cover, w, acts[i].x, acts[i + 1].x, &minx, &maxx);
             }
         }
         if (maxx >= minx) {
@@ -583,6 +641,6 @@ pc_status ui_raster_fill(const ui_path *p, int rule, bool aa, uint8_t *dst, int3
         }
     }
 done:
-    free(edges); free(active); free(xs); free(area); free(cover);
+    free(edges); free(acts); free(area); free(cover);
     return PC_OK;
 }

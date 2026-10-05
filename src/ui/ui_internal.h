@@ -24,6 +24,7 @@
 #define UI_MAX_MENU_ITEMS   128
 #define UI_MAX_PANELS       32
 #define UI_TEXT_BUF         512
+#define UI_MAX_HITS         2048
 
 /* ---- atlas and sprite cache ---------------------------------------------- */
 typedef struct ui_shelf { int32_t y, h, x; } ui_shelf;
@@ -188,6 +189,16 @@ typedef struct ui_edit {
 /* internal interaction flag: menu bar titles stay hoverable over popups */
 #define UI_INTERACT_MENUBAR 0x10000u
 
+/* Hit list entry: every interactive widget of a frame, in declaration
+ * order, so the next frame can resolve the hovered widget at the current
+ * pointer position before any widget runs (the pointer may have moved and
+ * pressed within one batch of events, e.g. a pen tap). */
+typedef struct ui_hit {
+    ui_id   id, root;
+    ui_rect r;                      /* rectangle clipped like the hit test */
+    uint8_t popup;                  /* root is a popup, or menu bar title */
+} ui_hit;
+
 /* ---- color wheel textures ------------------------------------------------ */
 #define UI_WHEEL_CACHE 8
 typedef struct ui_wheel_tex {
@@ -231,6 +242,9 @@ struct ui_ctx {
     ui_id          id_stack[UI_MAX_ID_STACK];
     int32_t        id_depth;
 
+    ui_hit         hits[2][UI_MAX_HITS];
+    int32_t        nhits[2];
+    int32_t        hit_cur;         /* list being recorded this frame */
     ui_id          hover_cand;      /* last hovered widget declared this frame */
     ui_rect        hover_cand_rect;
     ui_id          hot;             /* previous frame's final hover candidate */
@@ -333,6 +347,7 @@ struct ui_ctx {
     char          *clip_text;       /* clipboard fallback without video */
 
     /* dialog being declared */
+    ui_id          edit_submit_root; /* root of a field that took Enter this frame */
     ui_id          dlg_id;
     uint32_t       dlg_result;
     uint32_t       dlg_buttons_def;
@@ -401,6 +416,9 @@ bool      ui_mouse_pressed(const ui_ctx *ctx, int b);
 bool      ui_mouse_released(const ui_ctx *ctx, int b);
 bool      ui_mouse_in(const ui_ctx *ctx, ui_rect r);   /* inside r and the clip */
 void      ui_focus_register(ui_ctx *ctx, ui_id id);
+/* Give id the keyboard focus from inside the current root (composite
+ * widgets whose parts route focus to the container). */
+void      ui_focus_take(ui_ctx *ctx, ui_id id);
 void      ui_draw_focus_ring(ui_ctx *ctx, ui_rect r, float radius);
 const char *ui_label_text(const char *label, size_t *len);
 int32_t   ui_text_baseline(const ui_ctx *ctx, ui_font *f, float size, ui_rect r);

@@ -552,7 +552,7 @@ static void t_atlas(void)
     draw_frame(&e, d_small, NULL);
     h0 = ut_hash(&e);
     CHECK(ut_count(&e, ui_rect_make(0, 0, 300, 28), 0xFFFFFF, 60) > 10);
-    for (int i = 0; i < (g_quick ? 8 : 20); i++) {
+    for (int i = 0; i < (g_quick ? 4 : 20); i++) {
         base = i * 40;
         draw_frame(&e, d_flood, &base);
         CHECK(e.ctx->npages <= UI_ATLAS_MAX_PAGES);

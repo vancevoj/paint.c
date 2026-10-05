@@ -93,8 +93,7 @@ ui_list_result ui_list(ui_ctx *ctx, const char *id_str, ui_rect r, int32_t count
         uint32_t state = 0;
         if (rin.pressed) {
             *selected = i;
-            ctx->focus = id;
-            ctx->focus_root = ui_root_cur(ctx)->id;
+            ui_focus_take(ctx, id);
             ctx->focus_visible = false;
             if (rin.double_clicked) res.activated = true;
         }
@@ -169,8 +168,7 @@ bool ui_tabs(ui_ctx *ctx, const char *id_str, int32_t *active, const char *const
         ui_interaction in = ui_interact(ctx, tid, tr, UI_INTERACT_KEEP_FOCUS);
         if (in.pressed) {
             *active = i;
-            ctx->focus = id;
-            ctx->focus_root = ui_root_cur(ctx)->id;
+            ui_focus_take(ctx, id);
         }
         if (in.hovered && !sel)
             ui_draw_rrect(ctx, ui_rect_inset(tr, 0, ui_px(ctx, 4.0f)), ctx->px.radius, p->hover);

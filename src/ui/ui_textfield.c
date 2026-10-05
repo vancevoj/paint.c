@@ -220,6 +220,8 @@ uint32_t ui_edit_field(ui_ctx *ctx, ui_id id, ui_rect r, char *buf, size_t cap, 
             case SDLK_RETURN:
             case SDLK_KP_ENTER:
                 res |= UI_EDIT_SUBMIT;
+                /* Enter in a field also presses a dialog's default button */
+                ctx->edit_submit_root = ui_root_cur(ctx)->id;
                 break;
             case SDLK_ESCAPE:
                 ctx->focus = 0;
