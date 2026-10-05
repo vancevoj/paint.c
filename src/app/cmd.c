@@ -531,6 +531,51 @@ static bool plain_char_key(int32_t key)
            key == SDLK_LEFT || key == SDLK_RIGHT || key == SDLK_UP || key == SDLK_DOWN;
 }
 
+/* Menu mnemonics (K-UI-MENU-MNEMONIC: Alt+F, E, V, I, L, A, C): F10 opens
+ * the first menu for keyboard navigation and Right moves to the wanted one
+ * in the next frame, so the toolkit's own menu keyboard handling applies. */
+static bool mnemonic(app *a, int32_t key)
+{
+    static const char letters[] = "fevilac";
+    const char *p = key > 0 && key < 128 ? strchr(letters, (int)key) : NULL;
+    SDL_Event e;
+    if (!p || !*p) return false;
+    memset(&e, 0, sizeof e);
+    e.type = SDL_EVENT_KEY_DOWN;
+    e.key.key = SDLK_F10;
+    e.key.down = true;
+    (void)ui_event(a->ui, &e);
+    e.type = SDL_EVENT_KEY_UP;
+    e.key.down = false;
+    (void)ui_event(a->ui, &e);
+    a->menu_rights = (int32_t)(p - letters);
+    a->menu_delay = 1;          /* the next frame opens the menu (F10) */
+    app_request_frame(a);
+    return true;
+}
+
+void app_menu_rights(app *a)
+{
+    SDL_Event e;
+    if (a->menu_rights <= 0) return;
+    if (a->menu_delay > 0) {
+        a->menu_delay--;
+        app_request_frame(a);
+        return;
+    }
+    /* the menu bar moves one menu per frame */
+    memset(&e, 0, sizeof e);
+    e.type = SDL_EVENT_KEY_DOWN;
+    e.key.key = SDLK_RIGHT;
+    e.key.down = true;
+    (void)ui_event(a->ui, &e);
+    e.type = SDL_EVENT_KEY_UP;
+    e.key.down = false;
+    (void)ui_event(a->ui, &e);
+    a->menu_rights--;
+    app_request_frame(a);
+}
+
 bool app_key_press(app *a, int32_t key, uint32_t mods, bool repeat)
 {
     const app_tool *t = app_tool_current(a);
@@ -553,6 +598,7 @@ bool app_key_press(app *a, int32_t key, uint32_t mods, bool repeat)
             return true;
         }
     }
+    if (mods == UI_MOD_ALT && !repeat && mnemonic(a, key)) return true;
     if (!chord && !repeat && app_tool_letter(a, key, mods)) return true;
     if ((key == SDLK_RETURN || key == SDLK_KP_ENTER || key == SDLK_ESCAPE) && !chord && !repeat) {
         /* K-UI-FINISH / K-UI-DESELECT */

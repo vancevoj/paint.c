@@ -287,7 +287,9 @@ app *app_create(const app_opts *o)
     {
         uint64_t ram = pal_ram_bytes(), b = ram / 4u;
         if (b < ((uint64_t)1u << 30)) b = (uint64_t)1u << 30;
-        if (sizeof(size_t) < 8u && b > ((uint64_t)1u << 30)) b = (uint64_t)1u << 30;
+#if SIZE_MAX < UINT64_MAX
+        if (b > ((uint64_t)1u << 30)) b = (uint64_t)1u << 30;   /* 32-bit address space */
+#endif
         a->hist_budget = (size_t)b;
     }
     if (!app_canvas_init(a)) goto fail;
@@ -773,6 +775,7 @@ bool app_frame(app *a, bool force)
     if (a->wake_at && a->now >= a->wake_at) a->wake_at = 0;
     app_fire_hooks(a, APP_HOOK_FRAME, app_active_doc(a));
     frame_info(a);
+    app_menu_rights(a);
     ui_begin_frame(a->ui, &a->fi);
     app_shell_frame(a);
     ui_end_frame(a->ui);

@@ -275,6 +275,57 @@ static void t_screenshot(void)
     app_destroy(a);
 }
 
+static void text_ev(app *a, const char *t)
+{
+    SDL_Event e;
+    memset(&e, 0, sizeof e);
+    e.type = SDL_EVENT_TEXT_INPUT;
+    e.text.text = t;
+    app_event(a, &e);
+    at_frames(a, 1);
+}
+
+static void tap(app *a, SDL_Keycode k, SDL_Keymod mod)
+{
+    key_ev(a, k, mod, true);
+    key_ev(a, k, mod, false);
+    at_frames(a, 2);
+}
+
+/* Image > Resize by keyboard: Tab to the percentage, type 50, Enter. Then
+ * Canvas Size: Tab to the width (absolute size is preselected). */
+static void t_size_dialogs(void)
+{
+    app *a = with_image(200, 120);
+    app_doc *d;
+    CHECK(a != NULL);
+    if (!a) return;
+    d = app_active_doc(a);
+    CHECK(app_cmd_enabled(a, "image.resize") && app_cmd_exec(a, "image.resize"));
+    at_frames(a, 3);
+    CHECK(app_dialog_active(a));
+    tap(a, SDLK_TAB, SDL_KMOD_NONE);              /* By percentage -> the percentage */
+    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    text_ev(a, "50");
+    tap(a, SDLK_RETURN, SDL_KMOD_NONE);
+    at_frames(a, 2);
+    CHECK(!app_dialog_active(a));
+    CHECK(d->doc->w == 100u && d->doc->h == 60u);
+    CHECK(strcmp(d->hist->cur->label, "Resize") == 0);
+    CHECK(app_cmd_exec(a, "edit.undo") && d->doc->w == 200u);
+    /* Canvas Size grows around the center with transparent pixels */
+    CHECK(app_cmd_exec(a, "image.canvas_size"));
+    at_frames(a, 3);
+    tap(a, SDLK_TAB, SDL_KMOD_NONE);              /* By percentage radio -> percentage */
+    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    text_ev(a, "150");
+    tap(a, SDLK_TAB, SDL_KMOD_NONE);              /* commit; the size follows */
+    tap(a, SDLK_ESCAPE, SDL_KMOD_NONE);
+    at_frames(a, 2);
+    CHECK(!app_dialog_active(a) && d->doc->w == 200u);   /* Escape cancels */
+    app_destroy(a);
+}
+
 int main(int argc, char **argv)
 {
     pc_test_init(argc, argv);
@@ -288,6 +339,7 @@ int main(int argc, char **argv)
     RUN(t_panning);
     RUN(t_routing);
     RUN(t_screenshot);
+    RUN(t_size_dialogs);
     at_quit();
     return pc_test_finish();
 }

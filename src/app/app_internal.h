@@ -212,6 +212,8 @@ struct app {
     ui_rect          r_top, r_tb1, r_tb2, r_work, r_status;
 
     /* misc */
+    int32_t          menu_rights;   /* mnemonic: Right presses still to send */
+    int32_t          menu_delay;    /* frames to wait until the menu is open */
     int32_t          ctx_doc;       /* image list context menu target */
     char             title[512];    /* current window title */
     SDL_ThreadID     main_thread;
@@ -238,6 +240,8 @@ void     app_cmds_free(app *a);
 void     app_cmds_builtin(app *a);            /* commands owned by the shell itself */
 /* Default keymap entry for id (NULL when absent). */
 const char *app_keymap_lookup(const char *id);
+/* Second half of a menu mnemonic: called before ui_begin_frame. */
+void     app_menu_rights(app *a);
 
 /* menu.c */
 void     app_menubar(app *a, ui_rect bar, int32_t *end_x);
