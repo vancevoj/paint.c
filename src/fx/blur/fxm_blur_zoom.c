@@ -8,7 +8,7 @@
  * (Focus 0 = even, diffuse streaks; larger = sharper, shorter streaks), and
  * Quality sets about q / 2 samples per pixel of path, capped at 64 q.
  *
- * Thread rules: no prepared state; render is reentrant.
+ * Thread rules: prepare builds the weight table; render is reentrant.
  */
 #include "blur/fx1_lib.h"
 
@@ -30,14 +30,37 @@ static const fx_prop k_props[] = {
       1.0, 8.0, 2.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 
+#define ZOOM_LUT 1024
+
+/* (1 - t)^Focus sampled at t = i / ZOOM_LUT, read with linear interpolation */
+static int zoom_prepare(const void *params, const fx_img *src, const fx_env *env,
+                        const fx_host *host, const void *job, void **state)
+{
+    const zoom_params *p = (const zoom_params *)params;
+    double focus = fx1_pd(p->focus, 0.0, 6.0);
+    float *lut = (float *)fx1_alloc(host, ZOOM_LUT + 2, sizeof(float));
+    int32_t i;
+    (void)src; (void)env; (void)job;
+    if (!lut) return FX_ERROR;
+    for (i = 0; i <= ZOOM_LUT; i++) lut[i] = (float)pow(1.0 - (double)i / ZOOM_LUT, focus);
+    lut[ZOOM_LUT + 1] = lut[ZOOM_LUT];
+    *state = lut;
+    return FX_OK;
+}
+
+static void zoom_release(void *state, const fx_host *host)
+{
+    fx1_free(host, state);
+}
+
 static int zoom_render(const void *params, const void *state, const fx_img *src, fx_img *dst,
                        fx_rect roi, const fx_env *env, const fx_host *host, const void *job)
 {
     const zoom_params *p = (const zoom_params *)params;
+    const float *lut = (const float *)state;
     double off[2], cx, cy, span = fx1_pd(p->distance, 0.0, 5.0) / 10.0;
-    double focus = fx1_pd(p->focus, 0.0, 6.0);
     int32_t q = fx1_pi(p->quality, 1, 8), cap = 64 * q, x, y;
-    (void)state;
+    if (!lut) return FX_ERROR;
     off[0] = fx1_pd(p->center[0], -2.0, 2.0);
     off[1] = fx1_pd(p->center[1], -2.0, 2.0);
     fx1_point_to_px(env, off, &cx, &cy);
@@ -54,8 +77,9 @@ static int zoom_render(const void *params, const void *state, const fx_img *src,
             fx1_acc_px(&acc, fx_row(src, y)[x], 1.0f);
             acc.w += 1.0f;
             for (i = 1; i <= n; i++) {
-                double t = (double)i / (double)n, s = 1.0 - t * span;
-                float w = (float)pow(1.0 - t, focus);
+                double t = (double)i / (double)n, s = 1.0 - t * span, f = t * ZOOM_LUT;
+                int32_t k = (int32_t)f;
+                float w = lut[k] + (lut[k + 1] - lut[k]) * (float)(f - (double)k);
                 if (w <= 0.0f) continue;
                 (void)fx1_acc_bilinear_inside(&acc, src, cx + vx * s, cy + vy * s, w);
             }
@@ -68,7 +92,7 @@ static int zoom_render(const void *params, const void *state, const fx_img *src,
 static const fx_effect k_fx = {
     sizeof(fx_effect), "org.paintc.blur.zoom", "Effects/Blurs/Zoom Blur",
     k_props, (uint32_t)(sizeof k_props / sizeof k_props[0]), (uint32_t)sizeof(zoom_params), 0u,
-    NULL, NULL, NULL, zoom_render
+    NULL, zoom_prepare, zoom_release, zoom_render
 };
 
 int fxm_blur_zoom(const fx_host *host, int (*reg)(const fx_effect *fx));

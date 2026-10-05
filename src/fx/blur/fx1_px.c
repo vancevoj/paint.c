@@ -108,31 +108,53 @@ static int32_t fx1_edge_index(int32_t v, int32_t lo, int32_t n, int mode, int *o
     }
 }
 
+/* floor() for |v| < 1e9 without a libm call (baseline x86-64 has no
+ * SSE4.1 rounding instruction). */
+static double fx1_floor(double v)
+{
+    double f = (double)(int64_t)v;
+    return f > v ? f - 1.0 : f;
+}
+
 void fx1_acc_bilinear(fx1_acc *s, const fx_img *im, double sx, double sy, float wt, int mode)
 {
-    double fx0 = floor(sx), fy0 = floor(sy);
-    float tx = (float)(sx - fx0), ty = (float)(sy - fy0);
+    double fx0, fy0;
+    float tx, ty;
     int32_t x0, y0, xs[2], ys[2];
     int ox[2], oy[2], i, j;
     float wx[2], wy[2];
-    if (!(fx0 > -1e9 && fx0 < 1e9 && fy0 > -1e9 && fy0 < 1e9)) {   /* NaN or huge */
+    if (!(sx > -1e9 && sx < 1e9 && sy > -1e9 && sy < 1e9)) {   /* NaN or huge */
         s->w += wt;
         return;
     }
+    fx0 = fx1_floor(sx);
+    fy0 = fx1_floor(sy);
+    tx = (float)(sx - fx0);
+    ty = (float)(sy - fy0);
     x0 = (int32_t)fx0;
     y0 = (int32_t)fy0;
     wx[0] = 1.0f - tx; wx[1] = tx;
     wy[0] = 1.0f - ty; wy[1] = ty;
+    if (x0 >= im->r.x && x0 + 1 < fx1_x1(im) && y0 >= im->r.y && y0 + 1 < fx1_y1(im)) {
+        /* all four taps inside: same arithmetic, no edge mapping */
+        const fx_px *r0 = fx_row(im, y0) + x0, *r1 = fx_row(im, y0 + 1) + x0;
+        fx1_acc_px(s, r0[0], wt * wx[0] * wy[0]);
+        fx1_acc_px(s, r0[1], wt * wx[1] * wy[0]);
+        fx1_acc_px(s, r1[0], wt * wx[0] * wy[1]);
+        fx1_acc_px(s, r1[1], wt * wx[1] * wy[1]);
+        s->w += wt;
+        return;
+    }
     for (i = 0; i < 2; i++) {
         xs[i] = fx1_edge_index(x0 + i, im->r.x, im->r.w, mode, &ox[i]);
         ys[i] = fx1_edge_index(y0 + i, im->r.y, im->r.h, mode, &oy[i]);
     }
     for (j = 0; j < 2; j++) {
         const fx_px *row;
-        if (wy[j] <= 0.0f || oy[j]) continue;
+        if (oy[j]) continue;
         row = fx_row(im, ys[j]);
         for (i = 0; i < 2; i++) {
-            if (wx[i] <= 0.0f || ox[i]) continue;
+            if (ox[i]) continue;
             fx1_acc_px(s, row[xs[i]], wt * wx[i] * wy[j]);
         }
     }

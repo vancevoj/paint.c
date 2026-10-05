@@ -5,8 +5,10 @@
  * Pipeline per output strip (see fx1_lib.h for the contract):
  *  1. Pixels are converted to five fixed-point channels: premultiplied
  *     gamma-boosted B, G, R, alpha, and a coverage channel W that is
- *     FX1_ONE inside the image. Positions outside the image are simply not
- *     stored, which makes them zero.
+ *     FX1_ONE inside the image. The block covers the output plus an apron
+ *     of the total reach on every side; apron positions outside the image
+ *     hold zeros, so every pass is a plain zero-padded convolution and the
+ *     cascade equals one convolution with the combined kernel.
  *  2. Vertical passes run on groups of FX1_G columns, horizontal passes on
  *     rows. Each pass is an extended box (running integer sums, fractional
  *     end taps) or a sampled Gaussian kernel. Every pass rounds back to
@@ -15,10 +17,9 @@
  *  3. The output divides by W, which renormalizes the kernel at the image
  *     border (the 3.36 Gaussian excluded outside pixels the same way).
  *
- * Positions near a block edge that is not an image edge see truncated
- * windows. Each pass widens that damaged margin by its own reach only, and
- * the block carries an apron equal to the total reach, so the damage never
- * reaches the ROI.
+ * Positions near a block edge see truncated windows. Each pass widens that
+ * damaged margin by its own reach only, and the apron equals the total
+ * reach, so the damage never reaches the ROI.
  */
 #include "fx1_lib.h"
 
@@ -136,10 +137,10 @@ static void fx1_pass_box(const int32_t *in, int32_t *out, int32_t n, int32_t L,
         if (frac > 0.0) {
             for (l = 0; l < L; l++) {
                 double e = (lo ? (double)lo[l] : 0.0) + (hi ? (double)hi[l] : 0.0);
-                o[l] = (int32_t)floor(((double)acc[l] + frac * e) * inv + 0.5);
+                o[l] = (int32_t)(((double)acc[l] + frac * e) * inv + 0.5);
             }
         } else {
-            for (l = 0; l < L; l++) o[l] = (int32_t)floor((double)acc[l] * inv + 0.5);
+            for (l = 0; l < L; l++) o[l] = (int32_t)((double)acc[l] * inv + 0.5);
         }
         if (hi)
             for (l = 0; l < L; l++) acc[l] += hi[l];
@@ -163,7 +164,7 @@ static void fx1_pass_kern(const int32_t *in, int32_t *out, int32_t n, int32_t L,
             double wq = w[q - p + k];
             for (l = 0; l < L; l++) acc[l] += wq * (double)v[l];
         }
-        for (l = 0; l < L; l++) o[l] = (int32_t)floor(acc[l] + 0.5);
+        for (l = 0; l < L; l++) o[l] = (int32_t)(acc[l] + 0.5);
     }
 }
 
@@ -184,11 +185,11 @@ static void fx1_run_passes(const fx1_sep *s, int32_t **a, int32_t **b, int32_t n
 /* ---- conversions ----------------------------------------------------------- */
 void fx1_gamma_load(const fx1_sep *s, fx_px p, int32_t *v)
 {
-    uint32_t a = p.a;
-    v[0] = (int32_t)((s->glut[p.b] * a + 127u) / 255u);
-    v[1] = (int32_t)((s->glut[p.g] * a + 127u) / 255u);
-    v[2] = (int32_t)((s->glut[p.r] * a + 127u) / 255u);
-    v[3] = (int32_t)(((uint32_t)FX1_ONE * a + 127u) / 255u);
+    uint64_t a = p.a;
+    v[0] = (int32_t)(((uint64_t)s->glut[p.b] * a + 127u) / 255u);
+    v[1] = (int32_t)(((uint64_t)s->glut[p.g] * a + 127u) / 255u);
+    v[2] = (int32_t)(((uint64_t)s->glut[p.r] * a + 127u) / 255u);
+    v[3] = (int32_t)(((uint64_t)FX1_ONE * a + 127u) / 255u);
     v[4] = FX1_ONE;
 }
 
@@ -212,65 +213,185 @@ fx_px fx1_gamma_store(const fx1_sep *s, const double *v)
     return fx_px_make(fx_u8(c[2]), fx_u8(c[1]), fx_u8(c[0]), (uint8_t)a8);
 }
 
+/* ---- vertical stage ------------------------------------------------------ */
+/* Vertical passes for columns [gx, gx + g) (all inside the image) over rows
+ * [oy - ext, oy + hh + ext); rows outside the image are zero. Returns the
+ * lanes (nl per pixel: 4 = colors and alpha, 5 = plus W) of output rows
+ * [oy, oy + hh), row stride g * nl. The cache stores exactly these values,
+ * so cached and uncached renders are byte-identical. */
+static int32_t *fx1_vstage(const fx1_sep *s, const fx_img *src, int32_t gx, int32_t g, int32_t nl,
+                           int32_t oy, int32_t hh, int32_t *va, int32_t *vb, int64_t *iacc,
+                           double *dacc)
+{
+    const int32_t E = s->ext, Y0 = src->r.y, Y1 = fx1_y1(src);
+    int32_t ry0 = oy - E, nrows = hh + 2 * E, L = g * nl, y, k, c;
+    int32_t *a = va, *b = vb, tmp[FX1_CH];
+    for (y = ry0; y < ry0 + nrows; y++) {
+        int32_t *v = a + (size_t)(y - ry0) * (size_t)L;
+        const fx_px *row;
+        if (y < Y0 || y >= Y1) {
+            memset(v, 0, (size_t)L * sizeof(int32_t));
+            continue;
+        }
+        row = fx_row(src, y);
+        for (k = 0; k < g; k++) {
+            fx1_gamma_load(s, row[gx + k], tmp);
+            for (c = 0; c < nl; c++) v[k * nl + c] = tmp[c];
+        }
+    }
+    fx1_run_passes(s, &a, &b, nrows, L, iacc, dacc);
+    return a + (size_t)E * (size_t)L;
+}
+
+/* Vertical passes of the coverage lane alone: W after the vertical passes
+ * for output rows [oy, oy + hh) of any column inside the image. */
+static void fx1_vstage_w(const fx1_sep *s, const fx_img *src, int32_t oy, int32_t hh,
+                         int32_t *va, int32_t *vb, int64_t *iacc, double *dacc, int32_t *out)
+{
+    const int32_t E = s->ext, Y0 = src->r.y, Y1 = fx1_y1(src);
+    int32_t ry0 = oy - E, nrows = hh + 2 * E, y;
+    int32_t *a = va, *b = vb;
+    for (y = ry0; y < ry0 + nrows; y++) a[y - ry0] = (y < Y0 || y >= Y1) ? 0 : FX1_ONE;
+    fx1_run_passes(s, &a, &b, nrows, 1, iacc, dacc);
+    memcpy(out, a + E, (size_t)hh * sizeof(int32_t));
+}
+
+/* ---- vertical cache --------------------------------------------------------- */
+#define FX1_CACHE_MIN_EXT   24              /* below this the per-ROI path is cheap */
+#define FX1_CACHE_MAX_BYTES ((size_t)512 << 20)
+
+int fx1_sep_cache_build(const fx1_sep *s, const fx_img *src, fx_rect sel, fx1_vcache *c,
+                        const fx_host *h, const void *job)
+{
+    const int32_t E = s->ext, X0 = src->r.x, X1 = fx1_x1(src);
+    int32_t x0, x1, gx, st = FX_OK;
+    size_t n, vrows;
+    int32_t *va = NULL, *vb = NULL;
+    int64_t iacc[FX1_G * FX1_CH];
+    double dacc[FX1_G * FX1_CH];
+    memset(c, 0, sizeof *c);
+    if (s->n_pass == 0 || E < FX1_CACHE_MIN_EXT || sel.w <= 0 || sel.h <= 0) return FX_OK;
+    x0 = sel.x - E < X0 ? X0 : sel.x - E;
+    x1 = sel.x + sel.w + E > X1 ? X1 : sel.x + sel.w + E;
+    if (x1 <= x0) return FX_OK;
+    n = (size_t)(x1 - x0) * (size_t)sel.h;
+    if (n > FX1_CACHE_MAX_BYTES / 16u) return FX_OK;          /* fall back, same output */
+    c->v = (int32_t *)fx1_alloc(h, n, 4u * sizeof(int32_t));
+    c->wv = (int32_t *)fx1_alloc(h, (size_t)sel.h, sizeof(int32_t));
+    vrows = (size_t)sel.h + 2u * (size_t)E;
+    va = (int32_t *)fx1_alloc(h, vrows * FX1_G, 4u * sizeof(int32_t));
+    vb = (int32_t *)fx1_alloc(h, vrows * FX1_G, 4u * sizeof(int32_t));
+    if (!c->v || !c->wv || !va || !vb) {                    /* no memory: per-ROI path */
+        fx1_sep_cache_free(c, h);
+        goto done;
+    }
+    c->x0 = x0;
+    c->y0 = sel.y;
+    c->w = x1 - x0;
+    c->h = sel.h;
+    fx1_vstage_w(s, src, sel.y, sel.h, va, vb, iacc, dacc, c->wv);
+    for (gx = x0; gx < x1; gx += FX1_G) {
+        int32_t g = x1 - gx < FX1_G ? x1 - gx : FX1_G, y, k, ch;
+        const int32_t *res;
+        if (fx1_cancelled(h, job)) {
+            fx1_sep_cache_free(c, h);
+            st = FX_CANCELLED;
+            goto done;
+        }
+        res = fx1_vstage(s, src, gx, g, 4, sel.y, sel.h, va, vb, iacc, dacc);
+        for (y = 0; y < sel.h; y++)
+            for (k = 0; k < g; k++)
+                for (ch = 0; ch < 4; ch++)
+                    c->v[((size_t)y * (size_t)c->w + (size_t)(gx - x0 + k)) * 4u + (size_t)ch] =
+                        res[(size_t)y * (size_t)(g * 4) + (size_t)(k * 4 + ch)];
+    }
+done:
+    fx1_free(h, va);
+    fx1_free(h, vb);
+    return st;
+}
+
+void fx1_sep_cache_free(fx1_vcache *c, const fx_host *h)
+{
+    fx1_free(h, c->v);
+    fx1_free(h, c->wv);
+    memset(c, 0, sizeof *c);
+}
+
 /* ---- render ------------------------------------------------------------- */
 int fx1_sep_render(const fx1_sep *s, const fx_img *src, fx_img *dst, fx_rect roi,
                    const fx_host *h, const void *job)
 {
+    return fx1_sep_render_c(s, NULL, src, dst, roi, h, job);
+}
+
+int fx1_sep_render_c(const fx1_sep *s, const fx1_vcache *cache, const fx_img *src, fx_img *dst,
+                     fx_rect roi, const fx_host *h, const void *job)
+{
     const int32_t E = s->ext;
-    const int32_t X0 = src->r.x, X1 = fx1_x1(src), Y0 = src->r.y, Y1 = fx1_y1(src);
+    const int32_t X0 = src->r.x, X1 = fx1_x1(src);
     int32_t sh, cw, oy, ox, st = FX_OK;
     size_t hcols, vrows;
-    int32_t *hbuf = NULL, *va = NULL, *vb = NULL, *ra = NULL, *rb = NULL;
+    int32_t *hbuf = NULL, *va = NULL, *vb = NULL, *ra = NULL, *rb = NULL, *wrow = NULL;
     int64_t iacc[FX1_G * FX1_CH];
     double dacc[FX1_G * FX1_CH];
+    int use_cache;
 
     if (roi.w <= 0 || roi.h <= 0) return FX_OK;
     if (s->n_pass == 0) {
         return fx1_copy_roi(src, dst, roi, h, job);
     }
+    use_cache = cache && cache->v && roi.y >= cache->y0 && roi.y + roi.h <= cache->y0 + cache->h &&
+                (roi.x - E <= X0 || roi.x - E >= cache->x0) &&
+                (roi.x + roi.w + E >= X1 || roi.x + roi.w + E <= cache->x0 + cache->w);
     sh = roi.h < FX1_SH ? roi.h : FX1_SH;
     cw = roi.w < FX1_CW ? roi.w : FX1_CW;
     hcols = (size_t)cw + 2u * (size_t)E;
     vrows = (size_t)sh + 2u * (size_t)E;
-    hbuf = (int32_t *)fx1_alloc(h, (size_t)sh * hcols, FX1_CH * sizeof(int32_t));
-    va = (int32_t *)fx1_alloc(h, vrows * FX1_G, FX1_CH * sizeof(int32_t));
-    vb = (int32_t *)fx1_alloc(h, vrows * FX1_G, FX1_CH * sizeof(int32_t));
     ra = (int32_t *)fx1_alloc(h, hcols, FX1_CH * sizeof(int32_t));
     rb = (int32_t *)fx1_alloc(h, hcols, FX1_CH * sizeof(int32_t));
-    if (!hbuf || !va || !vb || !ra || !rb) {
+    if (!use_cache) {
+        hbuf = (int32_t *)fx1_alloc(h, (size_t)sh * hcols, FX1_CH * sizeof(int32_t));
+        va = (int32_t *)fx1_alloc(h, vrows * FX1_G, FX1_CH * sizeof(int32_t));
+        vb = (int32_t *)fx1_alloc(h, vrows * FX1_G, FX1_CH * sizeof(int32_t));
+        wrow = (int32_t *)fx1_alloc(h, (size_t)sh, sizeof(int32_t));
+    }
+    if (!ra || !rb || (!use_cache && (!hbuf || !va || !vb || !wrow))) {
         st = FX_ERROR;
         goto done;
     }
     for (oy = roi.y; oy < roi.y + roi.h; oy += sh) {
         int32_t hh = roi.y + roi.h - oy < sh ? roi.y + roi.h - oy : sh;
-        int32_t ry0 = oy - E < Y0 ? Y0 : oy - E;
-        int32_t ry1 = oy + hh + E > Y1 ? Y1 : oy + hh + E;
-        int32_t nrows = ry1 - ry0;
         for (ox = roi.x; ox < roi.x + roi.w; ox += cw) {
             int32_t ww = roi.x + roi.w - ox < cw ? roi.x + roi.w - ox : cw;
-            int32_t cx0 = ox - E < X0 ? X0 : ox - E;
-            int32_t cx1 = ox + ww + E > X1 ? X1 : ox + ww + E;
-            int32_t ncols = cx1 - cx0, gx, y, x;
+            int32_t cx0 = ox - E, ncols = ww + 2 * E, gx, y, x;
             size_t hstride = (size_t)ncols * FX1_CH;
-            /* vertical stage: column groups -> hbuf rows [oy, oy + hh) */
-            for (gx = cx0; gx < cx1; gx += FX1_G) {
-                int32_t g = cx1 - gx < FX1_G ? cx1 - gx : FX1_G, k;
-                int32_t L = g * FX1_CH;
-                int32_t *a = va, *b = vb;
+            if (!use_cache) {
+                /* vertical stage: column groups -> hbuf rows [oy, oy + hh) */
+                int32_t ix0 = cx0 < X0 ? X0 : cx0;
+                int32_t ix1 = cx0 + ncols > X1 ? X1 : cx0 + ncols;
                 if (fx1_cancelled(h, job)) {
                     st = FX_CANCELLED;
                     goto done;
                 }
-                for (y = ry0; y < ry1; y++) {
-                    const fx_px *row = fx_row(src, y) + gx;
-                    int32_t *v = a + (size_t)(y - ry0) * (size_t)L;
-                    for (k = 0; k < g; k++) fx1_gamma_load(s, row[k], v + k * FX1_CH);
-                }
-                fx1_run_passes(s, &a, &b, nrows, L, iacc, dacc);
-                for (y = oy; y < oy + hh; y++) {
-                    const int32_t *v = a + (size_t)(y - ry0) * (size_t)L;
-                    int32_t *o = hbuf + (size_t)(y - oy) * hstride + (size_t)(gx - cx0) * FX1_CH;
-                    memcpy(o, v, (size_t)L * sizeof(int32_t));
+                for (y = 0; y < hh; y++) memset(hbuf + (size_t)y * hstride, 0, hstride * 4u);
+                if (ix0 < ix1) fx1_vstage_w(s, src, oy, hh, va, vb, iacc, dacc, wrow);
+                for (gx = ix0; gx < ix1; gx += FX1_G) {
+                    int32_t g = ix1 - gx < FX1_G ? ix1 - gx : FX1_G, k;
+                    const int32_t *res;
+                    if (fx1_cancelled(h, job)) {
+                        st = FX_CANCELLED;
+                        goto done;
+                    }
+                    res = fx1_vstage(s, src, gx, g, 4, oy, hh, va, vb, iacc, dacc);
+                    for (y = 0; y < hh; y++)
+                        for (k = 0; k < g; k++) {
+                            int32_t *o = hbuf + (size_t)y * hstride +
+                                         (size_t)(gx - cx0 + k) * FX1_CH;
+                            const int32_t *v = res + (size_t)y * (size_t)(g * 4) + (size_t)(k * 4);
+                            o[0] = v[0]; o[1] = v[1]; o[2] = v[2];
+                            o[3] = v[3]; o[4] = wrow[y];
+                        }
                 }
             }
             /* horizontal stage */
@@ -281,7 +402,23 @@ int fx1_sep_render(const fx1_sep *s, const fx_img *src, fx_img *dst, fx_rect roi
                     st = FX_CANCELLED;
                     goto done;
                 }
-                memcpy(a, hbuf + (size_t)y * hstride, hstride * sizeof(int32_t));
+                if (use_cache) {
+                    const int32_t *cv = cache->v + (size_t)(oy + y - cache->y0) *
+                                                   (size_t)cache->w * 4u;
+                    int32_t wv = cache->wv[oy + y - cache->y0];
+                    for (x = 0; x < ncols; x++) {
+                        int32_t xx = cx0 + x, *o = a + (size_t)x * FX1_CH;
+                        if (xx < X0 || xx >= X1) {
+                            o[0] = o[1] = o[2] = o[3] = o[4] = 0;
+                        } else {
+                            const int32_t *q = cv + (size_t)(xx - cache->x0) * 4u;
+                            o[0] = q[0]; o[1] = q[1]; o[2] = q[2]; o[3] = q[3];
+                            o[4] = wv;
+                        }
+                    }
+                } else {
+                    memcpy(a, hbuf + (size_t)y * hstride, hstride * sizeof(int32_t));
+                }
                 fx1_run_passes(s, &a, &b, ncols, FX1_CH, iacc, dacc);
                 for (x = ox; x < ox + ww; x++) {
                     const int32_t *v = a + (size_t)(x - cx0) * FX1_CH;
@@ -299,5 +436,6 @@ done:
     fx1_free(h, vb);
     fx1_free(h, ra);
     fx1_free(h, rb);
+    fx1_free(h, wrow);
     return st;
 }

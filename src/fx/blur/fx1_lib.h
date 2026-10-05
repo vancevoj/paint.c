@@ -115,7 +115,7 @@ fx_px fx1_bc_apply(const fx1_bc *bc, fx_px p);
 /* ---- separable blur engine ---------------------------------------------- */
 #define FX1_MAX_PASS 6
 #define FX1_MAX_K    48
-#define FX1_ONE      (1 << 20)      /* fixed-point unit of the blur engine */
+#define FX1_ONE      (1 << 24)      /* fixed-point unit of the blur engine */
 
 typedef struct fx1_pass {
     int32_t r;        /* box: full half width; kernel: half width K */
@@ -156,6 +156,24 @@ fx_px fx1_gamma_store(const fx1_sep *s, const double *v);
  * FX_OK, FX_CANCELLED or FX_ERROR (out of memory). */
 int fx1_sep_render(const fx1_sep *s, const fx_img *src, fx_img *dst, fx_rect roi,
                    const fx_host *h, const void *job);
+
+/* Optional cache of the vertical passes over a selection, built in
+ * prepare() for large blurs so render() only runs the horizontal passes.
+ * The per-ROI path quantizes identically, so output does not depend on
+ * whether the cache exists. */
+typedef struct fx1_vcache {
+    int32_t   x0, y0, w, h;     /* cached columns and rows */
+    int32_t  *v;                /* 4 lanes per pixel, NULL when not built */
+    int32_t  *wv;               /* coverage per row */
+} fx1_vcache;
+/* Builds the cache when it pays off and fits the memory cap; otherwise
+ * leaves c->v NULL. Returns FX_OK or FX_CANCELLED (FX_OK on low memory). */
+int  fx1_sep_cache_build(const fx1_sep *s, const fx_img *src, fx_rect sel, fx1_vcache *c,
+                         const fx_host *h, const void *job);
+void fx1_sep_cache_free(fx1_vcache *c, const fx_host *h);
+/* fx1_sep_render with an optional cache (NULL = per-ROI path). */
+int  fx1_sep_render_c(const fx1_sep *s, const fx1_vcache *cache, const fx_img *src,
+                      fx_img *dst, fx_rect roi, const fx_host *h, const void *job);
 
 /* Glow core shared by Glow and Ink Sketch (3.36 GlowEffect): blur, then
  * brightness and contrast on the blur, then Screen of the blur over src. */

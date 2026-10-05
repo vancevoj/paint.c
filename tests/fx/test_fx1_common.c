@@ -94,7 +94,8 @@ static void t_variant(const fx_effect *fx, void *p)
                                      t_set(fx, p, "quality", 3); }
     else if (strstr(id, "motion")) { t_set(fx, p, "angle", -110.0); t_set(fx, p, "centered", 0);
                                      t_set(fx, p, "edge_behavior", 2); }
-    else if (strstr(id, "radial")) { t_set(fx, p, "angle", 40.0); t_set2(fx, p, "center", 0.4, -0.7);
+    else if (strstr(id, "radial")) { t_set(fx, p, "angle", 40.0);
+                                     t_set2(fx, p, "center", 0.4, -0.7);
                                      t_set(fx, p, "quality", 5); }
     else if (strstr(id, "sketch") && strstr(id, "blur")) { t_set(fx, p, "radius", 6.5);
                                        t_set(fx, p, "percentile", 80); }
@@ -105,9 +106,11 @@ static void t_variant(const fx_effect *fx, void *p)
     else if (strstr(id, "noise.reduce")) { t_set(fx, p, "radius", 3); t_set(fx, p, "strength", 1); }
     else if (strstr(id, "glow")) { t_set(fx, p, "radius", 2.5); t_set(fx, p, "contrast", 100); }
     else if (strstr(id, "red_eye")) t_set(fx, p, "strength", 6);
-    else if (strstr(id, "sharpen")) { t_set(fx, p, "amount", 7.0); t_set(fx, p, "threshold", 0.05); }
+    else if (strstr(id, "sharpen")) { t_set(fx, p, "amount", 7.0);
+                                      t_set(fx, p, "threshold", 0.05); }
     else if (strstr(id, "soften")) { t_set(fx, p, "lighting", -7); t_set(fx, p, "warmth", 20); }
-    else if (strstr(id, "straighten")) { t_set(fx, p, "angle", -13.0); t_set(fx, p, "sampling", 1); }
+    else if (strstr(id, "straighten")) { t_set(fx, p, "angle", -13.0);
+                                         t_set(fx, p, "sampling", 1); }
     else if (strstr(id, "vignette")) { t_set2(fx, p, "center", 0.3, 0.2);
                                        t_set(fx, p, "strength", 0.6); }
     else if (strstr(id, "ink")) { t_set(fx, p, "ink_outline", 20); t_set(fx, p, "coloring", 90); }
