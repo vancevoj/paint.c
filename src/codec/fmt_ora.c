@@ -11,7 +11,7 @@
  * their opacity multiplies in, a hidden stack hides its layers and stack
  * offsets add up. composite-op names map to blend modes (unknown ones
  * become Normal); xres/yres become meta.dpi. Layers whose source is not a
- * PNG load as empty layers (meta.note says so).
+ * PNG (or missing) load as empty layers (meta.note says so).
  *
  * Save (PC_CODEC_LAYERED): a stored "mimetype" first, stack.xml (top layer
  * first; name, visibility, opacity, x/y, composite-op), each layer as a PNG
@@ -555,7 +555,8 @@ static pc_status ora_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
     }
     meta->src_bits = 8u;
     meta->had_alpha = true;
-    if (skipped) lc_note(meta, "Some layers are not PNG images and were loaded empty");
+    if (skipped)
+        lc_note(meta, "Some layers are not PNG images or are missing; they were loaded empty");
 done:
     free(data);
     free(layers);
