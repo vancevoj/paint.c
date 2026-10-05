@@ -135,6 +135,33 @@ static void t_large(void)
     app_destroy(a);
 }
 
+/* An image whose working copies cannot fit is refused with a message
+ * instead of allocating (X-26: Linux overcommits). */
+static void t_too_large(void)
+{
+    const uint32_t n = 65535u;
+    uint64_t ram = pal_ram_bytes(), need = (uint64_t)n * n * 12u;
+    app *a;
+    app_doc *d;
+    if (ram == 0u || need <= ram / 2u) {
+        INFO("skipped: %llu MiB of RAM would fit a %u x %u run",
+             (unsigned long long)(ram >> 20), (unsigned)n, (unsigned)n);
+        return;
+    }
+    a = at_app(800, 600);
+    CHECK(a != NULL);
+    if (!a) return;
+    d = app_doc_new_image(a, n, n, app_px_make(1, 2, 3, 255));
+    CHECK(d != NULL && app_add_doc(a, d));
+    if (d) {
+        int depth = app_dialog_depth(a);
+        CHECK(!afx_open(a, fx_registry_find(a->fx, "org.paintc.adjust.invert_colors")));
+        CHECK(afx_active(a) == NULL && d->txn == NULL);
+        CHECK(app_dialog_depth(a) == depth + 1);        /* the error message */
+    }
+    app_destroy(a);
+}
+
 int main(int argc, char **argv)
 {
     pc_test_init(argc, argv);
@@ -143,6 +170,7 @@ int main(int argc, char **argv)
         return 1;
     }
     RUN(t_large);
+    RUN(t_too_large);
     at_quit();
     return pc_test_finish();
 }

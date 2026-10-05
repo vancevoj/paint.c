@@ -2,7 +2,7 @@
  * (MENUS.md Levels dialog, OBSERVED.md section 5): input and output
  * histograms of the selection, input white and black points and output
  * white point, gray point (gamma) and black point as numeric boxes, color
- * swatches (click to set a point per channel) and draggable arrows on two
+ * swatches (double-click to set a point per channel) and draggable arrows on two
  * gradient bars, the R G B check boxes choosing the channels the controls
  * edit, Auto (fx_levels_auto, the Auto-Level logic) and Reset.
  *
@@ -31,6 +31,7 @@ typedef struct levels_ui {
     int           pick;                 /* P_* point the color popup edits */
     ui_color_edit ce;
     float         axis_top, axis_bot;   /* value axis of the last frame */
+    bool          popup_open;           /* the color popup showed last frame */
 } levels_ui;
 
 static levels_ui *ui_state(app *a)
@@ -45,6 +46,12 @@ static levels_ui *ui_state(app *a)
         }
     }
     return l;
+}
+
+int afx_levels_picking(app *a)
+{
+    levels_ui *l = (levels_ui *)app_ext_get(a, "afx.levels");
+    return l && l->popup_open ? l->pick : -1;
 }
 
 bool afx_levels_axis(app *a, float *top, float *bottom)
@@ -224,16 +231,17 @@ static void draw_bar(ui_ctx *ui, ui_rect r, vmap m, ui_color top, const double *
     }
 }
 
-/* Swatch with a click to edit the point's color per channel. */
+/* Swatch; a double click edits the point's color per channel (D Levels). */
 static bool swatch(app *a, levels_ui *st, const char *id, ui_rect r, ui_color c, int point,
                    bool dis)
 {
     ui_ctx *ui = a->ui;
     const ui_palette *p = ui_pal(ui);
     ui_interaction in = ui_interact(ui, ui_get_id(ui, id), r, dis ? UI_INTERACT_DISABLED : 0u);
+    if (point >= 0) st->rects[AFX_LV_SW_IN_LO + point] = r;
     ui_draw_rect(ui, r, c);
     ui_draw_rect_outline(ui, r, 1, in.hovered ? p->text_dim : p->border_strong);
-    if (in.clicked && !dis && point >= 0) {
+    if (in.double_clicked && !dis && point >= 0) {
         st->pick = point;
         ui_color_edit_set_rgba(&st->ce, c);
         ui_popup_open(ui, "##lvpop", r, UI_POPUP_BELOW);
@@ -317,7 +325,7 @@ bool afx_levels_widget_fn(app *a, const fx_prop *prop, void *value, void *ud)
         ui_rect nr = ui_rect_make(r_inc.x, r_inc.y, r_inc.w, ch);
         v = mask_avg(lv->in_hi, lv->mask);
         ui_layout_set_next(ui, nr);
-        if (ui_number_int(ui, "##inhi", &v, 1, 255, 1, dis ? UI_DISABLED : 0u) && !dis) {
+        if (ui_number_int(ui, "##inhi", &v, 0, 255, 1, dis ? UI_DISABLED : 0u) && !dis) {
             fx_levels_edit(lv, FX_LEVELS_IN_HI, (double)v);
             changed = true;
         }
@@ -328,7 +336,7 @@ bool afx_levels_widget_fn(app *a, const fx_prop *prop, void *value, void *ud)
                      point_color(lv->in_lo), P_IN_LO, dis);
         v = mask_avg(lv->in_lo, lv->mask);
         ui_layout_set_next(ui, nr);
-        if (ui_number_int(ui, "##inlo", &v, 0, 254, 1, dis ? UI_DISABLED : 0u) && !dis) {
+        if (ui_number_int(ui, "##inlo", &v, 0, 255, 1, dis ? UI_DISABLED : 0u) && !dis) {
             fx_levels_edit(lv, FX_LEVELS_IN_LO, (double)v);
             changed = true;
         }
@@ -342,7 +350,7 @@ bool afx_levels_widget_fn(app *a, const fx_prop *prop, void *value, void *ud)
         uint8_t mid[3];
         v = mask_avg(lv->out_hi, lv->mask);
         ui_layout_set_next(ui, nr);
-        if (ui_number_int(ui, "##outhi", &v, 1, 255, 1, dis ? UI_DISABLED : 0u) && !dis) {
+        if (ui_number_int(ui, "##outhi", &v, 0, 255, 1, dis ? UI_DISABLED : 0u) && !dis) {
             fx_levels_edit(lv, FX_LEVELS_OUT_HI, (double)v);
             changed = true;
         }
@@ -376,7 +384,7 @@ bool afx_levels_widget_fn(app *a, const fx_prop *prop, void *value, void *ud)
                      point_color(lv->out_lo), P_OUT_LO, dis);
         v = mask_avg(lv->out_lo, lv->mask);
         ui_layout_set_next(ui, nr);
-        if (ui_number_int(ui, "##outlo", &v, 0, 254, 1, dis ? UI_DISABLED : 0u) && !dis) {
+        if (ui_number_int(ui, "##outlo", &v, 0, 255, 1, dis ? UI_DISABLED : 0u) && !dis) {
             fx_levels_edit(lv, FX_LEVELS_OUT_LO, (double)v);
             changed = true;
         }
@@ -452,7 +460,9 @@ bool afx_levels_widget_fn(app *a, const fx_prop *prop, void *value, void *ud)
         draw_bar(ui, r_outb, m, top, out_v, 3, dis);
     }
     /* the per-channel color popup of a swatch */
+    st->popup_open = false;
     if (ui_popup_begin(ui, "##lvpop")) {
+        st->popup_open = true;
         ui_size w1 = ui_size_px(300.0f);
         ui_layout_row(ui, 0.0f, 1, &w1);
         ui_layout_begin(ui, 4.0f);

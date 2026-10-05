@@ -121,8 +121,8 @@ static void t_selection_clip(void)
         for (int32_t y = 0; y < H; y++)
             for (int32_t x = 0; x < W; x++) {
                 uint8_t cov = pc_sel_coverage(d->doc, x, y);
-                bool same = memcmp(&before.px[y * before.stride + x], &after.px[y * after.stride + x],
-                                   sizeof(pc_px32)) == 0;
+                bool same = memcmp(&before.px[y * before.stride + x],
+                                   &after.px[y * after.stride + x], sizeof(pc_px32)) == 0;
                 if (cov == 0u && !same) outside_changed++;
                 if (cov == 255u && !same) inside_changed++;
             }

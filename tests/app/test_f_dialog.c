@@ -385,7 +385,8 @@ static void t_prop_helpers(void)
     ds = find(a, "org.paintc.object.drop_shadow");
     bulge = find(a, "org.paintc.distort.bulge");
     gauss = find(a, "org.paintc.blur.gaussian");
-    if (!ds || !bulge || !gauss || ds->params_size > sizeof buf || bulge->params_size > sizeof buf) {
+    if (!ds || !bulge || !gauss || ds->params_size > sizeof buf ||
+        bulge->params_size > sizeof buf) {
         app_destroy(a);
         return;
     }
@@ -507,6 +508,40 @@ static void t_busy_document(void)
     app_destroy(a);
 }
 
+/* The same flows from an app_script_run script (headless --script runs). */
+static void t_script(void)
+{
+    static const char k_script[] =
+        "new 64 48\n"
+        "primary #FF102030\n"
+        "cmd adjust.org.paintc.adjust.invert_colors\n"
+        "expect pixel 5 5 #FF000000\n"
+        "expect history 2\n"
+        "cmd effects.org.paintc.render.clouds\n"
+        "frames 4\n"
+        "key Enter\n"
+        "frames 4\n"
+        "expect history 3\n"
+        "key Ctrl+F\n"
+        "frames 4\n"
+        "expect history 4\n"
+        "cmd adjust.org.paintc.adjust.sepia\n"
+        "frames 3\n"
+        "key Esc\n"
+        "frames 2\n"
+        "expect history 4\n"
+        "key Ctrl+Z\n"
+        "expect history 4\n";
+    app *a = at_app(1000, 700);
+    char err[256];
+    CHECK(a != NULL);
+    if (!a) return;
+    CHECK(app_script_run(a, k_script, err, sizeof err) == 0);
+    if (err[0]) INFO("script: %s", err);
+    CHECK(app_active_doc(a) && strcmp(app_active_doc(a)->hist->cur->label, "Clouds") == 0);
+    app_destroy(a);
+}
+
 int main(int argc, char **argv)
 {
     pc_test_init(argc, argv);
@@ -525,6 +560,7 @@ int main(int argc, char **argv)
     RUN(t_close_while_rendering);
     RUN(t_backdrop);
     RUN(t_busy_document);
+    RUN(t_script);
     at_quit();
     return pc_test_finish();
 }

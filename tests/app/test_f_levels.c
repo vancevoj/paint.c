@@ -21,6 +21,30 @@ static bool levels_eq(const fx_levels *x, const fx_levels *y)
     return x->mask == y->mask;
 }
 
+/* A double click at window pixel (x, y): the second press carries clicks 2. */
+static void dclick(app *a, float x, float y)
+{
+    SDL_Event e;
+    at_mouse(a, SDL_EVENT_MOUSE_MOTION, x, y, 0);
+    at_frames(a, 1);
+    for (int k = 1; k <= 2; k++) {
+        memset(&e, 0, sizeof e);
+        e.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+        e.button.x = x;
+        e.button.y = y;
+        e.button.button = SDL_BUTTON_LEFT;
+        e.button.down = true;
+        e.button.clicks = (Uint8)k;
+        e.button.which = 1;
+        app_event(a, &e);
+        at_frames(a, 1);
+        e.type = SDL_EVENT_MOUSE_BUTTON_UP;
+        e.button.down = false;
+        app_event(a, &e);
+        at_frames(a, 1);
+    }
+}
+
 static void t_histogram_fn(void)
 {
     uint8_t px[4 * 4 * 4], m[16];
@@ -104,6 +128,18 @@ static void t_dialog(void)
     f_click_rect(a, afx_levels_rect(a, AFX_LV_RESET), SDL_BUTTON_LEFT);
     fx_levels_init(&ref);
     CHECK(levels_eq(lv, &ref));
+    /* a swatch opens its per-channel color picker on a double click only */
+    {
+        ui_rect sw = afx_levels_rect(a, AFX_LV_SW_IN_HI);
+        CHECK(!ui_rect_empty(sw));
+        f_click_rect(a, sw, SDL_BUTTON_LEFT);
+        CHECK(afx_levels_picking(a) == -1);
+        dclick(a, (float)sw.x + (float)sw.w * 0.5f, (float)sw.y + (float)sw.h * 0.5f);
+        CHECK(afx_levels_picking(a) == 1);
+        f_key(a, SDLK_ESCAPE, SDL_KMOD_NONE);              /* closes the popup only */
+        CHECK(afx_levels_picking(a) == -1 && afx_active(a) == s);
+        CHECK(levels_eq(lv, &ref));
+    }
     /* drag the input white arrow from 255 down to about 200 */
     CHECK(afx_levels_axis(a, &top, &bot));
     {

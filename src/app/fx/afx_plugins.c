@@ -198,7 +198,8 @@ static int plugin_reg(const fx_effect *fx)
     st = fx_registry_add(c->scratch, fx);
     if (st != PC_OK) {
         if (st == PC_ERR_STATE)
-            add_error(c->p, c->path, "effect id '%s' is registered twice", safe_id(fx, id, sizeof id));
+            add_error(c->p, c->path, "effect id '%s' is registered twice",
+                      safe_id(fx, id, sizeof id));
         else
             add_error(c->p, c->path, "effect '%s' could not be registered (%s)",
                       safe_id(fx, id, sizeof id), pc_status_str(st));

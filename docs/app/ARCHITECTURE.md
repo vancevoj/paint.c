@@ -255,6 +255,8 @@ the document transaction for the live preview. OK waits for the job and
 commits one history step named after the effect; Cancel drops it. Dialog-less
 adjustments and Effects > Repeat run immediately with the remembered
 parameters. Wave 2b refines the previews and adds the custom widgets.
+Lane F (wave 2b): the full model, the Curves and Levels editors and the
+plugin loader are described in docs/app/EFFECTS.md (engine in src/app/fx).
 
 ## State, hooks and extension points
 

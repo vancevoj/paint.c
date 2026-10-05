@@ -130,8 +130,8 @@ black, gray and white), output white point, gray point (gamma 0.10 .. 10.00)
 and black point, output histogram (the input mapped through the current
 levels), R G B check boxes choosing the edited channels (all controls are
 disabled when none is checked), Auto (`fx_levels_auto` of the input
-histogram, the Auto-Level logic) and Reset. Clicking a swatch opens a color
-picker that sets that point per channel. Numeric and arrow edits go through
+histogram, the Auto-Level logic) and Reset. Double-clicking a swatch opens
+a color picker that sets that point per channel. Numeric and arrow edits go through
 `fx_levels_edit` (3.36 per-mask averaging).
 
 ## Plugins

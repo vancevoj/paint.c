@@ -419,10 +419,12 @@ void afx_levels_histogram(const fx_img *src, const fx_img *sel, fx_rect r,
     if (!src || !src->px || src->chans != 4) return;
     x0 = r.x > src->r.x ? r.x : src->r.x;
     y0 = r.y > src->r.y ? r.y : src->r.y;
-    x1 = (int32_t)((int64_t)r.x + r.w < (int64_t)src->r.x + src->r.w ? (int64_t)r.x + r.w
-                                                                      : (int64_t)src->r.x + src->r.w);
-    y1 = (int32_t)((int64_t)r.y + r.h < (int64_t)src->r.y + src->r.h ? (int64_t)r.y + r.h
-                                                                      : (int64_t)src->r.y + src->r.h);
+    {
+        int64_t ex = (int64_t)r.x + r.w, sx = (int64_t)src->r.x + src->r.w;
+        int64_t ey = (int64_t)r.y + r.h, sy = (int64_t)src->r.y + src->r.h;
+        x1 = (int32_t)(ex < sx ? ex : sx);
+        y1 = (int32_t)(ey < sy ? ey : sy);
+    }
     for (int32_t y = y0; y < y1; y++) {
         const uint8_t *row = src->px + (size_t)(y - src->r.y) * (size_t)src->stride;
         const uint8_t *mrow = NULL;

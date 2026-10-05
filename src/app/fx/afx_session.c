@@ -354,14 +354,16 @@ static void run_done(app *a, void *ud)
     app_request_frame(a);
     if (s->state == AFX_FINISHED || s->run != r) return;
     js = fx_job_state(r->job);
-    if (s->restart || js == FX_JOB_CANCELLED) {
+    if (s->restart) {
         start_run(a, s);
         return;
     }
-    if (js == FX_JOB_FAILED) {
+    if (js == FX_JOB_FAILED || js == FX_JOB_CANCELLED) {
+        /* CANCELLED without a restart: the effect gave up by itself */
         char msg[300];
-        snprintf(msg, sizeof msg,
-                 "%s could not finish: out of memory or invalid parameters.", s->name);
+        snprintf(msg, sizeof msg, js == FX_JOB_FAILED
+                     ? "%s could not finish: out of memory or invalid parameters."
+                     : "%s stopped before it finished.", s->name);
         session_fail(a, s, msg);
         return;
     }
@@ -607,7 +609,7 @@ bool afx_session_ok(app *a, afx_session *s)
     if (!s || (s->state != AFX_PREVIEW && s->state != AFX_LOADING)) return false;
     loading = s->state == AFX_LOADING;
     s->state = AFX_APPLYING;
-    s->t_apply = a->now;
+    s->t_apply = SDL_GetTicks();
     app_request_frame(a);
     if (loading) return true;                       /* load_done starts the run */
     if (!s->run || s->run->gen != s->gen || s->restart) {
@@ -849,6 +851,18 @@ static pc_doc *snapshot(app_doc *d, const pc_layer *l, uint32_t *layer_id)
     return s;
 }
 
+/* The src and dst copies plus the preview's private tiles take about three
+ * times the layer. Linux overcommits (X-26), so a run that cannot fit in
+ * half of the physical memory is refused up front instead of failing later. */
+static bool memory_ok(const app_doc *d)
+{
+    size_t px, bytes;
+    uint64_t ram = pal_ram_bytes();
+    if (!pc_mul_size((size_t)d->doc->w, (size_t)d->doc->h, &px)) return false;
+    if (!pc_mul_size(px, 12u, &bytes)) return false;
+    return ram == 0u || (uint64_t)bytes <= ram / 2u;
+}
+
 static afx_session *session_start(app *a, const fx_effect *fx, bool dialog, const void *params,
                                   bool repeat)
 {
@@ -863,6 +877,12 @@ static afx_session *session_start(app *a, const fx_effect *fx, bool dialog, cons
     if (!d || !l || !fx) return NULL;
     if (d->txn) {
         pal_log(PAL_LOG_WARN, "effects: %s skipped, an edit is in progress", fx->id);
+        return NULL;
+    }
+    if (!memory_ok(d)) {
+        char name[128];
+        afx_effect_name(fx, name, sizeof name);
+        app_error(a, "%s: the image is too large for the available memory.", name);
         return NULL;
     }
     s = (afx_session *)calloc(1u, sizeof *s);
@@ -882,7 +902,7 @@ static afx_session *session_start(app *a, const fx_effect *fx, bool dialog, cons
     s->doc_id = d->id;
     s->layer_id = l->id;
     s->state = dialog ? AFX_LOADING : AFX_APPLYING;
-    s->t_apply = a->now;
+    s->t_apply = SDL_GetTicks();
     s->shown_progress = 2.0f;
     s->bulk_y = -1;
     afx_effect_name(fx, s->name, sizeof s->name);

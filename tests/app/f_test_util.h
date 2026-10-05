@@ -44,7 +44,8 @@ static inline app *f_app(int32_t w, int32_t h)
         return NULL;
     }
     for (int32_t y = 0; y < h; y++)
-        for (int32_t x = 0; x < w; x++) s.px[(size_t)y * (size_t)s.stride + (size_t)x] = f_pattern(x, y);
+        for (int32_t x = 0; x < w; x++)
+            s.px[(size_t)y * (size_t)s.stride + (size_t)x] = f_pattern(x, y);
     if (pc_layer_store_rect(doc, l, pc_rect_make(0, 0, w, h), s.px, (size_t)s.stride) != PC_OK ||
         pc_doc_reserve_layers(doc, 1u) != PC_OK || pc_doc_insert_layer(doc, l, 0u) != PC_OK) {
         pc_surf_free(&s);
