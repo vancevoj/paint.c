@@ -233,16 +233,16 @@ static void t_color_rgb_only(void)
 }
 
 /* ---- Drop Shadow through the editor ------------------------------------------------ */
-static app *object_app(void)
+static app *object_app_n(int32_t n)
 {
-    app *a = f_app(96, 96);
+    app *a = f_app(n, n);
     app_doc *d = a ? app_active_doc(a) : NULL;
     pc_layer *l = d ? app_doc_layer(d) : NULL;
     pc_txn *t;
     pc_surf s;
-    if (!l || pc_surf_alloc(&s, 96, 96) != PC_OK) return a;
-    for (int32_t y = 0; y < 96; y++)
-        for (int32_t x = 0; x < 96; x++) {
+    if (!l || pc_surf_alloc(&s, n, n) != PC_OK) return a;
+    for (int32_t y = 0; y < n; y++)
+        for (int32_t x = 0; x < n; x++) {
             pc_px32 p = {0, 0, 0, 0};
             if (x >= 30 && x < 60 && y >= 30 && y < 60) {
                 p.r = 220;
@@ -254,13 +254,15 @@ static app *object_app(void)
         }
     t = pc_txn_begin(d->doc, "setup");
     if (t) {
-        (void)pc_txn_write_rect(t, l->id, pc_rect_make(0, 0, 96, 96), s.px, (size_t)s.stride);
+        (void)pc_txn_write_rect(t, l->id, pc_rect_make(0, 0, n, n), s.px, (size_t)s.stride);
         (void)pc_txn_commit(t, d->hist);
     }
     app_doc_history_changed(a, d);
     pc_surf_free(&s);
     return a;
 }
+
+static app *object_app(void) { return object_app_n(96); }
 
 static void t_drop_shadow_app(void)
 {
@@ -324,6 +326,53 @@ static void t_drop_shadow_app(void)
     app_destroy(a);
 }
 
+/* The live preview of an effect that draws outside the selection only
+ * copies the tiles it changes, and a parameter change restores what the
+ * previous preview changed. */
+static void t_drop_shadow_preview(void)
+{
+    app *a = object_app_n(320);
+    app_doc *d = a ? app_active_doc(a) : NULL;
+    afx_session *s;
+    pc_surf got, expect;
+    size_t touched;
+    CHECK(d != NULL);
+    if (!d) {
+        if (a) app_destroy(a);
+        return;
+    }
+    CHECK(app_cmd_exec(a, "effects.org.paintc.object.drop_shadow"));
+    CHECK(afx_wait_preview(a, 400));
+    s = afx_active(a);
+    CHECK(s != NULL && d->txn != NULL);
+    if (!s || !d->txn) {
+        app_destroy(a);
+        return;
+    }
+    touched = pc_txn_touched(d->txn);
+    INFO("Drop Shadow preview touched %u of 25 tiles", (unsigned)touched);
+    CHECK(touched >= 1u && touched <= 4u);              /* the object and its shadow */
+    CHECK(f_read_txn(a, &got));
+    CHECK(f_oracle(a, afx_session_fx(s), afx_session_params(s), &expect));
+    CHECK(f_diff(&got, &expect, NULL, NULL) == 0);
+    pc_surf_free(&got);
+    pc_surf_free(&expect);
+    /* move the shadow up and left: the old shadow area must come back */
+    CHECK(fx_param_set(afx_session_fx(s), afx_session_params(s), "angle", 135.0) == PC_OK);
+    CHECK(fx_param_set(afx_session_fx(s), afx_session_params(s), "radius", 0.0) == PC_OK);
+    afx_session_changed(a, s);
+    CHECK(afx_wait_preview(a, 400));
+    CHECK(f_read_txn(a, &got));
+    CHECK(f_oracle(a, afx_session_fx(s), afx_session_params(s), &expect));
+    CHECK(f_diff(&got, &expect, NULL, NULL) == 0);
+    CHECK(got.px[(size_t)66 * (size_t)got.stride + 66u].a == 0u);   /* old shadow gone */
+    pc_surf_free(&got);
+    pc_surf_free(&expect);
+    afx_session_cancel(a, s);
+    at_frames(a, 2);
+    app_destroy(a);
+}
+
 static void t_auto_level_app(void)
 {
     app *a = f_app(80, 60);
@@ -359,6 +408,7 @@ int main(int argc, char **argv)
     RUN(t_frosted_minmax);
     RUN(t_color_rgb_only);
     RUN(t_drop_shadow_app);
+    RUN(t_drop_shadow_preview);
     RUN(t_auto_level_app);
     at_quit();
     return pc_test_finish();
