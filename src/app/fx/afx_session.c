@@ -211,6 +211,7 @@ struct afx_session {
     const fx_effect *fx;
     char             name[128];
     char             title[200];
+    unsigned         seq;              /* lane W4-MODAL: makes the ui ids unique */
     uint32_t         doc_id, layer_id;
     bool             dialog;         /* opened with a dialog (OK remembers params) */
     bool             repeat;         /* Effects > Repeat */
@@ -906,6 +907,8 @@ static bool memory_ok(const app_doc *d)
     return ram == 0u || (uint64_t)bytes <= ram / 2u;
 }
 
+static unsigned session_seq;
+
 static afx_session *session_start(app *a, const fx_effect *fx, bool dialog, const void *params,
                                   bool repeat)
 {
@@ -949,7 +952,9 @@ static afx_session *session_start(app *a, const fx_effect *fx, bool dialog, cons
     s->shown_progress = 2.0f;
     s->bulk_y = -1;
     afx_effect_name(fx, s->name, sizeof s->name);
-    snprintf(s->title, sizeof s->title, "%s##afx_%s", s->name, fx->id);
+    /* lane W4-MODAL: one ui id per dialog, so two sessions never share one */
+    s->seq = ++session_seq;
+    snprintf(s->title, sizeof s->title, "%s##afx_%s_%u", s->name, fx->id, s->seq);
     b->refs = 1;
     s->buf = b;
     /* environment */
@@ -1165,7 +1170,7 @@ static bool apply_frame(app *a, afx_session *s)
         return true;
     }
     if (s->run) fx_job_progress(s->run->job, &done, &total);
-    snprintf(title, sizeof title, "%s##afxapply_%s", s->name, s->fx->id);
+    snprintf(title, sizeof title, "%s##afxapply_%s_%u", s->name, s->fx->id, s->seq);
     ui_dialog_begin(ui, title, 320.0f, 0.0f);
     ui_label_ex(ui, "Rendering...", UI_LABEL_DIM);
     ui_progress(ui, s->ready && total ? (float)done / (float)total : -1.0f);

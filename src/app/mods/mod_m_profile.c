@@ -273,9 +273,10 @@ static app_doc *find_doc(app *a, uint32_t id)
 
 typedef struct io_req { app *a; uint8_t *p; size_t n; } io_req;
 
-static void import_cb(void *ud, const char *const *paths, int n, int filter)
+static void import_cb(app *a, const char *const *paths, int n, int filter, void *ud)
 {
     io_req *r = (io_req *)ud;
+    (void)a;
     (void)filter;
     if (paths && n > 0) {
         icc_blob *b = (icc_blob *)calloc(1u, sizeof *b);
@@ -295,9 +296,10 @@ static void import_cb(void *ud, const char *const *paths, int n, int filter)
     free(r);
 }
 
-static void export_cb(void *ud, const char *const *paths, int n, int filter)
+static void export_cb(app *a, const char *const *paths, int n, int filter, void *ud)
 {
     io_req *r = (io_req *)ud;
+    (void)a;
     (void)filter;
     if (paths && n > 0) {
         pc_status st = pal_write_file_atomic(paths[0], r->p, r->n);
@@ -398,7 +400,7 @@ static bool profile_frame(app *a, void *st)
         if (rq && a->win) {
             pal_filter f[2] = { { "ICC color profiles", "icc;icm" }, { "All files", "*" } };
             rq->a = a;
-            pal_dialog_open(a->win, f, 2, NULL, false, import_cb, rq);
+            app_filedlg(a, APP_FILEDLG_OPEN, f, 2, NULL, import_cb, rq);
         } else {
             free(rq);
         }
@@ -442,7 +444,7 @@ static bool profile_frame(app *a, void *st)
             char def[300];
             snprintf(def, sizeof def, "%s.icc", d->name);
             rq->a = a;
-            pal_dialog_save(a->win, f, 1, def, export_cb, rq);
+            app_filedlg(a, APP_FILEDLG_SAVE, f, 1, def, export_cb, rq);
         } else {
             if (rq) free(rq->p);
             free(rq);

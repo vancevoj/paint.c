@@ -59,6 +59,22 @@ typedef struct app_dialog_rec {
     void        (*free_st)(void *st);
 } app_dialog_rec;
 
+/* Lane W4-MODAL: native file dialogs (filedlg.c). cb receives the chosen
+ * paths, or paths NULL and n 0 when the user cancelled, the dialog could
+ * not be shown or the app is being destroyed. It runs exactly once, on the
+ * main thread, while the app is alive. */
+typedef enum app_filedlg_kind {
+    APP_FILEDLG_OPEN = 0,       /* one file; def is the folder */
+    APP_FILEDLG_OPEN_MULTI,     /* several files; def is the folder */
+    APP_FILEDLG_SAVE            /* def is the proposed path */
+} app_filedlg_kind;
+typedef void (*app_files_fn)(app *a, const char *const *paths, int n, int filter, void *ud);
+/* Test seam: shows the dialog instead of pal; must call cb(cb_ud, ...)
+ * exactly once, now or later, on the main thread (pal_paths_fn rules). */
+typedef void (*app_filedlg_show_fn)(app *a, app_filedlg_kind kind, const pal_filter *f, int nf,
+                                    const char *def, pal_paths_fn cb, void *cb_ud);
+typedef struct app_filedlg_ticket app_filedlg_ticket;   /* an open dialog (filedlg.c) */
+
 typedef struct app_prop_widget {
     char              *hint;    /* owned */
     app_prop_widget_fn fn;
@@ -172,6 +188,12 @@ struct app {
     app_dialog_rec  *dialogs;       /* owned stack */
     int32_t          ndialogs, cap_dialogs;
     bool             dlg_top;       /* the dialog being declared is the topmost */
+    /* lane W4-MODAL: app_destroy is running; new dialogs are refused (their
+     * flows complete as cancelled) */
+    bool             tearing_down;
+    app_filedlg_ticket *filedlgs;   /* owned tickets of open native file dialogs */
+    app_filedlg_show_fn filedlg_show;   /* test seam, NULL = pal */
+    char             last_error[1024];  /* text of the latest app_error ("" = none) */
     app_prop_widget *pwidgets;
     int32_t          npwidgets, cap_pwidgets;
     app_menu_extra_rec *mextra;
@@ -344,7 +366,19 @@ struct app_overlay {
 
 /* dlg.c */
 void     app_dialogs_frame(app *a);
+/* Close every dialog without an answer, topmost first: each one's flow
+ * completes as cancelled (choices report -1, message boxes UI_DLG_CANCEL,
+ * Save Configuration and Unsaved Changes end their save or close flow). */
 void     app_dialogs_free(app *a);
+
+/* filedlg.c (lane W4-MODAL): show a native file dialog for a flow. Without
+ * a window (or while the app is destroyed) cb runs at once as a cancel. */
+void     app_filedlg(app *a, app_filedlg_kind kind, const pal_filter *f, int nf,
+                     const char *def, app_files_fn cb, void *ud);
+int      app_filedlg_pending(const app *a);
+/* Answer every open native dialog of a as cancelled (app_destroy); their
+ * late answers from pal are dropped. */
+void     app_filedlgs_cancel(app *a);
 
 /* fileio.c */
 bool     app_open_path(app *a, const char *path);

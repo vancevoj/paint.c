@@ -540,6 +540,9 @@ static void free_exts(app *a)
 void app_destroy(app *a)
 {
     if (!a) return;
+    /* lane W4-MODAL: from here on dialogs are refused, so a flow that would
+     * ask something ends as cancelled instead */
+    a->tearing_down = true;
     app_fire_hooks(a, APP_HOOK_QUIT, NULL);
     if (a->pool) app_tasks_wait(a);
     if (a->ui && a->settings) {
@@ -547,7 +550,11 @@ void app_destroy(app *a)
         if (a->settings_enabled && app_settings_dirty(a->settings))
             (void)app_settings_save(a->settings, a->settings_path);
     }
+    /* lane W4-MODAL: every flow still waiting for an answer (an open
+     * dialog, a native file dialog) completes once, as cancelled, while the
+     * documents and modules it may touch still exist */
     app_dialogs_free(a);
+    app_filedlgs_cancel(a);
     while (a->ndocs > 0) app_close_doc_now(a, a->docs[a->ndocs - 1]);
     free(a->docs);
     app_tools_free(a);
@@ -818,6 +825,7 @@ void app_error(app *a, const char *fmt, ...)
     vsnprintf(buf, sizeof buf, fmt, ap);
     va_end(ap);
     pal_log(PAL_LOG_ERROR, "%s", buf);
+    app_copy_str(a->last_error, sizeof a->last_error, buf);
     app_message(a, "Error", buf, UI_ICON_ERROR, UI_DLG_OK, UI_DLG_OK, NULL, NULL);
 }
 
@@ -850,9 +858,29 @@ static void quit_step(app *a)
     app_request_frame(a);
 }
 
+/* Lane W4-MODAL: Paint.NET disables the main window while a modal dialog
+ * (or a native Open / Save As dialog) is up, so closing it does nothing but
+ * bring the dialog to the front. A close request here never stacks quit
+ * prompts or save chains over the dialog (window close, SDL_EVENT_QUIT,
+ * File > Exit through scripts). */
+static void bring_dialog_forward(app *a)
+{
+    if (a->win) {
+        (void)SDL_RaiseWindow(a->win);
+        (void)SDL_FlashWindow(a->win, SDL_FLASH_BRIEFLY);
+    }
+    pal_log(PAL_LOG_INFO, "close request ignored: a dialog is open");
+    app_request_frame(a);
+}
+
 void app_quit(app *a)
 {
-    if (a->quit_req || a->quit_done) return;
+    if (a->quit_done) return;
+    if (app_dialog_active(a) || app_filedlg_pending(a) > 0) {
+        bring_dialog_forward(a);
+        return;
+    }
+    if (a->quit_req) return;
     if (a->cv.captured) app_canvas_lost_capture(a);
     (void)app_tool_finish(a);
     a->quit_req = true;
