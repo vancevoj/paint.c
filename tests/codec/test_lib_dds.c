@@ -14,7 +14,7 @@ typedef struct dds_params_t {
 } dds_params_t;
 
 enum {   /* save format indices (k_formats order in fmt_dds.c) */
-    F_BC1 = 0, F_BC1S, F_BC2, F_BC2S, F_BC3, F_BC3S, F_BC4, F_BC5U, F_BC5S, F_BC7, F_BC7S,
+    F_BC1 = 0, F_BC1S, F_BC2, F_BC2S, F_BC3, F_BC3S, F_BC4, F_BC5U, F_BC5S, F_BC6H, F_BC7, F_BC7S,
     F_BGRA, F_BGRAS, F_BGRX, F_BGRXS, F_RGBA, F_RGBAS, F_5551, F_4444, F_565, F_R8, F_RG8,
     F_RG8S, F_R32F, F_BGR8, F_RGBX, F_ATI1, F_ATI2, F_RXGB, F_COUNT
 };
@@ -516,6 +516,7 @@ static void t_save_formats(void)
         pc_codec_default_params(dds(), &p);
         p.format = f;
         p.bc7_speed = 0;
+        p.dither = 0;           /* plain rounding bounds (dithering: test_dds_options) */
         r = save_load(d, &p, &file);
         if (r) {
             pc_px32 *px = tu_layer_px(r, r->stack[0]);
@@ -575,7 +576,7 @@ static void t_save_formats(void)
                     switch (f) {
                     case F_BC4: case F_ATI1: e[i] = tu_px(a.r, a.r, a.r, 255); break;
                     case F_BC5U: case F_BC5S: case F_ATI2: e[i] = tu_px(a.r, a.g, 0, 255); break;
-                    case F_RXGB: e[i] = tu_px(a.r, a.g, a.b, 255); break;
+                    case F_RXGB: case F_BC6H: e[i] = tu_px(a.r, a.g, a.b, 255); break;
                     default: e[i] = a; break;
                     }
                     if ((f == F_BC1 || f == F_BC1S) && a.a < 128) g[i] = e[i];
@@ -620,6 +621,7 @@ static void t_mips_and_dither(void)
     pc_codec_default_params(dds(), &p);
     p.format = F_BGRA;
     p.mipmaps = 1;
+    p.mip_filter = 6;           /* Fant (k_filters order) */
     p.gamma = 0;
     r = save_load(d, &p, &file);
     if (r) {
@@ -675,7 +677,7 @@ static void t_mips_and_dither(void)
     }
     pc_buf_free(&file);
     /* every filter and gamma setting, BC1 with mips */
-    for (int filt = 0; filt < 6; filt++)
+    for (int filt = 0; filt < 8; filt++)
         for (int g = 0; g < 2; g++) {
             pc_codec_default_params(dds(), &p);
             p.format = F_BC1;

@@ -84,6 +84,8 @@ typedef enum lc_filter {
     LC_FILTER_BILINEAR,          /* tent, widened when reducing */
     LC_FILTER_LANCZOS,           /* Lanczos, 3 lobes */
     LC_FILTER_NEAREST,
+    LC_FILTER_BILINEAR_LOW,      /* tent, never widened (2 x 2 taps, "low quality") */
+    LC_FILTER_ADAPTIVE,          /* Fant when reducing, bicubic when enlarging */
     LC_FILTER_COUNT
 } lc_filter;
 

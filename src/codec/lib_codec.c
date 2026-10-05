@@ -235,6 +235,8 @@ static pc_status rs_axis_build(rs_axis *a, int32_t sn, int32_t dn, lc_filter f)
     double r;
     size_t cells;
     memset(a, 0, sizeof *a);
+    if (kf == LC_FILTER_ADAPTIVE) kf = scale > 1.0 ? LC_FILTER_FANT : LC_FILTER_BICUBIC;
+    if (kf == LC_FILTER_BILINEAR_LOW) { kf = LC_FILTER_BILINEAR; fs = 1.0; }   /* no widening */
     if (kf == LC_FILTER_FANT && scale <= 1.0) kf = LC_FILTER_BILINEAR;   /* enlarging */
     if (kf == LC_FILTER_NEAREST) a->taps = 1;
     else if (kf == LC_FILTER_FANT) a->taps = (int32_t)ceil(scale) + 2;
