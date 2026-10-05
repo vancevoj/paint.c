@@ -5,8 +5,10 @@
  * Transform from the MIT-licensed Paint.NET 3.36 BulgeEffect (see
  * docs/notice/l5c.md), where the strength was an integer percentage; the
  * Paint.NET 5 API documentation gives the strength as a real in [-3, 1] with
- * default 0.45 and Quality 1..8 (q^2 subsamples). Edge Behavior and Quality
- * are provided by the shared warp driver (fx2_warp_render).
+ * default 0.45 and Quality 1..8 (q^2 subsamples; default 1 as the 5.2 dialog
+ * shows). Edge Behavior and Quality are provided by the shared warp driver
+ * (fx2_warp_render), which samples in linear light. The Edge Behavior list
+ * says Mirror, as the 5.1 documentation of Bulge does (5.2 says Reflect).
  */
 #include "fx2_common.h"
 
@@ -30,7 +32,7 @@ static const fx_prop k_props[] = {
     { "edge", "Edge Behavior", FXP_CHOICE, (uint32_t)offsetof(bulge_params, edge),
       0.0, 3.0, 0.0, 0.0, k_edge, NULL, 0u, 0u, NULL },
     { "quality", "Quality", FXP_INT, (uint32_t)offsetof(bulge_params, quality),
-      1.0, 8.0, 2.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      1.0, 8.0, 1.0, 1.0, NULL, NULL, 0u, 0u, NULL },
 };
 
 typedef struct bulge_ctx { double amt, maxrad; } bulge_ctx;
@@ -66,6 +68,7 @@ static int bulge_render(const void *params, const void *state, const fx_img *src
     fx2_sel_point(env, off, &w.cx, &w.cy);
     w.quality = fx2_int(p->quality, 1, 8);
     w.edge = k_edge_mode[fx2_int(p->edge, 0, 3)];
+    w.linear = 1;
     w.inverse = bulge_inverse;
     w.ctx = &c;
     return fx2_warp_render(&w, src, dst, roi, host, job);

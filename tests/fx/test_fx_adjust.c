@@ -149,7 +149,7 @@ static void t_catalog(void)
     check_prop(E(ID_HLSH), "shadows", FXP_INT, -100, 100, 0);
     check_prop(E(ID_HLSH), "highlights", FXP_INT, -100, 100, 0);
     check_prop(E(ID_HLSH), "clarity", FXP_INT, -100, 100, 0);
-    check_prop(E(ID_HLSH), "radius", FXP_REAL, 0, 40, 5);
+    check_prop(E(ID_HLSH), "radius", FXP_REAL, 0, 10, 1.25);   /* 5.2 dialog */
     check_prop(E(ID_TEMP), "temperature", FXP_INT, -100, 100, 0);
     check_prop(E(ID_TEMP), "tint", FXP_INT, -100, 100, 0);
     check_prop(E(ID_CURVES), "curves", FXP_CUSTOM, 0, 0, 0);
@@ -269,17 +269,22 @@ static void t_known_simple(void)
     CHECK(px_eq(apply_px(inv, NULL, px4(1, 2, 3, 0)), 254, 253, 252, 0));
     CHECK(px_eq(apply_px(ia, NULL, px4(30, 20, 10, 40)), 30, 20, 10, 215));
     CHECK(px_eq(apply_px(ia, NULL, px4(7, 8, 9, 0)), 7, 8, 9, 255));
-    /* Paint.NET 5 weights (BT.601 with red and blue exchanged) */
-    CHECK(px_eq(apply_px(bw, NULL, px4(255, 0, 0, 200)), 29, 29, 29, 200));
-    CHECK(px_eq(apply_px(bw, NULL, px4(0, 255, 0, 255)), 149, 149, 149, 255));
-    CHECK(px_eq(apply_px(bw, NULL, px4(0, 0, 255, 0)), 76, 76, 76, 0));
-    CHECK(px_eq(apply_px(bw, NULL, px4(10, 200, 90, 3)), 145, 145, 145, 3));
+    /* rounded Rec.601 of the stored values (Paint.NET 5.2 goldens):
+     * (299 R + 587 G + 114 B + 500) / 1000 */
+    CHECK(px_eq(apply_px(bw, NULL, px4(255, 0, 0, 200)), 76, 76, 76, 200));
+    CHECK(px_eq(apply_px(bw, NULL, px4(0, 255, 0, 255)), 150, 150, 150, 255));
+    CHECK(px_eq(apply_px(bw, NULL, px4(0, 0, 255, 0)), 29, 29, 29, 0));
+    CHECK(px_eq(apply_px(bw, NULL, px4(10, 200, 90, 3)), 131, 131, 131, 3));
+    CHECK(px_eq(apply_px(bw, NULL, px4(1, 0, 1, 255)), 0, 0, 0, 255));     /* 0.413 */
+    CHECK(px_eq(apply_px(bw, NULL, px4(1, 1, 0, 255)), 1, 1, 1, 255));     /* 0.886 */
+    CHECK(px_eq(apply_px(bw, NULL, px4(3, 0, 0, 255)), 1, 1, 1, 255));     /* 0.897 */
     CHECK(px_eq(apply_px(bw, NULL, px4(255, 255, 255, 9)), 255, 255, 255, 9));
 
-    /* Sepia of gray at intensity 50 is the Paint.NET 3.36 result */
+    /* Sepia at intensity 50: the 3.36 gammas (R 0.8, B 1.2) on the continuous
+     * luma, rounded (Paint.NET 5.2 goldens; 3.36 truncated to 146, 128, 111) */
     p = fx_params_new(sep, NULL);
-    CHECK(px_eq(apply_px(sep, p, px4(128, 128, 128, 255)), 146, 128, 111, 255));
-    CHECK(px_eq(apply_px(sep, p, px4(64, 64, 64, 17)), 84, 64, 48, 17));
+    CHECK(px_eq(apply_px(sep, p, px4(128, 128, 128, 255)), 147, 128, 112, 255));
+    CHECK(px_eq(apply_px(sep, p, px4(64, 64, 64, 17)), 84, 64, 49, 17));
     CHECK(px_eq(apply_px(sep, p, px4(1, 1, 1, 255)), 3, 1, 0, 255));
     CHECK(px_eq(apply_px(sep, p, px4(0, 0, 0, 255)), 0, 0, 0, 255));
     CHECK(px_eq(apply_px(sep, p, px4(255, 255, 255, 255)), 255, 255, 255, 255));
@@ -287,7 +292,7 @@ static void t_known_simple(void)
     CHECK(px_eq(apply_px(sep, p, px4(128, 128, 128, 255)), 128, 128, 128, 255));
     CHECK(px_eq(apply_px(sep, p, px4(255, 0, 0, 255)), 76, 76, 76, 255));   /* BT.601 */
     CHECK(fx_param_set(sep, p, "intensity", 100) == PC_OK);
-    CHECK(px_eq(apply_px(sep, p, px4(128, 128, 128, 255)), 168, 128, 97, 255));
+    CHECK(px_eq(apply_px(sep, p, px4(128, 128, 128, 255)), 169, 128, 97, 255));
     fx_params_free(p);
 }
 

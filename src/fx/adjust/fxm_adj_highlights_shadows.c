@@ -2,8 +2,10 @@
  * (lane L5a). Original implementation from the documented behavior and the
  * documentation screenshot (sliders Highlights, Shadows and Clarity
  * -100..100 with default 0, Radius with two decimals); the curve strengths
- * were calibrated on that screenshot's before/after pair. See
- * docs/fx/adjustments.md.
+ * were calibrated on that screenshot's before/after pair. Radius range and
+ * default 0.00..10.00 = 1.25 as the Paint.NET 5.2 dialog shows (the slider
+ * position estimate from the screenshot had given 0..40 = 5). See
+ * docs/fx/adjustments.md and docs/fx/parity.md.
  *
  *  prepare(): a tone mask M = blurred BT.601 intensity over the selection
  *    bounds. The blur is three box passes per axis (an approximation of a
@@ -217,7 +219,7 @@ static int prepare(const void *params, const fx_img *src, const fx_env *env,
             return FX_ERROR;
         }
         /* three boxes of width w approximate a Gaussian when w^2 = 4 sigma^2 + 1 */
-        sigma = fx_clampd(p->radius, 0.0, 40.0) * 0.5;
+        sigma = fx_clampd(p->radius, 0.0, 10.0) * 0.5;
         wbox = sqrt(4.0 * sigma * sigma + 1.0);
         rb = (int32_t)floor((wbox - 1.0) * 0.5 + 0.5);
         r = build_mask(st, src, rb, host, job);
@@ -266,7 +268,7 @@ static const fx_prop k_props[] = {
     { "clarity", "Clarity", FXP_INT, (uint32_t)offsetof(hl_params, clarity),
       -100.0, 100.0, 0.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "radius", "Radius", FXP_REAL, (uint32_t)offsetof(hl_params, radius),
-      0.0, 40.0, 5.0, 0.01, NULL, NULL, 0u, 0u, NULL },
+      0.0, 10.0, 1.25, 0.01, NULL, NULL, 0u, 0u, NULL },
 };
 
 static const fx_effect k_fx = {

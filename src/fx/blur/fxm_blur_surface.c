@@ -5,7 +5,8 @@
  * given by a triangular function of the distance to the current value,
  * 255 - d * 96 / Threshold (rounded, clamped at 0). Change: histogram
  * entries are alpha weighted so transparent pixels do not bleed in; alpha
- * stays the source alpha, as in 3.36.
+ * stays the source alpha, as in 3.36. Radius 1..50 as the Paint.NET 5.2
+ * dialog shows (3.36: 1..100).
  *
  * Thread rules: the weight table is built per render call (256 entries);
  * render is reentrant.
@@ -19,7 +20,7 @@ typedef struct surface_params {
 
 static const fx_prop k_props[] = {
     { "radius", "Radius", FXP_INT, (uint32_t)offsetof(surface_params, radius),
-      1.0, 100.0, 6.0, 1.0, NULL, NULL, 0, 0, NULL },
+      1.0, 50.0, 6.0, 1.0, NULL, NULL, 0, 0, NULL },
     { "threshold", "Threshold", FXP_INT, (uint32_t)offsetof(surface_params, threshold),
       1.0, 100.0, 15.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
@@ -71,7 +72,7 @@ static int surface_render(const void *params, const void *state, const fx_img *s
         double f = floor(255.0 - (double)i * slope + 0.5);
         s.f[i] = f < 0.0 ? 0 : (int32_t)f;
     }
-    return fx1_hist_render(src, dst, roi, fx1_pi(p->radius, 1, 100), 0, surface_fn, &s,
+    return fx1_hist_render(src, dst, roi, fx1_pi(p->radius, 1, 50), 0, surface_fn, &s,
                            host, job);
 }
 

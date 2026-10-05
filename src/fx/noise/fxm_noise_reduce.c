@@ -7,6 +7,7 @@
  * -0.2 * Strength * (1 - 0.75 * intensity). Changes: the neighborhood
  * histogram is alpha weighted, and alpha is kept (3.36 also extrapolated
  * alpha toward 255, which made semi-transparent pixels more transparent).
+ * Radius 0..50 as the Paint.NET 5.2 dialog shows (3.36: 0..200).
  *
  * Thread rules: no prepared state; render is reentrant.
  */
@@ -19,7 +20,7 @@ typedef struct reduce_params {
 
 static const fx_prop k_props[] = {
     { "radius", "Radius", FXP_INT, (uint32_t)offsetof(reduce_params, radius),
-      0.0, 200.0, 10.0, 1.0, NULL, NULL, 0, 0, NULL },
+      0.0, 50.0, 10.0, 1.0, NULL, NULL, 0, 0, NULL },
     { "strength", "Strength", FXP_REAL, (uint32_t)offsetof(reduce_params, strength),
       0.0, 1.0, 0.4, 0.01, NULL, NULL, 0, 0, NULL },
 };
@@ -61,7 +62,7 @@ static int reduce_render(const void *params, const void *state, const fx_img *sr
     if (c.strength == 0.0) {
         return fx1_copy_roi(src, dst, roi, host, job);
     }
-    return fx1_hist_render(src, dst, roi, fx1_pi(p->radius, 0, 200), 0, reduce_fn, &c, host, job);
+    return fx1_hist_render(src, dst, roi, fx1_pi(p->radius, 0, 50), 0, reduce_fn, &c, host, job);
 }
 
 static const fx_effect k_fx = {

@@ -21,7 +21,7 @@ static const fx_prop k_props[] = {
     { "cell", "Cell Size", FXP_INT, (uint32_t)offsetof(crys_params, cell),
       2.0, 250.0, 8.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "quality", "Quality", FXP_INT, (uint32_t)offsetof(crys_params, quality),
-      1.0, 5.0, 2.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      1.0, 5.0, 1.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "seed", "Randomize", FXP_SEED, (uint32_t)offsetof(crys_params, seed),
       0.0, 2147483647.0, 0.0, 0.0, NULL, NULL, 0u, 0u, NULL },
 };

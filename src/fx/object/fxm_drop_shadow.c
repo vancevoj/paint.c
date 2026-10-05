@@ -1,9 +1,9 @@
 /* fxm_drop_shadow.c - Effects > Object > Drop Shadow.
  *
  * Own design from the Paint.NET 5.1 documentation (the effect is new in 5.0);
- * ranges and defaults follow the Paint.NET 5 API documentation of its drop
- * shadow (blur radius 0..300, default 10; distance 10; angle -45; black at
- * 75% opacity). The shadow is the layer's alpha channel moved Distance pixels
+ * ranges and defaults follow the Paint.NET 5.2 dialog (Shadow Radius
+ * 0.0..100.0 = 10, Distance 0.0..100.0 = 10, Angle -45 with two decimals,
+ * Opacity 0.75, black; the API documentation's blur radius goes to 300). The shadow is the layer's alpha channel moved Distance pixels
  * in the direction Angle (counter-clockwise from the +x axis, so -45 casts it
  * down and to the right), blurred with a Gaussian whose standard deviation is
  * a third of Shadow Radius, tinted with Color (its alpha also scales the
@@ -16,7 +16,7 @@
 #include "../distort/fx2_common.h"
 
 typedef struct shadow_params {
-    double   radius;         /* 0 .. 300 */
+    double   radius;         /* 0 .. 100 */
     double   distance;       /* 0 .. 100 */
     double   angle;          /* degrees */
     double   opacity;        /* 0 .. 1 */
@@ -26,11 +26,11 @@ typedef struct shadow_params {
 
 static const fx_prop k_props[] = {
     { "radius", "Shadow Radius", FXP_REAL, (uint32_t)offsetof(shadow_params, radius),
-      0.0, 300.0, 10.0, 0.1, NULL, NULL, 0u, FXP_F_SLIDER_LOG, NULL },
+      0.0, 100.0, 10.0, 0.1, NULL, NULL, 0u, FXP_F_SLIDER_LOG, NULL },
     { "distance", "Distance", FXP_REAL, (uint32_t)offsetof(shadow_params, distance),
       0.0, 100.0, 10.0, 0.1, NULL, NULL, 0u, 0u, NULL },
     { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(shadow_params, angle),
-      -180.0, 180.0, -45.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      -180.0, 180.0, -45.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "opacity", "Opacity", FXP_REAL, (uint32_t)offsetof(shadow_params, opacity),
       0.0, 1.0, 0.75, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "color", "Color", FXP_COLOR, (uint32_t)offsetof(shadow_params, color),
@@ -62,7 +62,7 @@ static int shadow_prepare(const void *params, const fx_img *src, const fx_env *e
                           const fx_host *host, const void *job, void **state)
 {
     const shadow_params *p = (const shadow_params *)params;
-    double radius = fx2_real(p->radius, 0.0, 300.0, 10.0), sigma = radius / 3.0;
+    double radius = fx2_real(p->radius, 0.0, 100.0, 10.0), sigma = radius / 3.0;
     double dist = fx2_real(p->distance, 0.0, 100.0, 10.0);
     double ang = fx2_deg2rad(fx2_real(p->angle, -180.0, 180.0, -45.0));
     double offx = dist * cos(ang), offy = -dist * sin(ang);

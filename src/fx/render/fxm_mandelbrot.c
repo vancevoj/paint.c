@@ -7,7 +7,8 @@
  * constants and sub-sample pattern from the MIT-licensed Paint.NET 3.36
  * MandelbrotFractalEffect (see docs/notice/l5c.md); as documented for
  * Paint.NET 5, Factor is a real number and Quality q (1..8) takes q^2 samples
- * per pixel (3.36: integer Factor, q^2 + 1 samples, q in 1..5).
+ * per pixel (3.36: integer Factor, q^2 + 1 samples, q in 1..5); default 1
+ * and two-decimal steps as the Paint.NET 5.2 dialog shows.
  */
 #include "../distort/fx2_common.h"
 
@@ -22,13 +23,13 @@ typedef struct mandel_params {
 
 static const fx_prop k_props[] = {
     { "factor", "Factor", FXP_REAL, (uint32_t)offsetof(mandel_params, factor),
-      1.0, 10.0, 1.0, 0.1, NULL, NULL, 0u, 0u, NULL },
+      1.0, 10.0, 1.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "zoom", "Zoom", FXP_REAL, (uint32_t)offsetof(mandel_params, zoom),
-      0.0, 100.0, 10.0, 0.1, NULL, NULL, 0u, 0u, NULL },
+      0.0, 100.0, 10.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(mandel_params, angle),
-      -180.0, 180.0, 0.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      -180.0, 180.0, 0.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "quality", "Quality", FXP_INT, (uint32_t)offsetof(mandel_params, quality),
-      1.0, 8.0, 2.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      1.0, 8.0, 1.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "invert", "Invert Colors", FXP_BOOL, (uint32_t)offsetof(mandel_params, invert),
       0.0, 1.0, 0.0, 0.0, NULL, NULL, 0u, 0u, NULL },
     { "blend", "Blend Mode", FXP_CHOICE, (uint32_t)offsetof(mandel_params, blend),

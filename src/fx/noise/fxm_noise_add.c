@@ -8,6 +8,7 @@
  * hash of (x, y, seed) instead of a per-thread System.Random, so the result
  * is reproducible for any ROI split, and Paint.NET 5's Randomize button is
  * the seed. The hash uses coordinates relative to the image origin.
+ * Coverage is a real percentage (two decimals; float since 5.1.10).
  * Alpha is never changed; fully transparent pixels are copied.
  *
  * Thread rules: prepare builds the immutable table; render is reentrant.
@@ -19,7 +20,7 @@
 typedef struct noise_params {
     int32_t intensity;
     int32_t saturation;
-    int32_t coverage;
+    double  coverage;
     int32_t seed;
 } noise_params;
 
@@ -28,8 +29,8 @@ static const fx_prop k_props[] = {
       0.0, 100.0, 64.0, 1.0, NULL, NULL, 0, 0, NULL },
     { "color_saturation", "Color Saturation", FXP_INT, (uint32_t)offsetof(noise_params, saturation),
       0.0, 400.0, 100.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "coverage", "Coverage", FXP_INT, (uint32_t)offsetof(noise_params, coverage),
-      0.0, 100.0, 100.0, 1.0, NULL, NULL, 0, 0, NULL },
+    { "coverage", "Coverage", FXP_REAL, (uint32_t)offsetof(noise_params, coverage),
+      0.0, 100.0, 100.0, 0.01, NULL, NULL, 0, 0, NULL },
     { "seed", "Randomize", FXP_SEED, (uint32_t)offsetof(noise_params, seed),
       0.0, 2147483647.0, 0.0, 0.0, NULL, NULL, 0, 0, NULL },
 };
@@ -98,7 +99,7 @@ static int noise_render(const void *params, const void *state, const fx_img *src
     int32_t inten = fx1_pi(p->intensity, 0, 100);
     int64_t dev = (int64_t)inten * inten / 4;
     int64_t sat = (int64_t)fx1_pi(p->saturation, 0, 400) * 4096 / 100;
-    double coverage = 0.01 * (double)fx1_pi(p->coverage, 0, 100);
+    double coverage = 0.01 * fx1_pd(p->coverage, 0.0, 100.0);
     uint32_t seed = (uint32_t)p->seed;
     int32_t x, y;
     (void)env;

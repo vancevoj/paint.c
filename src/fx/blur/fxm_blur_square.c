@@ -3,7 +3,8 @@
  * Average of the (2r + 1) x (2r + 1) square around each pixel, with the
  * outermost ring weighted by the fractional part of a real radius, so the
  * result changes smoothly with the slider. Gamma Boost works as in Gaussian
- * Blur. O(1) per pixel through exact integer running sums. Paint.NET 5.1
+ * Blur (linear light at 0, range -0.99..2 as the 5.2 dialog shows); the
+ * border is excluded (renormalized). O(1) per pixel through exact integer running sums. Paint.NET 5.1
  * effect without a 3.36 counterpart; see docs/fx/effects1.md.
  *
  * Thread rules: prepare builds an immutable fx1_sep (plus, for large
@@ -20,7 +21,7 @@ static const fx_prop k_props[] = {
     { "radius", "Radius", FXP_REAL, (uint32_t)offsetof(square_params, radius),
       0.0, 300.0, 6.0, 0.1, NULL, NULL, 0, FXP_F_SLIDER_LOG, NULL },
     { "gamma_boost", "Gamma Boost", FXP_REAL, (uint32_t)offsetof(square_params, gamma_boost),
-      -1.0, 2.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
+      -0.99, 2.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
 };
 
 typedef struct square_state {
@@ -43,7 +44,7 @@ static int square_prepare(const void *params, const fx_img *src, const fx_env *e
     square_state *st = (square_state *)fx1_alloc(host, 1, sizeof(square_state));
     int rc;
     if (!st) return FX_ERROR;
-    fx1_sep_box(&st->sep, fx1_pd(p->radius, 0.0, 300.0), fx1_pd(p->gamma_boost, -1.0, 2.0));
+    fx1_sep_box(&st->sep, fx1_pd(p->radius, 0.0, 300.0), fx1_pd(p->gamma_boost, -0.99, 2.0));
     /* large radii: run the vertical passes once for the whole selection */
     rc = fx1_sep_cache_build(&st->sep, src, env->sel, &st->cache, host, job);
     if (rc != FX_OK) {

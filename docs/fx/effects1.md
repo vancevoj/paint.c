@@ -51,10 +51,10 @@ and registers one effect; the module list is generated from the file names
   Histogram effects weight color votes by alpha. A fully transparent image
   stays fully transparent for every effect.
 * **Image border.** Pixels outside the layer are excluded and the kernel is
-  renormalized (the 3.36 Gaussian did this). Opaque constant images therefore
-  stay constant under every blur. Paint.NET 5 renders blurs on the GPU with a
-  transparent border, which fades opaque layers at their edges; that is a
-  known, deliberate difference (see Parity notes).
+  renormalized (the 3.36 Gaussian did this), except in Gaussian Blur, which
+  mirrors the image at its border as the Paint.NET 5.2 golden shows
+  (docs/fx/parity.md). Opaque constant images therefore stay constant under
+  every blur, and opaque layers keep opaque borders.
 * **Selection.** Center parameters (`FXP_POINT`) are relative to `env->sel`:
   -1 is the left or top edge, 0 the center, +1 the right or bottom edge;
   pixel (x, y) is measured at its center. Straighten and Vignette size
@@ -62,8 +62,10 @@ and registers one effect; the module list is generated from the file names
 
 ### Separable engine (`fx1_sep`)
 
-Five fixed-point lanes per pixel (scale 2^24): premultiplied, gamma-boosted
-B, G, R, alpha, and a coverage lane W that is 1 inside the image. The block
+Five fixed-point lanes per pixel (scale 2^30, so dark linear values raised
+to Gamma Boost 2 keep precision): premultiplied, gamma-boosted B, G, R,
+alpha, and a coverage lane W that is 1 inside the image (everywhere in mirror
+mode, where the apron holds the mirrored image). The block
 for an output strip carries an apron equal to the total reach of all passes;
 apron positions outside the image hold zeros, so every pass is a plain
 zero-padded convolution and the cascade equals one convolution with the
@@ -74,14 +76,24 @@ gives border renormalization for any kernel.
   weight a, variance `(r(r+1)(2r+1)/3 + 2a(r+1)^2) / (2r+1+2a)`) computed with
   exact integer running sums, or a sampled Gaussian kernel. Each pass rounds
   to integers.
-* Gaussian: `sigma^2 = r (r + 2) / 6`, the variance of the 3.36 tent kernel of
-  radius r, so radii keep the strength users know from 3.36. Quality 1..4 uses
-  2..5 extended boxes whose variances add up to sigma^2 exactly. An exact
-  sampled kernel is used when sigma < 2, and at quality 4 when the kernel
-  reaches at most 32 pixels. Measured against a double-precision Gaussian on a
-  test scene: max difference 1 (q4), 2 to 3 (q3), 2 to 4 (q2), 3 to 8 (q1).
-* Gamma Boost b: colors are raised to p = 2^b before blurring and to 1/p after
-  (b = 0 changes nothing; b > 0 lets light tones dominate, b < 0 dark tones).
+* Gaussian Blur (5.x, `fx1_sep_gaussian5`): linear light, mirrored border,
+  a Gaussian of `sigma = 0.3635 r` integrated over each pixel (calibrated on
+  the 5.2 golden at radius 2, docs/fx/parity.md). Quality 1..4 uses 2..5
+  extended boxes whose variances add up to `sigma^2 + 1/12` exactly; the exact
+  kernel is used when sigma < 2, and at quality 4 when it reaches at most 32
+  pixels. Measured against a double-precision linear-light reference on a test
+  scene: exact up to radius 2, max difference 1 (q4 to radius 28), 2 to 3
+  (q3), 3 to 4 (q2), 4 to 7 (q1).
+* The 3.36-era users (Glow, Soften Portrait, Ink Sketch, Pencil Sketch,
+  Sharpen; `fx1_sep_gaussian`) keep `sigma^2 = r (r + 2) / 6`, the variance of
+  the 3.36 tent kernel, gamma-encoded values and the renormalized border.
+* Gamma Boost b (Gaussian, Bokeh, Square Blur; Paint.NET 5.1): colors are
+  decoded to linear light (sRGB) and raised to p = 1 + b, b in -0.99..2,
+  before blurring, and undone after; b = 0 is a plain linear-light blur (the
+  5.0 "sRGB" default that 5.1 folded into Gamma Boost 0), b > 0 lets light
+  tones dominate, b < 0 dark tones. The result is encoded with exact midpoint
+  thresholds (no pow per pixel). The 3.36-era users keep p = 2^b on
+  gamma-encoded values.
 * Vertical cache: when the total reach is at least 24 pixels, `prepare` runs the
   vertical passes once over the selection plus apron (int32, 16 bytes per
   pixel, capped at 512 MiB) and `render` only runs the horizontal passes.
@@ -90,7 +102,8 @@ gives border renormalization for any kernel.
   (tested). Gaussian Blur radius 100 on 4096 x 4096 measured 0.8 s on 16
   threads (0.65 s of it in the single-threaded prepare), independent of how
   thin the ROIs are; without the cache the per-ROI path took 0.6 s with
-  64-row bands, 0.9 s with 128 x 128 tiles and 1.4 s with 16-row bands.
+  64-row bands, 0.9 s with 128 x 128 tiles and 1.4 s with 16-row bands
+  (wave-1 figures, before the linear-light mode).
 
 ### Disk histogram engine (`fx1_hist`)
 
@@ -109,16 +122,18 @@ from the Paint.NET 5.1 documentation screenshots, "own" = chosen here.
 
 | Effect | Parameters (key: kind range, default) | Algorithm |
 |---|---|---|
-| Bokeh Blur | radius: R 0..300, 25; gamma_boost: R -1..2, 0; quality: I 1..10, 3 | own (below) |
-| Fragment Blur | fragment_count: I 2..50, 4; distance: I 0..100, 8; rotation: A 0..360, 0 | 3.36, sub-pixel offsets |
-| Gaussian Blur | radius: R 0..300, 2; gamma_boost: R -1..2, 0; quality: I 1..4, 4 | separable engine |
-| Median Blur | radius: I 1..100, 10; percentile: I 0..100, 50; quality: I 1..9, 8 | 3.36 + quality |
-| Motion Blur | angle: A -180..180, 25; distance: I 1..200, 10; centered: B, on; edge_behavior: C Clamp/Wrap/Mirror/Transparent, Clamp | 3.36 geometry, Gaussian weights |
-| Radial Blur | angle: A 0..360, 2; center: P -2..2, 0; quality: I 1..8, 2 | 3.36 model, adaptive sampling |
-| Sketch Blur | radius: R 0..100, 25; percentile: I 0..100, 50; smoothness: I 1..16, 3 | own (below) |
-| Square Blur | radius: R 0..300, 6; gamma_boost: R -1..2, 0 | own: one extended box |
-| Surface Blur | radius: I 1..100, 6; threshold: I 1..100, 15 | 3.36 |
-| Zoom Blur | distance: R 0..5, 1.25; focus: R 0..6, 2; center: P -2..2, 0; quality: I 1..8, 2 | 3.36 model, 5.x parameters (below) |
+| Bokeh Blur | radius: R 0..300, 25; gamma_boost: R -0.99..2, 0; quality: I 1..10, 3 | own (below) |
+| Fragment Blur | fragment_count: I 2..200, 4; distance: I 0..400, 8; rotation: A 0..360, 0 | 3.36, sub-pixel offsets |
+| Gaussian Blur | radius: R 0..300, 2; gamma_boost: R -0.99..2, 0; quality: I 1..4, 3 | separable engine, 5.x mode |
+| Median Blur | radius: I 0..100, 10; percentile: I 0..100, 50; quality: I 1..9, 8 | 3.36 + quality |
+| Motion Blur | angle: A -180..180, 25; distance: R 1..500, 10; centered: B, on; edge_behavior: C Clamp/Wrap/Mirror/Transparent, Clamp | 3.36 geometry, Gaussian weights |
+| Radial Blur | angle: A 0..360, 4; center: P -2..2, 0; quality: R 1..8, 1 | 3.36 model, adaptive sampling |
+| Sketch Blur | radius: R 0..100, 25; percentile: I 0..100, 50; smoothness: I 1..20, 3 | own (below) |
+| Square Blur | radius: R 0..300, 6; gamma_boost: R -0.99..2, 0 | own: one extended box |
+| Surface Blur | radius: I 1..50, 6; threshold: I 1..100, 15 | 3.36 |
+| Zoom Blur | distance: R 0.25..4, 1.25; focus: R 1..4, 2; center: P -2..2, 0; quality: R 1..8, 1 | 3.36 model, 5.x parameters (below) |
+
+Ranges and defaults are those of the Paint.NET 5.2 dialogs (docs/fx/parity.md).
 
 * **Bokeh Blur (own design).** Kernel: a disk with anti-aliased rim, tap
   coverage `clamp(R + 0.5 - |(dx, dy)|, 0, 1)`. The disk is cut into
@@ -165,17 +180,17 @@ from the Paint.NET 5.1 documentation screenshots, "own" = chosen here.
   current value; alpha is kept.
 * **Zoom Blur (5.x parameters, own mapping).** Samples on the line from the
   pixel toward Center over Distance / 10 of the way (the 3.36 maximum span was
-  about 0.39); sample t in [0, 1] has weight `(1 - t)^Focus` (Focus 0 =
-  uniform, diffuse streaks; larger = sharper, shorter streaks); about q / 2
-  samples per pixel of path, capped at 64 q; samples outside the image are
-  skipped.
+  about 0.39); sample i of n sits at the midpoint `t = (i - 0.5) / n` and has
+  weight `(1 - t)^Focus` (Focus 1 = linear falloff, diffuse streaks; larger =
+  sharper, shorter streaks); about q / 2 samples per pixel of path, capped at
+  64 q; samples outside the image are skipped.
 
 ### Noise
 
 | Effect | Parameters | Algorithm |
 |---|---|---|
-| Add Noise | intensity: I 0..100, 64; color_saturation: I 0..400, 100; coverage: I 0..100, 100; seed: S | 3.36 |
-| Reduce Noise | radius: I 0..200, 10; strength: R 0..1, 0.4 | 3.36 |
+| Add Noise | intensity: I 0..100, 64; color_saturation: I 0..400, 100; coverage: R 0..100, 100; seed: S | 3.36 |
+| Reduce Noise | radius: I 0..50, 10; strength: R 0..1, 0.4 | 3.36 |
 
 * **Add Noise.** The 3.36 normal-distribution table (16384 entries), three
   draws for R, G, B, saturation around their BT.601 intensity, deviation
@@ -197,7 +212,7 @@ from the Paint.NET 5.1 documentation screenshots, "own" = chosen here.
 | Red Eye Removal | strength: I 0..6, 3 | 3.36 detection, own strength mapping |
 | Sharpen | amount: R 0..10, 2; threshold: R 0..1, 0 | own (5.x rewrite) |
 | Soften Portrait | softness: R 0..10, 5; lighting: I -20..20, 0; warmth: I 0..20, 10 | 3.36 |
-| Straighten | angle: A -45..45, 0; sampling: C Nearest Neighbor/Bilinear/Bicubic, Bicubic | own |
+| Straighten | angle: A -45..45, 0; sampling_mode: C Bicubic/Bilinear/Nearest Neighbor, Bicubic | own |
 | Vignette | center: P -1..1, 0; radius: R 0.1..4, 0.5; strength: R 0..1, 1 | 3.36 (Ed Harvey) |
 
 * **Glow.** 3.36: Gaussian blur, 3.36 Brightness and Contrast on the blur,
@@ -269,10 +284,10 @@ from the Paint.NET 5.1 documentation screenshots, "own" = chosen here.
   Sharpen's 5.x form, Straighten, the 5.x Zoom Blur parameters, Median
   Quality, Red Eye Strength) are own designs from the documented behavior and
   will differ from Paint.NET pixel for pixel.
-* Paint.NET 5 renders many of these effects on the GPU in linear or
-  gamma-adjusted space with a transparent image border; this lane renders on
-  the CPU in sRGB values with a renormalized border (Gamma Boost 0 matches the
-  3.36 and "Linear (1.0)" look).
+* Paint.NET 5 renders many of these effects on the GPU in linear light.
+  Gaussian, Bokeh and Square Blur now do too (Gamma Boost 0 = linear light,
+  verified for Gaussian against the 5.2 golden); the other effects of this
+  lane keep the 3.36 gamma-encoded math (no goldens yet).
 * The 5.1 Red Eye Removal dialog shows a hint to select the eyes first; the
   fx ABI has no static-text property, so the hint is not shown.
 

@@ -118,14 +118,17 @@ static void t_identity(void)
         { "org.paintc.blur.fragment", "distance", 0.0 },
         { "org.paintc.blur.radial", "angle", 0.0 },
         { "org.paintc.blur.sketch", "radius", 0.0 },
-        { "org.paintc.blur.zoom", "distance", 0.0 },
+        { "org.paintc.blur.median", "radius", 0.0 },     /* opaque source below */
+        /* Zoom Blur has no neutral value since its 5.x Distance starts at
+         * 0.25; its fixed center pixel is checked in t_radial_zoom */
     };
     size_t i;
     for (i = 0; i < sizeof cases / sizeof cases[0]; i++) {
         const fx_effect *fx = t_find(cases[i].id);
         fx_img src = t_img_new(0, 0, 30, 22), d;
         void *p = t_params_new(fx);
-        t_img_random(&src, 1);
+        /* Median Blur drops the color of fully transparent pixels */
+        t_img_random(&src, strstr(cases[i].id, "median") ? 0 : 1);
         t_set(fx, p, cases[i].key, cases[i].v);
         d = t_render(cases[i].id, p, &src, t_all(&src), NULL);
         CHECK(t_img_eq(&src, &d, t_all(&src)));
@@ -137,58 +140,83 @@ static void t_identity(void)
 }
 
 /* ---- Gaussian ------------------------------------------------------------- */
-/* Exact 2D Gaussian with sigma^2 = r (r + 2) / 6, renormalized at the image
- * border, on an opaque image (double precision reference). */
+/* sRGB transfer functions (IEC 61966-2-1), written out independently of the
+ * effect's tables. */
+static double t_s2l(double v8)
+{
+    double v = v8 / 255.0;
+    return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4);
+}
+static double t_l2s(double l)
+{
+    if (l <= 0.0) return 0.0;
+    if (l >= 1.0) return 255.0;
+    return 255.0 * (l <= 0.0031308 ? 12.92 * l : 1.055 * pow(l, 1.0 / 2.4) - 0.055);
+}
+static double t_phi(double z) { return 0.5 * erfc(-z / sqrt(2.0)); }
+
+/* Paint.NET 5.x Gaussian Blur reference (docs/fx/parity.md): linear light,
+ * mirrored border, Gaussian of sigma = 0.3635 r integrated over each pixel,
+ * on an opaque image, in double precision. */
 static void t_gauss_ref(const fx_img *src, double radius, fx_img *out)
 {
-    double var = radius * (radius + 2.0) / 6.0;
-    int32_t k = (int32_t)ceil(4.0 * sqrt(var)), x, y, i, c;
+    double sigma = 0.3635 * radius;
+    int32_t k = (int32_t)ceil(5.0 * sigma + 1.0), x, y, i, c;
     int32_t w = src->r.w, h = src->r.h;
-    double *wk = (double *)malloc(sizeof(double) * (size_t)(2 * k + 1));
+    double *wk = (double *)malloc(sizeof(double) * (size_t)(2 * k + 1)), wsum = 0.0;
+    double *lin = (double *)malloc(sizeof(double) * (size_t)w * (size_t)h * 3u);
     double *tmp = (double *)malloc(sizeof(double) * (size_t)w * (size_t)h * 3u);
-    for (i = -k; i <= k; i++) wk[i + k] = exp(-(double)(i * i) / (2.0 * var));
+    for (i = -k; i <= k; i++) {
+        wk[i + k] = t_phi(((double)i + 0.5) / sigma) - t_phi(((double)i - 0.5) / sigma);
+        wsum += wk[i + k];
+    }
+    for (i = 0; i <= 2 * k; i++) wk[i] /= wsum;
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++) {
+            fx_px p = fx_row(src, y)[x];
+            double *l = lin + ((size_t)y * (size_t)w + (size_t)x) * 3u;
+            l[0] = t_s2l(p.b); l[1] = t_s2l(p.g); l[2] = t_s2l(p.r);
+        }
     for (y = 0; y < h; y++)
         for (x = 0; x < w; x++)
             for (c = 0; c < 3; c++) {
-                double s = 0, ws = 0;
+                double s = 0;
                 for (i = -k; i <= k; i++) {
-                    fx_px p;
-                    if (x + i < 0 || x + i >= w) continue;
-                    p = fx_row(src, y)[x + i];
-                    s += wk[i + k] * (c == 0 ? p.b : c == 1 ? p.g : p.r);
-                    ws += wk[i + k];
+                    int32_t xx = x + i;
+                    while (xx < 0 || xx >= w) xx = xx < 0 ? -1 - xx : 2 * w - 1 - xx;
+                    s += wk[i + k] * lin[((size_t)y * (size_t)w + (size_t)xx) * 3u + (size_t)c];
                 }
-                tmp[((size_t)y * (size_t)w + (size_t)x) * 3u + (size_t)c] = ws > 0.0 ? s / ws : 0.0;
+                tmp[((size_t)y * (size_t)w + (size_t)x) * 3u + (size_t)c] = s;
             }
     for (y = 0; y < h; y++)
         for (x = 0; x < w; x++) {
             double v[3];
             for (c = 0; c < 3; c++) {
-                double s = 0, ws = 0;
+                double s = 0;
                 for (i = -k; i <= k; i++) {
-                    if (y + i < 0 || y + i >= h) continue;
-                    s += wk[i + k] *
-                         tmp[((size_t)(y + i) * (size_t)w + (size_t)x) * 3u + (size_t)c];
-                    ws += wk[i + k];
+                    int32_t yy = y + i;
+                    while (yy < 0 || yy >= h) yy = yy < 0 ? -1 - yy : 2 * h - 1 - yy;
+                    s += wk[i + k] * tmp[((size_t)yy * (size_t)w + (size_t)x) * 3u + (size_t)c];
                 }
-                v[c] = s / ws;
+                v[c] = t_l2s(s);
             }
             fx_row(out, y)[x] = fx_px_make(fx_u8(v[2]), fx_u8(v[1]), fx_u8(v[0]), 255);
         }
     free(wk);
+    free(lin);
     free(tmp);
 }
 
 static void t_gaussian_reference(void)
 {
     const fx_effect *fx = t_find("org.paintc.blur.gaussian");
-    double radii[] = { 1.0, 2.0, 4.5, 12.0, 30.0 };
-    int maxd[4][5];
+    double radii[] = { 1.0, 2.0, 4.5, 12.0, 30.0, 80.0 };
+    int maxd[4][6];
     size_t i;
     int q;
     fx_img src = t_img_new(0, 0, 70, 52);
     t_img_scene(&src);
-    for (i = 0; i < 5; i++) {
+    for (i = 0; i < 6; i++) {
         fx_img ref = t_img_new(0, 0, 70, 52);
         t_gauss_ref(&src, radii[i], &ref);
         for (q = 1; q <= 4; q++) {
@@ -203,15 +231,30 @@ static void t_gaussian_reference(void)
         }
         t_img_free(&ref);
     }
-    for (i = 0; i < 5; i++) {
+    for (i = 0; i < 6; i++) {
         INFO("gaussian r=%.1f max diff vs exact: q1 %d q2 %d q3 %d q4 %d", radii[i], maxd[0][i],
              maxd[1][i], maxd[2][i], maxd[3][i]);
-        CHECK(maxd[3][i] <= (radii[i] <= 12.0 ? 2 : 4));   /* exact kernel or 5 boxes */
-        CHECK(maxd[2][i] <= 6);
-        CHECK(maxd[1][i] <= 8);
-        CHECK(maxd[0][i] <= 14);                             /* tent: coarse but close */
+        /* exact kernel for sigma < 2 (r < 5.5) at every quality, and at q4
+         * while it spans at most 32 pixels (r <= 28); boxes elsewhere */
+        CHECK(maxd[3][i] <= (radii[i] <= 28.0 ? 1 : 4));
+        CHECK(maxd[2][i] <= (radii[i] < 5.5 ? 1 : 6));
+        CHECK(maxd[1][i] <= (radii[i] < 5.5 ? 1 : 8));
+        CHECK(maxd[0][i] <= (radii[i] < 5.5 ? 1 : 14));
     }
     t_img_free(&src);
+}
+
+/* Mean of the linear-light values of a channel. */
+static double t_lin_mean(const fx_img *im, int ch)
+{
+    double s = 0;
+    int32_t x, y;
+    for (y = im->r.y; y < im->r.y + im->r.h; y++)
+        for (x = im->r.x; x < im->r.x + im->r.w; x++) {
+            fx_px p = fx_row(im, y)[x];
+            s += t_s2l(ch == 0 ? p.b : ch == 1 ? p.g : p.r);
+        }
+    return s / ((double)im->r.w * im->r.h);
 }
 
 static void t_gaussian_props(void)
@@ -220,17 +263,17 @@ static void t_gaussian_props(void)
     fx_img src = t_img_new(0, 0, 64, 64), d;
     void *p = t_params_new(fx);
     int32_t x, y;
-    double m0, m1, v0, v1, sum = 0, var = 0;
-    /* mean preserved, variance reduced on noise */
+    double m0, m1, v0, v1, sum = 0, var = 0, expect;
+    /* linear-light mean preserved (mirrored border), variance reduced */
     t_img_random(&src, 0);
     t_set(fx, p, "radius", 6.0);
     d = t_render(fx->id, p, &src, t_all(&src), NULL);
     for (x = 0; x < 3; x++) {
-        m0 = t_mean(&src, x);
-        m1 = t_mean(&d, x);
+        m0 = t_lin_mean(&src, x);
+        m1 = t_lin_mean(&d, x);
         v0 = t_var(&src, x);
         v1 = t_var(&d, x);
-        CHECK(fabs(m0 - m1) < 1.0);
+        CHECK(fabs(m0 - m1) < 0.004);
         CHECK(v1 < v0 * 0.1);
     }
     t_img_free(&d);
@@ -244,30 +287,34 @@ static void t_gaussian_props(void)
             fx_px a = fx_row(&d, y)[x];
             CHECK(t_px_eq(a, fx_row(&d, x)[y]));             /* transpose symmetric */
             CHECK(t_px_eq(a, fx_row(&d, y)[60 - x]));        /* mirror symmetric */
-            sum += a.g;
+            sum += t_s2l(a.g);
         }
     CHECK(fx_row(&d, 30)[30].g >= fx_row(&d, 30)[31].g);
     CHECK(fx_row(&d, 30)[31].g >= fx_row(&d, 30)[33].g);
-    CHECK(fabs(sum - 255.0) < 40.0);                       /* energy, up to rounding */
+    INFO("dot energy in linear light %.3f (1 = exact)", sum);
+    CHECK(fabs(sum - 1.0) < 0.1);                          /* energy, up to rounding */
     t_img_free(&d);
     t_img_free(&src);
-    /* a line's profile has the variance of the 3.36 tent: r (r + 2) / 6 */
+    /* a line's linear profile has the variance of the pixel-integrated
+     * Gaussian: (0.3635 r)^2 + 1/12 */
     src = t_img_new(0, 0, 61, 9);
     t_img_fill(&src, fx_px_make(0, 0, 0, 255));
     for (y = 0; y < 9; y++) fx_row(&src, y)[30] = fx_px_make(255, 255, 255, 255);
     d = t_render(fx->id, p, &src, t_all(&src), NULL);
     sum = 0;
     for (x = 0; x < 61; x++) {
-        double g = fx_row(&d, 4)[x].g;
+        double g = t_s2l(fx_row(&d, 4)[x].g);
         sum += g;
         var += g * (double)((x - 30) * (x - 30));
     }
     var /= sum;
-    INFO("line profile variance %.2f, expected %.2f", var, 8.0 * 10.0 / 6.0);
-    CHECK(fabs(var - 80.0 / 6.0) < 1.3);
+    expect = (0.3635 * 8.0) * (0.3635 * 8.0) + 1.0 / 12.0;
+    INFO("line profile variance %.2f, expected %.2f", var, expect);
+    CHECK(fabs(var - expect) < 0.4);
     t_img_free(&d);
     t_img_free(&src);
-    /* gamma boost: high key brightens a checkerboard, low key darkens it */
+    /* gamma boost: high key brightens a checkerboard, low key darkens it;
+     * boost 0 averages in linear light (0.5 -> sRGB 188) */
     src = t_img_new(0, 0, 32, 32);
     for (y = 0; y < 32; y++)
         for (x = 0; x < 32; x++)
@@ -282,13 +329,13 @@ static void t_gaussian_props(void)
     d = t_render(fx->id, p, &src, t_all(&src), NULL);
     m1 = t_mean(&d, 1);
     t_img_free(&d);
-    t_set(fx, p, "gamma_boost", -1.0);
+    t_set(fx, p, "gamma_boost", -1.0);                     /* clamps to -0.99 */
     d = t_render(fx->id, p, &src, t_all(&src), NULL);
     v0 = t_mean(&d, 1);
     t_img_free(&d);
-    INFO("checkerboard mean: boost 0 %.1f, +1.5 %.1f, -1 %.1f", m0, m1, v0);
-    CHECK(m0 > 120 && m0 < 135);
-    CHECK(m1 > m0 + 40);
+    INFO("checkerboard mean: boost 0 %.1f, +1.5 %.1f, -0.99 %.1f", m0, m1, v0);
+    CHECK(m0 > 182 && m0 < 194);
+    CHECK(m1 > m0 + 25);
     CHECK(v0 < m0 - 30);
     t_img_free(&src);
     free(p);
@@ -325,6 +372,7 @@ static void t_alpha_halo(void)
         CHECK(ok);
         if (!ok) INFO("%s darkens or tints transparent edges", ids[i]);
         if (!strstr(ids[i], "median") && !strstr(ids[i], "surface")) CHECK(soft > 0);
+        if (soft == 0) INFO("%s leaves no soft edge", ids[i]);
         free(p);
         t_img_free(&src);
         t_img_free(&d);
@@ -344,7 +392,7 @@ static void t_square_shape(void)
         for (x = 0; x < 31; x++) {
             int in = abs(x - 15) <= 3 && abs(y - 15) <= 3;
             uint8_t v = fx_row(&d, y)[x].g;
-            ok &= in ? (v == 5 || v == 6) : v == 0;     /* 255 / 49 = 5.2 */
+            ok &= in ? v == 39 : v == 0;      /* linear 1 / 49 = 0.0204 -> sRGB 39.1 */
         }
     CHECK(ok);
     t_img_free(&d);
@@ -358,7 +406,8 @@ static void t_square_shape(void)
     free(p);
 }
 
-/* Brute-force anti-aliased disk with border renormalization. */
+/* Brute-force anti-aliased disk with border renormalization, in linear
+ * light (Gamma Boost 0 of Paint.NET 5.1). */
 static void t_bokeh_ref(const fx_img *src, double R, fx_img *out)
 {
     int32_t re = (int32_t)ceil(R + 1), x, y, u, v, w = src->r.w, h = src->r.h;
@@ -372,11 +421,11 @@ static void t_bokeh_ref(const fx_img *src, double R, fx_img *out)
                     if (cov <= 0 || x + u < 0 || y + v < 0 || x + u >= w || y + v >= h) continue;
                     if (cov > 1) cov = 1;
                     p = fx_row(src, y + v)[x + u];
-                    s[0] += cov * p.b; s[1] += cov * p.g; s[2] += cov * p.r;
+                    s[0] += cov * t_s2l(p.b); s[1] += cov * t_s2l(p.g); s[2] += cov * t_s2l(p.r);
                     ws += cov;
                 }
-            fx_row(out, y)[x] = fx_px_make(fx_u8(s[2] / ws), fx_u8(s[1] / ws), fx_u8(s[0] / ws),
-                                           255);
+            fx_row(out, y)[x] = fx_px_make(fx_u8(t_l2s(s[2] / ws)), fx_u8(t_l2s(s[1] / ws)),
+                                           fx_u8(t_l2s(s[0] / ws)), 255);
         }
 }
 
@@ -553,7 +602,7 @@ static void t_radial_zoom(void)
     t_img_free(&d);
     /* zoom: the dot at radius 15 streaks outward along its ray */
     t_set(zoom, pz, "distance", 4.0);
-    t_set(zoom, pz, "focus", 0.0);
+    t_set(zoom, pz, "focus", 1.0);                 /* the 5.x minimum */
     t_set(zoom, pz, "quality", 4);
     d = t_render(zoom->id, pz, &src, t_all(&src), NULL);
     (void)t_count_lit(&d, &x0, &x1, &y0, &y1);
@@ -564,7 +613,7 @@ static void t_radial_zoom(void)
         CHECK(fx_row(&d, 30)[x].g >= fx_row(&d, 29)[x].g && fx_row(&d, 30)[x].g > 0);
     t_img_free(&d);
     /* focus concentrates the weight near the pixel: shorter visible streak */
-    t_set(zoom, pz, "focus", 6.0);
+    t_set(zoom, pz, "focus", 4.0);                 /* the 5.x maximum */
     d = t_render(zoom->id, pz, &src, t_all(&src), NULL);
     CHECK(fx_row(&d, 30)[53].g < 2 && fx_row(&d, 30)[46].g > 0);
     t_img_free(&d);
@@ -787,13 +836,21 @@ static void t_sep_cache(void)
     fx_rect sel = t_rect(5, 4, 80, 60), rois[T_MAX_ROI];
     int k, n, i;
     t_img_random(&src, 1);
-    for (k = 0; k < 4; k++) {
+    for (k = 0; k < 8; k++) {
         fx1_sep s;
         fx1_vcache c;
+        /* k >= 4: the 5.x Gaussian (linear light, mirrored border), also with
+         * the selection on the image border and a reach beyond the image
+         * width (several reflections) */
+        sel = k == 5 || k == 6 ? t_rect(0, 0, 90, 70) : t_rect(5, 4, 80, 60);
         if (k == 0) fx1_sep_gaussian(&s, 40.0, 3, 0.7);
         else if (k == 1) fx1_sep_gaussian(&s, 9.0, 4, -0.5);      /* exact kernel */
         else if (k == 2) fx1_sep_box(&s, 31.5, 0.0);
-        else fx1_sep_gaussian(&s, 25.0, 1, 2.0);
+        else if (k == 3) fx1_sep_gaussian(&s, 25.0, 1, 2.0);
+        else if (k == 4) fx1_sep_gaussian5(&s, 90.0, 3, 0.0);
+        else if (k == 5) fx1_sep_gaussian5(&s, 70.0, 2, 1.2);
+        else if (k == 6) fx1_sep_gaussian5(&s, 400.0, 4, -0.4);
+        else fx1_sep_gaussian5(&s, 20.0, 4, 0.0);                  /* exact kernel */
         CHECK(fx1_sep_cache_build(&s, &src, sel, &c, &g_t_host, NULL) == FX_OK);
         CHECK(c.v != NULL || s.ext < 24);
         t_img_sentinel(&a);
@@ -832,9 +889,14 @@ static void t_gaussian_speed(void)
     t1 = pc_test_now();
     INFO("gaussian r=100 on %dx%d, one thread, %d bands: %.2f s (%.1f Mpx/s)", n, n, nr,
          t1 - t0, (double)n * n / (t1 - t0) / 1e6);
-    /* a smooth region far from the noise statistics: the output is near the mean */
+    /* a smooth region far from the noise statistics: the output is near the
+     * linear-light mean, encoded */
     k = fx_row(&dst, n / 2)[n / 2].g;
-    CHECK(k > 110 && k < 145);
+    {
+        double m = t_l2s(t_lin_mean(&src, 1));
+        INFO("center %d, encoded linear mean %.1f", k, m);
+        CHECK(fabs((double)k - m) < 12.0);
+    }
     free(p);
     t_img_free(&src);
     t_img_free(&dst);
