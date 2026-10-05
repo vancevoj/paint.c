@@ -4,6 +4,7 @@
  * pc_sel_transform rule so rendered pixels and committed selections agree.
  * Main thread; tile jobs on pc_par workers. */
 #include "sel_float.h"
+#include "../doc_trc.h"                 /* W3B-FXCORE: the image profile's curve */
 
 #include <math.h>
 #include <stdlib.h>
@@ -488,6 +489,8 @@ typedef struct rctx {
     pc_rect          dirty;  /* document pixels that may receive floating content */
     sel_rs           rs;
     bool             gamma;
+    const float     *dec[3]; /* gamma: 255 * linear per channel (B, G, R) */
+    const uint8_t   *enc[3]; /* gamma: ENC_N-entry encoders per channel */
     uint32_t         nx, ny; /* samples per axis */
 } rctx;
 
@@ -531,9 +534,9 @@ static void tap(const rctx *c, int32_t i, int32_t j, float w, acc4 *a)
     cv = (float)sel_cov_at(&c->f->cov, i, j) * (1.0f / 255.0f);
     k = (float)p.a * (1.0f / 255.0f);
     if (c->gamma) {
-        P[0] = g_dec[p.b] * k;
-        P[1] = g_dec[p.g] * k;
-        P[2] = g_dec[p.r] * k;
+        P[0] = c->dec[0][p.b] * k;
+        P[1] = c->dec[1][p.g] * k;
+        P[2] = c->dec[2][p.r] * k;
     } else {
         P[0] = (float)p.b * k;
         P[1] = (float)p.g * k;
@@ -629,7 +632,7 @@ static void float_color(const rctx *c, int32_t x, int32_t y, float out[4])
         for (int q = 0; q < 3; q++) {
             float idx = out[q] * k + 0.5f;
             uint32_t ix = idx >= (float)(ENC_N - 1u) ? ENC_N - 1u : (uint32_t)idx;
-            out[q] = (float)g_enc[ix] * out[3] * (1.0f / 255.0f);
+            out[q] = (float)c->enc[q][ix] * out[3] * (1.0f / 255.0f);
         }
     }
 }
@@ -758,7 +761,16 @@ pc_status sel_float_render(app *a, sel_float *f, app_doc *d, const sel_quality *
     c.gamma = q->gamma;
     if (!sel_cov_map_init(&c.cm, &f->cov, &f->box.m, q->rs == SEL_RS_NEAREST, q->hard, d->doc))
         return PC_ERR_ARG;
-    if (c.gamma) gamma_init();
+    if (c.gamma) {
+        /* W3B-FXCORE: linear light of the image's profile (sRGB tables when
+         * it has none or none usable) */
+        const pc_trc *t = app_doc_trc(a, d);
+        gamma_init();
+        for (int k = 0; k < 3; k++) {
+            c.dec[k] = t ? t->dec[k] : g_dec;
+            c.enc[k] = t ? t->enc[k] : g_enc;
+        }
+    }
     c.dirty = c.cm.dst_bounds;
     if (q->rs == SEL_RS_MULTISAMPLE) {
         c.nx = c.ny = 2u;

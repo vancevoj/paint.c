@@ -147,7 +147,8 @@ Ranges and defaults are those of the Paint.NET 5.2 dialogs (docs/fx/parity.md).
 * **Fragment Blur.** 3.36: offsets `d (-sin a, -cos a)` with
   `a = rotation - 90 + 360 i / n`; copies outside the image are skipped. Offsets
   keep their fraction and are sampled bilinearly (Paint.NET 5 announced
-  improved rendering quality; 3.36 rounded them).
+  improved rendering quality; 3.36 rounded them). Averaged in linear light
+  (W3B-FXCORE, see "Linear light" below).
 * **Median Blur.** 3.36 per-channel percentile in a disk. Fixed: the 3.36
   search returned one bin above the requested rank (a constant image gained
   1 level); here the result is the smallest value whose cumulative count
@@ -285,9 +286,16 @@ Ranges and defaults are those of the Paint.NET 5.2 dialogs (docs/fx/parity.md).
   Quality, Red Eye Strength) are own designs from the documented behavior and
   will differ from Paint.NET pixel for pixel.
 * Paint.NET 5 renders many of these effects on the GPU in linear light.
-  Gaussian, Bokeh and Square Blur now do too (Gamma Boost 0 = linear light,
-  verified for Gaussian against the 5.2 golden); the other effects of this
-  lane keep the 3.36 gamma-encoded math (no goldens yet).
+  Gaussian, Bokeh and Square Blur do too (Gamma Boost 0 = linear light,
+  verified for Gaussian against the 5.2 golden). W3B-FXCORE: the 5.0.4
+  release notes list the effects that render with linear gamma; of this
+  lane's effects Fragment, Motion, Radial and Zoom Blur and Straighten
+  (Bilinear and Bicubic) now average their samples in linear light
+  (`fx1_acc_*_lin`, `fx1_sample_*_lin`: sRGB decode, premultiplied weights,
+  encode), so a 50/50 black and white mix gives 188 instead of 128. Exposure
+  already did. Glow, Soften Portrait, Ink and Pencil Sketch, Sharpen, Median,
+  Surface, Sketch Blur, the Noise and Artistic effects are not on that list
+  and keep the 3.36 gamma-encoded math.
 * The 5.1 Red Eye Removal dialog shows a hint to select the eyes first; the
   fx ABI has no static-text property, so the hint is not shown.
 

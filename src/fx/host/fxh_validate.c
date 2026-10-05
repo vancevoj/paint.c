@@ -284,7 +284,11 @@ pc_status fx_effect_validate(const fx_effect *fx, char *why, size_t cap)
                 return fail(why, cap, "props '%s' and '%s' overlap", q->key, p->key);
         }
     }
-    for (uint32_t i = 0; i < fx->n_props; i++)
+    for (uint32_t i = 0; i < fx->n_props; i++) {
         if (check_enabled_if(fx, &fx->props[i], why, cap) != PC_OK) return PC_ERR_ARG;
+        if (!fxh_rules_ok(fx, i))                                  /* W3B-FXCORE */
+            return fail(why, cap, "prop '%s': rule hint names a missing or unfit key",
+                        fx->props[i].key);
+    }
     return PC_OK;
 }

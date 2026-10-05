@@ -23,6 +23,7 @@
  * Thread rules: main thread. Ownership: the dialog state is owned by the
  * dialog stack; the session memory by the app (app_ext). */
 #include "../app_internal.h"
+#include "../doc_trc.h"                 /* W3B-FXCORE */
 #include "../edit/m_hist.h"
 #include "../edit/m_size.h"
 #include "../edit/m_ui.h"
@@ -102,8 +103,10 @@ static void apply(app *a, app_doc *d, size_dlg *g)
             st = pc_geom_canvas_size(d->hist, w, h, (pc_anchor)g->anchor, fill_color(a, g->fill),
                                      &a->par, label);
         else
-            st = pc_geom_resize(d->hist, w, h, k_resample_modes[g->resample],
-                                g->gamma ? PC_RESAMPLE_GAMMA : 0u, &a->par, label);
+            /* W3B-FXCORE: linear light of the image's own profile */
+            st = pc_geom_resize_trc(d->hist, w, h, k_resample_modes[g->resample],
+                                    g->gamma ? PC_RESAMPLE_GAMMA : 0u,
+                                    g->gamma ? app_doc_trc(a, d) : NULL, &a->par, label);
     }
     if (st == PC_OK && new_dpi) {
         pc_status s2 = m_doc_set_dpi(d, g->s.dpi, g->s.dpi, label);

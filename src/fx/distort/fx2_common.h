@@ -98,6 +98,9 @@ static inline void fx2_pxf_madd(fx_pxf *acc, fx_pxf v, float w)
 /* Mean of n premultiplied samples, returned as a straight pixel. This is an
  * alpha-weighted color average (Paint.NET 3.36 ColorBgra.Blend semantics). */
 fx_px fx2_average(fx_pxf sum, int n);
+/* Mean of n linear premultiplied samples (fx2_sample_lin, fxl_premul) as a
+ * straight sRGB pixel (W3B-FXCORE). */
+fx_px fx2_average_lin(fx_pxf sum, int n);
 
 /* ---- edge behavior and sampling ------------------------------------------- */
 enum {
@@ -140,9 +143,10 @@ typedef struct fx2_warp {
 } fx2_warp;
 
 /* Renders roi of dst: every output pixel averages quality^2 bilinear samples of
- * the inverse-mapped positions (in linear light when w->linear is set). Subsamples the map leaves in place (within
- * 1e-7 px) take the source pixel exactly, so undistorted regions and neutral
- * parameters reproduce src bit for bit. Polls cancellation once per row.
+ * the inverse-mapped positions (in linear light when w->linear is set).
+ * Subsamples the map leaves in place (within 1e-7 px) take the source pixel
+ * exactly, so undistorted regions and neutral parameters reproduce src bit
+ * for bit. Polls cancellation once per row.
  * Returns FX_OK or FX_CANCELLED. Thread-safe for disjoint ROIs. */
 int fx2_warp_render(const fx2_warp *w, const fx_img *src, fx_img *dst, fx_rect roi,
                     const fx_host *host, const void *job);

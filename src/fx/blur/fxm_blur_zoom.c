@@ -10,6 +10,8 @@
  * samples per pixel of path, capped at 64 q.
  * Ranges as the Paint.NET 5.2 dialog shows: Distance 0.25..4, Focus 1..4,
  * Quality a real 1.0..8.0 = 1.0.
+ * W3B-FXCORE: samples are averaged in linear light (fx1_acc_*_lin), as
+ * Paint.NET 5.0.4 lists this effect among those rendering with linear gamma.
  *
  * Thread rules: prepare builds the weight table; render is reentrant.
  */
@@ -78,7 +80,7 @@ static int zoom_render(const void *params, const void *state, const fx_img *src,
             fx1_acc acc;
             if (n > cap) n = cap;
             fx1_acc_zero(&acc);
-            fx1_acc_px(&acc, fx_row(src, y)[x], 1.0f);
+            fx1_acc_px_lin(&acc, fx_row(src, y)[x], 1.0f);
             acc.w += 1.0f;
             for (i = 1; i <= n; i++) {
                 /* sample midpoints: with Focus >= 1 the far end (t = 1) has
@@ -88,9 +90,9 @@ static int zoom_render(const void *params, const void *state, const fx_img *src,
                 int32_t k = (int32_t)f;
                 float w = lut[k] + (lut[k + 1] - lut[k]) * (float)(f - (double)k);
                 if (w <= 0.0f) continue;
-                (void)fx1_acc_bilinear_inside(&acc, src, cx + vx * s, cy + vy * s, w);
+                (void)fx1_acc_bilinear_inside_lin(&acc, src, cx + vx * s, cy + vy * s, w);
             }
-            d[x] = fx1_acc_get(&acc);
+            d[x] = fx1_acc_get_lin(&acc);
         }
     }
     return FX_OK;

@@ -83,6 +83,22 @@ fx_px fx1_acc_get(const fx1_acc *s)
     }
 }
 
+fx_px fx1_acc_get_lin(const fx1_acc *s)
+{
+    float a;
+    int32_t a8;
+    if (!(s->w > 0.0f) || !(s->a > 0.0f)) return fx_px_make(0, 0, 0, 0);
+    a = s->a / s->w;
+    a8 = (int32_t)(a + 0.5f);
+    if (a8 <= 0) return fx_px_make(0, 0, 0, 0);
+    if (a8 > 255) a8 = 255;
+    {
+        double k = 1.0 / (double)s->a;
+        return fx_px_make(fxl_encode((double)s->r * k), fxl_encode((double)s->g * k),
+                          fxl_encode((double)s->b * k), (uint8_t)a8);
+    }
+}
+
 static int32_t fx1_edge_index(int32_t v, int32_t lo, int32_t n, int mode, int *outside)
 {
     int32_t m;
@@ -116,7 +132,15 @@ static double fx1_floor(double v)
     return f > v ? f - 1.0 : f;
 }
 
-void fx1_acc_bilinear(fx1_acc *s, const fx_img *im, double sx, double sy, float wt, int mode)
+/* One tap, gamma-encoded or linear (W3B-FXCORE). */
+static void fx1_tap(fx1_acc *s, fx_px p, float wt, int lin)
+{
+    if (lin) fx1_acc_px_lin(s, p, wt);
+    else fx1_acc_px(s, p, wt);
+}
+
+static void fx1_bilinear(fx1_acc *s, const fx_img *im, double sx, double sy, float wt, int mode,
+                         int lin)
 {
     double fx0, fy0;
     float tx, ty;
@@ -138,10 +162,10 @@ void fx1_acc_bilinear(fx1_acc *s, const fx_img *im, double sx, double sy, float 
     if (x0 >= im->r.x && x0 + 1 < fx1_x1(im) && y0 >= im->r.y && y0 + 1 < fx1_y1(im)) {
         /* all four taps inside: same arithmetic, no edge mapping */
         const fx_px *r0 = fx_row(im, y0) + x0, *r1 = fx_row(im, y0 + 1) + x0;
-        fx1_acc_px(s, r0[0], wt * wx[0] * wy[0]);
-        fx1_acc_px(s, r0[1], wt * wx[1] * wy[0]);
-        fx1_acc_px(s, r1[0], wt * wx[0] * wy[1]);
-        fx1_acc_px(s, r1[1], wt * wx[1] * wy[1]);
+        fx1_tap(s, r0[0], wt * wx[0] * wy[0], lin);
+        fx1_tap(s, r0[1], wt * wx[1] * wy[0], lin);
+        fx1_tap(s, r1[0], wt * wx[0] * wy[1], lin);
+        fx1_tap(s, r1[1], wt * wx[1] * wy[1], lin);
         s->w += wt;
         return;
     }
@@ -155,10 +179,30 @@ void fx1_acc_bilinear(fx1_acc *s, const fx_img *im, double sx, double sy, float 
         row = fx_row(im, ys[j]);
         for (i = 0; i < 2; i++) {
             if (ox[i]) continue;
-            fx1_acc_px(s, row[xs[i]], wt * wx[i] * wy[j]);
+            fx1_tap(s, row[xs[i]], wt * wx[i] * wy[j], lin);
         }
     }
     s->w += wt;
+}
+
+void fx1_acc_bilinear(fx1_acc *s, const fx_img *im, double sx, double sy, float wt, int mode)
+{
+    fx1_bilinear(s, im, sx, sy, wt, mode, 0);
+}
+
+void fx1_acc_bilinear_lin(fx1_acc *s, const fx_img *im, double sx, double sy, float wt,
+                          int mode)
+{
+    fx1_bilinear(s, im, sx, sy, wt, mode, 1);
+}
+
+int fx1_acc_bilinear_inside_lin(fx1_acc *s, const fx_img *im, double sx, double sy, float wt)
+{
+    if (!(sx >= (double)im->r.x && sy >= (double)im->r.y &&
+          sx <= (double)(fx1_x1(im) - 1) && sy <= (double)(fx1_y1(im) - 1)))
+        return 0;
+    fx1_bilinear(s, im, sx, sy, wt, FX1_EDGE_CLAMP, 1);
+    return 1;
 }
 
 int fx1_acc_bilinear_inside(fx1_acc *s, const fx_img *im, double sx, double sy, float wt)
@@ -183,6 +227,14 @@ fx_px fx1_sample_bilinear(const fx_img *im, double sx, double sy)
     fx1_acc_zero(&s);
     fx1_acc_bilinear(&s, im, sx, sy, 1.0f, FX1_EDGE_CLAMP);
     return fx1_acc_get(&s);
+}
+
+fx_px fx1_sample_bilinear_lin(const fx_img *im, double sx, double sy)
+{
+    fx1_acc s;
+    fx1_acc_zero(&s);
+    fx1_bilinear(&s, im, sx, sy, 1.0f, FX1_EDGE_CLAMP, 1);
+    return fx1_acc_get_lin(&s);
 }
 
 static void fx1_cubic_w(double t, double w[4])
@@ -226,6 +278,41 @@ fx_px fx1_sample_bicubic(const fx_img *im, double sx, double sy)
     {
         double k = 1.0 / a;
         return fx_px_make(fx_u8(r * k), fx_u8(g * k), fx_u8(b * k), fx_u8(a));
+    }
+}
+
+fx_px fx1_sample_bicubic_lin(const fx_img *im, double sx, double sy)
+{
+    double fx0 = floor(sx), fy0 = floor(sy), wx[4], wy[4];
+    double b = 0, g = 0, r = 0, a = 0;
+    int32_t x0, y0, i, j;
+    if (!(fx0 > -1e9 && fx0 < 1e9 && fy0 > -1e9 && fy0 < 1e9)) return fx_px_make(0, 0, 0, 0);
+    x0 = (int32_t)fx0;
+    y0 = (int32_t)fy0;
+    fx1_cubic_w(sx - fx0, wx);
+    fx1_cubic_w(sy - fy0, wy);
+    for (j = 0; j < 4; j++) {
+        int32_t yy = fx_clampi(y0 - 1 + j, im->r.y, fx1_y1(im) - 1);
+        const fx_px *row = fx_row(im, yy);
+        double rb = 0, rg = 0, rr = 0, ra = 0;
+        for (i = 0; i < 4; i++) {
+            int32_t xx = fx_clampi(x0 - 1 + i, im->r.x, fx1_x1(im) - 1);
+            fx_px p = row[xx];
+            double aw = (double)p.a * wx[i];
+            rb += fxl_lin_tab[p.b] * aw;
+            rg += fxl_lin_tab[p.g] * aw;
+            rr += fxl_lin_tab[p.r] * aw;
+            ra += aw;
+        }
+        b += rb * wy[j];
+        g += rg * wy[j];
+        r += rr * wy[j];
+        a += ra * wy[j];
+    }
+    if (a < 0.5) return fx_px_make(0, 0, 0, 0);
+    {
+        double k = 1.0 / a;
+        return fx_px_make(fxl_encode(r * k), fxl_encode(g * k), fxl_encode(b * k), fx_u8(a));
     }
 }
 

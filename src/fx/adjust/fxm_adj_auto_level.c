@@ -4,8 +4,9 @@
  * (fx_levels_auto: 0.5 and 99.5 percentiles, gamma from the mean) and every
  * ROI is mapped through it. When the result is invalid (a channel holding
  * one value) the pixels stay unchanged. No dialog.
- * Known gap: the histogram covers the selection bounds, not the exact
- * selection shape (fx_env only carries bounds). See docs/fx/adjustments.md. */
+ * W3B-FXCORE: the histogram follows the selection shape (env->sel_mask,
+ * ABI v1.1, coverage >= 128 like the Levels Auto button); hosts without a
+ * mask get the selection bounds. See docs/fx/adjustments.md. */
 #include "fx/fx_levels.h"
 #include "fxa_common.h"
 
@@ -27,7 +28,10 @@ static int prepare(const void *params, const fx_img *src, const fx_env *env,
         fxa_release(l, host);
         return FX_ERROR;
     }
-    fx_levels_histogram(src, env->sel, hist);
+    if (env->size >= offsetof(fx_env, sel_mask) + sizeof env->sel_mask)
+        fx_levels_histogram_masked(src, env->sel, env->sel_mask, hist);
+    else
+        fx_levels_histogram(src, env->sel, hist);
     fx_levels_init(&lv);
     fx_levels_auto(hist, &lv);
     host->free(hist);

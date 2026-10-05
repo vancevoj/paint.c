@@ -8,6 +8,8 @@
  * side) instead of the fixed q^2 (30 + q^2) of 3.36. Quality is a real
  * 1.0..8.0 (default 1.0) and Angle defaults to 4, as the Paint.NET 5.2
  * dialog shows. Center is relative to the selection (fx_abi FXP_POINT).
+ * W3B-FXCORE: samples are averaged in linear light (fx1_acc_*_lin), as
+ * Paint.NET 5.0.4 lists this effect among those rendering with linear gamma.
  *
  * Thread rules: no prepared state; render is reentrant.
  */
@@ -51,7 +53,7 @@ static int radial_render(const void *params, const void *state, const fx_img *sr
             fx1_acc acc;
             if (n > cap) n = cap;
             fx1_acc_zero(&acc);
-            fx1_acc_px(&acc, fx_row(src, y)[x], 1.0f);
+            fx1_acc_px_lin(&acc, fx_row(src, y)[x], 1.0f);
             acc.w += 1.0f;
             if (n > 0) {
                 double step = theta / (double)n, cs = cos(step), sn = sin(step);
@@ -60,11 +62,11 @@ static int radial_render(const void *params, const void *state, const fx_img *sr
                     double t;
                     t = ax * cs - ay * sn; ay = ax * sn + ay * cs; ax = t;
                     t = bx * cs + by * sn; by = -bx * sn + by * cs; bx = t;
-                    (void)fx1_acc_bilinear_inside(&acc, src, cx + ax, cy + ay, 1.0f);
-                    (void)fx1_acc_bilinear_inside(&acc, src, cx + bx, cy + by, 1.0f);
+                    (void)fx1_acc_bilinear_inside_lin(&acc, src, cx + ax, cy + ay, 1.0f);
+                    (void)fx1_acc_bilinear_inside_lin(&acc, src, cx + bx, cy + by, 1.0f);
                 }
             }
-            d[x] = fx1_acc_get(&acc);
+            d[x] = fx1_acc_get_lin(&acc);
         }
     }
     return FX_OK;

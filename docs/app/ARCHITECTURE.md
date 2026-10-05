@@ -128,7 +128,12 @@ Helper files must not use these prefixes (for example `tools/stroke.c`).
   redo chain; a new action after undo prunes the undone branch
   (`app_doc_history_changed`, call it after any history operation done
   outside `app_doc_txn_commit`). The history byte budget (25 % of RAM, at
-  least 1 GiB, OD-10) is applied there too.
+  least 1 GiB, OD-10) is applied there too. W3B-FXCORE: over the budget,
+  history-only tiles are packed into a per-image swap file
+  (`doc_spill.c`, `pc_hist_spill.h`; 0700 state directory, unlinked at once
+  on POSIX, removed on close on Windows) and read back on undo; old steps
+  are dropped only when spilling cannot help (tiles still used by the
+  image, a full disk).
 * Dirty = the current history node differs from the node at the last save
   or open (`saved_seq`), so undoing back to the saved state is clean.
 * Transactions: one per document (`app_doc_txn_begin(a, d, owner, label)`),

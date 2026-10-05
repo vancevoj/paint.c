@@ -181,7 +181,12 @@ pc_status fx_job_create(const fx_effect *fx, const void *params, const fx_img *s
         else fx_params_init(fx, j->params, &j->env);
         (void)fx_params_clamp(fx, j->params);
     }
-    j->area = rect_isect(rect_isect(region, j->env.sel), rect_isect(src->r, dst->r));
+    /* W3B-FXCORE: FX_FLAG_NO_SEL_CLIP effects (Drop Shadow) draw outside
+     * the selection, so their area is not clipped to env.sel */
+    if (fx->flags & FX_FLAG_NO_SEL_CLIP)
+        j->area = rect_isect(region, rect_isect(src->r, dst->r));
+    else
+        j->area = rect_isect(rect_isect(region, j->env.sel), rect_isect(src->r, dst->r));
     st = build_rois(j, tile, priority_xy);
     if (st != PC_OK) { fx_job_destroy(j); return st; }
     if (j->n_rois) {

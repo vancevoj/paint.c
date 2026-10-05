@@ -360,6 +360,9 @@ void ui_group_end(ui_ctx *ctx);
 #define UI_SLIDER_LOG     1u   /* logarithmic mapping (min must be > 0) */
 #define UI_SLIDER_PERCENT 2u   /* show values with a % sign */
 #define UI_SLIDER_NO_RESET 4u  /* property slider without the reset button */
+#define UI_SLIDER_EXP     8u   /* W3B-FXCORE: quadratic "exponential scale" mapping
+                                  of radius-like sliders (O-UI-NONLIN, any range;
+                                  wins over UI_SLIDER_LOG) */
 
 bool ui_slider_double(ui_ctx *ctx, const char *id, double *v, double min, double max,
                       double step, uint32_t flags);

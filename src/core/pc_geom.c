@@ -274,17 +274,12 @@ static void geom_destroy(void *p)
     free(g);
 }
 
+/* W3B-FXCORE: tiles through pc_hist_tile_share (spill store accounting). */
 static size_t grid_bytes(pc_tile **grid, size_t n)
 {
     size_t b = 0;
     if (!grid) return 0u;
-    for (size_t i = 0; i < n; i++) {
-        pc_tile *t = grid[i];
-        if (t) {
-            uint32_t r = pc_tile_refs(t);
-            b += pc_tile_bytes(t->bpp) / (r ? r : 1u);
-        }
-    }
+    for (size_t i = 0; i < n; i++) b += pc_hist_tile_share(grid[i]);
     return b + n * sizeof *grid;
 }
 
@@ -440,6 +435,14 @@ pc_rect pc_geom_selection_bounds(const pc_doc *d)
 pc_status pc_geom_resize(pc_hist *h, uint32_t w, uint32_t hgt, pc_resample mode,
                          uint32_t flags, const pc_par *par, const char *label)
 {
+    return pc_geom_resize_trc(h, w, hgt, mode, flags, NULL, par, label);
+}
+
+/* W3B-FXCORE: Resize with the image profile's transfer curve (pc_trc). */
+pc_status pc_geom_resize_trc(pc_hist *h, uint32_t w, uint32_t hgt, pc_resample mode,
+                             uint32_t flags, const pc_trc *trc, const pc_par *par,
+                             const char *label)
+{
     pc_doc *d;
     geom_state *g;
     pc_status st = check_hist(h);
@@ -459,7 +462,7 @@ pc_status pc_geom_resize(pc_hist *h, uint32_t w, uint32_t hgt, pc_resample mode,
     }
     for (uint32_t i = 0; i < d->n_layers; i++) {
         pc_grid lg = pc_grid_of_layer(d, d->stack[i]);
-        st = pc_resample_grid(&lg, w, hgt, mode, flags, par, &g->grids[i]);
+        st = pc_resample_grid_trc(&lg, w, hgt, mode, flags, trc, par, &g->grids[i]);
         if (st != PC_OK) { geom_destroy(g); return st; }
     }
     return gs_commit(h, g, lbl(label, "Resize"));

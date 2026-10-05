@@ -225,32 +225,14 @@ static pc_status axis_build(rs_axis *ax, uint32_t n_in, uint32_t n_out, pc_resam
 /* ---- gamma tables --------------------------------------------------------------- */
 #define RS_L2S_N 65536u
 
-typedef struct rs_gamma {
-    float   s2l[256];          /* 255 * linear(c / 255) */
-    uint8_t l2s[RS_L2S_N];     /* round(255 * srgb(i / 65535)) */
-} rs_gamma;
-
-static double srgb_to_linear(double c)
-{
-    return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
-}
-
-static double linear_to_srgb(double l)
-{
-    return l <= 0.0031308 ? l * 12.92 : 1.055 * pow(l, 1.0 / 2.4) - 0.055;
-}
+/* W3B-FXCORE: per-channel transfer tables (pc_trc, pc_resample_trc.c); the
+ * default is the sRGB curve, the _trc entry points take the image
+ * profile's. */
+typedef pc_trc rs_gamma;
 
 static rs_gamma *gamma_new(void)
 {
-    rs_gamma *g = (rs_gamma *)rs_malloc(sizeof *g);
-    if (!g) return NULL;
-    for (uint32_t i = 0; i < 256u; i++)
-        g->s2l[i] = (float)(255.0 * srgb_to_linear((double)i / 255.0));
-    for (uint32_t i = 0; i < RS_L2S_N; i++) {
-        double v = 255.0 * linear_to_srgb((double)i / (double)(RS_L2S_N - 1u));
-        g->l2s[i] = (uint8_t)(v <= 0.0 ? 0 : (v >= 255.0 ? 255 : (int)(v + 0.5)));
-    }
-    return g;
+    return pc_trc_new_srgb();
 }
 
 /* ---- pixel conversion -------------------------------------------------------------- */
@@ -261,7 +243,7 @@ static void cvt_bgra(const uint8_t *p, float *o, const rs_gamma *g)
     {
         float k = (float)a * (1.0f / 255.0f);
         if (g) {
-            o[0] = g->s2l[p[0]] * k; o[1] = g->s2l[p[1]] * k; o[2] = g->s2l[p[2]] * k;
+            o[0] = g->dec[0][p[0]] * k; o[1] = g->dec[1][p[1]] * k; o[2] = g->dec[2][p[2]] * k;
         } else {
             o[0] = (float)p[0] * k; o[1] = (float)p[1] * k; o[2] = (float)p[2] * k;
         }
@@ -292,7 +274,7 @@ static void fin_bgra(const float *a, uint8_t *p, const rs_gamma *g)
             if (g) {
                 float idx = v * ((float)(RS_L2S_N - 1u) / 255.0f) + 0.5f;
                 uint32_t ix = idx >= (float)(RS_L2S_N - 1u) ? RS_L2S_N - 1u : (uint32_t)idx;
-                p[c] = g->l2s[ix];
+                p[c] = g->enc[c][ix];
             } else {
                 p[c] = round_u8(v);
             }
@@ -308,6 +290,7 @@ typedef struct rs_ctx {
     uint32_t        src_w, src_h;
     uint32_t        ch;          /* 4 or 1 */
     const rs_gamma *gamma;
+    bool            own_gamma;   /* gamma was built here (sRGB), not borrowed */
     rs_axis         ax, ay;
     uint32_t        dst_w, dst_h, dbx;   /* blocks across */
     pc_tile       **out_grid;
@@ -452,17 +435,23 @@ static void ctx_free(rs_ctx *c)
     axis_free(&c->ax);
     axis_free(&c->ay);
     free(c->scratch);
-    free((void *)c->gamma);
+    if (c->own_gamma) pc_trc_free((pc_trc *)(uintptr_t)c->gamma);
 }
 
-static pc_status ctx_prepare(rs_ctx *c, pc_resample mode, uint32_t flags, const pc_par *par)
+static pc_status ctx_prepare(rs_ctx *c, pc_resample mode, uint32_t flags, const pc_trc *trc,
+                             const pc_par *par)
 {
     pc_status st;
     size_t per, total;
     uint32_t threads = pc_par_threads(par);
     if (c->ch == 4u && (flags & PC_RESAMPLE_GAMMA)) {
-        c->gamma = gamma_new();
-        if (!c->gamma) return PC_ERR_NOMEM;
+        if (trc) {
+            c->gamma = trc;
+        } else {
+            c->gamma = gamma_new();
+            if (!c->gamma) return PC_ERR_NOMEM;
+            c->own_gamma = true;
+        }
     }
     st = axis_build(&c->ax, c->src_w, c->dst_w, mode);
     if (st == PC_OK) st = axis_build(&c->ay, c->src_h, c->dst_h, mode);
@@ -490,6 +479,12 @@ static bool grid_ok(const pc_grid *g)
 pc_status pc_resample_surf(const pc_surf *src, pc_surf *dst, pc_resample mode,
                            uint32_t flags, const pc_par *par)
 {
+    return pc_resample_surf_trc(src, dst, mode, flags, NULL, par);
+}
+
+pc_status pc_resample_surf_trc(const pc_surf *src, pc_surf *dst, pc_resample mode,
+                               uint32_t flags, const pc_trc *trc, const pc_par *par)
+{
     rs_ctx c;
     pc_status st;
     uint32_t dby;
@@ -508,7 +503,7 @@ pc_status pc_resample_surf(const pc_surf *src, pc_surf *dst, pc_resample mode,
     c.dbx = (c.dst_w + RS_BLOCK - 1u) / RS_BLOCK;
     dby = (c.dst_h + RS_BLOCK - 1u) / RS_BLOCK;
     c.out_surf = dst;
-    st = ctx_prepare(&c, mode, flags, par);
+    st = ctx_prepare(&c, mode, flags, trc, par);
     if (st == PC_OK) pc_par_for(par, rs_job, &c, c.dbx * dby);
     ctx_free(&c);
     return st;
@@ -517,6 +512,13 @@ pc_status pc_resample_surf(const pc_surf *src, pc_surf *dst, pc_resample mode,
 pc_status pc_resample_grid(const pc_grid *src, uint32_t dst_w, uint32_t dst_h,
                            pc_resample mode, uint32_t flags, const pc_par *par,
                            pc_tile ***out)
+{
+    return pc_resample_grid_trc(src, dst_w, dst_h, mode, flags, NULL, par, out);
+}
+
+pc_status pc_resample_grid_trc(const pc_grid *src, uint32_t dst_w, uint32_t dst_h,
+                               pc_resample mode, uint32_t flags, const pc_trc *trc,
+                               const pc_par *par, pc_tile ***out)
 {
     rs_ctx c;
     pc_status st;
@@ -536,7 +538,7 @@ pc_status pc_resample_grid(const pc_grid *src, uint32_t dst_w, uint32_t dst_h,
     n = (size_t)c.dbx * dby;
     c.out_grid = (pc_tile **)rs_calloc(n, sizeof *c.out_grid);
     if (!c.out_grid) return PC_ERR_NOMEM;
-    st = ctx_prepare(&c, mode, flags, par);
+    st = ctx_prepare(&c, mode, flags, trc, par);
     if (st == PC_OK) {
         pc_par_for(par, rs_job, &c, (uint32_t)n);
         if (pc_atomic_load(&c.fail)) st = PC_ERR_NOMEM;

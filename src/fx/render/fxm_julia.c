@@ -9,8 +9,13 @@
  * as documented for Paint.NET 5, Quality q (1..8) takes q^2 samples per pixel
  * (3.36 took q^2 + 1 with q in 1..5); default 1 and two-decimal steps as the
  * Paint.NET 5.2 dialog shows.
+ * W3B-FXCORE: with Quality > 1 the sub-samples are averaged in linear light
+ * (premultiplied, sRGB transfer; alpha keeps the 3.36 integer mean), as
+ * Paint.NET 5.0.4 lists Julia Fractal among the effects rendering with
+ * linear gamma. Quality 1 is unchanged.
  */
 #include "../distort/fx2_common.h"
+#include "../fx_srgb.h"
 
 typedef struct julia_params {
     double  factor;          /* 1 .. 10 */
@@ -71,6 +76,7 @@ static int julia_render(const void *params, const void *state, const fx_img *src
         for (x = roi.x; x < roi.x + roi.w; x++) {
             double lx = (double)(x - env->sel.x);
             int32_t r = 0, g = 0, b = 0, a = 0;
+            double lr = 0.0, lg = 0.0, lb = 0.0;
             fx_px o;
             for (i = 0; i < count; i++) {
                 double fi = (double)i;
@@ -80,13 +86,24 @@ static int julia_render(const void *params, const void *state, const fx_img *src
                 double up = radius * cos(theta), vp = radius * sin(theta);
                 double jx = (up - vp * aspect) * inv_zoom, jy = (vp + up * aspect) * inv_zoom;
                 double c = factor * julia(jx, jy, jr, ji);
-                b += fx2_trunc_u8(c - 768.0);
-                g += fx2_trunc_u8(c - 512.0);
-                r += fx2_trunc_u8(c - 256.0);
-                a += fx2_trunc_u8(c);
+                int32_t sb = fx2_trunc_u8(c - 768.0), sg = fx2_trunc_u8(c - 512.0);
+                int32_t sr = fx2_trunc_u8(c - 256.0), sa = fx2_trunc_u8(c);
+                b += sb;
+                g += sg;
+                r += sr;
+                a += sa;
+                lb += fxl_lin_tab[sb] * (double)sa;
+                lg += fxl_lin_tab[sg] * (double)sa;
+                lr += fxl_lin_tab[sr] * (double)sa;
             }
             o = fx_px_make((uint8_t)(r / count), (uint8_t)(g / count), (uint8_t)(b / count),
                            (uint8_t)(a / count));
+            if (count > 1 && a > 0) {
+                double k = 1.0 / (double)a;
+                o.r = fxl_encode(lr * k);
+                o.g = fxl_encode(lg * k);
+                o.b = fxl_encode(lb * k);
+            }
             drow[x] = fx2_composite(srow[x], o, blend);
         }
     }

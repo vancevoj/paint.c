@@ -504,9 +504,11 @@ static void t_fragment(void)
     t_set(fx, p, "distance", 6);
     t_set(fx, p, "rotation", 0.0);
     d = t_render(fx->id, p, &src, t_all(&src), NULL);
-    /* four copies of the dot at distance 6 on the axes, each a quarter */
-    CHECK(fx_row(&d, 20)[26].g == 64 && fx_row(&d, 20)[14].g == 64);
-    CHECK(fx_row(&d, 26)[20].g == 64 && fx_row(&d, 14)[20].g == 64);
+    /* four copies of the dot at distance 6 on the axes, each a quarter of
+     * the light: W3B-FXCORE, linear-light averaging (R 5.0.4) gives
+     * round(255 * srgb(0.25)) = 137 where gamma-encoded averaging gave 64 */
+    CHECK(fx_row(&d, 20)[26].g == 137 && fx_row(&d, 20)[14].g == 137);
+    CHECK(fx_row(&d, 26)[20].g == 137 && fx_row(&d, 14)[20].g == 137);
     CHECK(fx_row(&d, 20)[20].g == 0);
     {
         int32_t a, b, c, e;

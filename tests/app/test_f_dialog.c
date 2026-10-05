@@ -355,14 +355,18 @@ static void t_widgets_mouse(void)
         afx_session_cancel(a, b);
     }
     at_frames(a, 2);
-    /* Posterize: Linked disables the per-channel sliders (enabled_if) */
+    /* Posterize: W3B-FXCORE, the level sliders form a "link:linked" group
+     * that stays editable while Linked is on (O52; test_fxc_dialog covers
+     * the mirroring), so Green is enabled either way */
     CHECK(app_cmd_exec(a, "adjust.org.paintc.adjust.posterize"));
     at_frames(a, 3);
     {
         afx_session *p = afx_active(a);
         const fx_effect *fx = afx_session_fx(p);
         const fx_prop *green = fx_prop_find(fx, "green");
-        CHECK(green && !app_prop_enabled(fx->props, fx->n_props, green, afx_session_params(p)));
+        CHECK(green && app_prop_enabled(fx->props, fx->n_props, green, afx_session_params(p)));
+        CHECK(green && fx_prop_link_source(fx->props, fx->n_props,
+                                           (uint32_t)(green - fx->props)) != FX_RULE_NONE);
         r = afx_prop_hit(a, "linked", AFX_HIT_MAIN);
         CHECK(!ui_rect_empty(r));
         f_click(a, (float)r.x + 8.0f, (float)r.y + (float)r.h * 0.5f, SDL_BUTTON_LEFT);

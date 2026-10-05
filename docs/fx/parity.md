@@ -208,9 +208,9 @@ than 2: the 3.36 final division floors, 5.2 rounds. This is the expected
 * Black and White, Sepia and Pixelate exact .5 ties: we round half up
   exactly; 5.2 rounds after FP32 arithmetic, which lands on either side.
 * Gaussian Blur radius scale away from radius 2, Gamma Boost away from 0,
-  and the linear-light rendering of Bokeh, Square Blur and the distortions
-  other than Twist: consistent with the observed ones, unverified (no
-  goldens).
+  and the linear-light rendering of Bokeh, Square Blur, the distortions
+  other than Twist and the wave 3b list below: consistent with the observed
+  ones, unverified (no goldens).
 * Oil Painting keeps the 5.1-documented parameters; if 5.1.12 already had the
   5.2 set (5.1 ported Oil Painting to the GPU, R51), it needs revisiting with
   a 5.1.12 dialog.
@@ -227,3 +227,69 @@ byte) and `fxl_mid_tab[255]` (decoding of k + 0.5, the encode thresholds),
 printed with `%.17g` from the double-precision formula
 `v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055)^2.4`. `test_fx_parity`
 recomputes both and checks encode/decode round trips.
+
+## Wave 3b (lane W3B-FXCORE)
+
+### Non-linear sliders (O-UI-NONLIN)
+
+Thumb centers were measured on the 5.2 dialog screenshots
+(`paintc-research/wine/shots`, track centers 22..229 px of a 350 px dialog)
+and compared with the default values. Every non-linear slider fits
+value = min + (max - min) t^2 within a pixel; a range across zero keeps zero
+where a linear slider has it and is quadratic on each side (Polar Inversion
+Scale 1 of -8..8 at 0.676; Gamma Boost 1.23 of -0.99..2 at 0.855). This is
+also the shape of 3.36 `PropertyControlUtil.ToSliderValueExp`
+(UseExponentialScale). `FXP_F_SLIDER_LOG` now means this mapping
+(`UI_SLIDER_EXP`) for every range.
+
+| Non-linear (flagged) | Measured t / quadratic t |
+|---|---|
+| Gaussian, Bokeh, Square Radius | 0.082 / 0.082, 0.290 / 0.289, 0.140 / 0.141 |
+| Gaussian, Bokeh, Square Gamma Boost | 0.855 / 0.856 at 1.23 (new flag) |
+| Motion Blur Distance | 0.135 / 0.134 (new flag) |
+| Tile Reflection Tile Size | 0.155 / 0.156 (new flag) |
+| Dents Scale, Refraction, Turbulence | 0.353 / 0.354, 0.502 / 0.500, 0.314 / 0.316 |
+| Frosted Glass radii | 0.077 / 0.077 |
+| Polar Inversion Scale | 0.676 / 0.677 |
+| Drop Shadow Radius | 0.314 / 0.316 |
+| Turbulence Period, Vignette Radius | 0.314 / 0.312, 0.319 / 0.320 (log gave 0.748, 0.436) |
+
+Linear (unflagged, measured): Fragment Count and Distance, Glow Radius,
+Julia and Mandelbrot Zoom, Median Radius, Morphology, Pixelate Cell Size,
+Surface Radius and Threshold, Zoom Blur Distance and Focus, Bulge, Dents
+Detail, Drop Shadow Distance and Opacity, Twist, Tile Reflection Curvature,
+every Quality slider. `tests/fx/test_fxc_rules.c` pins the flagged set.
+
+### Property rules
+
+3.36 `LinkValuesBasedOnBooleanRule` and `SoftMutuallyBoundMinMaxRule`
+semantics as `link:` and `minmax:` hints (fx_run.h): Posterize (all four
+levels, O52 "linked edits move all four sliders"), Morphology (D51 "forced
+to the same value"), Frosted Glass (O52 "raising Minimum above Maximum
+pushes Maximum up"; rendered the same way for params that break it).
+
+### Linear light (R 5.0.4)
+
+The 5.0.4 release notes list the built-in effects that render with linear
+gamma; all are covered now:
+
+| Effect | How |
+|---|---|
+| Exposure | already linear |
+| Fragment, Motion, Radial, Zoom Blur | `fx1_acc_*_lin` (W3B) |
+| Bulge, Dents, Polar Inversion, Tile Reflection, Twist | `fx2_warp.linear` (wave 2) |
+| Crystalize | linear average of border subsamples (W3B) |
+| Frosted Glass | `fx2_sample_lin`, linear average (W3B) |
+| Pixelate | already linear |
+| Drop Shadow | linear-light compositing of object and shadow (W3B) |
+| Straighten | `fx1_sample_bilinear_lin`, `fx1_sample_bicubic_lin` (W3B) |
+| Julia, Mandelbrot Fractal | linear mean of the q^2 subsamples when q > 1 (W3B) |
+| Layers > Rotate/Zoom | `pc_warp` (lane SHELL, F-DLG-ROTZOOM-GAMMA) |
+
+### Other
+
+* Drop Shadow draws outside the selection (FX_FLAG_NO_SEL_CLIP) with the
+  selected object as its source, and its Color is RGB only.
+* Auto-Level's histogram follows the selection mask (coverage >= 128), so it
+  equals the Levels Auto button on any selection (the audit's ellipse case:
+  73 / 182 for both).

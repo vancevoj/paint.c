@@ -48,8 +48,35 @@ const char *pc_resample_name(pc_resample m);
 
 /* flags */
 #define PC_RESAMPLE_GAMMA 1u   /* filter colors in linear light (sRGB decoded
-                                  before, encoded after); alpha stays linear.
+                                  before, encoded after, or the curve given to
+                                  the _trc functions); alpha stays linear.
                                   The "Gamma Correction" checkbox. */
+
+/* ---- transfer curves (W3B-FXCORE) ---------------------------------------
+ * Linear light means the image profile's transfer curve when it has one
+ * (MENUS Resize: "sRGB transfer, or the image profile's"); paint.c keeps
+ * pixels in the image's own profile. Per channel in BGRA order:
+ *   dec[c][v]  255 * linear(v / 255), non-decreasing in v;
+ *   enc[c][i]  the code nearest (in code space) to linear i / 65535.
+ * About 200 KB: heap objects, owned by the caller, read-only once built
+ * (any number of threads may then share one). */
+typedef struct pc_trc {
+    float   dec[3][256];
+    uint8_t enc[3][65536];
+} pc_trc;
+
+#define PC_ICC_TRC_MAX_BYTES ((size_t)64 << 20)   /* larger profiles: PC_ERR_LIMIT */
+
+/* The sRGB curve (IEC 61966-2-1) on all channels; NULL on OOM. */
+pc_trc   *pc_trc_new_srgb(void);
+/* The curves of an ICC profile (untrusted bytes, borrowed): rTRC, gTRC and
+ * bTRC of an RGB matrix/TRC profile, or kTRC of a gray profile, as 'curv'
+ * (identity, gamma or table) or 'para' (types 0..4). *out is owned by the
+ * caller. PC_ERR_ARG, PC_ERR_LIMIT, PC_ERR_FORMAT (malformed, flat or
+ * decreasing curve), PC_ERR_UNSUPPORTED (other color spaces, LUT-based
+ * profiles without curve tags), PC_ERR_NOMEM. Callers fall back to sRGB. */
+pc_status pc_trc_new_icc(const uint8_t *icc, size_t len, pc_trc **out);
+void      pc_trc_free(pc_trc *t);                     /* NULL-safe */
 
 /* Read-only view of a tile grid (a layer grid or a selection grid). */
 typedef struct pc_grid {
@@ -82,6 +109,15 @@ pc_status pc_resample_surf(const pc_surf *src, pc_surf *dst, pc_resample mode,
 pc_status pc_resample_grid(const pc_grid *src, uint32_t dst_w, uint32_t dst_h,
                            pc_resample mode, uint32_t flags, const pc_par *par,
                            pc_tile ***out);
+
+/* W3B-FXCORE: the same with an explicit transfer curve for PC_RESAMPLE_GAMMA
+ * (borrowed for the call; NULL = sRGB, which is what the plain functions
+ * use). trc is ignored without the flag and for bpp 1 grids. */
+pc_status pc_resample_surf_trc(const pc_surf *src, pc_surf *dst, pc_resample mode,
+                               uint32_t flags, const pc_trc *trc, const pc_par *par);
+pc_status pc_resample_grid_trc(const pc_grid *src, uint32_t dst_w, uint32_t dst_h,
+                               pc_resample mode, uint32_t flags, const pc_trc *trc,
+                               const pc_par *par, pc_tile ***out);
 
 /* Release every tile of a grid of n slots and free the array. NULL-safe. */
 void      pc_grid_free(pc_tile **grid, size_t n);

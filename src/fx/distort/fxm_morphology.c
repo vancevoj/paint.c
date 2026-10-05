@@ -26,10 +26,12 @@ typedef struct morph_params {
 static const char *const k_modes[] = { "Erode", "Dilate", NULL };
 
 static const fx_prop k_props[] = {
+    /* W3B-FXCORE: Width and Height form a "link:linked" group (fx_run.h):
+     * with Linked on, editing either sets both (D51); both stay editable */
     { "width", "Width", FXP_INT, (uint32_t)offsetof(morph_params, width),
-      1.0, 100.0, 5.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      1.0, 100.0, 5.0, 1.0, NULL, "link:linked", 0u, 0u, NULL },
     { "height", "Height", FXP_INT, (uint32_t)offsetof(morph_params, height),
-      1.0, 100.0, 5.0, 1.0, NULL, NULL, 0u, 0u, "linked=0" },
+      1.0, 100.0, 5.0, 1.0, NULL, "link:linked", 0u, 0u, NULL },
     { "linked", "Linked", FXP_BOOL, (uint32_t)offsetof(morph_params, linked),
       0.0, 1.0, 1.0, 0.0, NULL, NULL, 0u, 0u, NULL },
     { "mode", "Mode", FXP_CHOICE, (uint32_t)offsetof(morph_params, mode),

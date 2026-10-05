@@ -19,6 +19,10 @@ uint32_t fxh_choice_count(const fx_prop *p);
  * (clamping, rounding). PC_ERR_ARG for NaN or for POINT and CUSTOM. */
 pc_status fxh_prop_set(const fx_prop *p, void *params, double v);
 
+/* W3B-FXCORE: false when prop i carries a "link:" or "minmax:" rule hint
+ * whose partner is missing or of the wrong kind (fxh_rules.c). */
+bool fxh_rules_ok(const fx_effect *fx, uint32_t i);
+
 /* Raw little helpers: unaligned-safe loads and stores into the blob. */
 static inline int32_t fxh_rd_i32(const void *params, uint32_t off)
 {

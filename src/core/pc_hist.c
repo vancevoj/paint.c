@@ -2,6 +2,7 @@
  * must not overflow the C stack). Apply == swap for every operation. */
 #include "pc/pc_hist.h"
 #include "pc/pc_txn.h"     /* pc_hist_bytes, pc_hist_prune_bytes (W1-L1b) */
+#include "pc_hist_int.h"   /* spill store hooks (W3B-FXCORE) */
 
 #include <stdlib.h>
 #include <string.h>
@@ -59,7 +60,23 @@ void pc_hist_destroy(pc_hist *h)
         free_node(n);
         n = p;
     }
+    pc_hist_spill_free(h->spill);     /* W3B-FXCORE: after every payload is gone */
     free(h);
+}
+
+/* ---- swaps with the spill store (W3B-FXCORE) ------------------------------
+ * Apply the edge of node n (undo or redo, the same swap). When the history
+ * has a spill store, tiles the swap brought into the document are read back
+ * at once; if that fails the swap is applied again (involution), so the
+ * document is unchanged and the caller reports failure. */
+static bool swap_edge(pc_hist *h, pc_hist_node *n)
+{
+    n->ops->swap(h->doc, n->payload);
+    if (h->spill && !pc_hist_spill_fault_doc(h)) {
+        n->ops->swap(h->doc, n->payload);
+        return false;
+    }
+    return true;
 }
 
 void pc_hist_link(pc_hist *h, pc_hist_node *n, const pc_hist_ops *ops,
@@ -83,7 +100,7 @@ bool pc_hist_undo(pc_hist *h)
     pc_hist_node *c = h->cur;
     PC_ASSERT(h->doc->open_txns == 0u);
     if (!c->parent) return false;
-    c->ops->swap(h->doc, c->payload);
+    if (!swap_edge(h, c)) return false;
     c->parent->redo_child = c;
     h->cur = c->parent;
     touch(h, h->cur);
@@ -96,7 +113,7 @@ bool pc_hist_redo(pc_hist *h)
                                          : h->cur->first_child;
     PC_ASSERT(h->doc->open_txns == 0u);
     if (!c) return false;
-    c->ops->swap(h->doc, c->payload);
+    if (!swap_edge(h, c)) return false;
     h->cur->redo_child = c;
     h->cur = c;
     touch(h, c);
@@ -114,8 +131,9 @@ static size_t depth_of(const pc_hist_node *n, const pc_hist_node **top)
 pc_status pc_hist_jump(pc_hist *h, pc_hist_node *target)
 {
     const pc_hist_node *top = NULL;
-    pc_hist_node *x, *y, **path = NULL;
-    size_t dx, dy, down = 0;
+    pc_hist_node *x, *y, **path = NULL, **saved = NULL;
+    size_t dx, dy, down = 0, up = 0, done_up = 0, done_down = 0, bytes, k;
+    bool ok = true;
 
     if (!h || !target) return PC_ERR_ARG;
     dy = depth_of(target, &top);
@@ -125,25 +143,52 @@ pc_status pc_hist_jump(pc_hist *h, pc_hist_node *target)
     /* find the lowest common ancestor without mutating anything */
     x = h->cur; y = target;
     while (dy > dx) { y = y->parent; dy--; down++; }
-    while (dx > dy) { x = x->parent; dx--; }
-    while (x != y) { x = x->parent; y = y->parent; down++; }
+    while (dx > dy) { x = x->parent; dx--; up++; }
+    while (x != y) { x = x->parent; y = y->parent; down++; up++; }
 
-    if (down) {
-        size_t bytes;
-        if (!pc_mul_size(down, sizeof *path, &bytes)) return PC_ERR_LIMIT;
+    /* path[0 .. up) are the nodes undone (from cur upwards), path[up ..
+     * up + down) the nodes redone (from below the ancestor to target), and
+     * saved[] the redo choices of their parents, so a jump that fails to
+     * read spilled tiles (W3B-FXCORE) can return exactly where it began */
+    k = up + down;
+    if (k) {
+        if (!pc_mul_size(k, 2u * sizeof *path, &bytes)) return PC_ERR_LIMIT;
         path = (pc_hist_node **)malloc(bytes);
         if (!path) return PC_ERR_NOMEM;             /* nothing changed yet */
+        saved = path + k;
+        y = h->cur;
+        for (size_t i = 0; i < up; i++) { path[i] = y; y = y->parent; }
         y = target;
-        for (size_t i = down; i > 0; i--) { path[i - 1u] = y; y = y->parent; }
+        for (size_t i = down; i > 0; i--) { path[up + i - 1u] = y; y = y->parent; }
+        for (size_t i = 0; i < k; i++) saved[i] = path[i]->parent->redo_child;
     }
-    while (h->cur != x) (void)pc_hist_undo(h);
-    for (size_t i = 0; i < down; i++) {
-        pc_hist_node *n = path[i];
+    for (; done_up < up && ok; done_up++) ok = pc_hist_undo(h);
+    if (!ok) done_up--;                              /* the failed undo changed nothing */
+    for (; ok && done_down < down; done_down++) {
+        pc_hist_node *n = path[up + done_down];
         PC_ASSERT(n->parent == h->cur);
+        if (!swap_edge(h, n)) { ok = false; break; }
         h->cur->redo_child = n;
-        n->ops->swap(h->doc, n->payload);
         h->cur = n;
         touch(h, n);
+    }
+    if (!ok) {
+        /* walk back: every tile moving now was resident before, so these
+         * swaps never need the store */
+        while (done_down > 0u) {
+            pc_hist_node *n = path[up + --done_down];
+            n->ops->swap(h->doc, n->payload);
+            h->cur = n->parent;
+        }
+        while (done_up > 0u) {
+            pc_hist_node *n = path[--done_up];
+            PC_ASSERT(n->parent == h->cur);
+            n->ops->swap(h->doc, n->payload);
+            h->cur = n;
+        }
+        for (size_t i = 0; i < k; i++) path[i]->parent->redo_child = saved[i];
+        free(path);
+        return pc_hist_spill_last_error(h);
     }
     free(path);
     return PC_OK;
@@ -244,19 +289,14 @@ static void layer_toggle_destroy(void *p)
     free(t);
 }
 
-/* Bytes of a layer's tiles, each counted as tile_bytes / refs (W1-L1b). */
+/* Bytes of a layer's tiles, each counted as tile_bytes / refs (W1-L1b);
+ * W3B-FXCORE: through pc_hist_tile_share (spilled tiles count 0). */
 static size_t layer_tile_bytes(const pc_layer *l)
 {
     size_t b = 0, n;
     if (!l) return 0u;
     n = (size_t)l->tiles_x * l->tiles_y;
-    for (size_t i = 0; i < n; i++) {
-        pc_tile *t = l->grid[i];
-        if (t) {
-            uint32_t r = pc_tile_refs(t);
-            b += pc_tile_bytes(t->bpp) / (r ? r : 1u);
-        }
-    }
+    for (size_t i = 0; i < n; i++) b += pc_hist_tile_share(l->grid[i]);
     return b;
 }
 
@@ -435,4 +475,35 @@ void pc_hist_prune_bytes(pc_hist *h, size_t max_bytes)
         }
         if (!progress || pc_hist_bytes(h) <= max_bytes) break;
     }
+}
+
+/* ---- tile accounting and the spill scan hook (W3B-FXCORE) ----------------
+ * The spill store sets the hook while it measures one node's payload, so
+ * every tile a payload (or a wrapper around payloads) counts is reported
+ * to it. Main thread only, like pc_hist_bytes. */
+static pc_hist_tile_fn g_scan_fn;
+static void           *g_scan_ud;
+
+void pc_hist_scan_hook(pc_hist_tile_fn fn, void *ud)
+{
+    g_scan_fn = fn;
+    g_scan_ud = ud;
+}
+
+size_t pc_hist_tile_share(pc_tile *t)
+{
+    uint32_t r;
+    if (!t) return 0u;
+    if (g_scan_fn) g_scan_fn(g_scan_ud, t);
+    if (t->flags & PC_TILE_SPILLED) return 0u;
+    r = pc_tile_refs(t);
+    return pc_tile_bytes(t->bpp) / (r ? r : 1u);
+}
+
+size_t pc_hist_tile_exclusive(pc_tile *t)
+{
+    if (!t) return 0u;
+    if (g_scan_fn) g_scan_fn(g_scan_ud, t);
+    if (t->flags & PC_TILE_SPILLED) return 0u;
+    return pc_tile_refs(t) == 1u ? pc_tile_bytes(t->bpp) : 0u;
 }

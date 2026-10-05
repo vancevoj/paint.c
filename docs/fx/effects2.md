@@ -191,8 +191,9 @@ square holds one site whose position inside the square is hashed from
 (square, seed). Each pixel takes the color of the source pixel under its
 nearest site (5 x 5 candidate squares make the search exact), so cells are
 convex polygons colored from the image. Quality supersamples the cell
-borders. Randomize moves the sites (new shapes and colors). A flat image stays
-flat; at Quality 1 every output color is a source color.
+borders, averaged in linear light (W3B-FXCORE; 5.0.4 lists Crystalize among
+the linear-gamma effects). Randomize moves the sites (new shapes and colors).
+A flat image stays flat; at Quality 1 every output color is a source color.
 
 ### Dents
 
@@ -237,14 +238,18 @@ exponent of the scatter distance: the distance is
 sqrt(min^2 + (max^2 - min^2) * u^(1 / Diffusion)) for a uniform u, so 1
 spreads the samples evenly over the ring area, larger values push them
 outwards (more scattering) and smaller values pull them inwards. Both radii 0
-is the identity; if the minimum exceeds the maximum they are swapped.
+is the identity. W3B-FXCORE: samples are taken and averaged in linear light
+(5.0.4 list), and Minimum is a soft lower bound of Maximum (`minmax:` rule,
+3.36 SoftMutuallyBoundMinMaxRule, O52): raising Minimum above Maximum pushes
+Maximum up in the dialog, and a pair that breaks it (preset, script) renders
+as that collapsed ring (Min 10, Max 3 scatters at radius 10).
 
 ### Morphology
 
 | Key | Label | Kind | Range | Default |
 |---|---|---|---|---|
 | width | Width | int | 1 .. 100 | 5 |
-| height | Height | int | 1 .. 100 (enabled when Linked is off) | 5 |
+| height | Height | int | 1 .. 100 (with Width a `link:linked` group) | 5 |
 | linked | Linked | bool | off, on | on |
 | mode | Mode | choice | Erode, Dilate | Dilate |
 
@@ -256,6 +261,8 @@ pixels in the window; the window is clipped to the image. Separable van Herk /
 Gil-Werman running extrema make the cost independent of the size; scratch
 memory is bounded by 64-row bands. On opaque images
 dilate(I) == invert(erode(invert(I))) exactly (tested on random binary images).
+W3B-FXCORE: while Linked is on, editing either Width or Height sets both
+(D51 "forced to the same value"); both stay editable, as in the 5.2 dialog.
 
 ### Pixelate
 
@@ -307,7 +314,7 @@ Wrap). Scale 0 is the identity.
 | Key | Label | Kind | Range | Default |
 |---|---|---|---|---|
 | angle | Angle | angle | -180 .. 180 | 30 |
-| tile_size | Tile Size | real | 1 .. 1600 | 40 |
+| tile_size | Tile Size | real, sqrt slider (W3B-FXCORE, measured) | 1 .. 1600 | 40 |
 | curvature | Curvature | real | -200 .. 200 | 8 |
 | edge | Edge Behavior | choice | Clamp, Wrap, Reflect, Transparent | Reflect |
 | quality | Quality | int | 1 .. 8 | 1 |
@@ -337,8 +344,10 @@ from the API reference. Amount 0 is the identity.
 
 All object effects treat the layer's alpha as the object (an object is pixels
 surrounded by transparency). Paint.NET 5 lets effects draw outside the
-selection (DisableSelectionClipping); the fx ABI v1 clips every effect to the
-selection, so a shadow or outline is drawn only inside the selection bounds.
+selection (DisableSelectionClipping); ABI v1.1 has FX_FLAG_NO_SEL_CLIP for
+that (ADR-015). W3B-FXCORE: Drop Shadow uses it (the host renders the whole
+layer and applies no selection mask); Outline Object and Feather Object are
+still clipped to the selection.
 
 ### Drop Shadow
 
@@ -348,20 +357,26 @@ selection, so a shadow or outline is drawn only inside the selection bounds.
 | distance | Distance | real | 0 .. 100 | 10 |
 | angle | Angle | angle | -180 .. 180 | -45 |
 | opacity | Opacity | real | 0 .. 1 | 0.75 |
-| color | Color | color | 0xAARRGGBB | 0xFF000000 (black) |
+| color | Color | color, RGB only (FXP_F_COLOR_NO_ALPHA) | 0x..RRGGBB | 0xFF000000 (black) |
 | only_shadow | Only Draw Shadow | bool | off, on | off |
 
 Ranges and defaults from the API reference (blur radius 0..300 default 10,
 distance 10, angle -45, black at 75 % opacity) and the dialog screenshot
-(Opacity is a 0..1 slider, Distance 0..100). prepare() moves the layer alpha
-Distance pixels in the direction Angle (counter-clockwise from +x, so -45
-casts down and to the right; fractional offsets are bilinear), blurs it with a
-Gaussian of standard deviation Shadow Radius / 3 over the selection plus the
-blur margin, and keeps the field for the selection. Each pixel's shadow is
-Color with alpha Color.alpha * Opacity * field (Paint.NET's color has no
-alpha control; ours also scales); the layer is then composited over the
-shadow (Normal), or the shadow alone is written when Only Draw Shadow is on.
-Tested: a hard shadow of an opaque square lands exactly at the offset with
+(Opacity is a 0..1 slider, Distance 0..100). W3B-FXCORE: the object is the
+selected part of the layer (alpha times the selection coverage,
+`env->sel_mask`). prepare() moves it Distance pixels in the direction Angle
+(counter-clockwise from +x, so -45 casts down and to the right; fractional
+offsets are bilinear) and blurs it with a Gaussian of standard deviation
+Shadow Radius / 3 over the shifted object bounds plus the blur reach,
+anywhere on the layer (FX_FLAG_NO_SEL_CLIP: the shadow lands outside the
+selection, R 5.0 "draws outside the selection/object"). Each pixel's shadow
+is Color with alpha Opacity * field (the color is RGB only, as in the 5.2
+dialog; a stored alpha is ignored). Everywhere the layer's pixels are
+composited over the shadow, so it falls behind existing pixels; with Only
+Draw Shadow the selected object is removed (inside the selection only the
+shadow remains, blended by the coverage at antialiased edges; unselected
+pixels stay). Compositing is in linear light (5.0.4 lists Drop Shadow among
+the linear-gamma effects). Tested: a hard shadow of an opaque square lands exactly at the offset with
 the chosen color and opacity.
 
 ### Outline Object (extra)
@@ -423,8 +438,10 @@ FX_COLOR_SECONDARY defaults the host fills them from the palette.
 Factor fills alpha, then red, green and blue in 256-wide steps (low Factor is
 dark and mostly transparent, high Factor vivid), positions normalized by the
 selection height and rotated by Angle, with the 3.36 sub-sample pattern. As
-documented for 5.x, Quality q takes q^2 samples (3.36: q^2 + 1, q <= 5).
-Default blend Overwrite (screenshot): the fractal replaces the layer,
+documented for 5.x, Quality q takes q^2 samples (3.36: q^2 + 1, q <= 5);
+with q > 1 their colors are averaged in linear light, premultiplied
+(W3B-FXCORE, 5.0.4 list; alpha keeps the 3.36 integer mean). Default blend
+Overwrite (screenshot): the fractal replaces the layer,
 transparent outside the set.
 
 ### Mandelbrot Fractal
@@ -441,7 +458,8 @@ transparent outside the set.
 3.36 algorithm: centered on (-0.7, -0.29), zoom 1 + 20 * Zoom, iteration
 limit 1024 / Factor, smooth coloring 64 + Factor * m spread over alpha, blue,
 green and red; Invert Colors inverts the color channels of the fractal before
-blending. Factor is real and Quality takes q^2 samples (5.x API reference).
+blending. Factor is real and Quality takes q^2 samples (5.x API reference),
+averaged in linear light for q > 1 as in Julia Fractal (W3B-FXCORE).
 Two exact fast paths skip the iteration for orbits that cannot escape (points
 well inside the main cardioid or the period-2 bulb, and orbits that repeat an
 exact value, found with Brent's cycle check): every orbit that does not
@@ -619,8 +637,8 @@ in Release and a few seconds under ASan+UBSan):
   the 3.36 math is used here, with the 5.x controls.
 * Blend lists hold the 14 pc_blend modes plus Overwrite; Paint.NET 5 offers
   more modes for its render effects that pc_blend does not define.
-* Drop Shadow and the object extras cannot draw outside the selection
-  (fx ABI v1 clipping).
+* Outline Object and Feather Object stay clipped to the selection (Drop
+  Shadow draws outside it since W3B-FXCORE).
 * The ranges and defaults measured from screenshots in wave 1 were checked
   against the running Paint.NET 5.2 beta (docs/inventory/OBSERVED.md) and
   corrected where they differed (docs/fx/parity.md). The chosen filters

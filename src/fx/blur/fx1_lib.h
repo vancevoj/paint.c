@@ -18,6 +18,7 @@
 #define FX1_LIB_H
 
 #include "fx/fx_util.h"
+#include "../fx_srgb.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -69,6 +70,22 @@ static inline void fx1_acc_px(fx1_acc *s, fx_px p, float wt)
  * the alpha rounds to 0. */
 fx_px fx1_acc_get(const fx1_acc *s);
 
+/* W3B-FXCORE: the same accumulation in linear light (gamma-correct). Paint.NET
+ * 5.0.4 renders Fragment, Motion, Radial and Zoom Blur and Straighten with
+ * linear gamma: colors are decoded with the sRGB transfer (fx_srgb.h) before
+ * weighting, so b, g, r hold "linear value (0..1) * alpha" sums, and the
+ * average is encoded back. Use the _lin functions for every tap of one
+ * accumulator; never mix them with the gamma-encoded ones. */
+static inline void fx1_acc_px_lin(fx1_acc *s, fx_px p, float wt)
+{
+    float aw = (float)p.a * wt;
+    s->b += (float)fxl_lin_tab[p.b] * aw;
+    s->g += (float)fxl_lin_tab[p.g] * aw;
+    s->r += (float)fxl_lin_tab[p.r] * aw;
+    s->a += aw;
+}
+fx_px fx1_acc_get_lin(const fx1_acc *s);
+
 /* Edge behaviors for samplers (Motion Blur offers all four). */
 enum { FX1_EDGE_CLAMP = 0, FX1_EDGE_WRAP = 1, FX1_EDGE_MIRROR = 2, FX1_EDGE_TRANSPARENT = 3 };
 
@@ -81,12 +98,21 @@ void fx1_acc_bilinear(fx1_acc *s, const fx_img *im, double sx, double sy, float 
  * lies outside [x0, x1 - 1] x [y0, y1 - 1] of the image, as the 3.36 blurs
  * did; returns 1 when the sample was added. */
 int fx1_acc_bilinear_inside(fx1_acc *s, const fx_img *im, double sx, double sy, float wt);
+/* Linear-light versions of the two (W3B-FXCORE, see fx1_acc_px_lin). */
+void fx1_acc_bilinear_lin(fx1_acc *s, const fx_img *im, double sx, double sy, float wt,
+                          int mode);
+int  fx1_acc_bilinear_inside_lin(fx1_acc *s, const fx_img *im, double sx, double sy,
+                                 float wt);
 
 /* Catmull-Rom bicubic sample (premultiplied, edge clamped). */
 fx_px fx1_sample_bicubic(const fx_img *im, double sx, double sy);
 /* Nearest and bilinear (edge clamped) samples at pixel index coordinates. */
 fx_px fx1_sample_nearest(const fx_img *im, double sx, double sy);
 fx_px fx1_sample_bilinear(const fx_img *im, double sx, double sy);
+/* Linear-light bilinear and Catmull-Rom samples (W3B-FXCORE): premultiplied
+ * linear interpolation, encoded back; the cubic's overshoot is clamped. */
+fx_px fx1_sample_bilinear_lin(const fx_img *im, double sx, double sy);
+fx_px fx1_sample_bicubic_lin(const fx_img *im, double sx, double sy);
 
 /* ---- Paint.NET 3.36 style pixel operations ------------------------------- */
 /* UserBlendOps of 3.36: lhs is the lower layer, rhs the upper one. Full

@@ -31,7 +31,7 @@ static const fx_prop k_props[] = {
     { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(tile_params, angle),
       -180.0, 180.0, 30.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "tile_size", "Tile Size", FXP_REAL, (uint32_t)offsetof(tile_params, tile_size),
-      1.0, 1600.0, 40.0, 0.01, NULL, NULL, 0u, 0u, NULL },
+      1.0, 1600.0, 40.0, 0.01, NULL, NULL, 0u, FXP_F_SLIDER_LOG, NULL },  /* O-UI-NONLIN */
     { "curvature", "Curvature", FXP_REAL, (uint32_t)offsetof(tile_params, curvature),
       -200.0, 200.0, 8.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "edge", "Edge Behavior", FXP_CHOICE, (uint32_t)offsetof(tile_params, edge),

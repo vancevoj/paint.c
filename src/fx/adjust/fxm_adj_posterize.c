@@ -3,9 +3,10 @@
  * Layout of the Paint.NET 5 dialog (documentation screenshot): a check box
  * and a 2..64 level slider for each of Red, Green, Blue and Alpha (all
  * checked, 16 levels by default) and a Linked check box (checked). An
- * unchecked channel is left unchanged. With Linked, the Red slider drives
- * every channel (the other sliders are disabled through enabled_if, since
- * the parameter schema cannot move sliders together).
+ * unchecked channel is left unchanged. With Linked, the four level sliders
+ * move together (fx_run.h "link:" rule, applied by the dialog); params that
+ * still differ (scripts, presets) render with Red for every channel, the
+ * value the rule's initial sync picks.
  * The level tables are the Paint.NET 3.36 (MIT, Ed Harvey)
  * PosterizePixelOp.CalcLevels tables, bit-exact; 0 and 255 always map to
  * themselves. See docs/notice/l5a.md and docs/fx/adjustments.md. */
@@ -70,15 +71,18 @@ static int render(const void *params, const void *state, const fx_img *src, fx_i
 #define PZ_ON(key, label, field) \
     { key, label, FXP_BOOL, (uint32_t)offsetof(pz_params, field), 0.0, 1.0, 1.0, 0.0, NULL, \
       NULL, 0u, 0u, NULL }
-#define PZ_LEVELS(key, field, cond) \
+/* W3B-FXCORE: the four levels form one "link:linked" group (fx_run.h): with
+ * Linked on, editing any of them moves all four (O52, D51), as the 3.36
+ * LinkValuesBasedOnBooleanRule did for R, G and B. */
+#define PZ_LEVELS(key, field) \
     { key, "", FXP_INT, (uint32_t)offsetof(pz_params, field), 2.0, 64.0, 16.0, 1.0, NULL, \
-      NULL, 0u, 0u, cond }
+      "link:linked", 0u, 0u, NULL }
 
 static const fx_prop k_props[] = {
-    PZ_ON("red_on", "Red", red_on),       PZ_LEVELS("red", red, NULL),
-    PZ_ON("green_on", "Green", green_on), PZ_LEVELS("green", green, "linked=0"),
-    PZ_ON("blue_on", "Blue", blue_on),    PZ_LEVELS("blue", blue, "linked=0"),
-    PZ_ON("alpha_on", "Alpha", alpha_on), PZ_LEVELS("alpha", alpha, "linked=0"),
+    PZ_ON("red_on", "Red", red_on),       PZ_LEVELS("red", red),
+    PZ_ON("green_on", "Green", green_on), PZ_LEVELS("green", green),
+    PZ_ON("blue_on", "Blue", blue_on),    PZ_LEVELS("blue", blue),
+    PZ_ON("alpha_on", "Alpha", alpha_on), PZ_LEVELS("alpha", alpha),
     PZ_ON("linked", "Linked", linked),
 };
 

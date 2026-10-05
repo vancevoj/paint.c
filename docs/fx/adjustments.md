@@ -45,7 +45,7 @@ The shortcuts are listed for the app's keymap; effects do not carry them.
 | | lightness | INT | -100..100 | 0 | |
 | Posterize | red_on, green_on, blue_on, alpha_on | BOOL | | 1 | labels Red, Green, Blue, Alpha; unchecked channels are left alone |
 | | red, green, blue, alpha | INT | 2..64 | 16 | levels; empty label (the check box above names it) |
-| | linked | BOOL | | 1 | Red drives every channel; green, blue and alpha sliders have `enabled_if = "linked=0"` |
+| | linked | BOOL | | 1 | the four level sliders are one `link:linked` group (fx_run.h property rules, W3B-FXCORE): while on, editing any of them sets all four; they stay editable |
 | Sepia | intensity | INT | 0..100 | 50 | |
 | Exposure | exposure | INT | -200..200 | 0 | hundredths of a stop; empty label (5.2 dialog) |
 | Highlights / Shadows | highlights | INT | -100..100 | 0 | |
@@ -111,8 +111,10 @@ time `k += n` passes 255. 0 and 255 always map to themselves and a full ramp
 produces exactly `n` values. The 5.x dialog has a check box per channel
 (Red, Green, Blue, Alpha) and a Linked box, all checked in the documentation
 screenshot, which we take as the defaults; so by default alpha is
-posterized to 16 levels as well (alpha 0 and 255 never change). Linked uses
-Red's value for every checked channel.
+posterized to 16 levels as well (alpha 0 and 255 never change). Linked keeps
+the four values equal in the dialog (the member edited last wins, 3.36
+LinkValuesBasedOnBooleanRule); params that still differ (scripts, presets)
+render with Red's value for every checked channel.
 
 **Sepia (3.36 gammas, 5.2 rounding).** With the continuous luma
 `Y = (299 R + 587 G + 114 B) / 1000` and `t = Y / 255`:
@@ -136,7 +138,9 @@ histogram), `fx_levels_lut`, `fx_levels_edit` (3.36 UpdateByMask logic:
 setting a control on the checked channels keeps their relative offsets).
 
 **Auto-Level (3.36).** `prepare()` builds the B, G, R histogram of the
-selection bounds, then per channel `lo` = first value whose running count
+selection (W3B-FXCORE: through `env->sel_mask` with coverage >= 128, the
+rule of the Levels dialog's Auto button, `fx_levels_histogram_masked`; hosts
+without a mask give the bounds), then per channel `lo` = first value whose running count
 exceeds 0.5 % of the total, `hi` the same at 99.5 % (compared in single
 precision like the C# code), `md` = mean rounded, and gamma
 `log(0.5) / log((md - lo) / (hi - lo))` clamped to 0.1..10 when
@@ -215,8 +219,6 @@ the repository (P-02); only these measurements are recorded.
 
 ## Known gaps
 
-* Auto-Level computes its histogram over the selection bounds; Paint.NET
-  uses the exact selection shape. `fx_env` only carries bounds in ABI v1.
 * Exposure, Highlights / Shadows and Temperature / Tint are calibrated on a
   single JPEG pair each; the tint strength needs a Paint.NET 5.1.12 golden
   corpus to confirm (ADR-009). Ranges and defaults now follow the 5.2

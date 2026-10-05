@@ -235,6 +235,19 @@ static uint8_t ref_trunc(double v)
     return (uint8_t)(int)v;
 }
 
+/* IEC 61966-2-1 transfer, evaluated directly (independent of fx_srgb.c). */
+static double ref_lin(int32_t c)
+{
+    double v = (double)c / 255.0;
+    return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4);
+}
+static uint8_t ref_enc(double l)
+{
+    double v = l <= 0.0031308 ? l * 12.92 : 1.055 * pow(l, 1.0 / 2.4) - 0.055;
+    v = floor(v * 255.0 + 0.5);
+    return (uint8_t)(v < 0.0 ? 0.0 : (v > 255.0 ? 255.0 : v));
+}
+
 static void t_mandelbrot_reference(void)
 {
     const fx_effect *fx = t_find("org.paintc.render.mandelbrot_fractal");
@@ -262,6 +275,7 @@ static void t_mandelbrot_reference(void)
         for (y = 0; y < 30; y++)
             for (x = 0; x < 40; x++) {
                 int32_t r = 0, g = 0, b = 0, a = 0;
+                double lr = 0.0, lg = 0.0, lb = 0.0;
                 fx_px o, q = *t_at(&c.out, x, y);
                 for (i = 0; i < count; i++) {
                     double fi = (double)i;
@@ -271,13 +285,23 @@ static void t_mandelbrot_reference(void)
                     double up = radius * cos(theta), vp = radius * sin(theta);
                     double m = ref_mandel(up * inv_zoom + -0.7, vp * inv_zoom + -0.29, factor);
                     double cc = 64.0 + (double)factor * m;
-                    r += ref_trunc(cc - 768.0);
-                    g += ref_trunc(cc - 512.0);
-                    b += ref_trunc(cc - 256.0);
-                    a += ref_trunc(cc);
+                    int32_t sr = ref_trunc(cc - 768.0), sg = ref_trunc(cc - 512.0);
+                    int32_t sb = ref_trunc(cc - 256.0), sa = ref_trunc(cc);
+                    r += sr;
+                    g += sg;
+                    b += sb;
+                    a += sa;
+                    lr += ref_lin(sr) * (double)sa;
+                    lg += ref_lin(sg) * (double)sa;
+                    lb += ref_lin(sb) * (double)sa;
                 }
                 o = fx_px_make((uint8_t)(r / count), (uint8_t)(g / count), (uint8_t)(b / count),
                                (uint8_t)(a / count));
+                if (count > 1 && a > 0) {        /* W3B-FXCORE: linear-light mean (R 5.0.4) */
+                    o.r = ref_enc(lr / (double)a);
+                    o.g = ref_enc(lg / (double)a);
+                    o.b = ref_enc(lb / (double)a);
+                }
                 if (o.a == 0) o = fx_px_make(0, 0, 0, 0);
                 if (!t_px_eq(o, q)) bad++;
                 if (t_px_eq(q, fx_px_make(255, 255, 255, 255))) inside++;

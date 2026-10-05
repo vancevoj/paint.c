@@ -142,8 +142,12 @@ static void t_catalog(void)
     check_prop(E(ID_POST), "green_on", FXP_BOOL, 0, 1, 1);
     check_prop(E(ID_POST), "blue_on", FXP_BOOL, 0, 1, 1);
     check_prop(E(ID_POST), "alpha_on", FXP_BOOL, 0, 1, 1);
+    /* W3B-FXCORE: the levels are one "link:linked" group that stays editable
+     * (O52: linked edits move all four sliders), not disabled followers */
     p = fx_prop_find(E(ID_POST), "green");
-    CHECK(p && p->enabled_if && strcmp(p->enabled_if, "linked=0") == 0);
+    CHECK(p && !p->enabled_if && p->hint && strcmp(p->hint, "link:linked") == 0);
+    p = fx_prop_find(E(ID_POST), "red");
+    CHECK(p && !p->enabled_if && p->hint && strcmp(p->hint, "link:linked") == 0);
     check_prop(E(ID_SEPIA), "intensity", FXP_INT, 0, 100, 50);
     check_prop(E(ID_EXPO), "exposure", FXP_INT, -200, 200, 0);
     check_prop(E(ID_HLSH), "shadows", FXP_INT, -100, 100, 0);

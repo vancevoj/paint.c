@@ -369,13 +369,12 @@ static size_t sel_op_bytes(const void *p)
     if (o->whole) {
         if (o->grid) {
             b += o->n_slots * sizeof *o->grid;
-            for (size_t i = 0; i < o->n_slots; i++)
-                if (o->grid[i] && pc_tile_refs(o->grid[i]) == 1u) b += pc_tile_bytes(1u);
+            /* W3B-FXCORE: through pc_hist_tile_exclusive (spill accounting) */
+            for (size_t i = 0; i < o->n_slots; i++) b += pc_hist_tile_exclusive(o->grid[i]);
         }
     } else {
         b += o->n * sizeof o->v[0];
-        for (size_t i = 0; i < o->n; i++)
-            if (o->v[i].t && pc_tile_refs(o->v[i].t) == 1u) b += pc_tile_bytes(1u);
+        for (size_t i = 0; i < o->n; i++) b += pc_hist_tile_exclusive(o->v[i].t);
     }
     return b;
 }
@@ -794,7 +793,11 @@ static void poly_fill(void *ud, pc_rect r, uint8_t *dst, size_t stride)
         m.y = y0;
         m.h = y1 - y0;
         p->band.y = y0;
-        if (p->st == PC_OK) p->st = pc_raster_fill(p->r, &m, p->rule, p->aa);
+        /* W3B-FXCORE: antialiased selections use Paint.NET's 4 x 4
+         * supersampled coverage (17 levels, T-SEL-QUALITY), not exact area */
+        if (p->st == PC_OK)
+            p->st = p->aa ? pc_raster_fill_ss4(p->r, &m, p->rule)
+                          : pc_raster_fill(p->r, &m, p->rule, false);
         if (p->st != PC_OK) memset(p->band.px, 0, (size_t)p->band.stride * PC_TILE_DIM);
         p->band_ty = ty;
     }

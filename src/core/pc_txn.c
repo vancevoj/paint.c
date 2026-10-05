@@ -40,18 +40,14 @@ static void delta_destroy(void *p)
     free(td);
 }
 
-/* Shared tiles count as bytes / refs per holder (see pc_hist_bytes). */
+/* Shared tiles count as bytes / refs per holder (see pc_hist_bytes);
+ * W3B-FXCORE: through pc_hist_tile_share (spilled tiles count 0, and the
+ * spill store finds history tiles through it). */
 static size_t delta_bytes(const void *p)
 {
     const pc_tile_delta *td = (const pc_tile_delta *)p;
     size_t b = sizeof *td + td->n * sizeof td->v[0];
-    for (size_t i = 0; i < td->n; i++) {
-        pc_tile *t = td->v[i].t;
-        if (t) {
-            uint32_t r = pc_tile_refs(t);
-            b += pc_tile_bytes(t->bpp) / (r ? r : 1u);
-        }
-    }
+    for (size_t i = 0; i < td->n; i++) b += pc_hist_tile_share(td->v[i].t);
     return b;
 }
 

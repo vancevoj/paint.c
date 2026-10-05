@@ -12,6 +12,9 @@
  * values pull them inwards. Default Maximum Scatter Radius 3 and two-decimal
  * radii as the Paint.NET 5.2 dialog shows (an earlier reading of the 5.0-era
  * documentation screenshot gave 5; see docs/fx/parity.md).
+ * Minimum is a soft lower bound of Maximum (fx_run.h "minmax:" rule).
+ * W3B-FXCORE: samples are taken and averaged in linear light (Paint.NET
+ * 5.0.4 lists Frosted Glass among the effects rendering with linear gamma).
  */
 #include "fx2_common.h"
 
@@ -28,8 +31,8 @@ static const fx_prop k_props[] = {
       (uint32_t)offsetof(frost_params, max_radius), 0.0, 500.0, 3.0, 0.01, NULL, NULL, 0u,
       FXP_F_SLIDER_LOG, NULL },
     { "min_radius", "Minimum Scatter Radius", FXP_REAL,
-      (uint32_t)offsetof(frost_params, min_radius), 0.0, 500.0, 0.0, 0.01, NULL, NULL, 0u,
-      FXP_F_SLIDER_LOG, NULL },
+      (uint32_t)offsetof(frost_params, min_radius), 0.0, 500.0, 0.0, 0.01, NULL,
+      "minmax:max_radius", 0u, FXP_F_SLIDER_LOG, NULL },   /* soft min of max (W3B-FXCORE) */
     { "diffusion", "Diffusion", FXP_REAL, (uint32_t)offsetof(frost_params, diffusion),
       0.01, 3.0, 1.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "smoothness", "Smoothness", FXP_INT, (uint32_t)offsetof(frost_params, smoothness),
@@ -51,9 +54,12 @@ static int frost_render(const void *params, const void *state, const fx_img *src
     uint32_t seed = (uint32_t)p->seed;
     int32_t n = fx2_int(p->smoothness, 1, 8), x, y, k, t;
     (void)state; (void)env;
-    if (rmin > half) rmin = half;                  /* 3.36: min <= half the image */
-    lo = rmin < rmax ? rmin : rmax;
-    hi = rmin < rmax ? rmax : rmin;
+    /* W3B-FXCORE: the dialog's soft min/max rule (raising Minimum above
+     * Maximum pushes Maximum up, O52 and 3.36 SoftMutuallyBoundMinMaxRule)
+     * applied here too, so params that break it (scripts, presets) give the
+     * same ring: Min 10 / Max 3 scatters at radius 10, not over 3..10 */
+    hi = rmax > rmin ? rmax : rmin;
+    lo = rmin > half ? half : rmin;                /* 3.36: min <= half the image */
     lo2 = lo * lo;
     span2 = hi * hi - lo2;
     for (y = roi.y; y < roi.y + roi.h; y++) {
@@ -77,9 +83,9 @@ static int frost_render(const void *params, const void *state, const fx_img *src
                     sy = (double)y + 0.5 + sin(ang) * dist;
                     if (sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1) break;
                 }
-                fx2_pxf_add(&acc, fx2_sample(src, sx, sy, FX2_EDGE_CLAMP));
+                fx2_pxf_add(&acc, fx2_sample_lin(src, sx, sy, FX2_EDGE_CLAMP));
             }
-            drow[x] = fx2_average(acc, n);
+            drow[x] = fx2_average_lin(acc, n);
         }
     }
     return FX_OK;

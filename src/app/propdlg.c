@@ -9,7 +9,8 @@
  *   CHOICE       "Label:" and a drop-down on one row
  *   COLOR        label, color wheel, R G B A channel bars with numbers, the
  *                swatch with hex entry and a reset button; FX_COLOR_PRIMARY /
- *                FX_COLOR_SECONDARY defaults follow the palette
+ *                FX_COLOR_SECONDARY defaults follow the palette; with
+ *                FXP_F_COLOR_NO_ALPHA (fx_abi_ext.h) no alpha bar, alpha 255
  *   ANGLE        label, dial with numeric box, reset button
  *   POINT        label, pan pad over a thumbnail of the selection, X and Y
  *                sliders with numeric boxes and reset buttons
@@ -21,6 +22,7 @@
  * (hue kept through grays) is per-app extension state ("propdlg.colors"). */
 #include "app_internal.h"
 #include "fx/afx.h"
+#include "fx/fx_abi_ext.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -268,6 +270,55 @@ static ui_color_edit *color_edit(app *a, const void *params, uint32_t offset, ui
     return &s->ce;
 }
 
+/* ---- property rules (W3B-FXCORE) ---------------------------------------------------------- */
+/* fx_props_rules keeps, per link group, the member edited last; that state
+ * lives as long as the dialog, so it is cached per (params blob, schema)
+ * like the color edit state ("propdlg.links") and forgotten when the slot
+ * missed a frame (a dialog that closed and opened again starts fresh, even
+ * when its new blob reuses the old address). */
+#define LINK_SLOTS 8
+#define LINK_PROPS 64u
+
+typedef struct link_slot {
+    const void    *params;
+    const fx_prop *props;
+    uint32_t       n;
+    uint64_t       frame;          /* last frame that used it */
+    uint32_t       last[LINK_PROPS];
+} link_slot;
+
+typedef struct link_cache { link_slot s[LINK_SLOTS]; } link_cache;
+
+static uint32_t *link_state(app *a, const fx_prop *props, const void *params, uint32_t n)
+{
+    link_cache *c = (link_cache *)app_ext_get(a, "propdlg.links");
+    link_slot *s = NULL;
+    if (n > LINK_PROPS) return NULL;                 /* rules then sync to the first member */
+    if (!c) {
+        c = (link_cache *)calloc(1u, sizeof *c);
+        if (c && !app_ext_set(a, "propdlg.links", c, free)) {
+            free(c);
+            c = NULL;
+        }
+        if (!c) return NULL;
+    }
+    for (int i = 0; i < LINK_SLOTS; i++)
+        if (c->s[i].params == params && c->s[i].props == props && c->s[i].n == n)
+            s = &c->s[i];
+    if (!s) {
+        memmove(&c->s[1], &c->s[0], (size_t)(LINK_SLOTS - 1) * sizeof c->s[0]);
+        s = &c->s[0];
+        memset(s, 0, sizeof *s);
+        s->params = params;
+        s->props = props;
+        s->n = n;
+    } else if (a->frame_no > s->frame + 1u) {
+        memset(s->last, 0, sizeof s->last);           /* a new dialog on an old address */
+    }
+    s->frame = a->frame_no;
+    return s->last;
+}
+
 /* ---- hit rectangles (tests aim synthetic input at them) ---------------------------------- */
 #define HIT_MAX 64
 
@@ -369,7 +420,8 @@ static bool reset_button(app *a, bool is_default, uint32_t dis)
 
 /* One slider row without a label: slider, numeric box, reset (pan axes and
  * props with an empty label, such as the Posterize levels under their
- * check boxes). flags: UI_SLIDER_LOG / UI_SLIDER_PERCENT / UI_DISABLED. */
+ * check boxes). flags: UI_SLIDER_LOG / UI_SLIDER_EXP / UI_SLIDER_PERCENT /
+ * UI_DISABLED. */
 static bool slider_row(app *a, const char *id, double *v, double lo, double hi, double def,
                        double step, int dec, uint32_t flags)
 {
@@ -383,7 +435,8 @@ static bool slider_row(app *a, const char *id, double *v, double lo, double hi, 
     ui_push_id(ui, id);
     ui_layout_row(ui, 0.0f, 3, cells);
     ch |= ui_slider_double(ui, "##s", v, lo, hi, step, flags);
-    ch |= ui_number_double(ui, "##n", v, lo, hi, step, dec, flags & ~UI_SLIDER_LOG);
+    ch |= ui_number_double(ui, "##n", v, lo, hi, step, dec,
+                           flags & ~(UI_SLIDER_LOG | UI_SLIDER_EXP));
     if (reset_button(a, fabs(*v - def) < 1e-9, dis)) {
         *v = def;
         ch = true;
@@ -413,7 +466,8 @@ static uint32_t reseed(const app_props_ctx *ctx)
 static bool w_color(app *a, const fx_prop *p, void *params, uint32_t dis)
 {
     ui_ctx *ui = a->ui;
-    uint32_t c = (uint32_t)app_prop_get(p, params), def;
+    bool rgb = (p->flags & FXP_F_COLOR_NO_ALPHA) != 0u;      /* W3B-FXCORE */
+    uint32_t c = (uint32_t)app_prop_get(p, params) | (rgb ? 0xFF000000u : 0u), def;
     ui_color_edit fallback, *ce = color_edit(a, params, p->offset, ui_argb32(c), &fallback);
     ui_size cells[2];
     bool changed = false;
@@ -423,6 +477,7 @@ static bool w_color(app *a, const fx_prop *p, void *params, uint32_t dis)
         q.offset = 0;
         afx_prop_reset(a, &q, tmp);
         memcpy(&def, tmp, sizeof def);
+        if (rgb) def |= 0xFF000000u;
     }
     header(a, p->label, dis);
     cells[0] = ui_size_px(124.0f);
@@ -439,15 +494,17 @@ static bool w_color(app *a, const fx_prop *p, void *params, uint32_t dis)
     if (dis) dim_last(a);
     changed |= ui_color_channel(ui, "##b", UI_CHAN_BLUE, ce);
     if (dis) dim_last(a);
-    changed |= ui_color_channel(ui, "##a", UI_CHAN_ALPHA, ce);
-    if (dis) dim_last(a);
+    if (!rgb) {
+        changed |= ui_color_channel(ui, "##a", UI_CHAN_ALPHA, ce);
+        if (dis) dim_last(a);
+    }
     {
         ui_size row[3];
         row[0] = ui_size_auto();
         row[1] = ui_size_fr(1.0f);
         row[2] = ui_size_px(ui_get_theme(ui)->m.control_h);
         ui_layout_row(ui, 0.0f, 3, row);
-        (void)ui_color_swatch(ui, "##swatch", ce->rgba, 0u);
+        (void)ui_color_swatch(ui, "##swatch", ce->rgba, rgb ? UI_SWATCH_NO_ALPHA : 0u);
         changed |= ui_color_hex(ui, "##hex", ce);
         if (dis) dim_last(a);
         if (reset_button(a, c == def, dis)) {
@@ -459,6 +516,11 @@ static bool w_color(app *a, const fx_prop *p, void *params, uint32_t dis)
     }
     ui_layout_end(ui);
     ui_layout_column(ui);
+    if (changed && rgb && ce->rgba.a != 255u) {      /* typed AARRGGBB: drop the alpha */
+        ui_color o = ce->rgba;
+        o.a = 255u;
+        ui_color_edit_set_rgba(ce, o);
+    }
     if (changed && !dis) {
         app_prop_set(p, params, (double)ui_color_argb32(ce->rgba));
         return true;
@@ -559,7 +621,12 @@ uint32_t afx_props_ui(app *a, const fx_prop *props, uint32_t n, void *params,
                       const app_props_ctx *ctx, const uint8_t *show)
 {
     ui_ctx *ui = a->ui;
-    uint32_t res = 0;
+    uint32_t res = 0, *links = NULL;
+    /* W3B-FXCORE: the link-rule state, touched every frame the dialog is
+     * drawn so it lives exactly as long as the dialog */
+    for (uint32_t i = 0; i < n && !links; i++)
+        if (fx_prop_link_source(props, n, i) != FX_RULE_NONE)
+            links = link_state(a, props, params, n);
     ui_push_id(ui, ctx && ctx->id ? ctx->id : "##props");
     for (uint32_t i = 0; i < n; i++) {
         const fx_prop *p = &props[i];
@@ -568,7 +635,10 @@ uint32_t afx_props_ui(app *a, const fx_prop *props, uint32_t n, void *params,
         if (show && !show[i]) continue;
         en = app_prop_enabled(props, n, p, params);
         dis = en ? 0u : UI_DISABLED;
-        sflags = ((p->flags & FXP_F_SLIDER_LOG) && p->min > 0.0 ? UI_SLIDER_LOG : 0u) |
+        /* W3B-FXCORE: FXP_F_SLIDER_LOG is Paint.NET's non-linear radius
+         * scale, which measures as a quadratic mapping for every range
+         * (O-UI-NONLIN), so it maps to UI_SLIDER_EXP, min > 0 or not */
+        sflags = ((p->flags & FXP_F_SLIDER_LOG) ? UI_SLIDER_EXP : 0u) |
                  ((p->flags & FXP_F_PERCENT) ? UI_SLIDER_PERCENT : 0u);
         ui_push_id(ui, p->key);
         switch (p->kind) {
@@ -655,6 +725,9 @@ uint32_t afx_props_ui(app *a, const fx_prop *props, uint32_t n, void *params,
         }
         ui_pop_id(ui);
         if (changed) {
+            /* W3B-FXCORE: linked values and soft min/max pairs follow the
+             * edit (fx_run.h property rules); they show from the next frame */
+            (void)fx_props_rules(props, n, params, i, links);
             res |= APP_PROPS_CHANGED;
             if (!(p->flags & FXP_F_NO_PREVIEW)) res |= APP_PROPS_PREVIEW;
         }

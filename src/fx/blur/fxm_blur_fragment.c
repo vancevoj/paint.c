@@ -8,6 +8,8 @@
  * the "improved rendering quality" of Paint.NET 5. Ranges are those of the
  * Paint.NET 5.2 dialog (Fragment Count 2..200, Distance 0..400; 3.36 had
  * 2..50 and 0..100), see docs/fx/parity.md.
+ * W3B-FXCORE: samples are averaged in linear light (fx1_acc_*_lin), as
+ * Paint.NET 5.0.4 lists this effect among those rendering with linear gamma.
  *
  * Thread rules: prepare computes the offset table; render is reentrant.
  */
@@ -82,9 +84,9 @@ static int frag_render(const void *params, const void *state, const fx_img *src,
             fx1_acc acc;
             fx1_acc_zero(&acc);
             for (i = 0; i < st->n; i++)
-                (void)fx1_acc_bilinear_inside(&acc, src, (double)x - st->ox[i],
-                                              (double)y - st->oy[i], 1.0f);
-            d[x] = fx1_acc_get(&acc);
+                (void)fx1_acc_bilinear_inside_lin(&acc, src, (double)x - st->ox[i],
+                                                  (double)y - st->oy[i], 1.0f);
+            d[x] = fx1_acc_get_lin(&acc);
         }
     }
     return FX_OK;

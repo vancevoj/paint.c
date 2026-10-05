@@ -454,6 +454,35 @@ static void start_run(app *a, afx_session *s)
 }
 
 /* ---- blending into the transaction -------------------------------------------------------- */
+/* W3B-FXCORE: FX_FLAG_NO_SEL_CLIP effects (Drop Shadow) render the whole
+ * layer, mostly unchanged. Blending only the part of r that differs from
+ * the source, or whose tiles an earlier preview already touched (those must
+ * be overwritten), keeps the untouched tiles shared instead of copying the
+ * whole layer into the transaction. Tile granularity; returns the bounding
+ * rectangle (empty: nothing to do). */
+static pc_rect needed_rect(const afx_session *s, const app_doc *d, pc_rect r)
+{
+    const afx_buf *b = s->buf;
+    pc_rect box = pc_rect_make(0, 0, 0, 0);
+    int32_t tx0 = r.x >> PC_TILE_SHIFT, ty0 = r.y >> PC_TILE_SHIFT;
+    int32_t tx1 = (r.x + r.w - 1) >> PC_TILE_SHIFT, ty1 = (r.y + r.h - 1) >> PC_TILE_SHIFT;
+    for (int32_t ty = ty0; ty <= ty1; ty++)
+        for (int32_t tx = tx0; tx <= tx1; tx++) {
+            pc_rect t = pc_rect_intersect(pc_rect_make(tx * (int32_t)PC_TILE_DIM,
+                                                       ty * (int32_t)PC_TILE_DIM,
+                                                       (int32_t)PC_TILE_DIM,
+                                                       (int32_t)PC_TILE_DIM), r);
+            uint32_t idx = (uint32_t)ty * d->doc->tiles_x + (uint32_t)tx;
+            bool need = pc_txn_lookup(d->txn, s->layer_id, idx, NULL, NULL);
+            for (int32_t y = t.y; y < t.y + t.h && !need; y++) {
+                size_t o = (size_t)y * (size_t)b->dst.stride + (size_t)t.x;
+                need = memcmp(b->dst.px + o, b->src.px + o, (size_t)t.w * sizeof(pc_px32)) != 0;
+            }
+            if (need) box = pc_rect_union(box, t);
+        }
+    return box;
+}
+
 static bool blend_rect(app *a, afx_session *s, app_doc *d, fx_rect fr, const pc_par *par)
 {
     afx_buf *b = s->buf;
@@ -462,6 +491,10 @@ static bool blend_rect(app *a, afx_session *s, app_doc *d, fx_rect fr, const pc_
     bool clip = b->has_sel && !(s->fx->flags & FX_FLAG_NO_SEL_CLIP);
     pc_status st;
     if (r.w <= 0 || r.h <= 0) return true;
+    if (s->fx->flags & FX_FLAG_NO_SEL_CLIP) {
+        r = needed_rect(s, d, pc_rect_intersect(r, pc_doc_rect(d->doc)));
+        if (r.w <= 0 || r.h <= 0) return true;
+    }
     px = b->dst.px + (size_t)r.y * (size_t)b->dst.stride + (size_t)r.x;
     if (!par && (int64_t)r.w * r.h > AFX_BIG_ROI_PX) par = &a->par;
     st = pc_txn_blend_rect_masked(d->txn, s->layer_id, r, px, (size_t)b->dst.stride,
@@ -950,7 +983,10 @@ static afx_session *session_start(app *a, const fx_effect *fx, bool dialog, cons
     s->params = fx_params_new(fx, &s->env);
     memo = params ? params : afx_memo_get(a, fx);
     if (s->params && memo && fx->params_size) memcpy(s->params, memo, fx->params_size);
-    if (s->params) (void)fx_params_clamp(fx, s->params);
+    if (s->params) {
+        (void)fx_params_clamp(fx, s->params);
+        (void)fx_params_apply_rules(fx, s->params);    /* W3B-FXCORE: initial sync */
+    }
     L->want_hist = has_custom(fx, "levels");
     snap = s->params ? snapshot(d, l, &snap_layer) : NULL;
     if (!snap) {
