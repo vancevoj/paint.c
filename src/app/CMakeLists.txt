@@ -78,3 +78,7 @@ if(APPLE)
             ${CMAKE_BINARY_DIR}/paint.c.app
     VERBATIM)
 endif()
+
+# Lane I: icon and version resources, bundle resources, install rules and
+# CPack settings (packaging/PcPackaging.cmake, docs/PACKAGING.md).
+include(${PROJECT_SOURCE_DIR}/packaging/PcPackaging.cmake)

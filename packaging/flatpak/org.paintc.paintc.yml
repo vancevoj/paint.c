@@ -1,0 +1,68 @@
+# Flatpak manifest of paint.c (lane I). Build and install for the user:
+#   flatpak-builder --user --install --force-clean build-flatpak \
+#       packaging/flatpak/org.paintc.paintc.yml
+# The build has no network: every dependency archive of cmake/PcDeps.cmake
+# and cmake/PcCodecDeps.cmake is listed below (same URLs and SHA-256) and
+# handed to CMake through PC_DOWNLOAD_CACHE. Keep both lists in sync when a
+# dependency is updated (docs/PACKAGING.md). Not built in CI.
+app-id: org.paintc.paintc
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: paintc
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # open and save images anywhere in the home folder (the file chooser
+  # portal alone would lose access to recent files after a restart)
+  - --filesystem=home
+  # removable media and network mounts
+  - --filesystem=/media
+  - --filesystem=/run/media
+modules:
+  - name: paintc
+    buildsystem: cmake-ninja
+    builddir: true
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DPC_VENDOR_SDL=ON
+      - -DPC_BUILD_TESTS=OFF
+      - -DPC_DOWNLOAD_CACHE=/run/build/paintc/deps
+      # SDL3 backends whose development files are not in the SDK
+      - -DSDL_X11_XSCRNSAVER=OFF
+      - -DSDL_IBUS=OFF
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - build
+          - build-san
+          - build-clang
+          - build-flatpak
+          - .flatpak-builder
+      - type: file
+        url: https://github.com/libsdl-org/SDL/releases/download/release-3.4.18/SDL3-3.4.18.tar.gz
+        sha256: 9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3
+        dest: deps
+      - type: file
+        url: https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz
+        sha256: bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16
+        dest: deps
+      - type: file
+        url: https://github.com/randy408/libspng/archive/refs/tags/v0.7.4.tar.gz
+        sha256: 47ec02be6c0a6323044600a9221b049f63e1953faf816903e7383d4dc4234487
+        dest: deps
+      - type: file
+        url: https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.2.0/libjpeg-turbo-3.2.0.tar.gz
+        sha256: 6f30092cef9fb839779646608f4ee14ae3cbac989c47fa05e841b0841f09878e
+        dest: deps
+      - type: file
+        url: https://github.com/webmproject/libwebp/archive/refs/tags/v1.6.0.tar.gz
+        sha256: 93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136
+        dest: deps
+      - type: file
+        url: https://github.com/mm2/Little-CMS/releases/download/lcms2.19.1/lcms2-2.19.1.tar.gz
+        sha256: bfc54f7bab59fbc921012014a8032e4cba4abd46db47d46b76416a8c0b2815c8
+        dest: deps

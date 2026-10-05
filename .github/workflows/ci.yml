@@ -5,6 +5,12 @@
 # SDL3 3.4.18 is built from source everywhere (PC_VENDOR_SDL=ON) so every
 # platform tests the same pinned version; Ubuntu 24.04 has no SDL3 package
 # anyway. Dependency archives are cached through PC_DOWNLOAD_CACHE.
+#
+# Packages (lane I, docs/PACKAGING.md): the Linux GCC job builds the
+# AppImage and a tar.gz, the Windows MSVC job the portable zip and the NSIS
+# installer, the macOS jobs a .dmg each; they are uploaded as artifacts
+# named pkg-*. release.yml calls this workflow on v* tags and attaches them
+# to a GitHub release.
 name: ci
 
 on:
@@ -12,6 +18,7 @@ on:
     branches: [master, main, 'ci/**']
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -81,6 +88,28 @@ jobs:
             build/paintc
             build/**/paintc
           if-no-files-found: warn
+      - name: Validate the desktop entry and the AppStream metadata
+        if: matrix.cc == 'gcc'
+        run: |
+          sudo apt-get install -y --no-install-recommends desktop-file-utils appstream
+          desktop-file-validate packaging/linux/org.paintc.paintc.desktop
+          # the only finding left is the missing homepage URL (no site yet)
+          appstreamcli validate --no-net packaging/linux/org.paintc.paintc.metainfo.xml || true
+      - name: Package (AppImage, tar.gz)
+        if: matrix.cc == 'gcc'
+        run: |
+          (cd build && cpack -B "$GITHUB_WORKSPACE/dist")
+          PC_DOWNLOAD_CACHE="$PC_DEPS" packaging/linux/build-appimage.sh build dist
+          APPIMAGE_EXTRACT_AND_RUN=1 SDL_VIDEO_DRIVER=dummy dist/*.AppImage --self-test --headless
+      - name: Upload packages
+        if: matrix.cc == 'gcc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-linux-x86_64
+          path: |
+            dist/*.AppImage
+            dist/*.tar.gz
+          if-no-files-found: error
 
   linux-sanitizers:
     name: linux-asan-ubsan
@@ -222,6 +251,32 @@ jobs:
             build/paintc.exe
             build/**/paintc.exe
           if-no-files-found: warn
+      - name: Package (portable zip, installer)
+        if: matrix.cc == 'cl'
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path build/CMakeCache.txt -Pattern '^CMAKE_PROJECT_VERSION:STATIC=(.*)$').Matches[0].Groups[1].Value
+          $name = "paintc-$v-windows-x64"
+          cmake --install build --prefix "stage/$name" --component paintc
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "stage/$name" -DestinationPath "dist/$name-portable.zip"
+          $nsis = Get-Command makensis -ErrorAction SilentlyContinue
+          if (-not $nsis) {
+            $cand = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+            if (-not (Test-Path $cand)) { choco install nsis -y --no-progress | Out-Null }
+            $nsis = $cand
+          } else { $nsis = $nsis.Source }
+          & $nsis /V2 "/DVERSION=$v" "/DSTAGE=$PWD\stage\$name" "/DOUTFILE=$PWD\dist\$name-setup.exe" packaging\windows\paintc.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload packages
+        if: matrix.cc == 'cl'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-windows-x64
+          path: |
+            dist/*.zip
+            dist/*.exe
+          if-no-files-found: error
 
   macos:
     name: ${{ matrix.os }}
@@ -268,3 +323,11 @@ jobs:
             build/**/paintc
             build/**/paint.c.app
           if-no-files-found: warn
+      - name: Package (dmg)
+        run: packaging/macos/make-dmg.sh build dist
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.os }}
+          path: dist/*.dmg
+          if-no-files-found: error
