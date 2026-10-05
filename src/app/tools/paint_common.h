@@ -167,6 +167,9 @@ bool paint_bar_slider(app *a, const char *id, const char *label, int32_t *v, int
  * menu rows of paint_menu_item as "##menu/<label>").
  * For tests and diagnostics; false when it was not drawn. */
 bool paint_widget_rect(app *a, const char *name, ui_rect *out);
+/* Record where another tool's widget was drawn under name (lane TOOLS:
+ * the vector tools' dropdowns, the Rectangle Select combos). */
+void paint_widget_note(app *a, const char *name, ui_rect r);
 
 /* Fill style display name of the dropdown (5.1 docs names). */
 const char *paint_fill_name(int32_t style);

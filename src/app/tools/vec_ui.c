@@ -2,6 +2,7 @@
  * text tools (lane C, see vec_ui.h). */
 #include "vec_ui.h"
 #include "vec_custom.h"
+#include "paint_common.h"
 #include "../app_internal.h"
 
 #include <math.h>
@@ -315,29 +316,70 @@ static uint32_t *seen_slot(ui_id id)
     return &g_seen[free_i].frame;
 }
 
+/* Wheel notches not yet used per dropdown (fractions of a notch from
+ * precise touchpads add up), keyed by the button id; main thread only. */
+typedef struct drop_wheel { ui_id id; float acc; } drop_wheel;
+static drop_wheel g_wheel[16];
+
+static float *wheel_slot(ui_id id)
+{
+    size_t free_i = 0;
+    for (size_t i = 0; i < sizeof g_wheel / sizeof g_wheel[0]; i++) {
+        if (g_wheel[i].id == id) return &g_wheel[i].acc;
+        if (!g_wheel[i].id) free_i = i;
+    }
+    g_wheel[free_i].id = id;
+    g_wheel[free_i].acc = 0.0f;
+    return &g_wheel[free_i].acc;
+}
+
 /* A toolbar button that opens popup `pid`; the caller draws the content in
- * the returned face rectangle. */
+ * the returned face rectangle. Lane TOOLS (wave 4 item 25): it looks like
+ * the toolkit's dropdowns (face, border and, in the light themes, the
+ * darker bottom edge; disabled buttons fade toward the panel, so they stay
+ * distinct from enabled ones where raised and field colors are both white)
+ * and, closed, takes the mouse wheel like them (K-TB-WHEEL): *steps gets
+ * the whole notches (positive = away from the user = previous item). */
 static ui_rect drop_button(app *a, const char *id, const char *pid, float w_dip, const char *tip,
-                           bool enabled)
+                           bool enabled, int32_t *steps)
 {
     ui_ctx *ui = app_ui(a);
     const ui_palette *p = ui_pal(ui);
+    const ui_theme *th = ui_get_theme(ui);
     ui_rect r = app_opt_next(a, w_dip), face;
-    ui_interaction in = ui_interact(ui, ui_get_id(ui, id), r,
+    ui_id bid = ui_get_id(ui, id);
+    ui_interaction in = ui_interact(ui, bid, r,
                                     enabled ? UI_INTERACT_KEEP_FOCUS | UI_INTERACT_PRESS
                                             : UI_INTERACT_DISABLED);
-    bool open = ui_popup_is_open(ui, pid);
+    bool open = ui_popup_is_open(ui, pid), held = open || in.held;
     uint32_t *seen = seen_slot(ui_get_id(ui, pid)), frame = ui_frame_count(ui);
-    int32_t aw = ui_px(ui, 14.0f);
-    float rad = (float)ui_px(ui, ui_get_theme(ui)->m.radius);
-    ui_color bg = !enabled ? p->field : (open || in.held) ? p->raised_active
-                  : in.hovered ? p->raised_hover : p->raised;
+    int32_t aw = ui_px(ui, 14.0f), b = ui_px_line(ui, 1.0f);
+    float rad = (float)ui_px(ui, th->m.radius);
+    ui_color bg = held ? p->raised_active : in.hovered ? p->raised_hover : p->raised;
+    ui_color edge = in.hovered && enabled ? p->border_strong : p->border;
+    *steps = 0;
+    paint_widget_note(a, id, r);                /* tests (paint_widget_rect) */
+    if (!enabled) {
+        bg = ui_color_lerp(bg, p->panel, 0.5f);
+        edge = ui_color_fade(edge, 0.6f);
+    }
     ui_draw_rrect(ui, r, rad, bg);
-    ui_draw_rrect_outline(ui, r, rad, ui_px_line(ui, 1.0f),
-                          in.hovered ? p->border_strong : p->border);
+    ui_draw_rrect_outline(ui, r, rad, b, edge);
+    if (enabled && !held && th->kind != UI_THEME_DARK)
+        ui_draw_rect(ui, ui_rect_make(r.x + (int32_t)rad, r.y + r.h - b, r.w - 2 * (int32_t)rad, b),
+                     ui_color_fade(p->border_strong, 0.8f));
     ui_draw_icon(ui, UI_ICON_CHEVRON_DOWN, ui_rect_make(r.x + r.w - aw, r.y, aw, r.h),
                  ui_px(ui, 10.0f), enabled ? p->text_dim : p->text_disabled, p->icon_accent);
     if (tip) ui_tooltip(ui, tip);
+    if (enabled && !open) {
+        ui_vec2 wh = ui_wheel_take(ui, r);
+        if (wh.y != 0.0f) {
+            float *acc = wheel_slot(bid);
+            float t = *acc + wh.y;
+            *steps = (int32_t)t;
+            *acc = t - (float)*steps;
+        }
+    }
     if (enabled && in.clicked) {
         if (open) {
             ui_popup_close(ui);
@@ -348,9 +390,18 @@ static ui_rect drop_button(app *a, const char *id, const char *pid, float w_dip,
         }
     }
     if (open) *seen = frame;
-    face =ui_rect_make(r.x + ui_px(ui, 3.0f), r.y + ui_px(ui, 2.0f), r.w - aw - ui_px(ui, 4.0f),
+    face = ui_rect_make(r.x + ui_px(ui, 3.0f), r.y + ui_px(ui, 2.0f), r.w - aw - ui_px(ui, 4.0f),
                         r.h - ui_px(ui, 4.0f));
     return face;
+}
+
+/* index - steps clamped to [0, n): the wheel's new item. */
+static int32_t wheel_pick(int32_t index, int32_t steps, int32_t n)
+{
+    int64_t v = (int64_t)index - (int64_t)steps;
+    if (v < 0) v = 0;
+    if (v > (int64_t)n - 1) v = (int64_t)n - 1;
+    return (int32_t)v;
 }
 
 /* A selectable cell inside a popup. */
@@ -401,12 +452,17 @@ bool vec_opt_fill(app *a, int32_t *fill)
     const ui_palette *p = ui_pal(ui);
     char tip[96];
     bool changed = false;
-    int32_t v = *fill;
+    int32_t v = *fill, steps;
     ui_rect face, sw;
     if (v < 0 || v >= (int32_t)PC_FILL_STYLE_COUNT) v = 0;
     (void)snprintf(tip, sizeof tip, "Fill: %s", pc_fill_style_name((pc_fill_style)v));
     app_opt_label(a, "Fill:");
-    face = drop_button(a, "##vec_fill", "##vec_fill_pop", 52.0f, tip, true);
+    face = drop_button(a, "##vec_fill", "##vec_fill_pop", 52.0f, tip, true, &steps);
+    if (steps != 0 && wheel_pick(v, steps, (int32_t)PC_FILL_STYLE_COUNT) != v) {
+        v = wheel_pick(v, steps, (int32_t)PC_FILL_STYLE_COUNT);
+        *fill = v;
+        changed = true;
+    }
     sw = ui_rect_inset(face, ui_px(ui, 3.0f), ui_px(ui, 3.0f));
     vec_icon_fill(ui, v, sw, app_primary(a), app_secondary(a));
     ui_draw_rect_outline(ui, sw, ui_px_line(ui, 1.0f), p->border);
@@ -437,11 +493,16 @@ bool vec_opt_dash(app *a, int32_t *dash)
     ui_ctx *ui = app_ui(a);
     char tip[64];
     bool changed = false;
-    int32_t v = *dash;
+    int32_t v = *dash, steps;
     ui_rect face;
     if (v < 0 || v >= (int32_t)PC_DASH_STYLE_COUNT) v = 0;
     (void)snprintf(tip, sizeof tip, "Dash style: %s", vec_dash_name(v));
-    face = drop_button(a, "##vec_dash", "##vec_dash_pop", 64.0f, tip, true);
+    face = drop_button(a, "##vec_dash", "##vec_dash_pop", 64.0f, tip, true, &steps);
+    if (steps != 0 && wheel_pick(v, steps, (int32_t)PC_DASH_STYLE_COUNT) != v) {
+        v = wheel_pick(v, steps, (int32_t)PC_DASH_STYLE_COUNT);
+        *dash = v;
+        changed = true;
+    }
     vec_icon_dash(ui, v, face, ui_pal(ui)->text);
     if (ui_popup_begin(ui, "##vec_dash_pop")) {
         for (int32_t i = 0; i < (int32_t)PC_DASH_STYLE_COUNT; i++) {
@@ -466,8 +527,15 @@ bool vec_opt_cap(app *a, int32_t *cap, bool end)
     const char *id = end ? "##vec_endcap" : "##vec_startcap";
     const char *pid = end ? "##vec_endcap_pop" : "##vec_startcap_pop";
     ui_rect face;
+    int32_t steps, ci = 0;
     (void)snprintf(tip, sizeof tip, "%s: %s", end ? "End cap" : "Start cap", vec_cap_name(*cap));
-    face = drop_button(a, id, pid, 52.0f, tip, true);
+    face = drop_button(a, id, pid, 52.0f, tip, true, &steps);
+    for (int32_t i = 0; i < 4; i++)
+        if (vec_caps[i] == *cap) ci = i;
+    if (steps != 0 && wheel_pick(ci, steps, 4) != ci) {
+        *cap = vec_caps[wheel_pick(ci, steps, 4)];
+        changed = true;
+    }
     vec_icon_cap(ui, *cap, end, face, ui_pal(ui)->text);
     if (ui_popup_begin(ui, pid)) {
         for (int32_t i = 0; i < 4; i++) {
@@ -516,13 +584,38 @@ bool vec_opt_shape(app *a, int32_t *kind, int32_t *custom)
     const ui_palette *p = ui_pal(ui);
     char tip[1200];
     bool changed = false;
-    int32_t v = *kind, nc = vec_custom_count(a);
+    int32_t v = *kind, nc = vec_custom_count(a), steps;
     const vec_custom_shape *cs = v == PC_SHAPE_CUSTOM ? vec_custom_at(a, *custom) : NULL;
     ui_rect face;
     if (v < 0 || (v >= (int32_t)PC_SHAPE_BUILTIN_COUNT && !cs)) v = 0;
     (void)snprintf(tip, sizeof tip, "Shape: %s (A, Shift+A)",
                    cs ? cs->name : pc_shape_name((pc_shape_kind)v));
-    face = drop_button(a, "##vec_shape", "##vec_shape_pop", 46.0f, tip, true);
+    face = drop_button(a, "##vec_shape", "##vec_shape_pop", 46.0f, tip, true, &steps);
+    if (steps != 0) {
+        /* the popup's order: the built-in groups, then the custom shapes */
+        int32_t order[PC_SHAPE_BUILTIN_COUNT], no = 0, pos = 0, np;
+        for (int32_t g = 0; g < (int32_t)PC_SHAPE_GROUP_CUSTOM; g++)
+            for (int32_t i = 0; i < (int32_t)PC_SHAPE_BUILTIN_COUNT; i++)
+                if ((int32_t)pc_shape_group_of((pc_shape_kind)i) == g &&
+                    no < (int32_t)PC_SHAPE_BUILTIN_COUNT)
+                    order[no++] = i;
+        if (cs) {
+            pos = no + (*custom >= 0 ? *custom : 0);
+        } else {
+            for (int32_t i = 0; i < no; i++)
+                if (order[i] == v) pos = i;
+        }
+        np = wheel_pick(pos, steps, no + nc);
+        if (np != pos) {
+            if (np < no) {
+                *kind = order[np];
+            } else {
+                *kind = PC_SHAPE_CUSTOM;
+                *custom = np - no;
+            }
+            changed = true;
+        }
+    }
     if (cs) vec_icon_custom(ui, cs, face, p->text);
     else vec_icon_shape(ui, v, face, p->text);
     if (ui_popup_begin(ui, "##vec_shape_pop")) {
@@ -575,9 +668,14 @@ bool vec_opt_draw_mode(app *a, int32_t *mode)
     ui_ctx *ui = app_ui(a);
     const ui_palette *p = ui_pal(ui);
     bool changed = false;
-    int32_t v = *mode < 0 || *mode > 2 ? 0 : *mode;
+    int32_t v = *mode < 0 || *mode > 2 ? 0 : *mode, steps;
     ui_rect face = drop_button(a, "##vec_drawmode", "##vec_drawmode_pop", 44.0f,
-                               vec_draw_mode_name(v), true);
+                               vec_draw_mode_name(v), true, &steps);
+    if (steps != 0 && wheel_pick(v, steps, 3) != v) {
+        v = wheel_pick(v, steps, 3);
+        *mode = v;
+        changed = true;
+    }
     vec_icon_draw_mode(ui, v, face, p->text, p->accent);
     if (ui_popup_begin(ui, "##vec_drawmode_pop")) {
         for (int32_t i = 0; i < 3; i++) {

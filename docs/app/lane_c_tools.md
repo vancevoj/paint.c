@@ -74,8 +74,15 @@ settings folder and later scans only read changed files. Characters missing
 in the chosen family come from Inter, then from broad-coverage families when
 installed (DejaVu Sans, Noto Sans, the color emoji families Segoe UI Emoji,
 Apple Color Emoji, Noto Color Emoji, Twemoji, JoyPixels, EmojiOne Color,
-then Noto Sans CJK and others), loaded on first use. Faces load through
-`ui_font_load_file` (structural validation).
+then the CJK families, then symbol families), loaded on first use. Lane
+TOOLS (wave 4): the CJK families cover Linux, Windows and macOS for each
+writing system (Noto Sans CJK SC / JP / KR / TC; Microsoft YaHei, Yu Gothic
+UI, Yu Gothic, Meiryo UI, Meiryo, Malgun Gothic, Microsoft JhengHei;
+PingFang SC / TC, Hiragino Sans, Hiragino Kaku Gothic ProN, Apple SD Gothic
+Neo), and the group of the user's language (SDL_GetPreferredLocales) comes
+first, so Hangul finds a Korean face and Japanese text gets Japanese forms
+(`text_fonts_fallback_order`). A set holds up to 24 fallback faces. Faces
+load through `ui_font_load_file` (structural validation).
 
 Color fonts (lane TOOLB, T-TEXT-COLORFONT; Paint.NET's docs: "Text tool
 supports colored fonts"): the scan marks faces with COLR, CBDT or sbix
@@ -105,17 +112,31 @@ The Font button opens a searchable list (type to filter, Enter picks the
 first match, arrows preview on the live text) in which each family name is
 drawn in its own regular face; preview faces load on demand, two per frame,
 only from files up to 8 MiB, and at most 96 stay loaded. Families whose
-face lacks the glyphs of its own name are shown in the UI font.
+face lacks the glyphs of its own name are shown in the UI font. Lane TOOLS
+(wave 4): so are symbol fonts (a symbol cmap, the OS/2 Symbol code page or
+PANOSE symbol class, glyph names of the name's letters that are not those
+letters, or a known TeX math, dingbat or icon family such as cmsy10,
+cmex10, D050000L, Wingdings), with up to six of the face's own characters
+drawn after the name; a face whose glyphs are taller than the row is
+scaled down to fit and every row is clipped (`text_fonts_preview_info`).
 
 ## Custom shapes
 
 `*.xaml` files in the Shapes folder (`<config-dir>/Shapes` when a settings
 folder is given, else the per-user data folder) appear in a Custom group of
-the shape picker, sorted by name, with the file in the tooltip. The reader
-takes the root `Geometry`, `PathGeometry Figures`, `Path Data`,
-`EllipseGeometry` and `RectangleGeometry` elements and `FillRule` / `F0`
-`F1`; verbose `PathFigure` segment elements are not read. Files are capped
-at 1 MiB and 256 per folder; parsers are bounded and fuzzed in the tests.
+the shape picker, sorted by name without regard to case (lane TOOLS, wave
+4), with the file in the tooltip. The reader takes the root `Geometry`,
+`PathGeometry` (`Figures` path data or `PathFigure` elements with every WPF
+segment kind), `Path Data`, `EllipseGeometry`, `RectangleGeometry`,
+`LineGeometry`, `GeometryGroup`, `CombinedGeometry` with its
+`GeometryCombineMode` (Union, Intersect, Xor, Exclude; the operands are
+combined on a 2048-cell raster and traced back to polygons), transforms
+(attribute matrices and the Translate, Scale, Rotate, Skew, Matrix and
+group elements) and `FillRule` / `F0` `F1` (EvenOdd by default, as in
+WPF). The tree is read with an explicit stack (48 levels) and at most 32
+`CombinedGeometry` elements per file. Files are capped at 1 MiB and 256 per
+folder; parsers are bounded and fuzzed in the tests (test_c_custom,
+test_tools_shapes).
 
 ## Known gaps
 

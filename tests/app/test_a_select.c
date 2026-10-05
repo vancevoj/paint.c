@@ -131,6 +131,7 @@ static void t_fixed(void)
     at_frames(a, 1);
     m = marquee(a, "rect_select");
     m->opts_loaded = true;
+    m->size_units_set = true;              /* lane TOOLS: units picked, not the View's */
     /* Fixed Ratio 2 : 1: the side that is shorter for the ratio decides */
     m->draw_mode = SEL_DRAW_RATIO;
     m->ratio_w = 2.0;

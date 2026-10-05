@@ -20,7 +20,7 @@
 #define TF_MAX_FACES_PER_FILE 64
 #define TF_CACHE_MAX_BYTES ((uint64_t)16u << 20)
 #define TF_MAX_SETS 256u
-#define TF_MAX_FALLBACKS 15u
+#define TF_MAX_FALLBACKS 24u
 
 /* ---- loaded faces -------------------------------------------------------------------- */
 /* Decoded color bitmaps of a face (lane TOOLB). */
@@ -66,6 +66,10 @@ typedef struct tf_preview {
     char     family[96];
     ui_font *f;                 /* owned, NULL = cannot preview */
     uint32_t last;              /* frame of the last use */
+    /* lane TOOLS (wave 4 item 31): how the row shows the family */
+    bool     name_in_face;      /* the name drawn in f; else the UI font (+ sample) */
+    char     sample[48];        /* symbol fonts: some of f's own characters */
+    float    ink_top, ink_bottom;   /* ink of what f draws, em units around the baseline */
 } tf_preview;
 
 struct text_fonts {
@@ -85,6 +89,8 @@ struct text_fonts {
     bool            scanning;
     struct scan_job *job;       /* the running scan (owned by its task) */
     char            cache_path[1024];
+    char            lang[16];   /* the user's language (CJK fallback order), "" = default */
+    bool            lang_known;
 };
 
 /* Fonts the toolkit rejects for lack of outlines may still be bitmap color
@@ -535,14 +541,86 @@ int32_t text_fonts_find_family(const text_fonts *tf, const char *name)
 }
 
 /* ---- face sets ----------------------------------------------------------------------- */
-static const char *const k_fallback_families[] = {
+static const char *const k_fallback_head[] = {
     "DejaVu Sans", "Noto Sans", "Segoe UI", "Arial", "Helvetica Neue", "Liberation Sans",
     /* color emoji (lane TOOLB): preferred for emoji presentation */
     "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Twemoji", "Twemoji Mozilla",
     "JoyPixels", "EmojiOne Color",
-    "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC",
+};
+static const char *const k_fallback_tail[] = {
     "Noto Sans Symbols", "Noto Sans Symbols 2", "Segoe UI Symbol", "Apple Symbols",
 };
+/* Lane TOOLS (wave 4 item 46): the CJK families of Linux (Noto CJK),
+ * Windows and macOS by writing system. Microsoft YaHei and PingFang SC
+ * have no Hangul, so Korean needs its own families; Japanese text should
+ * get Japanese glyph forms. The group of the user's language comes first,
+ * then Simplified Chinese, Japanese, Korean, Traditional Chinese. */
+static const char *const k_cjk_sc[] = { "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC" };
+static const char *const k_cjk_jp[] = { "Noto Sans CJK JP", "Yu Gothic UI", "Yu Gothic",
+                                        "Meiryo UI", "Meiryo", "Hiragino Sans",
+                                        "Hiragino Kaku Gothic ProN" };
+static const char *const k_cjk_kr[] = { "Noto Sans CJK KR", "Malgun Gothic",
+                                        "Apple SD Gothic Neo" };
+static const char *const k_cjk_tc[] = { "Noto Sans CJK TC", "Microsoft JhengHei", "PingFang TC" };
+
+typedef struct cjk_group { const char *const *f; size_t n; } cjk_group;
+
+static size_t push_names(const char **out, size_t cap, size_t n, const char *const *f, size_t k)
+{
+    for (size_t i = 0; i < k; i++)
+        if (n < cap) out[n++] = f[i];
+    return n;
+}
+
+size_t text_fonts_fallback_order(const char *lang, const char **out, size_t cap)
+{
+    cjk_group g[4];
+    size_t n = 0;
+    int first = 0;                      /* 0 SC, 1 JP, 2 KR, 3 TC */
+    g[0].f = k_cjk_sc;
+    g[0].n = sizeof k_cjk_sc / sizeof k_cjk_sc[0];
+    g[1].f = k_cjk_jp;
+    g[1].n = sizeof k_cjk_jp / sizeof k_cjk_jp[0];
+    g[2].f = k_cjk_kr;
+    g[2].n = sizeof k_cjk_kr / sizeof k_cjk_kr[0];
+    g[3].f = k_cjk_tc;
+    g[3].n = sizeof k_cjk_tc / sizeof k_cjk_tc[0];
+    if (lang && tolower((unsigned char)lang[0]) == 'j' && tolower((unsigned char)lang[1]) == 'a')
+        first = 1;
+    else if (lang && tolower((unsigned char)lang[0]) == 'k' &&
+             tolower((unsigned char)lang[1]) == 'o')
+        first = 2;
+    else if (lang && tolower((unsigned char)lang[0]) == 'z' &&
+             tolower((unsigned char)lang[1]) == 'h' &&
+             (strstr(lang, "TW") || strstr(lang, "HK") || strstr(lang, "MO") ||
+              strstr(lang, "Hant") || strstr(lang, "tw") || strstr(lang, "hk")))
+        first = 3;
+    n = push_names(out, cap, n, k_fallback_head,
+                   sizeof k_fallback_head / sizeof k_fallback_head[0]);
+    n = push_names(out, cap, n, g[first].f, g[first].n);
+    for (int i = 0; i < 4; i++)
+        if (i != first) n = push_names(out, cap, n, g[i].f, g[i].n);
+    n = push_names(out, cap, n, k_fallback_tail,
+                   sizeof k_fallback_tail / sizeof k_fallback_tail[0]);
+    return n;
+}
+
+/* The user's preferred language ("ja", "ko", "zh_TW", ...), once. */
+static const char *user_lang(text_fonts *tf)
+{
+    if (!tf->lang_known) {
+        int count = 0;
+        SDL_Locale **loc = SDL_GetPreferredLocales(&count);
+        tf->lang_known = true;
+        tf->lang[0] = '\0';
+        if (loc && count > 0 && loc[0] && loc[0]->language) {
+            (void)snprintf(tf->lang, sizeof tf->lang, "%s%s%s", loc[0]->language,
+                           loc[0]->country ? "_" : "", loc[0]->country ? loc[0]->country : "");
+        }
+        SDL_free(loc);
+    }
+    return tf->lang;
+}
 
 /* Best face of family for the style, or NULL. */
 static const text_face_info *pick(const text_fonts *tf, const char *family, bool bold, bool italic)
@@ -610,13 +688,18 @@ pc_status text_fonts_faces(text_fonts *tf, const char *family, bool bold, bool i
         tf_face *b = builtin_face(tf, false);
         if (b) s->faces[s->n++] = &b->pf;
     }
-    for (size_t k = 0; k < sizeof k_fallback_families / sizeof k_fallback_families[0] &&
-                       s->n < TF_MAX_FALLBACKS + 1u; k++) {
-        const text_face_info *ff = pick(tf, k_fallback_families[k], false, false);
-        tf_face *t;
-        if (!ff || ci_cmp(k_fallback_families[k], family) == 0) continue;
-        t = face_record(tf, ff->path, ff->index, false, ff->weight, ff->italic, ff->color);
-        if (t) s->faces[s->n++] = &t->pf;
+    {
+        const char *order[64];
+        size_t no = text_fonts_fallback_order(user_lang(tf), order, 64u);
+        for (size_t k = 0; k < no && s->n < TF_MAX_FALLBACKS + 1u; k++) {
+            const text_face_info *ff = pick(tf, order[k], false, false);
+            tf_face *t;
+            bool dup = false;
+            if (!ff || ci_cmp(order[k], family) == 0) continue;
+            t = face_record(tf, ff->path, ff->index, false, ff->weight, ff->italic, ff->color);
+            for (size_t i = 0; t && i < s->n; i++) dup |= s->faces[i] == &t->pf;
+            if (t && !dup) s->faces[s->n++] = &t->pf;
+        }
     }
     tf->nsets++;
     *faces = s->faces;
@@ -636,7 +719,161 @@ static bool shows_own_name(const ui_font *f, const char *name)
     return true;
 }
 
-ui_font *text_fonts_preview(text_fonts *tf, int32_t i, uint32_t frame)
+/* Lane TOOLS (wave 4 item 31): fonts whose letters draw symbols although
+ * their cmap maps the letters (TeX math fonts, dingbats, icon fonts). The
+ * font list shows their names in the UI font, with a sample of their own
+ * characters next to them. Detected by the symbol cmap, the OS/2 symbol
+ * code page or PANOSE class, glyph names that are not the letters' names,
+ * and a list of known families (name prefixes, any case). */
+static const char *const k_symbol_families[] = {
+    "cmsy", "cmbsy", "cmex", "msam", "msbm", "wasy", "esint", "stmary", "lasy", "line10",
+    "lcircle", "Symbol", "Wingdings", "Webdings", "Marlett", "MT Extra", "Bookshelf Symbol",
+    "MS Reference Specialty", "MS Outlook", "Segoe MDL2 Assets", "Segoe Fluent Icons",
+    "Holo MDL2 Assets", "Dingbats", "D050000L", "ZapfDingbats", "Zapf Dingbats",
+    "ITC Zapf Dingbats", "Standard Symbols", "OpenSymbol", "Font Awesome", "Material Icons",
+    "Material Symbols"
+};
+
+static bool symbol_family(const char *fam)
+{
+    for (size_t i = 0; i < sizeof k_symbol_families / sizeof k_symbol_families[0]; i++) {
+        const char *a = fam, *b = k_symbol_families[i];
+        while (*b && tolower((unsigned char)*a) == tolower((unsigned char)*b)) {
+            a++;
+            b++;
+        }
+        if (!*b && (!*a || *a == ' ' || isdigit((unsigned char)*a) ||
+                    strcmp(k_symbol_families[i], "Symbol") != 0))
+            return true;
+    }
+    return false;
+}
+
+/* Whether glyph gid's PostScript name (post table format 2) is the name of
+ * letter or digit cp: 1 yes, 0 no, -1 unknown (no names, generic names). */
+static int glyph_named(const ui_font *f, uint32_t gid, uint32_t cp)
+{
+    static const char *const digits[10] = { "zero", "one", "two", "three", "four",
+                                            "five", "six", "seven", "eight", "nine" };
+    const ui_sfnt *s = &f->s;
+    ui_tbl t = s->post;
+    uint32_t ng, idx, off, len;
+    char want[8], name[64], uni[8];
+    int std;
+    if (cp >= 'A' && cp <= 'Z') std = 36 + (int)(cp - 'A');
+    else if (cp >= 'a' && cp <= 'z') std = 68 + (int)(cp - 'a');
+    else if (cp >= '0' && cp <= '9') std = 19 + (int)(cp - '0');
+    else return -1;
+    if (t.len < 34u || ui_rd32(s, t, 0) != 0x00020000u) return -1;
+    ng = ui_rd16(s, t, 32);
+    if (gid >= ng || !ui_tbl_has(t, 34u, ng * 2u)) return -1;
+    idx = ui_rd16(s, t, 34u + gid * 2u);
+    if (idx < 258u) return (int)idx == std ? 1 : 0;
+    off = 34u + ng * 2u;
+    for (uint32_t k = 258u; k < idx; k++) {
+        if (!ui_tbl_has(t, off, 1u)) return -1;
+        off += 1u + ui_rd8(s, t, off);
+    }
+    if (!ui_tbl_has(t, off, 1u)) return -1;
+    len = ui_rd8(s, t, off);
+    if (len == 0u || len >= sizeof name || !ui_tbl_has(t, off + 1u, len)) return -1;
+    memcpy(name, s->d + t.off + off + 1u, len);
+    name[len] = '\0';
+    if (cp >= '0' && cp <= '9') app_copy_str(want, sizeof want, digits[cp - '0']);
+    else {
+        want[0] = (char)cp;
+        want[1] = '\0';
+    }
+    (void)snprintf(uni, sizeof uni, "uni%04X", (unsigned)cp);
+    if (strcmp(name, want) == 0 || strcmp(name, uni) == 0) return 1;
+    /* generated names say nothing about the drawing */
+    if (strncmp(name, "glyph", 5) == 0 || strncmp(name, "gid", 3) == 0 ||
+        strncmp(name, "uni", 3) == 0 || strncmp(name, "cid", 3) == 0 ||
+        strncmp(name, "index", 5) == 0 || name[0] == '.' ||
+        (name[0] == 'g' && isdigit((unsigned char)name[1])))
+        return -1;
+    return 0;
+}
+
+static bool face_is_symbol(const ui_font *f, const char *fam)
+{
+    const ui_sfnt *s = &f->s;
+    size_t n = strlen(fam), i = 0;
+    int known = 0, wrong = 0;
+    if (f->cmap_symbol || symbol_family(fam)) return true;
+    if (s->os2.len >= 82u && ui_rd16(s, s->os2, 0) >= 1u &&
+        (ui_rd32(s, s->os2, 78) & 0x80000000u) != 0u)
+        return true;                                   /* the Symbol code page */
+    if (s->os2.len >= 33u && ui_rd8(s, s->os2, 32) == 5u) return true;   /* PANOSE symbol */
+    while (i < n) {
+        uint32_t cp = ui_utf8_decode(fam, n, &i), gid = ui_font_cmap(f, cp);
+        int r = gid ? glyph_named(f, gid, cp) : -1;
+        if (r >= 0) known++;
+        if (r == 0) wrong++;
+    }
+    return known > 0 && wrong * 2 >= known;
+}
+
+/* Up to six characters f draws, for the sample next to a symbol font's
+ * name: letters first (where dingbat fonts keep their symbols), then the
+ * symbol blocks and the private use areas of icon fonts. */
+static void symbol_sample(const ui_font *f, char *out, size_t cap)
+{
+    static const uint32_t ranges[][2] = {
+        { 0x41u, 0x5Au }, { 0x61u, 0x7Au }, { 0x21u, 0x40u }, { 0x2190u, 0x21FFu },
+        { 0x2200u, 0x22FFu }, { 0x25A0u, 0x25FFu }, { 0x2600u, 0x27BFu }, { 0xE000u, 0xE0FFu },
+        { 0xF000u, 0xF0FFu }
+    };
+    size_t k = 0;
+    int got = 0;
+    out[0] = '\0';
+    for (size_t r = 0; r < sizeof ranges / sizeof ranges[0] && got < 6; r++)
+        for (uint32_t cp = ranges[r][0]; cp <= ranges[r][1] && got < 6; cp++) {
+            uint32_t gid = ui_font_cmap(f, cp);
+            char u[4];
+            size_t ul;
+            if (!gid || !outline_draws(f, gid, cp)) continue;
+            if (cp < 0x80u) {
+                u[0] = (char)cp;
+                ul = 1u;
+            } else if (cp < 0x800u) {
+                u[0] = (char)(0xC0u | (cp >> 6));
+                u[1] = (char)(0x80u | (cp & 0x3Fu));
+                ul = 2u;
+            } else {
+                u[0] = (char)(0xE0u | (cp >> 12));
+                u[1] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+                u[2] = (char)(0x80u | (cp & 0x3Fu));
+                ul = 3u;
+            }
+            if (k + ul + 1u >= cap) return;
+            memcpy(out + k, u, ul);
+            k += ul;
+            out[k] = '\0';
+            got++;
+        }
+}
+
+/* Ink of text drawn in f: em units above (top) and below (bottom) the
+ * baseline, from the glyph boxes. */
+static void ink_extent(const ui_font *f, const char *text, float *top, float *bottom)
+{
+    size_t n = strlen(text), i = 0;
+    float up = f->upem > 0.0f ? f->upem : 1000.0f, t = 0.0f, b = 0.0f;
+    while (i < n) {
+        uint32_t cp = ui_utf8_decode(text, n, &i), gid = ui_font_cmap(f, cp);
+        int x0, y0, x1, y1;
+        if (!gid || !ui_font_glyph_ok(f, gid)) continue;
+        if (!stbtt_GetGlyphBox((stbtt_fontinfo *)&f->info, (int)gid, &x0, &y0, &x1, &y1)) continue;
+        if ((float)y1 / up > t) t = (float)y1 / up;
+        if ((float)-y0 / up > b) b = (float)-y0 / up;
+    }
+    *top = t;
+    *bottom = b;
+}
+
+/* The preview record of family i (loaded on demand, see text_fonts.h). */
+static tf_preview *preview_slot(text_fonts *tf, int32_t i, uint32_t frame)
 {
     const char *fam;
     const text_face_info *fi;
@@ -652,7 +889,7 @@ ui_font *text_fonts_preview(text_fonts *tf, int32_t i, uint32_t frame)
     for (int32_t k = 0; k < tf->nprev; k++)
         if (strcmp(tf->prev[k].family, fam) == 0) {
             tf->prev[k].last = frame;
-            return tf->prev[k].f;
+            return &tf->prev[k];
         }
     if (tf->prev_loads >= TF_PREVIEW_LOADS_PER_FRAME) return NULL;
     tf->prev_loads++;
@@ -676,11 +913,38 @@ ui_font *text_fonts_preview(text_fonts *tf, int32_t i, uint32_t frame)
         if (ui_font_load_mem(data, len, fi->index, UI_FONT_COPY, &slot->f) != PC_OK) slot->f = NULL;
         free(data);
     }
-    if (slot->f && !shows_own_name(slot->f, fam)) {
-        ui_font_free(slot->f);
-        slot->f = NULL;
+    if (slot->f) {
+        slot->name_in_face = shows_own_name(slot->f, fam) && !face_is_symbol(slot->f, fam);
+        if (!slot->name_in_face) symbol_sample(slot->f, slot->sample, sizeof slot->sample);
+        if (!slot->name_in_face && !slot->sample[0]) {
+            /* nothing it can show: the name in the UI font only */
+            ui_font_free(slot->f);
+            slot->f = NULL;
+        } else {
+            ink_extent(slot->f, slot->name_in_face ? fam : slot->sample, &slot->ink_top,
+                       &slot->ink_bottom);
+        }
     }
-    return slot->f;
+    return slot;
+}
+
+ui_font *text_fonts_preview(text_fonts *tf, int32_t i, uint32_t frame)
+{
+    tf_preview *slot = preview_slot(tf, i, frame);
+    return slot && slot->name_in_face ? slot->f : NULL;
+}
+
+bool text_fonts_preview_info(text_fonts *tf, int32_t i, uint32_t frame, text_preview *out)
+{
+    tf_preview *slot = preview_slot(tf, i, frame);
+    memset(out, 0, sizeof *out);
+    if (!slot) return false;
+    out->face = slot->f;
+    out->name_in_face = slot->f != NULL && slot->name_in_face;
+    if (slot->f && !slot->name_in_face) app_copy_str(out->sample, sizeof out->sample, slot->sample);
+    out->ink_top = slot->ink_top;
+    out->ink_bottom = slot->ink_bottom;
+    return true;
 }
 
 /* ---- scanning --------------------------------------------------------------------------- */

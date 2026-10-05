@@ -1,7 +1,8 @@
 /* test_c_shapes.c - lane C: the Shapes tool through the real input path:
  * drawing, colors per draw mode and button, Shift and Alt constraints,
  * nub resizing, moving, rotating, arrow keys, A / Shift+A cycling, live
- * option and color changes (coalesced in history), fine-grained history
+ * option and color changes (one history step each; repeated changes of the
+ * same option or color coalesce), fine-grained history
  * (every edit a step, Undo and Redo walk through them with exact pixels,
  * undoing Finish resumes editing and selects the tool again), finishing by
  * Enter, Esc, the toolbar, a click outside, a tool switch and commands,
@@ -326,21 +327,36 @@ static void t_live_options(void)
     CHECK(strcmp(cur_label(a), "Shape: Style") == 0);
     CHECK(fp(a) != f1);
     CHECK(black(at_doc_px(a, 70, 24)));
-    /* a color change right after it replaces that step (coalescing) */
-    app_set_primary(a, app_px_make(0, 128, 0, 255));
-    at_frames(a, 1);
-    CHECK(hist_len(a) == h0 + 1u);
-    CHECK(px_eq(at_doc_px(a, 70, 24), 0, 128, 0, 255));
-    /* draw mode and dash style apply too */
-    set_opt(a, "tool.shapes.draw", "1");
-    CHECK(px_eq(at_doc_px(a, 70, 60), 0, 128, 0, 255));
+    /* lane TOOLS (wave 4 item 23): a color change right after it is its
+     * own step (another kind of change), a second change of the same color
+     * replaces that step (coalescing of the same kind only) */
     {
-        const vec_obj *o = vec_live_obj(shapes_live(a));
-        CHECK(o && o->shape.style.draw == PC_SHAPE_DRAW_FILLED && o->shape.style.width == 10.0);
+        uint64_t f2 = fp(a), f3;
+        app_set_primary(a, app_px_make(0, 100, 0, 255));
+        at_frames(a, 1);
+        CHECK(hist_len(a) == h0 + 2u);
+        app_set_primary(a, app_px_make(0, 128, 0, 255));
+        at_frames(a, 1);
+        CHECK(hist_len(a) == h0 + 2u);
+        CHECK(px_eq(at_doc_px(a, 70, 24), 0, 128, 0, 255));
+        f3 = fp(a);
+        /* draw mode and dash style apply too, each as a step */
+        set_opt(a, "tool.shapes.draw", "1");
+        CHECK(hist_len(a) == h0 + 3u);
+        CHECK(px_eq(at_doc_px(a, 70, 60), 0, 128, 0, 255));
+        {
+            const vec_obj *o = vec_live_obj(shapes_live(a));
+            CHECK(o && o->shape.style.draw == PC_SHAPE_DRAW_FILLED &&
+                  o->shape.style.width == 10.0);
+        }
+        /* undo walks back through the kinds: draw mode, color, width */
+        key(a, SDLK_Z, AT_KMOD_PRIMARY);
+        CHECK(fp(a) == f3);
+        key(a, SDLK_Z, AT_KMOD_PRIMARY);
+        CHECK(fp(a) == f2);
+        key(a, SDLK_Z, AT_KMOD_PRIMARY);
+        CHECK(fp(a) == f1);
     }
-    /* undo the coalesced options step: back to the first rendering */
-    key(a, SDLK_Z, AT_KMOD_PRIMARY);
-    CHECK(fp(a) == f1);
     {
         const vec_obj *o = vec_live_obj(shapes_live(a));
         CHECK(o && o->shape.style.width == 2.0);

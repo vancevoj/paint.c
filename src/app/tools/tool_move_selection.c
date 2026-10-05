@@ -123,7 +123,8 @@ static bool ms_start(app *a, ms_state *ms, app_doc *d)
     st = pc_sel_snap_take(d->doc, &ms->snap);
     if (st == PC_OK) st = sel_cov_from_snap(&ms->cov, &ms->snap, d->doc);
     pc_poly_clear(&ms->outline);
-    if (st == PC_OK) st = pc_sel_contour(d->doc, 0.0, &ms->outline);
+    /* lane TOOLS: the outline the canvas already traced (complex selections) */
+    if (st == PC_OK) st = app_doc_sel_outline(d, &ms->outline);
     if (st != PC_OK) {
         sel_cov_free(&ms->cov);
         pc_sel_snap_free(&ms->snap);

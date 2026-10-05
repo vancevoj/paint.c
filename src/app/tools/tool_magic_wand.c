@@ -29,18 +29,27 @@
  * the thread, so app_tasks_wait (scripts, tests, quitting) waits for it
  * too, and its completion applies the result on the main thread unless
  * the image changed meanwhile. Main thread except the job thread, which
- * only reads its own snapshot. */
+ * only reads its own snapshot.
+ *
+ * Complex outlines (lane TOOLS, wave 4 item 28): a global wand on a noisy
+ * image selects millions of separate pixels. The job thread also traces
+ * the outline of a preview (nub drags, held sliders) and prepares it for
+ * drawing, and the outline of an applied selection is traced in the
+ * background by the document (doc_ants.c): the spinner keeps turning until
+ * it lands, while the tint already shows the selection. Images from 1 Mpx
+ * on compute in the background. */
 #include "sel_xform.h"
 #include "sel_live.h"
 #include "paint_common.h"
 #include "pc/pc_wand.h"
+#include "gfx.h"
 
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define NUB_DIP        15.0f
-#define ASYNC_MIN_PX   4000000ull      /* images at least this large compute in the background */
+#define ASYNC_MIN_PX   1000000ull      /* images at least this large compute in the background */
 #define SPIN_DELAY_MS  120u            /* the spinner appears after this */
 
 enum { JOB_FIRST = 0, JOB_EDIT = 1, JOB_PREVIEW = 2 };
@@ -73,6 +82,10 @@ typedef struct wand_job {
     uint64_t        seq, sel_gen, gen;
     uint64_t        t0;
     SDL_AtomicInt  *hold;          /* tests: the thread waits while nonzero */
+    /* previews (lane TOOLS): the outline traced on the thread */
+    pc_sel_snap     before;        /* owned copy of the selection before the click */
+    bool            has_before;
+    gfx_ants       *outline;       /* owned until handed to the document */
 } wand_job;
 
 struct wand_state {
@@ -219,13 +232,24 @@ static void apply(app *a, wand_state *ws, app_doc *d, const pc_region *r, const 
     if (!sel_live_record_edit(a, &ws->L, d, before, "Magic Wand", p)) report(a, PC_ERR_NOMEM);
 }
 
-/* A result for request kind: still about the same image state? */
-static void handle(app *a, wand_state *ws, int kind, const wand_params *p, pc_region *r)
+/* A result for request kind: still about the same image state? outline
+ * (may be NULL) is a preview outline the job thread already traced; it is
+ * taken (*outline cleared) when used. */
+static void handle(app *a, wand_state *ws, int kind, const wand_params *p, pc_region *r,
+                   gfx_ants **outline)
 {
     app_doc *d = obj_doc(a, ws);
     if (!d || d->txn) return;
     if (kind == JOB_PREVIEW) {
-        if (ws->nub_drag || ws->opt_preview) show_preview(a, ws, d, r, p);
+        if (!ws->nub_drag && !ws->opt_preview) return;
+        if (outline && *outline) {
+            pc_poly_clear(&ws->preview);
+            app_doc_ants_preview_take(d, *outline);
+            *outline = NULL;
+            sel_animate_ants(a);
+        } else {
+            show_preview(a, ws, d, r, p);
+        }
         return;
     }
     apply(a, ws, d, r, p, kind == JOB_FIRST);
@@ -237,7 +261,36 @@ static int SDLCALL job_thread(void *ud)
     wand_job *j = (wand_job *)ud;
     while (j->hold && SDL_GetAtomicInt(j->hold) != 0) SDL_Delay(1);
     j->st = pc_region_compute(j->snap, j->layer_id, j->p.ox, j->p.oy, &j->o, j->par, &j->r);
+    if (j->st == PC_OK && j->r && j->kind == JOB_PREVIEW && j->has_before) {
+        /* lane TOOLS: the preview outline of a complex region is traced
+         * here, not on the main thread */
+        pc_sel_src src;
+        pc_poly poly;
+        pc_poly_init(&poly);
+        pc_region_sel_src(j->r, &src);
+        if (sel_contour_combined(j->snap, &j->before, &src, (pc_sel_mode)j->p.mode, &poly) ==
+            PC_OK)
+            (void)gfx_ants_create(&poly, poly.n_pts >= 100000u ? GFX_ANTS_WITH_LOD : 0u,
+                                  &j->outline);
+        pc_poly_free(&poly);
+    }
     return 0;
+}
+
+/* A retained copy of a selection snapshot (one more reference per tile). */
+static bool snap_dup(const pc_sel_snap *src, pc_sel_snap *dst)
+{
+    size_t n = (size_t)src->tiles_x * (size_t)src->tiles_y;
+    *dst = *src;
+    dst->grid = NULL;
+    if (!src->grid || n == 0u) return true;
+    dst->grid = (pc_tile **)malloc(n * sizeof *dst->grid);
+    if (!dst->grid) return false;
+    for (size_t i = 0; i < n; i++) {
+        dst->grid[i] = src->grid[i];
+        pc_tile_retain(dst->grid[i]);
+    }
+    return true;
 }
 
 /* Pool task: wait for the thread (the pool cannot run the computation
@@ -254,6 +307,8 @@ static void job_free(wand_job *j)
     if (!j) return;
     pc_region_free(j->r);
     pc_doc_destroy(j->snap);
+    if (j->has_before) pc_sel_snap_free(&j->before);
+    gfx_ants_free(j->outline);
     free(j);
 }
 
@@ -269,7 +324,7 @@ static void job_done(app *a, void *ud)
                  d->hist->cur->seq == j->seq && d->doc->sel_gen == j->sel_gen && !d->txn;
     if (ws->job == j) ws->job = NULL;
     if (fresh && j->st == PC_OK && j->r) {
-        handle(a, ws, j->kind, &j->p, j->r);
+        handle(a, ws, j->kind, &j->p, j->r, &j->outline);
     } else if (fresh) {
         report(a, j->st);
         if (j->kind == JOB_FIRST) sel_live_forget(a, &ws->L);
@@ -309,6 +364,7 @@ static void start_job(app *a, wand_state *ws, app_doc *d, int kind, const wand_p
     j->t0 = app_now_ms(a);
     j->st = PC_ERR_STATE;
     j->hold = &ws->hold;
+    if (kind == JOB_PREVIEW && ws->has_before) j->has_before = snap_dup(&ws->before, &j->before);
     j->thr = SDL_CreateThread(job_thread, "paintc-wand", j);
     if (!j->thr) {
         /* no thread: compute here */
@@ -351,7 +407,7 @@ static void request(app *a, wand_state *ws, int kind, const wand_params *p)
         pc_wand_opts o = opts_of(p);
         pc_region *r = NULL;
         pc_status st = pc_region_compute(d->doc, ws->L.layer_id, p->ox, p->oy, &o, app_par(a), &r);
-        if (st == PC_OK) handle(a, ws, kind, p, r);
+        if (st == PC_OK) handle(a, ws, kind, p, r, NULL);
         else if (kind != JOB_PREVIEW) {
             report(a, st);
             if (kind == JOB_FIRST) sel_live_forget(a, &ws->L);
@@ -568,9 +624,11 @@ static void wand_overlay(app *a, void *st, app_overlay *o)
             app_ov_rect(o, sx, sy, z, z, 1.0f, ui_rgba(0, 0, 0, 200), APP_OV_SCREEN);
         app_ov_to_screen(o, (double)x + 0.5, (double)y + 0.5, &sx, &sy);
         if (ws->L.live) sel_draw_move_nub(a, o, sx, sy);
-        /* T-WAND-BUSY: the spinner while a long computation runs */
+        /* T-WAND-BUSY: the spinner while a long computation runs, and
+         * (lane TOOLS) while the outline of the result is being traced */
         if (ws->job && app_now_ms(a) - ws->job->t0 >= SPIN_DELAY_MS) spinner(a, o, sx, sy);
         else if (ws->job) app_request_frame_at(a, ws->job->t0 + SPIN_DELAY_MS);
+        else if (app_doc_ants_pending(d)) spinner(a, o, sx, sy);
     }
 }
 

@@ -56,13 +56,22 @@ typedef struct sel_marquee {
     size_t      n, cap;
     pc_poly     poly;           /* scratch: the shape */
     pc_poly     preview;        /* scratch: the previewed outline */
+    /* lane TOOLS: combine previews over complex selections, traced on a worker */
+    struct mq_job *job;         /* running trace (owned by its task) */
+    uint64_t    job_seq;        /* the newest shape; older results are dropped */
+    bool        job_again;      /* a newer shape waits for the running trace */
     /* Rectangle Select options (persisted as tool.rect_select.*) */
     bool        opts_loaded;
     int         draw_mode;
     double      ratio_w, ratio_h;
     double      size_w, size_h;
-    int         size_units;     /* app_units */
+    int         size_units;     /* app_units, when size_units_set */
+    bool        size_units_set; /* picked by the user; else the View units apply */
 } sel_marquee;
+
+/* Tests (lane TOOLS): hold combine preview traces on their worker until
+ * released, so the busy phase can be observed. Any thread. */
+void sel_marquee_test_hold(bool hold);
 
 /* Defaults: Any Size, ratio 4 : 3, size 400 x 300 px (TOOLS.md 12). */
 void sel_marquee_init(sel_marquee *m, sel_shape shape, const char *label);

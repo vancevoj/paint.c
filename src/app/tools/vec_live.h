@@ -95,9 +95,10 @@ typedef struct vec_live {
     bool        op_first;        /* the next mirror includes op_prev */
     vec_obj     op_obj;          /* object as last rendered by the edit */
     bool        op_drawn;        /* something was rendered in this edit */
-    /* coalescing of option and color changes */
+    /* coalescing of option and color changes (of the same kind only) */
     uint64_t    last_seq;        /* history node of the last options edit */
     uint64_t    last_ms;
+    uint32_t    last_what;       /* what it changed (vec_live.c OPT_* bits) */
     /* change detection for vec_live_sync */
     uint64_t    seen_gen;
     bool        changed;         /* set by vec_live_sync; the tool clears it after
@@ -130,8 +131,10 @@ void        vec_op_cancel(app *a, vec_live *lv);
 bool        vec_op_active(const vec_live *lv);
 
 /* A complete edit (begin, render o, end) for keys and options. Options
- * edits (VEC_EDIT_OPTIONS) that follow each other within a short time
- * replace each other in history (a color drag records one step). */
+ * edits (VEC_EDIT_OPTIONS) of the same kind (the same color, the same
+ * option) that follow each other within a short time replace each other in
+ * history (a color drag records one step); edits of different kinds are
+ * separate steps (lane TOOLS, wave 4). */
 bool        vec_edit(app *a, vec_live *lv, const vec_obj *o, vec_edit_kind kind);
 
 /* Finish: record the last step that ends editing (the pixels are already

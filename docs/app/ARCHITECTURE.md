@@ -51,6 +51,7 @@ the refcounted tiles).
 | `menu.c` | The menu table mirroring MENUS.md; Adjustments, Effects and Open Recent are generated. |
 | `cmd.c` | Command registry, keymap mirroring SHORTCUTS.md, shortcut parsing, keyboard dispatch. |
 | `doc.c` | `app_doc`: document, linear history, dirty tracking, active layer, transactions, snapshots, outline. |
+| `doc_ants.c` | Lane TOOLS (wave 4): the selection outline shown as marching ants, traced in the background for complex selections and kept as a prepared `gfx_ants`; tool previews. |
 | `canvas.c` | Pointer routing (mouse and pen), panning, zooming, scroll bars, rulers, the draw callback, cursors, view-cache time slicing. |
 | `overlay.c` | `app_ov_*` drawing for tool handles and outlines. |
 | `tool.c` | Tool registry, switching and hotkey cycling, shared tool settings, options bar helpers. |
@@ -173,6 +174,13 @@ Helper files must not use these prefixes (for example `tools/stroke.c`).
   the frame's key presses, Zoom to Window twice re-centers, a new image is
   presented only once its visible tiles exist, marching ants at the display
   refresh rate (paused when unfocused or on low battery).
+* Lane TOOLS (wave 4): outlines are drawn with `gfx_ants_draw` from the
+  prepared geometry `app_doc_ants_geom` (`doc_ants.c`): only visible chunks
+  as lines, a cached screen raster when many segments are visible, coarse
+  occupancy levels zoomed out. Selections with long outlines are traced
+  on a worker (no ants until they land, the tint shows the selection
+  meanwhile); combine previews of the selection tools over such
+  selections are traced on a worker too.
 * Display color management (`shell_cm.c`): the canvas uploads tiles through
   `gfx_style.xf`, a 33^3 lookup table from the image profile (`meta.icc`)
   to sRGB or to the display profile (`SDL_GetWindowICCProfile`, Settings

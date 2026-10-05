@@ -105,7 +105,8 @@ void      sel_ss_src(pc_sel_src *src, const sel_ss *s);
 
 /* ---- Magic Wand background work (tests, diagnostics) ----------------------------------------
  * The wand computes regions of images with at least async_min pixels on a
- * background thread with a canvas spinner (T-WAND-BUSY; default 4 Mpx). */
+ * background thread with a canvas spinner (T-WAND-BUSY; default 1 Mpx, lane
+ * TOOLS: was 4 Mpx). */
 bool sel_wand_busy(app *a);
 void sel_wand_set_async_min(app *a, uint64_t px);
 /* Tests: while held, background jobs wait before computing (frames keep

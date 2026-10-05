@@ -580,15 +580,81 @@ bool vec_op_end(app *a, vec_live *lv, vec_edit_kind kind)
     return true;
 }
 
+/* What an options edit changes, as bits (lane TOOLS, wave 4 item 23):
+ * consecutive edits coalesce only when they change the same thing (a
+ * color dragged in the Colors window, a width slider held), never across
+ * kinds (a color change and then a dash style are two History items, as
+ * in Paint Bucket and Gradient). */
+enum {
+    OPT_PRIMARY = 1u << 0, OPT_SECONDARY = 1u << 1, OPT_FILL = 1u << 2, OPT_AA = 1u << 3,
+    OPT_BLEND = 1u << 4, OPT_SELCLIP = 1u << 5, OPT_BUTTON = 1u << 6, OPT_KIND = 1u << 7,
+    OPT_DRAW = 1u << 8, OPT_WIDTH = 1u << 9, OPT_DASH = 1u << 10, OPT_CORNER = 1u << 11,
+    OPT_JOIN = 1u << 12, OPT_CURVE = 1u << 13, OPT_START_CAP = 1u << 14,
+    OPT_END_CAP = 1u << 15, OPT_ARROW = 1u << 16, OPT_OTHER = 1u << 30
+};
+
+static bool px_differ(pc_px32 x, pc_px32 y)
+{
+    return x.r != y.r || x.g != y.g || x.b != y.b || x.a != y.a;
+}
+
+static uint32_t opt_change(const vec_obj *x, const vec_obj *y)
+{
+    uint32_t m = 0;
+    if (px_differ(x->primary, y->primary)) m |= OPT_PRIMARY;
+    if (px_differ(x->secondary, y->secondary)) m |= OPT_SECONDARY;
+    if (x->fill != y->fill) m |= OPT_FILL;
+    if (x->antialias != y->antialias) m |= OPT_AA;
+    if (x->blend != y->blend) m |= OPT_BLEND;
+    if (x->sel_clip_aa != y->sel_clip_aa) m |= OPT_SELCLIP;
+    if (x->right != y->right) m |= OPT_BUTTON;
+    if (x->is_line != y->is_line) return m | OPT_OTHER;
+    if (x->is_line) {
+        const pc_line_style *a = &x->line.style, *b = &y->line.style;
+        if (a->width != b->width) m |= OPT_WIDTH;
+        if (a->type != b->type) m |= OPT_CURVE;
+        if (a->start_cap != b->start_cap) m |= OPT_START_CAP;
+        if (a->end_cap != b->end_cap) m |= OPT_END_CAP;
+        if (a->dash != b->dash) m |= OPT_DASH;
+        if (a->join != b->join || a->miter_limit != b->miter_limit) m |= OPT_JOIN;
+        if (a->arrow_scale != b->arrow_scale) m |= OPT_ARROW;
+        if (a->tension != b->tension ||
+            memcmp(x->line.nub, y->line.nub, sizeof x->line.nub) != 0)
+            m |= OPT_OTHER;
+    } else {
+        const pc_shape *a = &x->shape, *b = &y->shape;
+        if (a->kind != b->kind || a->custom != b->custom || a->custom_rule != b->custom_rule)
+            m |= OPT_KIND;
+        if (a->style.draw != b->style.draw) m |= OPT_DRAW;
+        if (a->style.width != b->style.width) m |= OPT_WIDTH;
+        if (a->style.dash != b->style.dash) m |= OPT_DASH;
+        if (a->style.corner_radius != b->style.corner_radius) m |= OPT_CORNER;
+        if (a->style.join != b->style.join || a->style.miter_limit != b->style.miter_limit)
+            m |= OPT_JOIN;
+        /* a new shape kind may reshape the box (natural aspect): still a kind change */
+        if ((m & OPT_KIND) == 0u &&
+            (memcmp(&a->box, &b->box, sizeof a->box) != 0 ||
+             memcmp(&a->xf, &b->xf, sizeof a->xf) != 0 ||
+             a->pivot.x != b->pivot.x || a->pivot.y != b->pivot.y ||
+             a->pivot_custom != b->pivot_custom))
+            m |= OPT_OTHER;
+    }
+    return m;
+}
+
 bool vec_edit(app *a, vec_live *lv, const vec_obj *o, vec_edit_kind kind)
 {
     app_doc *d = app_active_doc(a);
     bool ok;
+    uint32_t what = 0;
     if (!d || lv->op || !lv->s || !lv->s->cur.live || lv->s->doc_id != d->id) return false;
+    if (kind == VEC_EDIT_OPTIONS) what = opt_change(&lv->s->cur.obj, o);
     if (kind == VEC_EDIT_OPTIONS && lv->last_seq && d->hist->cur &&
         d->hist->cur->seq == lv->last_seq && app_now_ms(a) - lv->last_ms < OPTIONS_COALESCE_MS &&
+        what != 0u && what == lv->last_what && (what & OPT_OTHER) == 0u &&
         current_target(d) == lv->s && d->hist->cur->parent) {
-        /* replace the previous options step: undo it, the new step prunes it */
+        /* replace the previous options step of the same kind: undo it, the
+         * new step prunes it */
         (void)app_doc_undo(a, d);
         if (!lv->s->cur.live) {               /* cannot happen: options edit a live object */
             (void)app_doc_redo(a, d);
@@ -604,8 +670,10 @@ bool vec_edit(app *a, vec_live *lv, const vec_obj *o, vec_edit_kind kind)
     if (ok && kind == VEC_EDIT_OPTIONS) {
         lv->last_seq = d->hist->cur->seq;
         lv->last_ms = app_now_ms(a);
+        lv->last_what = what;
     } else {
         lv->last_seq = 0;
+        lv->last_what = 0;
     }
     return ok;
 }

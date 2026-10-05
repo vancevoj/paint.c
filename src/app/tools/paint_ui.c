@@ -98,6 +98,8 @@ static void note(app *a, const char *name, const char *suffix, ui_rect r)
     s->rects[i].frame = a->frame_no;
 }
 
+void paint_widget_note(app *a, const char *name, ui_rect r) { note(a, name, NULL, r); }
+
 bool paint_widget_rect(app *a, const char *name, ui_rect *out)
 {
     paint_ui *s = state(a);

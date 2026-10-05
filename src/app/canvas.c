@@ -20,6 +20,7 @@
  * with a battery saver pause (V-SEL-ANTS). */
 #include "app_internal.h"
 #include "shell_ext.h"
+#include "doc_ants.h"           /* lane TOOLS (wave 4): prepared outlines */
 
 #include <math.h>
 #include <stdio.h>
@@ -360,9 +361,8 @@ static SDL_Cursor *cursor_for(app *a, app_cursor k)
     case APP_CURSOR_PICKER:
         a->cv.cursors[k] = make_icon_cursor(UI_ICON_TOOL_COLOR_PICKER, size, 1, size - 2);
         break;
-    case APP_CURSOR_BUCKET:
-        a->cv.cursors[k] = make_icon_cursor(UI_ICON_TOOL_PAINT_BUCKET, size, 2, size - 3);
-        break;
+    /* lane TOOLS (wave 4 item 22): APP_CURSOR_BUCKET comes from
+     * app_tool_cursor_make above, with the hotspot on the paint drop */
     /* lane A: selection and move tool cursors */
     case APP_CURSOR_ROTATE:
         a->cv.cursors[k] = make_icon_cursor(UI_ICON_ROTATE_CW, size, size / 2, size / 2);
@@ -1357,8 +1357,10 @@ static void draw_cb(SDL_Renderer *r, ui_rect clip, void *ud)
     {
         const pc_poly *ants = app_doc_ants(d);
         if (ants && ants->n_contours) {
-            gfx_draw_ants(a->ren, &dc->v, ants, ants_phase(a), (double)ui_px(a->ui, 4.0f),
-                          pc_rect_make(clip.x, clip.y, clip.w, clip.h));
+            /* lane TOOLS (wave 4 item 28): only the visible part of the
+             * outline, a cached screen raster for complex ones */
+            app_doc_ants_draw(a, d, &dc->v, ants_phase(a), (double)ui_px(a->ui, 4.0f),
+                              pc_rect_make(clip.x, clip.y, clip.w, clip.h));
         }
     }
 }

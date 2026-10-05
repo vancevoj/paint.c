@@ -2,6 +2,7 @@
  * layer, transactions, snapshots, selection outline (see app_doc.h). */
 #include "app_internal.h"
 #include "doc_spill.h"           /* W3B-FXCORE: history swap files */
+#include "doc_ants.h"            /* lane TOOLS: outlines traced in the background */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,11 +64,13 @@ app_doc *app_doc_create(app *a, pc_doc *doc, const char *path, const pc_codec *c
     d->view.cx = (double)doc->w * 0.5;
     d->view.cy = (double)doc->h * 0.5;
     d->view.need_fit = true;
-    pc_poly_init(&d->ants);
+    d->ants_rt = app_doc_ants_rt_create(a, d);         /* lane TOOLS */
+    if (!d->ants_rt) goto fail;
     if (!d->name[0]) copy_label(d->name, sizeof d->name, "Untitled");
     return d;
 fail:
     if (d) {
+        app_doc_ants_rt_free(d->ants_rt);
         pc_hist_destroy(d->hist);
         pc_view_cache_destroy(d->vcache);
         free(d->path);
@@ -149,7 +152,7 @@ void app_doc_destroy(app *a, app_doc *d)
     pc_hist_destroy(d->hist);
     pc_doc_destroy(d->doc);
     pc_view_cache_destroy(d->vcache);
-    pc_poly_free(&d->ants);
+    app_doc_ants_rt_free(d->ants_rt);                  /* lane TOOLS */
     pc_meta_free(&d->meta);
     free(d->path);
     free(d->save_params);
@@ -377,40 +380,11 @@ pc_doc *app_doc_snapshot(const app_doc *d)
     return s;
 }
 
-const pc_poly *app_doc_ants(app_doc *d)
-{
-    if (!d) return NULL;
-    if (!d->ants_valid || d->ants_gen != d->doc->sel_gen) {
-        pc_poly_clear(&d->ants);
-        if (pc_sel_is_active(d->doc) && pc_sel_contour(d->doc, 0.0, &d->ants) != PC_OK)
-            pc_poly_clear(&d->ants);
-        d->ants_gen = d->doc->sel_gen;
-        d->ants_valid = true;
-    }
-    return &d->ants;
-}
+/* app_doc_ants and the other outline functions: doc_ants.c (lane TOOLS) */
 
 pc_comp_opts app_doc_comp_opts(const app_doc *d)
 {
     pc_comp_opts o = pc_comp_opts_default();
     if (d) o.txn = d->txn;
     return o;
-}
-
-/* ---- lane A: outline preview ------------------------------------------------------------- */
-pc_status app_doc_ants_preview(app_doc *d, const pc_poly *p)
-{
-    pc_status st;
-    if (!d) return PC_ERR_ARG;
-    pc_poly_clear(&d->ants);
-    d->ants_valid = false;
-    if (!p) return PC_OK;
-    st = pc_poly_append(&d->ants, p, NULL);
-    if (st != PC_OK) {
-        pc_poly_clear(&d->ants);
-        return st;
-    }
-    d->ants_gen = d->doc->sel_gen;
-    d->ants_valid = true;
-    return PC_OK;
 }

@@ -96,6 +96,31 @@ uint32_t    text_fonts_gen(const text_fonts *tf);
  * recently drawn ones are released, never ones drawn in this frame. */
 ui_font    *text_fonts_preview(text_fonts *tf, int32_t i, uint32_t frame);
 
+/* Lane TOOLS (wave 4 item 31): how the font list shows family i. Symbol
+ * fonts (math, dingbat and icon fonts whose letters draw symbols) and
+ * faces that cannot draw their own name show the name in the UI font and,
+ * when the face draws anything, a sample of its own characters in it. The
+ * ink extent of what face draws lets the row scale it to fit (tall math
+ * glyphs no longer spill into the neighbors). false while not loaded yet
+ * (the same per-frame load limit as text_fonts_preview). Borrowed face. */
+typedef struct text_preview {
+    ui_font *face;              /* NULL: the name in the UI font only */
+    bool     name_in_face;      /* draw the family name in face */
+    char     sample[48];        /* else: UTF-8 sample to draw in face ("" = none) */
+    float    ink_top, ink_bottom;   /* em units above / below the baseline */
+} text_preview;
+bool        text_fonts_preview_info(text_fonts *tf, int32_t i, uint32_t frame,
+                                    text_preview *out);
+
+/* Lane TOOLS (wave 4 item 46): the fallback families tried after a face
+ * and the built-in Inter, in order, for the user language lang ("ja",
+ * "ko", "zh_TW", ...; NULL or "" = default): Latin and emoji families,
+ * the CJK families of Linux, Windows and macOS with the group of lang
+ * first (Simplified Chinese, Japanese, Korean, Traditional Chinese by
+ * default), then symbol families. Fills up to cap names (static strings),
+ * returns the count. Any thread. */
+size_t      text_fonts_fallback_order(const char *lang, const char **out, size_t cap);
+
 /* The default family: "Inter", paint.c's own UI face (TOOLS.md 3.3: the
  * platform's sans UI font). */
 #define TEXT_DEFAULT_FAMILY "Inter"

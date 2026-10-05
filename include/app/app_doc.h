@@ -62,10 +62,10 @@ struct app_doc {
     pc_view_cache   *vcache;         /* owned display cache */
     pc_txn          *txn;            /* open transaction or NULL */
     const void      *txn_owner;      /* who opened it (tool state, effect...) */
-    /* selection outline (marching ants), rebuilt when sel_gen changes */
-    pc_poly          ants;
-    uint64_t         ants_gen;
-    bool             ants_valid;
+    /* selection outline (marching ants), rebuilt when sel_gen changes; lane
+     * TOOLS (wave 4): built in the background for complex selections and
+     * prepared for drawing (src/app/doc_ants.c; owned) */
+    struct app_doc_ants_rt *ants_rt;
     /* thumbnails (lazy, throttled) */
     struct SDL_Texture *thumb;
     int32_t          thumb_w, thumb_h;
@@ -129,7 +129,10 @@ pc_status app_doc_history_jump(app *a, app_doc *d, pc_hist_node *target);
  * pc_doc_destroy (any thread). NULL on OOM. */
 pc_doc   *app_doc_snapshot(const app_doc *d);
 
-/* Selection outline for drawing (rebuilt lazily when sel_gen changed). */
+/* Selection outline for drawing (rebuilt lazily when sel_gen changed).
+ * Lane TOOLS (wave 4): a complex selection's outline is built on a worker
+ * (app_task); until it lands the result is empty and app_doc_ants_pending
+ * is true. Never NULL for a document. */
 const pc_poly *app_doc_ants(app_doc *d);
 
 /* Composite options for displaying the document (txn preview included). */
@@ -142,6 +145,34 @@ pc_comp_opts app_doc_comp_opts(const app_doc *d);
  * while an outline is transformed. PC_ERR_NOMEM falls back to the
  * selection outline. Main thread. */
 pc_status app_doc_ants_preview(app_doc *d, const pc_poly *p);
+
+/* ---- lane TOOLS (wave 4 item 28): complex outlines --------------------------------------
+ * The outline shown as marching ants is kept as a prepared gfx_ants
+ * (gfx.h), so drawing visits only the visible part of it. Selections whose
+ * outline is long (tens of thousands of edge pixels, doc_ants.h) are
+ * traced on a worker from a snapshot of the selection; the newest request
+ * wins and stale results are dropped. All functions: main thread. */
+struct gfx_ants;
+/* Show g (moved in, may be NULL to drop the preview) as the preview
+ * outline: app_doc_ants_preview without the copy, for outlines a tool
+ * prepared on a worker. */
+void      app_doc_ants_preview_take(app_doc *d, struct gfx_ants *g);
+/* The displayed outline as prepared geometry (NULL when none). */
+const struct gfx_ants *app_doc_ants_geom(app_doc *d);
+/* Changes whenever the displayed outline changes (cache keys). */
+uint64_t  app_doc_ants_version(app_doc *d);
+/* True while the selection's outline is being built in the background. */
+bool      app_doc_ants_pending(app_doc *d);
+/* True when the displayed outline is a tool preview. */
+bool      app_doc_ants_is_preview(app_doc *d);
+/* Append the current selection's outline to out: the cached one when it is
+ * up to date (waiting for a background build in progress), else traced
+ * now. Nothing when nothing is selected. */
+pc_status app_doc_sel_outline(app_doc *d, pc_poly *out);
+/* True when tracing the selection's outline is too slow for a frame (it
+ * is then traced in the background; tools preview combinations with it in
+ * the background too). Cached per selection state. */
+bool      app_doc_sel_complex(app_doc *d);
 
 #ifdef __cplusplus
 }

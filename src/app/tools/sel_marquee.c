@@ -5,6 +5,7 @@
  * follow the Paint.NET 3.36 SelectionTool, RectangleSelectTool and
  * EllipseSelectTool (MIT, docs/notice/a.md). Main thread. */
 #include "sel_marquee.h"
+#include "paint_common.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -29,9 +30,16 @@ static void load_opts(app *a, sel_marquee *m)
     m->size_w = app_settings_double(s, "tool.rect_select.size_w", 400.0);
     m->size_h = app_settings_double(s, "tool.rect_select.size_h", 300.0);
     /* lane SHELL (V-UNITS-WHERE): until the user picks units, the fixed
-     * size uses the View units */
-    m->size_units = (int)app_settings_int(s, "tool.rect_select.size_units",
-                                          (int64_t)app_get_units(a));
+     * size uses the View units. Lane TOOLS (wave 4 item 3): units count as
+     * picked only when chosen in the toolbar (the _set marker) or given as
+     * an explicit default on the Settings > Tools page; a value an earlier
+     * version stored with every option change is ignored. */
+    m->size_units_set = app_settings_get(s, "tool.rect_select.size_units") != NULL &&
+                        (app_settings_bool(s, "tool.rect_select.size_units_set", false) ||
+                         app_settings_int(s, "tooldef.rect_select.size_units", -1) >= 0);
+    m->size_units = m->size_units_set
+                        ? (int)app_settings_int(s, "tool.rect_select.size_units", APP_UNITS_PX)
+                        : (int)app_get_units(a);
     if (!(m->ratio_w > 0.0) || m->ratio_w > 65535.0) m->ratio_w = 4.0;
     if (!(m->ratio_h > 0.0) || m->ratio_h > 65535.0) m->ratio_h = 3.0;
     if (!(m->size_w > 0.0) || m->size_w > 65535.0) m->size_w = 400.0;
@@ -48,7 +56,22 @@ static void store_opts(app *a, const sel_marquee *m)
     app_settings_set_double(s, "tool.rect_select.ratio_h", m->ratio_h);
     app_settings_set_double(s, "tool.rect_select.size_w", m->size_w);
     app_settings_set_double(s, "tool.rect_select.size_h", m->size_h);
-    app_settings_set_int(s, "tool.rect_select.size_units", m->size_units);
+    /* lane TOOLS: the units only when the user picked them */
+    if (m->size_units_set) {
+        app_settings_set_int(s, "tool.rect_select.size_units", m->size_units);
+        app_settings_set_bool(s, "tool.rect_select.size_units_set", true);
+    } else {
+        (void)app_settings_remove(s, "tool.rect_select.size_units");
+        (void)app_settings_remove(s, "tool.rect_select.size_units_set");
+    }
+}
+
+/* The units of the fixed size: the picked ones, else the View units (read
+ * every time, so a loaded tool follows View > Units). */
+static int size_units(const app *a, const sel_marquee *m)
+{
+    int u = m->size_units_set ? m->size_units : (int)app_get_units(a);
+    return u < APP_UNITS_PX || u > APP_UNITS_CM ? APP_UNITS_PX : u;
 }
 
 void sel_marquee_init(sel_marquee *m, sel_shape shape, const char *label)
@@ -126,8 +149,8 @@ static void rect_shape(app *a, sel_marquee *m, const app_doc *d, double *rx0, do
     uint32_t mods = ui_mods(a->ui);
     switch (m->draw_mode) {
     case SEL_DRAW_SIZE: {
-        double w = sel_round(to_px(m->size_w, m->size_units, doc_dpi(d, false)));
-        double h = sel_round(to_px(m->size_h, m->size_units, doc_dpi(d, true)));
+        double w = sel_round(to_px(m->size_w, size_units(a, m), doc_dpi(d, false)));
+        double h = sel_round(to_px(m->size_h, size_units(a, m), doc_dpi(d, true)));
         if (w < 1.0) w = 1.0;
         if (h < 1.0) h = 1.0;
         /* the rectangle hangs from the pointer and stays inside the canvas
@@ -288,6 +311,131 @@ static double shape_area(const sel_marquee *m, const app_doc *d, bool ok, pc_rec
     return have_ss ? ss->area : -1.0;
 }
 
+/* ---- combine previews over complex selections (lane TOOLS, wave 4 item 28) ---------
+ * Adding to, subtracting from, intersecting or inverting a selection with
+ * a very long outline (a global Magic Wand on a noisy image) traces the
+ * combined outline of the whole image. Such previews are traced on a
+ * worker from a snapshot of the selection and copies of the shape; the
+ * newest shape wins (the next trace starts when the running one lands),
+ * a result arrives only while the same drag on the same selection goes on,
+ * and in the meantime the outline shown is the last one that arrived. */
+typedef struct mq_job {
+    sel_marquee *m;              /* the tool's (lives as long as the app) */
+    uint32_t     doc_id;
+    uint64_t     seq, sel_gen;
+    pc_sel_snap  snap;           /* owned */
+    uint32_t     w, h;
+    int          kind;           /* 0 rectangle, 1 supersampled polygon, 2 prepared polygon */
+    pc_rect      rect;
+    pc_poly      poly;           /* owned copy */
+    pc_fill_rule rule;
+    bool         aa;
+    pc_sel_mode  mode;
+    gfx_ants    *out;            /* owned until handed to the document */
+} mq_job;
+
+static SDL_AtomicInt g_mq_hold;           /* tests: workers wait while nonzero */
+
+void sel_marquee_test_hold(bool hold) { SDL_SetAtomicInt(&g_mq_hold, hold ? 1 : 0); }
+
+static void mq_free(mq_job *j)
+{
+    if (!j) return;
+    pc_sel_snap_free(&j->snap);
+    pc_poly_free(&j->poly);
+    gfx_ants_free(j->out);
+    free(j);
+}
+
+/* Worker: the combined outline of the snapshot and the shape. */
+static void mq_work(void *ud)
+{
+    mq_job *j = (mq_job *)ud;
+    pc_doc *dd = pc_doc_create(j->w, j->h);
+    pc_sel_src src;
+    sel_ss ss;
+    pc_sel_state pst;
+    bool has_ss = false, has_pst = false, ok = true;
+    pc_poly out;
+    memset(&ss, 0, sizeof ss);
+    memset(&pst, 0, sizeof pst);
+    pc_poly_init(&out);
+    while (SDL_GetAtomicInt(&g_mq_hold) != 0) SDL_Delay(1);
+    if (!dd) return;
+    if (j->kind == 0) {
+        pc_sel_src_rect(&src, j->rect);
+    } else if (j->kind == 1 && sel_ss_build(&ss, &j->poly, j->rule, dd) == PC_OK) {
+        has_ss = true;
+        sel_ss_src(&src, &ss);
+    } else if (pc_sel_state_from_poly(dd, &j->poly, j->rule, j->aa, &pst) == PC_OK) {
+        has_pst = true;
+        pc_sel_src_state(&src, &pst);
+    } else {
+        ok = false;
+    }
+    if (ok && sel_contour_combined(dd, &j->snap, &src, j->mode, &out) == PC_OK)
+        (void)gfx_ants_create(&out, out.n_pts >= 100000u ? GFX_ANTS_WITH_LOD : 0u, &j->out);
+    pc_poly_free(&out);
+    if (has_ss) sel_ss_free(&ss);
+    if (has_pst) pc_sel_state_free(&pst);
+    pc_doc_destroy(dd);
+}
+
+static void mq_done(app *a, void *ud)
+{
+    mq_job *j = (mq_job *)ud;
+    sel_marquee *m = j->m;
+    app_doc *d = NULL;
+    for (int32_t i = 0; i < app_doc_count(a); i++)
+        if (app_doc_at(a, i)->id == j->doc_id) d = app_doc_at(a, i);
+    if (m->job == j) m->job = NULL;
+    if (d && m->tracking && m->doc_id == j->doc_id && j->seq == m->job_seq &&
+        d->doc->sel_gen == j->sel_gen && j->out) {
+        app_doc_ants_preview_take(d, j->out);
+        j->out = NULL;
+        sel_animate_ants(a);
+    }
+    if (m->job_again) {
+        m->job_again = false;
+        if (m->tracking) {
+            m->dirty = true;                 /* the newest shape, traced next */
+            app_request_frame(a);
+        }
+    }
+    mq_free(j);
+}
+
+static void preview_async(app *a, sel_marquee *m, app_doc *d, pc_rect r, bool ss_kind)
+{
+    mq_job *j;
+    m->job_seq++;
+    if (m->job) {
+        m->job_again = true;
+        return;
+    }
+    j = (mq_job *)calloc(1u, sizeof *j);
+    if (!j) return;
+    pc_poly_init(&j->poly);
+    j->m = m;
+    j->doc_id = d->id;
+    j->seq = m->job_seq;
+    j->sel_gen = d->doc->sel_gen;
+    j->w = d->doc->w;
+    j->h = d->doc->h;
+    j->kind = m->shape == SEL_SHAPE_RECT ? 0 : ss_kind ? 1 : 2;
+    j->rect = r;
+    j->rule = rule_of(m);
+    j->aa = a->ts.sel_clip_aa;
+    j->mode = m->mode;
+    if (pc_sel_snap_take(d->doc, &j->snap) != PC_OK ||
+        (j->kind != 0 && pc_poly_append(&j->poly, &m->poly, NULL) != PC_OK) ||
+        !app_task(a, mq_work, mq_done, j)) {
+        mq_free(j);
+        return;
+    }
+    m->job = j;
+}
+
 static void preview(app *a, sel_marquee *m, app_doc *d)
 {
     double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0;
@@ -307,12 +455,20 @@ static void preview(app *a, sel_marquee *m, app_doc *d)
     if (!ok) {
         /* an empty shape combines to nothing (Replace, Intersect) or to the
          * current selection (the other modes) */
+        m->job_seq++;                        /* a running combine trace is stale */
         if (m->mode == PC_SEL_REPLACE || m->mode == PC_SEL_INTERSECT)
             (void)app_doc_ants_preview(d, &m->preview);
         else
             (void)app_doc_ants_preview(d, NULL);
+        sel_ss_free(&ss);
         return;
     }
+    if (m->mode != PC_SEL_REPLACE && app_doc_sel_complex(d)) {
+        preview_async(a, m, d, r, a->ts.sel_clip_aa && have_ss);
+        sel_ss_free(&ss);
+        return;
+    }
+    m->job_seq++;
     if (m->shape == SEL_SHAPE_RECT) {
         pc_sel_src src;
         if (m->mode == PC_SEL_REPLACE) {
@@ -593,20 +749,23 @@ void sel_marquee_options(app *a, sel_marquee *m)
             m->draw_mode = v;
             ch = true;
         }
+        paint_widget_note(a, "##rectsel_mode", ui_last_rect(ui));    /* tests */
         ui_tooltip(ui, "Selection draw mode");
         if (m->draw_mode == SEL_DRAW_RATIO) {
             ch |= num_field(a, "Width:", "##rectsel_rw", &m->ratio_w, 0.01, 65535.0, 2);
             ch |= num_field(a, "Height:", "##rectsel_rh", &m->ratio_h, 0.01, 65535.0, 2);
         } else if (m->draw_mode == SEL_DRAW_SIZE) {
-            int u = m->size_units;
-            int dec = m->size_units == APP_UNITS_PX ? 0 : 2;
+            int u = size_units(a, m);
+            int dec = u == APP_UNITS_PX ? 0 : 2;
             ch |= num_field(a, "Width:", "##rectsel_sw", &m->size_w, 0.01, 65535.0, dec);
             ch |= num_field(a, "Height:", "##rectsel_sh", &m->size_h, 0.01, 65535.0, dec);
             (void)app_opt_next(a, app_opt_combo_dip(a, units, 3, 104.0f));   /* lane UIA */
-            if (ui_combo(ui, "##rectsel_units", &u, units, 3) && u != m->size_units) {
+            if (ui_combo(ui, "##rectsel_units", &u, units, 3) && u != size_units(a, m)) {
                 m->size_units = u;
+                m->size_units_set = true;
                 ch = true;
             }
+            paint_widget_note(a, "##rectsel_units", ui_last_rect(ui));   /* tests */
             ui_tooltip(ui, "Units of the fixed size");
         }
         app_opt_separator(a);
