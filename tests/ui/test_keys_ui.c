@@ -16,6 +16,8 @@ typedef struct kstate {
     ui_rect file_r, edit_r, combo_r, combo2_r, combo3_r, btn_r, pop_item;
     ui_rect tall_item[40];
     bool    tall_menu;            /* declare the tall menu */
+    char    field[64];
+    ui_rect field_r;
 } kstate;
 
 static kstate K;
@@ -92,6 +94,10 @@ static void s_keys(ui_ctx *ctx, void *ud)
         if (ui_menu_item(ctx, "Second", NULL, true)) K.chosen = 41;
         ui_popup_end(ctx);
     }
+    ui_layout_pop(ctx);
+    ui_layout_push(ctx, ui_rect_make(20, 400, 200, 60), 0.0f);
+    (void)ui_text_field(ctx, "##kfield", K.field, sizeof K.field, 0);
+    K.field_r = ui_last_rect(ctx);
     ui_layout_pop(ctx);
     /* a combo inside a scrolled region keeps the wheel for scrolling */
     ui_layout_push(ctx, ui_rect_make(300, 120, 200, 100), 0.0f);
@@ -312,6 +318,30 @@ static void t_alt_tap(void)
     ut_click_at(&e, 400, 400);
     settle(&e);
     CHECK(!ui_menubar_focused(e.ctx));
+    /* typing in a field: a lone Alt moves the keys to the menu bar, and the
+     * text of the next letter does not reach the field */
+    ut_click(&e, K.field_r);
+    settle(&e);
+    {
+        SDL_Event ev;
+        memset(&ev, 0, sizeof ev);
+        ev.type = SDL_EVENT_TEXT_INPUT;
+        ev.text.text = "a";
+        key_sc(&e, SDLK_A, SDL_KMOD_NONE, SDL_SCANCODE_A, true);
+        ui_event(e.ctx, &ev);
+        settle(&e);
+        CHECK(strcmp(K.field, "a") == 0);
+        alt_tap(&e);
+        settle(&e);
+        CHECK(ui_menubar_focused(e.ctx));
+        ev.text.text = "z";
+        key_sc(&e, SDLK_Z, SDL_KMOD_NONE, SDL_SCANCODE_Z, true);
+        ui_event(e.ctx, &ev);
+        settle(&e);
+        CHECK(strcmp(K.field, "a") == 0 && ui_menubar_focused(e.ctx));
+        ut_key(&e, SDLK_ESCAPE, SDL_KMOD_NONE);
+        settle(&e);
+    }
     /* AltGr (MODE) never focuses the bar */
     key_sc(&e, SDLK_RALT, (SDL_Keymod)(SDL_KMOD_RALT | SDL_KMOD_MODE), SDL_SCANCODE_RALT, true);
     key_sc(&e, SDLK_RALT, SDL_KMOD_NONE, SDL_SCANCODE_RALT, false);

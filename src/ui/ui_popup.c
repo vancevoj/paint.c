@@ -249,6 +249,13 @@ static void close_top(ui_ctx *ctx)
 
 static ui_id title_popup_id(ui_id title) { return title ^ POPUP_SALT; }
 
+/* Text typed while a menu owns the keyboard is not for the app. */
+static void drop_text(ui_ctx *ctx)
+{
+    ctx->fin.ntext = 0;
+    ctx->fin.text[0] = '\0';
+}
+
 /* Index of the menu bar title with access key cp, or -1. */
 static int32_t title_for(const ui_ctx *ctx, uint32_t cp)
 {
@@ -325,6 +332,7 @@ void ui_popups_frame_begin(ui_ctx *ctx)
     ctx->alt_taps = 0;
     if (ctx->open_req[0] && ctx->frame > ctx->open_req_frame + 2u) ctx->open_req[0] = '\0';
     if (pressed) ctx->mb_focus = false;
+    if (ctx->mb_focus) drop_text(ctx);
     if (!ctx->npopups) {
         if (!ctx->mb_focus) ctx->mnem_session = false;
         return;
@@ -394,8 +402,12 @@ void ui_popups_frame_begin(ui_ctx *ctx)
         else if (top->owner) ctx->mb_switch = -1;
         ctx->want_frame = true;
     }
-    /* lane KEYS: access keys, unless a widget inside the popup has the focus */
-    if (!(ctx->focus && ctx->focus_root == top->id)) menu_letters(ctx, top);
+    /* lane KEYS: access keys, unless a widget inside the popup has the focus;
+     * typed text never reaches the canvas (Text tool) behind a menu */
+    if (!(ctx->focus && ctx->focus_root == top->id)) {
+        menu_letters(ctx, top);
+        drop_text(ctx);
+    }
     if (top->keyboard && top->kind != 1 && top->nav != nav0) ctx->mnem_session = true;
     /* redraw only when the keyboard changed something (render on demand) */
     if (top->nav != nav0 || top->activate) ctx->want_frame = true;
