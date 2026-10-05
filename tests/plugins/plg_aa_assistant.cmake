@@ -14,5 +14,6 @@ if(TARGET plg_aa_assistant AND TARGET pc_app)
   target_compile_definitions(test_plg_aa_assistant PRIVATE
                              PLG_PATH="$<TARGET_FILE:plg_aa_assistant>")
   add_test(NAME test_plg_aa_assistant COMMAND test_plg_aa_assistant --quick)
-  set_tests_properties(test_plg_aa_assistant PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=dummy")
+  set_tests_properties(test_plg_aa_assistant PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=dummy"
+                        LABELS "plugins;plugin_aa_assistant")
 endif()

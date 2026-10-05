@@ -1,3 +1,12 @@
+<!-- paintc-plugin
+name: Bevel Object
+version: 1.0.0
+menu: Effects > Object > Bevel Object
+summary: Gives an object on a transparent layer, or a selection, a raised and lit bevelled edge with an optional drop shadow.
+original: Bevel Object and Bevel Selection by BoltBait (Bevel Selection with Ed Harvey)
+original-url: https://forums.paint.net/topic/121343-boltbaits-gpu-accelerated-plugin-pack-for-paintnet-v50-updated-2026-04-07/
+basis: clean room
+-->
 # Bevel Object (paint.c effect plugin)
 
 Gives an object on a transparent layer (text, shapes, cut-outs) a raised,
@@ -68,6 +77,11 @@ angle, depth, strength, hard edges, keep original and drop shadow options
 and light and dark colors) comes from the Paint.NET plugins **Bevel Object**
 and **Bevel Selection** by **BoltBait** (Bevel Selection with **Ed
 Harvey**), part of BoltBait's Plugin Pack. Thank you both.
+
+Original plugins: Bevel Object in BoltBait's Plugin Pack
+<https://forums.paint.net/topic/121343-boltbaits-gpu-accelerated-plugin-pack-for-paintnet-v50-updated-2026-04-07/>
+and Bevel Selection in the Selection Tools pack
+<https://forums.paint.net/topic/11514-selection-tools-feather-outline-bevel-shadow-upd-2015-01-31/>
 
 ## License
 

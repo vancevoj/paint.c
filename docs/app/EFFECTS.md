@@ -215,7 +215,8 @@ running cannot be contained in-process (as in Paint.NET).
 Tint with color, int, choice and bool props); `tests/plugins/CMakeLists.txt`
 shows how to build one. Optional plugins that ship separately live in
 `plugins/<name>/` (`pc_add_plugin`, output in `<build>/plugins/out/<name>/`),
-for example `plugins/align_object` (docs/fx/align_object.md).
+for example `plugins/align_object` (docs/fx/align_object.md); the list, the
+conventions and the packaging are in docs/PLUGINS.md and plugins/README.md.
 
 ## Testing
 
@@ -227,6 +228,9 @@ for example `plugins/align_object` (docs/fx/align_object.md).
 | `test_f_plugins` | Loader against the fixtures: valid and nested plugins, wrong ABI, short struct, invalid props, failing entry, duplicate ids, empty, not a library; plugin commands, tooltip, Repeat, Plugin Errors dialog, `--disable-plugins` |
 | `test_f_large` | 8192 x 8192: open, frame times while rendering, change, restart, cancel, commit; refusal of runs that cannot fit in memory |
 | `test_align_dialog` | ADR-024 through the optional Align Object plugin loaded by the real loader: the position grid with mouse and keyboard, live preview, Test as a preview aid, OK, undo, Repeat, selections, notices as message boxes shown once, the builder's drop-down fallback |
+| `test_plg_all` | Every folder of `<build>/plugins/out` through the real loader, together and one by one: no Plugin Errors entry, no id clash, exports and versions; every effect with defaults on photo, selection, transparent and object images (deterministic, ROI split and thread invariant, ROI-only writes, cancellation, time limit) |
+| `test_plg_<name>` | One per optional plugin (tests/plugins/plg_<name>.cmake): the built plugin through the real loader, its own pixel checks, most also through the effect dialog |
+| `test_plg_docs` | The plugin tables of README.md and docs/PLUGINS.md match the README cards of plugins/ (packaging/plugins/plugin_meta.py check) |
 
 Lane-private hooks for tests: `afx_active`, `afx_session_*`, `afx_wait_idle`,
 `afx_wait_preview`, `afx_prop_hit` (where a prop's controls are),

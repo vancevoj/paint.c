@@ -1,3 +1,12 @@
+<!-- paintc-plugin
+name: Perspective
+version: 1.0.0
+menu: Effects > Distort > Perspective
+summary: Keystone and perspective transforms set by three ratios, vertical or horizontal, as a true perspective or a plain trapezoid.
+original: Perspective by dpy
+original-url: https://forums.paint.net/topic/16197-perspective-effect-v20-update-030510/
+basis: clean room
+-->
 # Perspective (paint.c effect plugin)
 
 Keystone and perspective transforms set by three numbers: narrow or widen

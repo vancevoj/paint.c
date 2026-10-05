@@ -1,3 +1,12 @@
+<!-- paintc-plugin
+name: Shape3D
+version: 1.0.0
+menu: Effects > Render > Shape3D
+summary: Wraps the image around a 3D sphere, cylinder or box and renders it with a perspective camera, lighting and a highlight.
+original: Shape3D by MKT, with later fixes by MJW and toe_head2001
+original-url: https://forums.paint.net/topic/18968-shape3d-2007-08-24-bug-fixed-september-2023/
+basis: clean room
+-->
 # Shape3D (paint.c effect plugin)
 
 Wraps the image around a 3D sphere, cylinder or box and renders it with a
@@ -11,7 +20,7 @@ globes, buttons, discs, boxes, dice and product shots. The canvas shows a
 live preview while you change the settings, and OK adds one History item
 named "Shape3D".
 
-![Shape3D: a globe with antialiasing and a tilted axis, the dialog on the right](screenshot.png)
+![Shape3D: a map texture wrapped around a sphere with the default settings, the dialog on the right](screenshot.png)
 
 ## Controls
 

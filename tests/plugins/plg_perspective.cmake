@@ -32,5 +32,6 @@ if(TARGET pc_app)
   target_compile_definitions(test_plg_${_s} PRIVATE PLG_DIR="$<TARGET_FILE_DIR:${_plg}>")
   add_test(NAME test_plg_${_s} COMMAND test_plg_${_s} --quick
            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-  set_tests_properties(test_plg_${_s} PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=dummy")
+  set_tests_properties(test_plg_${_s} PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=dummy"
+                        LABELS "plugins;plugin_perspective")
 endif()

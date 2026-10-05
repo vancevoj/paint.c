@@ -1,3 +1,12 @@
+<!-- paintc-plugin
+name: Gradient Mapping
+version: 1.0.0
+menu: Adjustments > Gradient Mapping
+summary: Recolors an image by looking up each pixel's luminosity, color channel, hue, saturation or alpha in a multi-color gradient.
+original: Gradient Mapping by pyrochild (Zach Walker)
+original-url: https://github.com/bsneeze/pdn-gradientmapping
+basis: source (MIT)
+-->
 # Gradient Mapping (paint.c adjustment plugin)
 
 Recolors an image by looking up each pixel's value in one channel
@@ -61,6 +70,9 @@ any plugin.
 
 Gradient Mapping is based on the Paint.NET plugin of the same name by
 **pyrochild** (Zach Walker), part of the pyrochild plugin pack. Thank you!
+
+Original plugin: <https://forums.paint.net/topic/6265-gradient-mapping/>
+and its source <https://github.com/bsneeze/pdn-gradientmapping>
 
 ## License
 

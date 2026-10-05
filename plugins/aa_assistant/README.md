@@ -1,3 +1,12 @@
+<!-- paintc-plugin
+name: AA's Assistant
+version: 1.0.0
+menu: Effects > Object > AA's Assistant
+summary: Smooths the jagged edge of a cut-out object so it blends into any background, and doubles as a simple alpha curve.
+original: AA's Assistant by dpy, after an idea by Boude
+original-url: https://forums.paint.net/topic/16643-dpys-plugin-pack-2014-05-04/
+basis: clean room
+-->
 # AA's Assistant (paint.c effect plugin)
 
 Smooths the jagged edge of a cut-out object so it blends into any

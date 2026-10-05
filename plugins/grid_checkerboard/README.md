@@ -1,3 +1,12 @@
+<!-- paintc-plugin
+name: Grid / Checkerboard
+version: 1.0.0
+menu: Effects > Render > Grid / Checkerboard
+summary: Draws a grid of lines, a checkerboard or a grid of dots with any cell size, line width and two colors with alpha.
+original: Grid Maker by BoltBait and Illnab1024, and Grid & Checker Maker by MadJik
+original-url: https://forums.paint.net/topic/1964-grid-maker-plugin-v30-updated-july-2-2014/
+basis: clean room
+-->
 # Grid / Checkerboard (paint.c effect plugin)
 
 Draws a grid of lines, a checkerboard or a grid of dots over the selection

@@ -1,3 +1,12 @@
+<!-- paintc-plugin
+name: Water Reflection
+version: 1.0.0
+menu: Effects > Distort > Water Reflection
+summary: Turns the lower part of the selection into a rippled mirror image of what is above a waterline, like a lake reflecting a skyline.
+original: Water Reflection by MadJik, after a reflection script by Tom Jackson
+original-url: https://forums.paint.net/topic/2482-water-reflection-ymd100725/
+basis: clean room
+-->
 # Water Reflection (paint.c effect plugin)
 
 Turns the lower part of the selection (or the canvas) into a rippled mirror

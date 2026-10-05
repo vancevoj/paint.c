@@ -14,5 +14,6 @@ if(TARGET plg_content_aware_fill AND TARGET pc_app)
   target_compile_definitions(test_plg_content_aware_fill PRIVATE
                              PLG_PATH="$<TARGET_FILE:plg_content_aware_fill>")
   add_test(NAME test_plg_content_aware_fill COMMAND test_plg_content_aware_fill --quick)
-  set_tests_properties(test_plg_content_aware_fill PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=dummy")
+  set_tests_properties(test_plg_content_aware_fill PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=dummy"
+                        LABELS "plugins;plugin_content_aware_fill")
 endif()

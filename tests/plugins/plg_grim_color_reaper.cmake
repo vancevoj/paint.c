@@ -38,5 +38,6 @@ if(TARGET pc_app)
   target_compile_definitions(${_t} PRIVATE PLG_PATH="$<TARGET_FILE:${_plg}>"
                              PLG_DIR="$<TARGET_FILE_DIR:${_plg}>")
   add_test(NAME ${_t} COMMAND ${_t} --quick WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-  set_tests_properties(${_t} PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=dummy")
+  set_tests_properties(${_t} PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=dummy"
+                        LABELS "plugins;plugin_grim_color_reaper")
 endif()

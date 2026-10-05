@@ -1,3 +1,12 @@
+<!-- paintc-plugin
+name: Content Aware Fill
+version: 1.0.0
+menu: Effects > Selection > Content Aware Fill
+summary: Removes an object or a blemish by filling the selection with texture synthesized from its surroundings.
+original: Content Aware Fill by null54, after Resynthesizer by Lloyd Konneker and the research of Paul Harrison
+original-url: https://forums.paint.net/topic/112730-content-aware-fill-2025-03-06/
+basis: clean room
+-->
 # Content Aware Fill (paint.c effect plugin)
 
 Removes an object or a blemish: the selected pixels are replaced by texture

@@ -1,3 +1,12 @@
+<!-- paintc-plugin
+name: Grim Color Reaper
+version: 1.0.0
+menu: Effects > Color > Grim Color Reaper
+summary: Removes a background color and recovers what was blended with it, so soft edges, glows and shadows become partly transparent without a halo.
+original: Grim Color Reaper by Jotaf, continued as Kill Color Keeper by Pratyush
+original-url: https://forums.paint.net/topic/15595-grim-color-reaper-plugin/
+basis: clean room
+-->
 # Grim Color Reaper (paint.c effect plugin)
 
 Removes a background color from an image and recovers what was blended with
@@ -61,6 +70,10 @@ original color, the color tolerance, the alpha cut-off and the color
 choices) comes from the Paint.NET plugin **Grim Color Reaper** (first named
 "Kill Color") by **Jotaf**, continued as **Kill Color Keeper** by
 **Pratyush**. Thank you both.
+
+Original plugins: Grim Color Reaper
+<https://forums.paint.net/topic/15595-grim-color-reaper-plugin/>
+and Kill Color Keeper <https://forums.paint.net/topic/112400-kill-color-keeper-v-12/>
 
 ## License
 

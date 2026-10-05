@@ -14,5 +14,6 @@ if(TARGET plg_shape3d AND TARGET pc_app)
   target_compile_definitions(test_plg_shape3d PRIVATE
                              PLG_PATH="$<TARGET_FILE:plg_shape3d>")
   add_test(NAME test_plg_shape3d COMMAND test_plg_shape3d --quick)
-  set_tests_properties(test_plg_shape3d PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=dummy")
+  set_tests_properties(test_plg_shape3d PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=dummy"
+                        LABELS "plugins;plugin_shape3d")
 endif()
