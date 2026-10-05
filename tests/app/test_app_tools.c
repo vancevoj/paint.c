@@ -320,11 +320,13 @@ static void t_effects(void)
     at_frames(a, 2);
     CHECK(px_eq(at_doc_px(a, 5, 5), 245, 55, 225, 255));
     CHECK(strcmp(d->hist->cur->label, "Invert Colors") == 0 && !d->txn);
-    /* Repeat (Ctrl+F) inverts back */
-    CHECK(app_cmd_enabled(a, "effects.repeat"));
+    /* lane F: Repeat (Ctrl+F) is for Effects menu items only (docs "Repeat
+     * last effect", MENUS.md Adjustments, OBSERVED O-UI-ADJREPEAT), so an
+     * adjustment does not arm it */
+    CHECK(!app_cmd_enabled(a, "effects.repeat"));
     key_press(a, SDLK_F, SDL_KMOD_LCTRL);
-    CHECK(px_eq(at_doc_px(a, 5, 5), 10, 200, 30, 255));
-    CHECK(app_doc_history_list(d, NULL, 0, NULL) == 3u);
+    CHECK(px_eq(at_doc_px(a, 5, 5), 245, 55, 225, 255));
+    CHECK(app_doc_history_list(d, NULL, 0, NULL) == 2u);
     /* a dialog effect: preview in the transaction, Enter applies */
     CHECK(app_cmd_exec(a, "effects.org.paintc.render.clouds"));
     at_frames(a, 4);
@@ -335,6 +337,13 @@ static void t_effects(void)
     CHECK(!app_dialog_active(a) && d->txn == NULL);
     CHECK(strcmp(d->hist->cur->label, "Clouds") == 0);
     CHECK(!px_eq(at_doc_px(a, 5, 5), 10, 200, 30, 255));
+    /* lane F: now Ctrl+F repeats Clouds with the same parameters, no dialog */
+    CHECK(app_cmd_enabled(a, "effects.repeat"));
+    key_press(a, SDLK_F, SDL_KMOD_LCTRL);
+    for (int i = 0; i < 20 && app_dialog_active(a); i++) at_frames(a, 1);
+    CHECK(!app_dialog_active(a) && d->txn == NULL);
+    CHECK(app_doc_history_list(d, NULL, 0, NULL) == 4u);
+    CHECK(strcmp(d->hist->cur->label, "Clouds") == 0);
     /* Cancel leaves no trace */
     CHECK(app_cmd_exec(a, "effects.org.paintc.blur.gaussian"));
     at_frames(a, 6);

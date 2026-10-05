@@ -194,6 +194,7 @@ static void cmd_item(app *a, const char *id, const char *label)
     } else {
         chosen = ui_menu_item_icon(ui, c ? c->icon : UI_ICON_NONE, label, s ? sc : NULL, en);
     }
+    if (c && c->tip && *c->tip) ui_tooltip(ui, c->tip);   /* lane F: plugin effect origin */
     ui_pop_id(ui);
     if (chosen) (void)app_cmd_exec(a, id);
 }
