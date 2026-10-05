@@ -1,6 +1,7 @@
 /* pc_hist.c - branching history. No recursion anywhere (deep histories
  * must not overflow the C stack). Apply == swap for every operation. */
 #include "pc/pc_hist.h"
+#include "pc/pc_txn.h"     /* pc_hist_bytes, pc_hist_prune_bytes (W1-L1b) */
 
 #include <stdlib.h>
 #include <string.h>
@@ -243,10 +244,28 @@ static void layer_toggle_destroy(void *p)
     free(t);
 }
 
+/* Bytes of a layer's tiles, each counted as tile_bytes / refs (W1-L1b). */
+static size_t layer_tile_bytes(const pc_layer *l)
+{
+    size_t b = 0, n;
+    if (!l) return 0u;
+    n = (size_t)l->tiles_x * l->tiles_y;
+    for (size_t i = 0; i < n; i++) {
+        pc_tile *t = l->grid[i];
+        if (t) {
+            uint32_t r = pc_tile_refs(t);
+            b += pc_tile_bytes(t->bpp) / (r ? r : 1u);
+        }
+    }
+    return b;
+}
+
 static size_t layer_toggle_bytes(const void *p)
 {
-    (void)p;
-    return sizeof(layer_toggle);   /* tiles are accounted by pc_tile_stats */
+    /* A removed layer held by the payload owns its tiles; shared tiles
+     * (duplicates, the document) count proportionally (W1-L1b). */
+    const layer_toggle *t = (const layer_toggle *)p;
+    return sizeof(layer_toggle) + layer_tile_bytes(t->held);
 }
 
 static const pc_hist_ops k_layer_toggle_ops = {
@@ -343,4 +362,77 @@ pc_status pc_hist_set_layer_props(pc_hist *h, uint32_t layer_id,
     layer_props_swap(h->doc, v);
     pc_hist_link(h, n, &k_layer_props_ops, v);
     return PC_OK;
+}
+
+/* ---- byte budget (W1-L1b) ------------------------------------------------
+ * Same pruning policy as pc_hist_prune (LRU leaves off the root..current
+ * path first, then root collapse), driven by ops->bytes. Approximation:
+ * payload sizes count each tile as tile_bytes / refs, so tiles shared
+ * between the document and history (or several payloads) are not counted
+ * once per holder. Freeing a payload can raise the share of tiles it
+ * shared with others, so the total is re-measured after every round. */
+static size_t node_bytes(const pc_hist_node *n)
+{
+    return (n->ops && n->ops->bytes) ? n->ops->bytes(n->payload) : 0u;
+}
+
+size_t pc_hist_bytes(const pc_hist *h)
+{
+    size_t total = 0;
+    if (!h) return 0u;
+    for (pc_hist_node *n = h->root; n; n = next_preorder(h->root, n)) {
+        size_t b = node_bytes(n);
+        total = (b > SIZE_MAX - total) ? SIZE_MAX : total + b;
+    }
+    return total;
+}
+
+/* Remove one node by the pc_hist_prune policy. Returns false when only the
+ * root..current path is left and the root cannot collapse; *freed gets the
+ * estimated bytes released. */
+static bool prune_one(pc_hist *h, size_t *freed)
+{
+    pc_hist_node *best = NULL;
+    mark_path(h);
+    for (pc_hist_node *n = h->root; n; n = next_preorder(h->root, n)) {
+        if (n->first_child || n->mark == h->epoch) continue;
+        if (!best || n->last_visit < best->last_visit) best = n;
+    }
+    if (best) {
+        *freed = node_bytes(best);
+        unlink_child(best->parent, best);
+        free_node(best);
+        h->count--;
+        return true;
+    }
+    if (h->root != h->cur && h->root->first_child &&
+        !h->root->first_child->next_sibling) {
+        pc_hist_node *old = h->root, *nr = old->first_child;
+        *freed = node_bytes(nr);
+        nr->ops->destroy(nr->payload);
+        nr->ops = NULL;
+        nr->payload = NULL;
+        nr->parent = NULL;
+        free(old);
+        h->root = nr;
+        h->count--;
+        return true;
+    }
+    return false;
+}
+
+void pc_hist_prune_bytes(pc_hist *h, size_t max_bytes)
+{
+    if (!h) return;
+    for (;;) {
+        size_t total = pc_hist_bytes(h);
+        bool progress = false;
+        while (total > max_bytes) {
+            size_t freed = 0;
+            if (!prune_one(h, &freed)) break;
+            progress = true;
+            total = freed < total ? total - freed : 0u;
+        }
+        if (!progress || pc_hist_bytes(h) <= max_bytes) break;
+    }
 }
