@@ -76,8 +76,41 @@ void sel_animate_ants(app *a);
 void sel_tint_draw(app *a, app_doc *d, app_overlay *o);
 
 /* ---- status ------------------------------------------------------------------------------- */
-/* "Offset 10, 20 · Size 30 × 40" in the current units (T-SEL-STATUS). */
-void sel_status_rect(app *a, const app_doc *d, double x, double y, double w, double h);
+/* "Offset 10, 20 · Size 30 × 40 · Area 1200 px²" in the current units
+ * (T-SEL-STATUS; the area is the selected area inside the image, square
+ * pixels or square inches / centimeters; area_px < 0 leaves it out). */
+void sel_status_rect(app *a, const app_doc *d, double x, double y, double w, double h,
+                     double area_px);
+
+/* ---- 4 x 4 supersampled shapes (lane TOOLA, T-SEL-QUALITY) ----------------------------------
+ * Antialiased selection shapes take the share of 16 sample points per
+ * pixel inside the polygon (17 coverage levels, R 4.3). sel_ss_build makes
+ * a table of the polygon's crossings per sample row inside the document
+ * (PC_ERR_LIMIT for absurdly complex shapes: callers then use the analytic
+ * rasterizer); sel_ss_src exposes it as a selection source; area is the
+ * covered area in pixels. The table is owned (sel_ss_free) and read only
+ * once built (any thread). */
+typedef struct sel_ss {
+    pc_rect  bounds;         /* document pixels that may be covered */
+    int32_t  y0, nsub;       /* first pixel row, sample rows */
+    uint32_t *off;           /* nsub + 1 offsets into xs (owned) */
+    struct ss_xing *xs;      /* crossings, sorted per sample row (owned) */
+    bool     evenodd;
+    double   area;
+} sel_ss;
+
+pc_status sel_ss_build(sel_ss *s, const pc_poly *p, pc_fill_rule rule, const pc_doc *d);
+void      sel_ss_free(sel_ss *s);
+void      sel_ss_src(pc_sel_src *src, const sel_ss *s);
+
+/* ---- Magic Wand background work (tests, diagnostics) ----------------------------------------
+ * The wand computes regions of images with at least async_min pixels on a
+ * background thread with a canvas spinner (T-WAND-BUSY; default 4 Mpx). */
+bool sel_wand_busy(app *a);
+void sel_wand_set_async_min(app *a, uint64_t px);
+/* Tests: while held, background jobs wait before computing (frames keep
+ * running; app_tasks_wait would wait for the release). */
+void sel_wand_test_hold(app *a, bool hold);
 
 /* ---- small math -------------------------------------------------------------------------- */
 /* Nearest integer (halves round up), for snapping to pixel corners. */

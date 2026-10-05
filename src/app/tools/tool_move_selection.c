@@ -6,16 +6,30 @@
  * transforms the selection as it was when the session started with the
  * accumulated matrix, so repeated rotations never degrade it; the
  * selection quality option decides between antialiased and pixelated
- * coverage. The blue tint is shown. Finish ends the session without a
- * History item. With nothing selected the first drag selects all first
- * (3.36 MoveToolBase). Main thread. */
+ * coverage. The blue tint is shown. With nothing selected the first drag
+ * selects all first (3.36 MoveToolBase).
+ *
+ * History (T-FW-HISTORY, lane TOOLA): the moved selection stays editable
+ * until Finish. Undo and Redo walk through its moves and keep it editable
+ * with the earlier frame and quality (sel_live.h); Finish (Enter, Esc, the
+ * Finish button) adds a "Finish" item, a command or a tool switch finishes
+ * without one. Layer visibility changes keep it editable
+ * (APP_TOOL_KEEPS_LIVE). Arrow keys move it 1 px, Ctrl + arrows 10 px.
+ * Main thread. */
 #include "sel_float.h"
+#include "sel_live.h"
 
 #include <stdlib.h>
 #include <string.h>
 
+typedef struct ms_params {
+    sel_box box;
+    bool    hard;                /* pixelated quality of that state */
+} ms_params;
+
 typedef struct ms_state {
-    /* session */
+    sel_live     L;
+    /* session resources of the object */
     bool         active;
     uint32_t     doc_id;
     pc_sel_snap  snap;
@@ -23,7 +37,6 @@ typedef struct ms_state {
     pc_poly      outline;        /* outline at the session start */
     pc_poly      scratch;
     sel_box      box;
-    uint64_t     node_seq, sel_gen;
     bool         hard;           /* quality of the last commit */
     /* drag */
     bool         dragging;
@@ -40,8 +53,10 @@ typedef struct ms_state {
     bool         idle_ok;
 } ms_state;
 
-static void ms_end(app *a, ms_state *ms)
+/* sel_live: the session resources go with the object */
+static void ms_forget(app *a, void *tool)
 {
+    ms_state *ms = (ms_state *)tool;
     app_doc *d = sel_doc_by_id(a, ms->doc_id);
     if (ms->dragging && d) (void)app_doc_ants_preview(d, NULL);
     ms->active = false;
@@ -53,16 +68,17 @@ static void ms_end(app *a, ms_state *ms)
     app_request_frame(a);
 }
 
-static app_doc *ms_doc(app *a, ms_state *ms)
+/* Undo or Redo reached one of the moves: its frame and quality. */
+static void ms_restore(app *a, void *tool, const void *params)
 {
-    app_doc *d = app_active_doc(a);
-    if (!ms->active) return d;
-    if (!d || d->id != ms->doc_id || d->txn || d->doc->w != ms->snap.w || d->doc->h != ms->snap.h ||
-        (!ms->dragging &&
-         (d->hist->cur->seq != ms->node_seq || d->doc->sel_gen != ms->sel_gen)))
-        ms_end(a, ms);
-    return d;
+    ms_state *ms = (ms_state *)tool;
+    const ms_params *p = (const ms_params *)params;
+    ms->box = p->box;
+    ms->hard = p->hard;
+    a->ts.sel_clip_aa = !p->hard;
 }
+
+static const sel_live_desc k_live = { sizeof(ms_params), NULL, NULL, ms_restore, ms_forget };
 
 static void report(app *a, pc_status st)
 {
@@ -70,12 +86,31 @@ static void report(app *a, pc_status st)
         app_error(a, "Move Selection failed: %s.", pc_status_str(st));
 }
 
+static void cancel_drag(app *a, ms_state *ms, app_doc *d);
+
+/* The active document after following History (no history moves while a
+ * drag is held). */
+static app_doc *ms_doc(app *a, ms_state *ms)
+{
+    app_doc *d = app_active_doc(a);
+    if (ms->dragging) {
+        if (!d || d->id != ms->doc_id || d->txn || d->doc->w != ms->snap.w ||
+            d->doc->h != ms->snap.h)
+            cancel_drag(a, ms, sel_doc_by_id(a, ms->doc_id));
+        return d;
+    }
+    (void)sel_live_sync(a, &ms->L);
+    return d;
+}
+
 static bool ms_start(app *a, ms_state *ms, app_doc *d)
 {
     pc_status st;
     pc_rect b;
-    if (ms->active) return true;
+    if (ms->active && ms->doc_id == d->id && (ms->L.live || sel_live_pending(&ms->L, d)))
+        return true;
     if (d->txn) return false;
+    sel_live_forget(a, &ms->L);
     if (!pc_sel_is_active(d->doc)) {
         st = pc_sel_select_all(d->hist, "Select All");
         if (st != PC_OK) {
@@ -84,6 +119,7 @@ static bool ms_start(app *a, ms_state *ms, app_doc *d)
         }
         app_doc_history_changed(a, d);
     }
+    sel_live_start(a, &ms->L, d);
     st = pc_sel_snap_take(d->doc, &ms->snap);
     if (st == PC_OK) st = sel_cov_from_snap(&ms->cov, &ms->snap, d->doc);
     pc_poly_clear(&ms->outline);
@@ -91,37 +127,46 @@ static bool ms_start(app *a, ms_state *ms, app_doc *d)
     if (st != PC_OK) {
         sel_cov_free(&ms->cov);
         pc_sel_snap_free(&ms->snap);
+        sel_live_forget(a, &ms->L);
         report(a, st);
         return false;
     }
     b = ms->cov.bounds;
     sel_box_set(&ms->box, (double)b.x, (double)b.y, (double)(b.x + b.w), (double)(b.y + b.h));
     ms->doc_id = d->id;
-    ms->node_seq = d->hist->cur->seq;
-    ms->sel_gen = d->doc->sel_gen;
     ms->hard = !a->ts.sel_clip_aa;
     ms->active = true;
     return true;
 }
 
-/* Replace the selection with the session coverage under the box. */
+/* Replace the selection with the session coverage under the box: one
+ * History item, recorded as a state of the object. */
 static void ms_apply(app *a, ms_state *ms, app_doc *d)
 {
     sel_cov_map cm;
     pc_sel_src src;
     pc_status st;
+    ms_params p;
+    uint64_t before;
     (void)app_doc_ants_preview(d, NULL);
     if (!sel_cov_map_init(&cm, &ms->cov, &ms->box.m, false, !a->ts.sel_clip_aa, d->doc)) {
         report(a, PC_ERR_ARG);
         return;
     }
     sel_cov_src(&src, &cm);
+    before = d->hist->cur->seq;
     st = pc_sel_apply_src(d->hist, &src, PC_SEL_REPLACE, "Move Selection");
-    if (st == PC_OK) app_doc_history_changed(a, d);
-    report(a, st);
-    ms->node_seq = d->hist->cur->seq;
-    ms->sel_gen = d->doc->sel_gen;
     ms->hard = !a->ts.sel_clip_aa;
+    if (st != PC_OK) {
+        report(a, st);
+        return;
+    }
+    app_doc_history_changed(a, d);
+    memset(&p, 0, sizeof p);
+    p.box = ms->box;
+    p.hard = ms->hard;
+    if (!sel_live_record_edit(a, &ms->L, d, before, "Move Selection", &p))
+        report(a, PC_ERR_NOMEM);
 }
 
 static void preview(ms_state *ms, app_doc *d)
@@ -222,6 +267,12 @@ static bool ms_key(app *a, void *st, int32_t key, uint32_t mods, bool down)
         }
         return key == SDLK_LEFT || key == SDLK_RIGHT || key == SDLK_UP || key == SDLK_DOWN;
     }
+    /* K-UI-FINISH: Enter and Esc are the user's Finish (a History item) */
+    if ((key == SDLK_RETURN || key == SDLK_KP_ENTER || key == SDLK_ESCAPE) &&
+        (mods & (UI_MOD_CTRL | UI_MOD_ALT | UI_MOD_GUI)) == 0u && ms->L.live) {
+        (void)sel_live_finish(a, &ms->L, true);
+        return true;
+    }
     if (a->cv.space_down) return false;
     switch (key) {
     case SDLK_LEFT: dx = -step; break;
@@ -230,7 +281,7 @@ static bool ms_key(app *a, void *st, int32_t key, uint32_t mods, bool down)
     case SDLK_DOWN: dy = step; break;
     default: return false;
     }
-    if (!pc_sel_is_active(d->doc) && !ms->active) return false;
+    if (!pc_sel_is_active(d->doc) && !ms->L.live) return app_tool_nudge_pointer(a, key, mods);
     if (!ms_start(a, ms, d)) return true;
     sel_box_nudge(&ms->box, dx, dy);
     ms_apply(a, ms, d);
@@ -249,6 +300,13 @@ static void idle_box(ms_state *ms, app_doc *d)
     sel_box_set(&ms->idle, (double)b.x, (double)b.y, (double)(b.x + b.w), (double)(b.y + b.h));
 }
 
+/* The frame being edited: the live object or a drag in progress. */
+static bool editing(app *a, const ms_state *ms)
+{
+    return ms->active &&
+           (ms->L.live || ms->dragging || sel_live_pending(&ms->L, app_active_doc(a)));
+}
+
 static void ms_overlay(app *a, void *st, app_overlay *o)
 {
     ms_state *ms = (ms_state *)st;
@@ -265,7 +323,7 @@ static void ms_overlay(app *a, void *st, app_overlay *o)
         sel_animate_ants(a);
     }
     sel_tint_draw(a, d, o);
-    if (ms->active) {
+    if (editing(a, ms)) {
         bool scale = ms->dragging && ms->drag.kind == SEL_DRAG_SCALE;
         sel_box_draw(a, o, &ms->box, !ms->dragging || scale, true, !ms->dragging);
     } else {
@@ -288,7 +346,7 @@ static app_cursor ms_cursor(app *a, void *st, double x, double y, uint32_t mods)
         if (ms->drag.kind == SEL_DRAG_ROTATE) return APP_CURSOR_ROTATE;
         return APP_CURSOR_MOVE;
     }
-    if (ms->active) {
+    if (editing(a, ms)) {
         b = &ms->box;
     } else {
         idle_box(ms, d);
@@ -304,32 +362,49 @@ static bool ms_live(app *a, void *st)
 {
     ms_state *ms = (ms_state *)st;
     (void)ms_doc(a, ms);
-    return ms->active;
+    return ms->L.live || ms->dragging;
 }
 
+/* The framework's finish: explicit (Finish button, Esc) adds "Finish",
+ * implicit (commands, tool or image switches) leaves the object dormant. */
 static bool ms_commit(app *a, void *st)
 {
     ms_state *ms = (ms_state *)st;
-    bool was = ms->active;
+    bool was = ms->L.live || ms->dragging;
     if (ms->dragging) finish_drag(a, ms, sel_active_doc_if(a, ms->doc_id));
-    if (ms->active) ms_end(a, ms);
+    if (!sel_live_finish(a, &ms->L, app_tool_finishing(a) == APP_FINISH_EXPLICIT) &&
+        ms->L.has && ms->L.nrec == 0)
+        sel_live_forget(a, &ms->L);          /* a pending session that changed nothing */
     return was;
 }
 
-static void ms_deactivate(app *a, void *st) { (void)ms_commit(a, st); }
+static void ms_deactivate(app *a, void *st)
+{
+    ms_state *ms = (ms_state *)st;
+    (void)ms_commit(a, st);
+    sel_live_forget(a, &ms->L);
+}
+
+static void doc_closing(app *a, app_doc *d, void *ud)
+{
+    ms_state *ms = (ms_state *)ud;
+    if (ms->dragging && d && d->id == ms->doc_id) ms->dragging = false;
+    sel_live_doc_closing(a, &ms->L, d);
+}
 
 static void ms_init(app *a, void *st)
 {
     ms_state *ms = (ms_state *)st;
-    (void)a;
     pc_poly_init(&ms->outline);
     pc_poly_init(&ms->scratch);
+    sel_live_init(&ms->L, &k_live, ms);
+    (void)app_hook_add(a, APP_HOOK_DOC_CLOSING, doc_closing, ms);
 }
 
 static void ms_fini(app *a, void *st)
 {
     ms_state *ms = (ms_state *)st;
-    (void)a;
+    sel_live_forget(a, &ms->L);
     sel_cov_free(&ms->cov);
     pc_sel_snap_free(&ms->snap);
     pc_poly_free(&ms->outline);
@@ -341,7 +416,7 @@ static void ms_settings_changed(app *a, void *st)
 {
     ms_state *ms = (ms_state *)st;
     app_doc *d = ms_doc(a, ms);
-    if (!d || !ms->active || ms->dragging || ms->hard == !a->ts.sel_clip_aa) return;
+    if (!d || !ms->L.live || ms->dragging || ms->hard == !a->ts.sel_clip_aa) return;
     if (pc_affine_is_identity(&ms->box.m)) {
         ms->hard = !a->ts.sel_clip_aa;
         return;
@@ -366,7 +441,7 @@ const app_tool app_tool_move_selection = {
     .order = 4,
     .icon = UI_ICON_TOOL_MOVE_SELECTION,
     .cursor = APP_CURSOR_MOVE,
-    .flags = 0u,
+    .flags = APP_TOOL_KEEPS_LIVE,
     .state_size = sizeof(ms_state),
     .init = ms_init,
     .fini = ms_fini,

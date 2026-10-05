@@ -45,6 +45,14 @@ static void lsel_overlay(app *a, void *st, app_overlay *o)
     sel_marquee_overlay(a, &((lasso_select_state *)st)->m, o);
 }
 
+/* lane TOOLA: the cursor shows the selection mode glyph (TOOLS.md 1) */
+static app_cursor lsel_cursor(app *a, void *st, double x, double y, uint32_t mods)
+{
+    (void)x;
+    (void)y;
+    return sel_marquee_cursor(a, &((lasso_select_state *)st)->m, mods);
+}
+
 static void lsel_settings_changed(app *a, void *st)
 {
     (void)a;
@@ -69,5 +77,6 @@ const app_tool app_tool_lasso_select = {
     .key = lsel_key,
     .options = lsel_options,
     .overlay = lsel_overlay,
+    .cursor_at = lsel_cursor,
     .settings_changed = lsel_settings_changed,
 };

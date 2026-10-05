@@ -521,15 +521,28 @@ void sel_tint_draw(app *a, app_doc *d, app_overlay *o)
 }
 
 /* ---- status ------------------------------------------------------------------------------- */
-void sel_status_rect(app *a, const app_doc *d, double x, double y, double w, double h)
+void sel_status_rect(app *a, const app_doc *d, double x, double y, double w, double h,
+                     double area_px)
 {
-    char sx[32], sy[32], sw[32], sh[32], buf[160];
+    char sx[32], sy[32], sw[32], sh[32], sa[48], buf[200];
     double dpi = d && d->meta.dpi_x > 0.0 ? d->meta.dpi_x : 96.0;
     app_format_len(a, x, dpi, sx, sizeof sx);
     app_format_len(a, y, dpi, sy, sizeof sy);
     app_format_len(a, w, dpi, sw, sizeof sw);
     app_format_len(a, h, dpi, sh, sizeof sh);
-    snprintf(buf, sizeof buf, "Offset %s, %s \xC2\xB7 Size %s \xC3\x97 %s", sx, sy, sw, sh);
+    sa[0] = '\0';
+    if (area_px >= 0.0) {
+        /* 3.36 shows the selected area too: square pixels, or square
+         * inches / centimeters with two decimals */
+        if (a->units == APP_UNITS_IN)
+            snprintf(sa, sizeof sa, " \xC2\xB7 Area %.2f in\xC2\xB2", area_px / (dpi * dpi));
+        else if (a->units == APP_UNITS_CM)
+            snprintf(sa, sizeof sa, " \xC2\xB7 Area %.2f cm\xC2\xB2",
+                     area_px / (dpi * dpi) * 2.54 * 2.54);
+        else
+            snprintf(sa, sizeof sa, " \xC2\xB7 Area %.0f px\xC2\xB2", floor(area_px + 0.5));
+    }
+    snprintf(buf, sizeof buf, "Offset %s, %s \xC2\xB7 Size %s \xC3\x97 %s%s", sx, sy, sw, sh, sa);
     app_status(a, buf);
 }
 
