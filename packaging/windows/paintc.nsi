@@ -94,6 +94,9 @@ VIAddVersionKey "LegalCopyright" "MIT License"
   !insertmacro ${MACRO} tif
   !insertmacro ${MACRO} tiff
   !insertmacro ${MACRO} webp
+  ; lane AVIFJXL (ADR-019): AVIF and JPEG XL
+  !insertmacro ${MACRO} avif
+  !insertmacro ${MACRO} jxl
   !insertmacro ${MACRO} ora
 !macroend
 

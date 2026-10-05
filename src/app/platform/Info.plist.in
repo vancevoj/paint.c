@@ -37,6 +37,8 @@
         <string>com.compuserve.gif</string>
         <string>public.tiff</string>
         <string>org.webmproject.webp</string>
+        <string>public.avif</string>
+        <string>public.jpeg-xl</string>
         <string>com.truevision.tga-image</string>
         <string>com.microsoft.dds</string>
       </array>
@@ -58,6 +60,28 @@
   </array>
   <key>UTImportedTypeDeclarations</key>
   <array>
+    <!-- lane AVIFJXL: AVIF and JPEG XL for systems that do not declare them yet
+         (public.jpeg-xl is a system type from macOS 14 on) -->
+    <dict>
+      <key>UTTypeIdentifier</key>      <string>public.avif</string>
+      <key>UTTypeDescription</key>     <string>AVIF image</string>
+      <key>UTTypeConformsTo</key>      <array><string>public.image</string><string>public.data</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key><array><string>avif</string></array>
+        <key>public.mime-type</key><string>image/avif</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key>      <string>public.jpeg-xl</string>
+      <key>UTTypeDescription</key>     <string>JPEG XL image</string>
+      <key>UTTypeConformsTo</key>      <array><string>public.image</string><string>public.data</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key><array><string>jxl</string></array>
+        <key>public.mime-type</key><string>image/jxl</string>
+      </dict>
+    </dict>
     <dict>
       <key>UTTypeIdentifier</key>      <string>org.paintc.pdn</string>
       <key>UTTypeDescription</key>     <string>Paint.NET image</string>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- paint.c MIME types (shared-mime-info). Every other type paint.c opens
-     (png, jpeg, bmp, gif, tiff, webp, x-tga, x-dds, openraster) is already
+     (png, jpeg, bmp, gif, tiff, webp, avif, jxl, x-tga, x-dds, openraster) is already
      defined by freedesktop.org.xml; only the .pdn type is added here. -->
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="image/x-paintnet">
