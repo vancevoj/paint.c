@@ -61,7 +61,7 @@ the refcounted tiles).
 | `settings.c` | The INI-like settings store. |
 | `script.c` | `app_script_run` for tests, `--script` and `--self-test`. |
 | `tools/` | `stroke.c` (stroke accumulation for painting tools), `tool_pan.c`, `tool_zoom.c`, `tool_pencil.c`, `tool_paintbrush.c`. |
-| `mods/` | `mod_file`, `mod_edit`, `mod_view`, `mod_image`, `mod_layers`, `mod_effects`, `mod_help`. |
+| `mods/` | `mod_file`, `mod_edit`, `mod_view`, `mod_image`, `mod_image_size`, `mod_layers`, `mod_effects`, `mod_help`. |
 
 ## Registration from file names
 
@@ -102,6 +102,14 @@ Helper files must not use these prefixes (for example `tools/stroke.c`).
   while a mouse button is down), then Enter / Esc (finish or cancel the live
   tool, else Deselect). Letters, digits and editing keys without Ctrl, Alt or
   Cmd go to a focused text field instead.
+* Alt plus a menu letter (F, E, V, I, L, A, C) opens that menu through the
+  toolkit's keyboard menu navigation (F10, then one Right per frame).
+* Provisional commands carry `APP_CMD_WEAK`: a later registration of the
+  same id replaces them, whatever the module order. Wave 2a registers
+  `edit.paste`, `edit.paste_layer` (paste as a new layer or a pixel copy,
+  no floating move), `image.resize` and `image.canvas_size`
+  (`mods/mod_image_size.c`) this way, so the lanes that own those features
+  only add their own `mod_*.c` with a normal registration.
 
 ## Documents
 
@@ -216,7 +224,9 @@ app_dialog_push(a, frame, state, free);
 Parameter blocks described by `fx_prop` schemas (effects, save options) get
 their widgets from `app_props_ui`; custom blob props (`FXP_CUSTOM`, e.g.
 "curves", "levels") get a widget through `app_prop_widget_register`.
-Message boxes: `app_message`, errors: `app_error`.
+Message boxes: `app_message`, errors: `app_error`. Questions with up to
+three buttons (save prompts, Flatten, Expand Canvas) use `app_choice`, which
+calls `done` with the chosen button on the main thread.
 
 ## How to add a panel
 
