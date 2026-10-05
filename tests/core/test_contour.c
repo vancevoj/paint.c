@@ -340,7 +340,8 @@ static void t_json(void)
  * PC_OK, PC_ERR_FORMAT or PC_ERR_LIMIT (ASan checks the reads). */
 static void t_json_fuzz(void)
 {
-    static const char seed[] = "{\"polygonList\":[\"3,4,9,4,9,19,3,19,3,4\",\"1.5,2.25,7,8,9e0,1\"],"
+    static const char seed[] = "{\"polygonList\":[\"3,4,9,4,9,19,3,19,3,4\","
+                               "\"1.5,2.25,7,8,9e0,1\"],"
                                "\"other\":{\"a\":[1,2,{\"b\":null}]}}";
     static const char alphabet[] = "{}[]\",:.-+eE0123456789 \\ap";
     int iters = g_quick ? 3000 : 30000, ok = 0, fmt = 0, lim = 0, other = 0;

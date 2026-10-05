@@ -495,8 +495,31 @@ static void t_poly_preview_contour(void)
         pc_sel_preview_rect(d, &full, mode, pc_doc_rect(d), a, 300);
         pc_poly_clear(&c1);
         CHECK(pc_sel_contour_preview(d, &full, mode, 0.0, &c1) == PC_OK);
-        /* banded commit equals the preview */
-        CHECK(pc_sel_apply_poly(h, &p, rule, aa, mode, "Lasso") == PC_OK);
+        /* a prepared shape previews the same */
+        {
+            pc_sel_state shape;
+            pc_sel_src ss;
+            pc_poly c3;
+            uint8_t *e = (uint8_t *)malloc(300 * 200);
+            pc_poly_init(&c3);
+            CHECK(pc_sel_state_from_poly(d, &p, rule, aa, &shape) == PC_OK);
+            pc_sel_src_state(&ss, &shape);
+            pc_sel_preview_src(d, &ss, mode, pc_doc_rect(d), e, 300);
+            CHECK(memcmp(a, e, 300 * 200) == 0);
+            CHECK(pc_sel_contour_preview_src(d, &ss, mode, 0.0, &c3) == PC_OK);
+            CHECK(c3.n_pts == c1.n_pts && c3.n_contours == c1.n_contours);
+            if (c3.n_pts == c1.n_pts)
+                CHECK(memcmp(c3.pts, c1.pts, c1.n_pts * sizeof(pc_pt)) == 0);
+            /* committing the shape equals committing the polygon */
+            if (rndu(2)) {
+                CHECK(pc_sel_apply_src(h, &ss, mode, "Lasso") == PC_OK);
+            } else {
+                CHECK(pc_sel_apply_poly(h, &p, rule, aa, mode, "Lasso") == PC_OK);
+            }
+            pc_sel_state_free(&shape);
+            pc_poly_free(&c3);
+            free(e);
+        }
         read_all(d, b);
         CHECK(memcmp(a, b, 300 * 200) == 0);
         pc_poly_clear(&c2);
@@ -505,6 +528,35 @@ static void t_poly_preview_contour(void)
         if (c1.n_pts == c2.n_pts)
             CHECK(memcmp(c1.pts, c2.pts, c1.n_pts * sizeof(pc_pt)) == 0);
         CHECK(pc_sel_is_active(d) == (c2.n_contours > 0 || pc_sel_is_active(d)));
+    }
+    /* rectangle sources: preview and outline equal the commit */
+    for (int k = 0; k < 20; k++) {
+        pc_sel_src rs;
+        pc_rect rr = pc_rect_make((int32_t)rndu(340) - 20, (int32_t)rndu(240) - 20,
+                                  (int32_t)rndu(200), (int32_t)rndu(150));
+        pc_sel_mode mode = (pc_sel_mode)rndu(PC_SEL_MODE_COUNT);
+        pc_sel_src_rect(&rs, rr);
+        pc_sel_preview_src(d, &rs, mode, pc_rect_make(-5, -5, 300, 200), a, 300);
+        pc_poly_clear(&c1);
+        CHECK(pc_sel_contour_preview_src(d, &rs, mode, 0.0, &c1) == PC_OK);
+        CHECK(pc_sel_apply_rect(h, rr, mode, "Rectangle Select") == PC_OK);
+        pc_sel_read_rect(d, pc_rect_make(-5, -5, 300, 200), b, 300, false);
+        CHECK(memcmp(a, b, 300 * 200) == 0);
+        pc_poly_clear(&c2);
+        CHECK(pc_sel_contour(d, 0.0, &c2) == PC_OK);
+        CHECK(c1.n_pts == c2.n_pts);
+        if (c1.n_pts == c2.n_pts) CHECK(memcmp(c1.pts, c2.pts, c1.n_pts * sizeof(pc_pt)) == 0);
+    }
+    /* paths: Ellipse Select */
+    {
+        pc_path el;
+        pc_path_init(&el);
+        CHECK(pc_path_add_ellipse(&el, 150, 100, 60, 40) == PC_OK);
+        CHECK(pc_sel_apply_path(h, &el, NULL, 0.1, PC_FILL_NONZERO, true, PC_SEL_REPLACE,
+                                "Ellipse Select") == PC_OK);
+        CHECK(rect_eq(pc_sel_bounds(d), pc_rect_make(90, 60, 120, 80)));
+        CHECK(pc_sel_coverage(d, 150, 100) == 255 && pc_sel_coverage(d, 91, 61) == 0);
+        pc_path_free(&el);
     }
     /* small preview rect inside and outside the canvas */
     {
@@ -654,6 +706,24 @@ static void t_large(void)
     CHECK(pc_sel_coverage(d, 0, 0) == 255);
     CHECK(pc_hist_undo(h) && pc_sel_coverage(d, 1000, 2000) == 255);
     CHECK(pc_hist_redo(h) && pc_hist_redo(h) && !pc_sel_is_active(d));
+    /* live preview of a 16K rectangle: prepared shape stays sparse */
+    {
+        pc_sel_src rs;
+        pc_sel_state shape;
+        size_t t2, b2, t3, b3;
+        pc_sel_src_rect(&rs, pc_rect_make(5000, 6000, 16384, 16384));
+        pc_poly_clear(&c);
+        tm = pc_test_now();
+        CHECK(pc_sel_contour_preview_src(d, &rs, PC_SEL_UNION, 0.0, &c) == PC_OK);
+        tm = pc_test_now() - tm;
+        INFO("live outline preview (union, 16384^2 rectangle): %.1f ms", tm * 1e3);
+        CHECK(c.n_contours == 1 && c.n_pts == 4);
+        pc_tile_stats(&t2, &b2);
+        CHECK(pc_sel_state_from_src(d, &rs, &shape) == PC_OK);
+        pc_tile_stats(&t3, &b3);
+        CHECK(shape.active && t3 - t2 <= 4 + 2 * 257 + 2 * 257);
+        pc_sel_state_free(&shape);
+    }
     /* a large ellipse rasterized band by band */
     {
         pc_path path;

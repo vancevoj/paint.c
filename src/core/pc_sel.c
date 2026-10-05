@@ -604,8 +604,10 @@ static pc_status edit_check(const pc_hist *h)
 /* ---- combine a coverage source ------------------------------------------------------- */
 enum { K_ZERO = 0, K_FULL = 1, K_MIXED = 2 };
 
-/* Fill b->src for tile (tx, ty) from src; returns its kind. */
-static int src_tile(sel_build *b, const pc_sel_src *src, pc_rect bnd, int32_t tx, int32_t ty,
+/* Fill buf (64 x 64) for tile (tx, ty) from src; returns its kind. For
+ * K_ZERO and for K_FULL obtained from the uniform callback buf is not
+ * written. */
+static int src_tile(uint8_t *buf, const pc_sel_src *src, pc_rect bnd, int32_t tx, int32_t ty,
                     int32_t cw, int32_t ch)
 {
     pc_rect vr = pc_rect_make(tx * TD, ty * TD, cw, ch);
@@ -616,18 +618,17 @@ static int src_tile(sel_build *b, const pc_sel_src *src, pc_rect bnd, int32_t tx
     if (src->uniform) u = src->uniform(src->ud, sr);
     if (u == 0) return K_ZERO;
     if (u == 255 && sr.x == vr.x && sr.y == vr.y && sr.w == vr.w && sr.h == vr.h) return K_FULL;
-    memset(b->src, 0, TPX);
+    memset(buf, 0, TPX);
     if (u == 255) {
         for (int32_t y = sr.y; y < sr.y + sr.h; y++)
-            memset(b->src + (size_t)(y - vr.y) * PC_TILE_DIM + (size_t)(sr.x - vr.x), 255,
+            memset(buf + (size_t)(y - vr.y) * PC_TILE_DIM + (size_t)(sr.x - vr.x), 255,
                    (size_t)sr.w);
         return K_MIXED;
     }
-    src->fill(src->ud, sr,
-              b->src + (size_t)(sr.y - vr.y) * PC_TILE_DIM + (size_t)(sr.x - vr.x),
+    src->fill(src->ud, sr, buf + (size_t)(sr.y - vr.y) * PC_TILE_DIM + (size_t)(sr.x - vr.x),
               PC_TILE_DIM);
     for (int32_t y = 0; y < ch && (all || !any); y++) {
-        const uint8_t *row = b->src + (size_t)y * PC_TILE_DIM;
+        const uint8_t *row = buf + (size_t)y * PC_TILE_DIM;
         for (int32_t x = 0; x < cw; x++) {
             if (row[x]) any = true;
             if (row[x] != 255u) all = false;
@@ -657,7 +658,7 @@ static void combine_tile(sel_build *b, const pc_sel_src *src, pc_rect bnd, pc_se
     int32_t cw, ch;
     int kind;
     valid_wh(d->w, d->h, tx, ty, &cw, &ch);
-    kind = src_tile(b, src, bnd, (int32_t)tx, (int32_t)ty, cw, ch);
+    kind = src_tile(b->src, src, bnd, (int32_t)tx, (int32_t)ty, cw, ch);
     if (kind == K_ZERO) {
         if (mode == PC_SEL_REPLACE || mode == PC_SEL_INTERSECT || !old) put_null(b, idx, cur);
         return;
@@ -804,6 +805,48 @@ static void poly_fill(void *ud, pc_rect r, uint8_t *dst, size_t stride)
                (size_t)r.w);
 }
 
+/* Band-cached rasterizing source over the document. Tiles must be
+ * requested row by row (as every engine here does). */
+static pc_status poly_src_init(poly_src *p, pc_sel_src *s, const pc_doc *d, const pc_poly *poly,
+                               pc_fill_rule rule, bool aa)
+{
+    pc_status st;
+    memset(p, 0, sizeof *p);
+    if (!poly) return PC_ERR_ARG;
+    p->r = pc_raster_create();
+    if (!p->r) return PC_ERR_NOMEM;
+    st = pc_raster_add_poly(p->r, poly, NULL);
+    if (st != PC_OK) {
+        pc_raster_destroy(p->r);
+        p->r = NULL;
+        return st;
+    }
+    p->rule = rule;
+    p->aa = aa;
+    p->band_ty = -1;
+    p->bounds = pc_rect_intersect(pc_raster_bounds(p->r), pc_doc_rect(d));
+    if (!pc_rect_is_empty(p->bounds)) {
+        st = pc_mask_alloc(&p->band, pc_rect_make(p->bounds.x, p->bounds.y, p->bounds.w, TD));
+        if (st != PC_OK) {
+            pc_raster_destroy(p->r);
+            p->r = NULL;
+            return st;
+        }
+    }
+    s->bounds = p->bounds;
+    s->fill = poly_fill;
+    s->uniform = NULL;
+    s->ud = p;
+    return PC_OK;
+}
+
+static void poly_src_free(poly_src *p)
+{
+    pc_mask_free(&p->band);
+    pc_raster_destroy(p->r);
+    p->r = NULL;
+}
+
 pc_status pc_sel_apply_poly(pc_hist *h, const pc_poly *poly, pc_fill_rule rule, bool aa,
                             pc_sel_mode mode, const char *label)
 {
@@ -811,29 +854,96 @@ pc_status pc_sel_apply_poly(pc_hist *h, const pc_poly *poly, pc_fill_rule rule, 
     pc_sel_src s;
     pc_status st = edit_check(h);
     if (st != PC_OK) return st;
-    if (!poly) return PC_ERR_ARG;
-    memset(&p, 0, sizeof p);
-    p.r = pc_raster_create();
-    if (!p.r) return PC_ERR_NOMEM;
-    st = pc_raster_add_poly(p.r, poly, NULL);
-    if (st != PC_OK) { pc_raster_destroy(p.r); return st; }
-    p.rule = rule;
-    p.aa = aa;
-    p.band_ty = -1;
-    p.bounds = pc_rect_intersect(pc_raster_bounds(p.r), pc_doc_rect(h->doc));
-    if (!pc_rect_is_empty(p.bounds)) {
-        st = pc_mask_alloc(&p.band, pc_rect_make(p.bounds.x, p.bounds.y, p.bounds.w, TD));
-        if (st != PC_OK) { pc_raster_destroy(p.r); return st; }
-    }
-    s.bounds = p.bounds;
-    s.fill = poly_fill;
-    s.uniform = NULL;
-    s.ud = &p;
+    st = poly_src_init(&p, &s, h->doc, poly, rule, aa);
+    if (st != PC_OK) return st;
     st = pc_sel_apply_src(h, &s, mode, label);
     if (st == PC_OK && p.st != PC_OK) st = p.st;   /* cannot happen: fill errors are OOM */
-    pc_mask_free(&p.band);
-    pc_raster_destroy(p.r);
+    poly_src_free(&p);
     return st;
+}
+
+pc_status pc_sel_apply_path(pc_hist *h, const pc_path *path, const pc_affine *m, double tol,
+                            pc_fill_rule rule, bool aa, pc_sel_mode mode, const char *label)
+{
+    pc_poly p;
+    pc_status st = edit_check(h);
+    if (st != PC_OK) return st;
+    if (!path) return PC_ERR_ARG;
+    pc_poly_init(&p);
+    st = pc_path_flatten(path, m, tol, &p);
+    if (st == PC_OK) st = pc_sel_apply_poly(h, &p, rule, aa, mode, label);
+    pc_poly_free(&p);
+    return st;
+}
+
+/* ---- source initializers ------------------------------------------------------------- */
+void pc_sel_src_rect(pc_sel_src *s, pc_rect r)
+{
+    s->bounds = r;
+    s->fill = rect_fill;
+    s->uniform = rect_uniform;
+    s->ud = NULL;
+}
+
+void pc_sel_src_mask(pc_sel_src *s, const pc_mask *m)
+{
+    if (!m || !m->px || m->w <= 0 || m->h <= 0) {
+        s->bounds = pc_rect_make(0, 0, 0, 0);
+    } else {
+        s->bounds = pc_rect_make(m->x, m->y, m->w, m->h);
+    }
+    s->fill = mask_fill;
+    s->uniform = NULL;
+    s->ud = (void *)(uintptr_t)m;
+}
+
+static const pc_tile *state_tile(const pc_sel_state *st, pc_rect r)
+{
+    uint32_t tx = (uint32_t)r.x >> PC_TILE_SHIFT, ty = (uint32_t)r.y >> PC_TILE_SHIFT;
+    if (!st->grid || tx >= st->tiles_x || ty >= st->tiles_y) return NULL;
+    return st->grid[(size_t)ty * st->tiles_x + tx];
+}
+
+static void state_fill(void *ud, pc_rect r, uint8_t *dst, size_t stride)
+{
+    const pc_sel_state *st = (const pc_sel_state *)ud;
+    const pc_tile *t = state_tile(st, r);
+    for (int32_t y = 0; y < r.h; y++) {
+        if (!t) {
+            memset(dst + (size_t)y * stride, 0, (size_t)r.w);
+            continue;
+        }
+        memcpy(dst + (size_t)y * stride,
+               t->data + (size_t)((r.y + y) & (TD - 1)) * PC_TILE_DIM + (size_t)(r.x & (TD - 1)),
+               (size_t)r.w);
+    }
+}
+
+static int state_uniform(void *ud, pc_rect r)
+{
+    const pc_tile *t = state_tile((const pc_sel_state *)ud, r);
+    bool all = true, none = true;
+    if (!t) return 0;
+    for (int32_t y = 0; y < r.h && (all || none); y++) {
+        const uint8_t *row = t->data + (size_t)((r.y + y) & (TD - 1)) * PC_TILE_DIM +
+                             (size_t)(r.x & (TD - 1));
+        if (memcmp(row, k_ff, (size_t)r.w) != 0) all = false;
+        for (int32_t x = 0; x < r.w && none; x++) if (row[x]) none = false;
+    }
+    return all ? 255 : (none ? 0 : -1);
+}
+
+void pc_sel_src_state(pc_sel_src *s, const pc_sel_state *st)
+{
+    if (!st || !st->grid) {
+        s->bounds = pc_rect_make(0, 0, 0, 0);
+    } else {
+        s->bounds = pc_rect_make(0, 0, (int32_t)(st->tiles_x * PC_TILE_DIM),
+                                 (int32_t)(st->tiles_y * PC_TILE_DIM));
+    }
+    s->fill = state_fill;
+    s->uniform = state_uniform;
+    s->ud = (void *)(uintptr_t)st;
 }
 
 pc_status pc_sel_select_all(pc_hist *h, const char *label)
@@ -1239,94 +1349,229 @@ void pc_sel_state_free(pc_sel_state *s)
     memset(s, 0, sizeof *s);
 }
 
+/* ---- prepared shapes ------------------------------------------------------------------ */
+pc_status pc_sel_state_from_src(const pc_doc *d, const pc_sel_src *src, pc_sel_state *out)
+{
+    sel_build *b;
+    size_t ns, cnt = 0;
+    pc_tile **g;
+    pc_rect bnd;
+    memset(out, 0, sizeof *out);
+    if (!src) return PC_ERR_ARG;
+    out->tiles_x = d->tiles_x;
+    out->tiles_y = d->tiles_y;
+    bnd = pc_rect_intersect(src->bounds, pc_doc_rect(d));
+    if (pc_rect_is_empty(bnd)) return PC_OK;
+    if (!src->fill && !src->uniform) return PC_ERR_ARG;
+    ns = slots_of(d);
+    g = (pc_tile **)calloc(ns, sizeof *g);
+    b = build_new((pc_doc *)(uintptr_t)d);
+    if (!g || !b) { free(g); build_free(b); return PC_ERR_NOMEM; }
+    for (int32_t ty = bnd.y >> PC_TILE_SHIFT; ty <= (bnd.y + bnd.h - 1) >> PC_TILE_SHIFT &&
+         b->st == PC_OK; ty++)
+        for (int32_t tx = bnd.x >> PC_TILE_SHIFT; tx <= (bnd.x + bnd.w - 1) >> PC_TILE_SHIFT &&
+             b->st == PC_OK; tx++) {
+            int32_t cw, ch;
+            int kind;
+            pc_tile *t = NULL;
+            valid_wh(d->w, d->h, (uint32_t)tx, (uint32_t)ty, &cw, &ch);
+            kind = src_tile(b->src, src, bnd, tx, ty, cw, ch);
+            if (kind == K_FULL) {
+                t = get_full(b, cw, ch);
+                if (!t) b->st = PC_ERR_NOMEM;
+            } else if (kind == K_MIXED) {
+                t = pc_tile_new_zero(1u);
+                if (!t) b->st = PC_ERR_NOMEM;
+                else memcpy(t->data, b->src, TPX);
+            }
+            g[(size_t)ty * d->tiles_x + (size_t)tx] = t;
+            cnt += t != NULL;
+        }
+    if (b->st != PC_OK) {
+        pc_status st = b->st;
+        grid_release(g, ns);
+        build_free(b);
+        return st;
+    }
+    build_free(b);
+    if (cnt == 0u) {
+        free(g);
+        return PC_OK;
+    }
+    out->grid = g;
+    out->active = true;
+    return PC_OK;
+}
+
+pc_status pc_sel_state_from_poly(const pc_doc *d, const pc_poly *p, pc_fill_rule rule, bool aa,
+                                 pc_sel_state *out)
+{
+    poly_src ps;
+    pc_sel_src s;
+    pc_status st;
+    memset(out, 0, sizeof *out);
+    st = poly_src_init(&ps, &s, d, p, rule, aa);
+    if (st != PC_OK) return st;
+    st = pc_sel_state_from_src(d, &s, out);
+    if (st == PC_OK && ps.st != PC_OK) {
+        st = ps.st;
+        pc_sel_state_free(out);
+    }
+    poly_src_free(&ps);
+    return st;
+}
+
 /* ---- previews -------------------------------------------------------------------------- */
+/* Tile (tx, ty) of the selection combined with src: a pointer to 64 x 64
+ * coverage (the current tile, or out), or NULL with *u (uniform inside
+ * the document). sbuf is 4096 bytes of scratch. */
+static const uint8_t *combined_tile(const pc_doc *d, const pc_sel_src *src, pc_rect bnd,
+                                    pc_sel_mode mode, uint32_t tx, uint32_t ty, uint8_t *sbuf,
+                                    uint8_t *out, uint8_t *u)
+{
+    const pc_tile *t = d->sel_active ? tile_at(d, tx, ty) : NULL;
+    int32_t cw, ch;
+    int kind;
+    valid_wh(d->w, d->h, tx, ty, &cw, &ch);
+    kind = src_tile(sbuf, src, bnd, (int32_t)tx, (int32_t)ty, cw, ch);
+    *u = 0u;
+    if (kind == K_ZERO) {
+        if (mode == PC_SEL_REPLACE || mode == PC_SEL_INTERSECT || !t) return NULL;
+        return t->data;
+    }
+    if (kind == K_FULL) {
+        switch (mode) {
+        case PC_SEL_REPLACE:
+        case PC_SEL_UNION:
+            *u = 255u;
+            return NULL;
+        case PC_SEL_EXCLUDE:
+            return NULL;
+        case PC_SEL_INTERSECT:
+            return t ? t->data : NULL;
+        case PC_SEL_XOR:
+        case PC_SEL_MODE_COUNT:
+            if (!t) {
+                *u = 255u;
+                return NULL;
+            }
+            invert_into(out, t->data, cw, ch);
+            return out;
+        }
+    }
+    combine_buf(out, t ? t->data : NULL, sbuf, mode);
+    return out;
+}
+
+void pc_sel_preview_src(const pc_doc *d, const pc_sel_src *src, pc_sel_mode mode, pc_rect r,
+                        uint8_t *dst, size_t stride)
+{
+    uint8_t sbuf[TPX], out[TPX];      /* 8 KiB of stack scratch */
+    pc_rect c, bnd;
+    pc_sel_src none;
+    if (pc_rect_is_empty(r)) return;
+    for (int32_t y = 0; y < r.h; y++) memset(dst + (size_t)y * stride, 0, (size_t)r.w);
+    c = pc_rect_intersect(r, pc_doc_rect(d));
+    if (pc_rect_is_empty(c) || (unsigned)mode >= (unsigned)PC_SEL_MODE_COUNT) return;
+    if (!src) {
+        pc_sel_src_rect(&none, pc_rect_make(0, 0, 0, 0));
+        src = &none;
+    }
+    bnd = pc_rect_intersect(src->bounds, pc_doc_rect(d));
+    for (int32_t ty = c.y >> PC_TILE_SHIFT; ty <= (c.y + c.h - 1) >> PC_TILE_SHIFT; ty++)
+        for (int32_t tx = c.x >> PC_TILE_SHIFT; tx <= (c.x + c.w - 1) >> PC_TILE_SHIFT; tx++) {
+            pc_rect s = pc_rect_intersect(c, pc_rect_make(tx * TD, ty * TD, TD, TD));
+            uint8_t u;
+            const uint8_t *p = combined_tile(d, src, bnd, mode, (uint32_t)tx, (uint32_t)ty, sbuf,
+                                             out, &u);
+            for (int32_t y = s.y; y < s.y + s.h; y++) {
+                uint8_t *drow = dst + (size_t)(y - r.y) * stride + (size_t)(s.x - r.x);
+                if (p)
+                    memcpy(drow, p + (size_t)(y - ty * TD) * PC_TILE_DIM + (size_t)(s.x - tx * TD),
+                           (size_t)s.w);
+                else
+                    memset(drow, u, (size_t)s.w);
+            }
+        }
+}
+
 void pc_sel_preview_rect(const pc_doc *d, const pc_mask *src, pc_sel_mode mode, pc_rect r,
                          uint8_t *dst, size_t stride)
 {
-    pc_rect c;
-    if (pc_rect_is_empty(r)) return;
-    pc_sel_read_rect(d, r, dst, stride, false);
-    c = pc_rect_intersect(r, pc_doc_rect(d));
-    if (pc_rect_is_empty(c)) return;
-    for (int32_t y = c.y; y < c.y + c.h; y++) {
-        uint8_t *row = dst + (size_t)(y - r.y) * stride;
-        for (int32_t x = c.x; x < c.x + c.w; x++) {
-            uint8_t b = src ? pc_mask_at(src, x, y) : 0u;
-            row[x - r.x] = pc_sel_combine(mode, row[x - r.x], b);
-        }
-    }
+    pc_sel_src s;
+    pc_sel_src_mask(&s, src);
+    pc_sel_preview_src(d, &s, mode, r, dst, stride);
 }
 
 typedef struct sel_field {
-    const pc_doc  *d;
-    const pc_mask *src;
-    pc_sel_mode    mode;
-    bool           preview;
+    const pc_doc     *d;
+    const pc_sel_src *src;
+    pc_rect           bnd;
+    pc_sel_mode       mode;
+    bool              preview;
+    uint8_t           sbuf[TPX];
 } sel_field;
 
 static const uint8_t *sel_block(void *ud, int32_t bx, int32_t by, uint8_t *scratch,
                                 uint8_t *uniform)
 {
-    const sel_field *f = (const sel_field *)ud;
+    sel_field *f = (sel_field *)ud;
     const pc_doc *d = f->d;
-    const pc_tile *t = d->sel_active ? tile_at(d, (uint32_t)bx, (uint32_t)by) : NULL;
-    pc_rect tr, sr;
     if (!f->preview) {
+        const pc_tile *t = d->sel_active ? tile_at(d, (uint32_t)bx, (uint32_t)by) : NULL;
         *uniform = 0u;
         return t ? t->data : NULL;
     }
-    tr = pc_rect_intersect(pc_rect_make(bx * TD, by * TD, TD, TD), pc_doc_rect(d));
-    sr = f->src ? pc_rect_intersect(tr, pc_rect_make(f->src->x, f->src->y, f->src->w,
-                                                      f->src->h))
-                : pc_rect_make(0, 0, 0, 0);
-    if (pc_rect_is_empty(sr)) {
-        if (f->mode == PC_SEL_REPLACE || f->mode == PC_SEL_INTERSECT || !t) {
-            *uniform = 0u;
-            return NULL;
-        }
-        return t->data;
-    }
-    for (int32_t y = 0; y < TD; y++)
-        for (int32_t x = 0; x < TD; x++) {
-            int32_t px = bx * TD + x, py = by * TD + y;
-            uint8_t a = t ? t->data[(size_t)y * PC_TILE_DIM + (size_t)x] : 0u;
-            uint8_t v = 0u;
-            if (pc_rect_contains(tr, px, py))
-                v = pc_sel_combine(f->mode, a, pc_mask_at(f->src, px, py));
-            scratch[(size_t)y * PC_TILE_DIM + (size_t)x] = v;
-        }
-    return scratch;
+    return combined_tile(d, f->src, f->bnd, f->mode, (uint32_t)bx, (uint32_t)by, f->sbuf,
+                         scratch, uniform);
 }
 
 pc_status pc_sel_contour(const pc_doc *d, double simplify, pc_poly *out)
 {
     pc_cov_field f;
-    sel_field sf;
+    sel_field *sf;
+    pc_status st;
     if (!d->sel_active || !d->sel_grid) return PC_OK;
-    sf.d = d;
-    sf.src = NULL;
-    sf.mode = PC_SEL_REPLACE;
-    sf.preview = false;
+    sf = (sel_field *)calloc(1u, sizeof *sf);
+    if (!sf) return PC_ERR_NOMEM;
+    sf->d = d;
+    sf->preview = false;
     f.area = pc_doc_rect(d);
     f.block = sel_block;
-    f.ud = &sf;
-    return pc_contour_field(&f, simplify, out);
+    f.ud = sf;
+    st = pc_contour_field(&f, simplify, out);
+    free(sf);
+    return st;
+}
+
+pc_status pc_sel_contour_preview_src(const pc_doc *d, const pc_sel_src *src, pc_sel_mode mode,
+                                     double simplify, pc_poly *out)
+{
+    pc_cov_field f;
+    sel_field *sf;
+    pc_status st;
+    if (!src || (unsigned)mode >= (unsigned)PC_SEL_MODE_COUNT) return PC_ERR_ARG;
+    sf = (sel_field *)calloc(1u, sizeof *sf);
+    if (!sf) return PC_ERR_NOMEM;
+    sf->d = d;
+    sf->src = src;
+    sf->bnd = pc_rect_intersect(src->bounds, pc_doc_rect(d));
+    sf->mode = mode;
+    sf->preview = true;
+    f.area = pc_doc_rect(d);
+    f.block = sel_block;
+    f.ud = sf;
+    st = pc_contour_field(&f, simplify, out);
+    free(sf);
+    return st;
 }
 
 pc_status pc_sel_contour_preview(const pc_doc *d, const pc_mask *src, pc_sel_mode mode,
                                  double simplify, pc_poly *out)
 {
-    pc_cov_field f;
-    sel_field sf;
-    if ((unsigned)mode >= (unsigned)PC_SEL_MODE_COUNT) return PC_ERR_ARG;
-    sf.d = d;
-    sf.src = src;
-    sf.mode = mode;
-    sf.preview = true;
-    f.area = pc_doc_rect(d);
-    f.block = sel_block;
-    f.ud = &sf;
-    return pc_contour_field(&f, simplify, out);
+    pc_sel_src s;
+    pc_sel_src_mask(&s, src);
+    return pc_sel_contour_preview_src(d, &s, mode, simplify, out);
 }
 
 /* ---- Copy Selection / Paste Selection ------------------------------------------------------- */

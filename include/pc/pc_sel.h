@@ -78,16 +78,23 @@ pc_rect   pc_sel_extent(const pc_doc *d);
 
 /* ---- coverage sources for edits and previews ------------------------------------ */
 /* Coverage b of a new shape: 0 outside bounds. fill writes the coverage of
- * r (always inside bounds and inside one 64-row band of tiles) into dst.
- * uniform (optional) returns 0 or 255 when all of r has that coverage,
- * -1 otherwise, so large shapes skip per-pixel work. Callbacks run on the
- * calling thread. */
+ * r (always inside bounds and inside a single 64 x 64 document tile, in no
+ * particular tile order) into dst. uniform (optional) returns 0 or 255
+ * when all of r has that coverage, -1 otherwise, so large shapes skip
+ * per-pixel work. Callbacks run on the calling thread. The source is
+ * borrowed by every call that takes it. */
 typedef struct pc_sel_src {
     pc_rect bounds;
     void  (*fill)(void *ud, pc_rect r, uint8_t *dst, size_t stride);
     int   (*uniform)(void *ud, pc_rect r);
     void   *ud;
 } pc_sel_src;
+
+/* Ready-made sources (no allocation; the borrowed object must outlive the
+ * source): a hard rectangle, a mask (NULL or empty = nothing), and a
+ * prepared shape (see pc_sel_state_from_poly). */
+void      pc_sel_src_rect(pc_sel_src *s, pc_rect r);
+void      pc_sel_src_mask(pc_sel_src *s, const pc_mask *m);
 
 /* ---- undoable edits --------------------------------------------------------------- */
 /* Combine coverage cov (document positioned, 0 outside its rect) into the
@@ -102,6 +109,11 @@ pc_status pc_sel_apply_poly(pc_hist *h, const pc_poly *p, pc_fill_rule rule, boo
                             pc_sel_mode mode, const char *label);
 pc_status pc_sel_apply_src(pc_hist *h, const pc_sel_src *src, pc_sel_mode mode,
                            const char *label);
+/* Flatten path (mapped through m, tolerance tol) and apply it as a polygon,
+ * e.g. the Ellipse Select tool. */
+pc_status pc_sel_apply_path(pc_hist *h, const pc_path *path, const pc_affine *m, double tol,
+                            pc_fill_rule rule, bool antialias, pc_sel_mode mode,
+                            const char *label);
 /* Edit > Select All (Ctrl+A). */
 pc_status pc_sel_select_all(pc_hist *h, const char *label);
 /* Edit > Deselect (Ctrl+D). O(1): the payload takes the whole grid. */
@@ -148,8 +160,11 @@ pc_status pc_sel_transform_preview(const pc_doc *d, const pc_sel_snap *snap,
 
 /* ---- live previews (marquee drags) ----------------------------------------------------
  * The coverage the selection would have after combining src with mode,
- * without touching history. pc_sel_preview_rect fills r (stride bytes per
- * row; 0 outside the document). */
+ * without touching history: fills r (stride bytes per row; 0 outside the
+ * document). Work is per tile, so a rectangle source previews any canvas
+ * size cheaply. */
+void      pc_sel_preview_src(const pc_doc *d, const pc_sel_src *src, pc_sel_mode mode,
+                             pc_rect r, uint8_t *dst, size_t stride);
 void      pc_sel_preview_rect(const pc_doc *d, const pc_mask *src, pc_sel_mode mode,
                               pc_rect r, uint8_t *dst, size_t stride);
 
@@ -157,7 +172,10 @@ void      pc_sel_preview_rect(const pc_doc *d, const pc_mask *src, pc_sel_mode m
 /* Contours of the current selection in document coordinates (appended to
  * out; nothing when inactive). See pc_contour.h for the exact geometry. */
 pc_status pc_sel_contour(const pc_doc *d, double simplify, pc_poly *out);
-/* Contours of the selection previewed with src and mode. */
+/* Contours of the selection previewed with src and mode (live marching
+ * ants while a selection tool drags). */
+pc_status pc_sel_contour_preview_src(const pc_doc *d, const pc_sel_src *src, pc_sel_mode mode,
+                                     double simplify, pc_poly *out);
 pc_status pc_sel_contour_preview(const pc_doc *d, const pc_mask *src, pc_sel_mode mode,
                                  double simplify, pc_poly *out);
 
@@ -186,6 +204,16 @@ pc_status pc_sel_state_build(const pc_doc *d, uint32_t new_w, uint32_t new_h,
  * the document's. Main thread, inside a history swap. */
 void      pc_sel_state_exchange(pc_doc *d, pc_sel_state *s);
 void      pc_sel_state_free(pc_sel_state *s);       /* NULL-safe; zeroes *s */
+
+/* Prepared shapes: a source rasterized once into sparse coverage tiles on
+ * the document's tile layout (fully covered tiles shared), so a drag can
+ * preview it with pc_sel_contour_preview_src and then commit it with
+ * pc_sel_apply_src without rasterizing again. Wrap one with
+ * pc_sel_src_state. Owned by the caller (pc_sel_state_free). */
+pc_status pc_sel_state_from_src(const pc_doc *d, const pc_sel_src *src, pc_sel_state *out);
+pc_status pc_sel_state_from_poly(const pc_doc *d, const pc_poly *p, pc_fill_rule rule,
+                                 bool antialias, pc_sel_state *out);
+void      pc_sel_src_state(pc_sel_src *s, const pc_sel_state *st);
 
 /* Record that code outside pc_sel.c changed the selection fields (bumps
  * sel_gen and gen). pc_sel_state_exchange already does this. */
