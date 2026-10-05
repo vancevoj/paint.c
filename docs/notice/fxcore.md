@@ -24,3 +24,11 @@ reproduces the full MIT permission text for the 3.36 derivations).
 | src/fx/host/fxh_rules.c | Base/PropertySystem/LinkValuesBasedOnBooleanRule`2.cs, Base/PropertySystem/SoftMutuallyBoundMinMaxRule`2.cs | Semantics of linked values (while the boolean is on, every member takes the value of the member changed last, the first member until one changes) and of the soft minimum/maximum pair (raising the minimum above the maximum pushes the maximum up, lowering the maximum below the minimum pulls the minimum down). |
 | src/fx/distort/fxm_frosted_glass.c | Effects/FrostedGlassEffect.cs | The minimum radius limited to half the image while the maximum is not (already noted by lane L5C), and the min/max rule above applied at render time. |
 | src/fx/adjust/fxm_adj_posterize.c, src/fx/distort/fxm_morphology.c | Effects/PosterizeAdjustment.cs | Which values are linked (3.36 linked R, G, B; 5.x adds Alpha, and Morphology links Width and Height per the 5.1 documentation). |
+
+## Own implementations of public formats (no third-party code)
+
+| paint.c file | Source of the format | Note |
+|---|---|---|
+| src/core/pc_hist_lz4.c | The public LZ4 block format description (token, literals, 16-bit offset, length extensions, end-of-block rules) | Written from the format description; no LZ4 library code was used or vendored. |
+| src/core/pc_resample_trc.c | The ICC.1 profile specification ('curv' and 'para' tone curve types, tag table) | Reads only the tone curve tags; parametric curve types 0..4 as specified. |
+| src/core/pc_raster.c (pc_raster_fill_ss4) | TOOLS T-SEL-QUALITY (4 x 4 supersampled selection coverage) | Own point-sampling rasterizer on the existing edge list. |
