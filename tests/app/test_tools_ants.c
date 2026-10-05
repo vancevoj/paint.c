@@ -11,6 +11,9 @@
  *                         Selection reuses it; closing the image while it
  *                         runs is safe;
  *   t_tint_coverage       complex selections are tinted from their coverage;
+ *   t_marquee_combine     a Rectangle Select drag that adds to a complex
+ *                         selection previews the combined outline traced on
+ *                         a worker (the newest shape wins);
  *   t_noise_wand_frames   a global Magic Wand on a noisy 4K image (smaller
  *                         under sanitizers): no frame freezes while the
  *                         region and the outline are computed, and every
@@ -23,6 +26,8 @@
 #include "doc_ants.h"
 #include "shell_ext.h"
 #include "tools/sel_common.h"
+#include "tools/sel_marquee.h"
+#include "a_util.h"
 
 #include <math.h>
 
@@ -406,6 +411,70 @@ static void t_tint_coverage(void)
     app_destroy(a);
 }
 
+/* ---- marquee combine previews -------------------------------------------------------- */
+static void t_marquee_combine(void)
+{
+    app *a = at_app(1000, 700);
+    app_doc *d;
+    sel_marquee *m;
+    pc_poly ref;
+    pc_sel_src src;
+    float sx, sy;
+    CHECK(a != NULL);
+    if (!a) return;
+    d = app_doc_new_image(a, 600, 400, app_px_make(255, 255, 255, 255));
+    CHECK(d && app_add_doc(a, d));
+    at_frames(a, 3);
+    app_view_set_zoom(a, d, 1.0);
+    at_frames(a, 2);
+    app_doc_ants_set_sync_tiles(8u);
+    CHECK(noise_select(a, d, pc_rect_make(0, 0, 300, 400), 29u));
+    at_frames(a, 2);
+    CHECK(app_doc_sel_complex(d) && !app_doc_ants_pending(d));
+    CHECK(app_tool_select(a, "rect_select"));
+    at_frames(a, 1);
+    m = (sel_marquee *)app_tool_state(a, app_tool_find(a, "rect_select"));
+    pc_poly_init(&ref);
+    /* Ctrl + drag: Add (union) */
+    a_mods(a, UI_MOD_CTRL);
+    CHECK(at_screen(a, 350.0, 50.0, &sx, &sy));
+    at_mouse(a, SDL_EVENT_MOUSE_MOTION, sx, sy, 0);
+    (void)app_frame(a, true);
+    at_mouse(a, SDL_EVENT_MOUSE_BUTTON_DOWN, sx, sy, SDL_BUTTON_LEFT);
+    (void)app_frame(a, true);
+    sel_marquee_test_hold(true);
+    CHECK(at_screen(a, 500.0, 300.0, &sx, &sy));
+    at_mouse(a, SDL_EVENT_MOUSE_MOTION, sx, sy, 0);
+    (void)app_frame(a, true);
+    (void)app_frame(a, true);
+    /* the trace runs on a worker, the frames do not wait for it */
+    CHECK(m && m->job != NULL && !app_doc_ants_is_preview(d));
+    sel_marquee_test_hold(false);
+    at_frames(a, 3);                         /* it lands */
+    CHECK(m && m->job == NULL && app_doc_ants_is_preview(d));
+    pc_sel_src_rect(&src, pc_rect_make(350, 50, 150, 250));
+    CHECK(pc_sel_contour_preview_src(d->doc, &src, PC_SEL_UNION, 0.0, &ref) == PC_OK);
+    CHECK(same_poly(app_doc_ants(d), &ref));
+    /* moving on: the newest shape replaces it */
+    CHECK(at_screen(a, 520.0, 320.0, &sx, &sy));
+    at_mouse(a, SDL_EVENT_MOUSE_MOTION, sx, sy, 0);
+    at_frames(a, 3);
+    at_frames(a, 3);
+    pc_poly_clear(&ref);
+    pc_sel_src_rect(&src, pc_rect_make(350, 50, 170, 270));
+    CHECK(pc_sel_contour_preview_src(d->doc, &src, PC_SEL_UNION, 0.0, &ref) == PC_OK);
+    CHECK(same_poly(app_doc_ants(d), &ref));
+    at_mouse(a, SDL_EVENT_MOUSE_BUTTON_UP, sx, sy, SDL_BUTTON_LEFT);
+    a_mods(a, 0u);
+    at_frames(a, 3);
+    /* applied: the union is selected and its outline traced */
+    CHECK(pc_sel_coverage(d->doc, 400, 100) == 255u && !app_doc_ants_is_preview(d));
+    CHECK(!app_doc_ants_pending(d) && same_poly(app_doc_ants(d), &ref));
+    app_doc_ants_set_sync_tiles(DOC_ANTS_SYNC_TILES);
+    pc_poly_free(&ref);
+    app_destroy(a);
+}
+
 /* ---- the wand on a noisy 4K image ------------------------------------------------- */
 static double frame_ms(app *a)
 {
@@ -632,6 +701,7 @@ int main(int argc, char **argv)
     RUN(t_raster_and_lod);
     RUN(t_async_outline);
     RUN(t_tint_coverage);
+    RUN(t_marquee_combine);
     RUN(t_noise_wand_frames);
     at_quit();
     return pc_test_finish();

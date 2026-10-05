@@ -311,6 +311,131 @@ static double shape_area(const sel_marquee *m, const app_doc *d, bool ok, pc_rec
     return have_ss ? ss->area : -1.0;
 }
 
+/* ---- combine previews over complex selections (lane TOOLS, wave 4 item 28) ---------
+ * Adding to, subtracting from, intersecting or inverting a selection with
+ * a very long outline (a global Magic Wand on a noisy image) traces the
+ * combined outline of the whole image. Such previews are traced on a
+ * worker from a snapshot of the selection and copies of the shape; the
+ * newest shape wins (the next trace starts when the running one lands),
+ * a result arrives only while the same drag on the same selection goes on,
+ * and in the meantime the outline shown is the last one that arrived. */
+typedef struct mq_job {
+    sel_marquee *m;              /* the tool's (lives as long as the app) */
+    uint32_t     doc_id;
+    uint64_t     seq, sel_gen;
+    pc_sel_snap  snap;           /* owned */
+    uint32_t     w, h;
+    int          kind;           /* 0 rectangle, 1 supersampled polygon, 2 prepared polygon */
+    pc_rect      rect;
+    pc_poly      poly;           /* owned copy */
+    pc_fill_rule rule;
+    bool         aa;
+    pc_sel_mode  mode;
+    gfx_ants    *out;            /* owned until handed to the document */
+} mq_job;
+
+static SDL_AtomicInt g_mq_hold;           /* tests: workers wait while nonzero */
+
+void sel_marquee_test_hold(bool hold) { SDL_SetAtomicInt(&g_mq_hold, hold ? 1 : 0); }
+
+static void mq_free(mq_job *j)
+{
+    if (!j) return;
+    pc_sel_snap_free(&j->snap);
+    pc_poly_free(&j->poly);
+    gfx_ants_free(j->out);
+    free(j);
+}
+
+/* Worker: the combined outline of the snapshot and the shape. */
+static void mq_work(void *ud)
+{
+    mq_job *j = (mq_job *)ud;
+    pc_doc *dd = pc_doc_create(j->w, j->h);
+    pc_sel_src src;
+    sel_ss ss;
+    pc_sel_state pst;
+    bool has_ss = false, has_pst = false, ok = true;
+    pc_poly out;
+    memset(&ss, 0, sizeof ss);
+    memset(&pst, 0, sizeof pst);
+    pc_poly_init(&out);
+    while (SDL_GetAtomicInt(&g_mq_hold) != 0) SDL_Delay(1);
+    if (!dd) return;
+    if (j->kind == 0) {
+        pc_sel_src_rect(&src, j->rect);
+    } else if (j->kind == 1 && sel_ss_build(&ss, &j->poly, j->rule, dd) == PC_OK) {
+        has_ss = true;
+        sel_ss_src(&src, &ss);
+    } else if (pc_sel_state_from_poly(dd, &j->poly, j->rule, j->aa, &pst) == PC_OK) {
+        has_pst = true;
+        pc_sel_src_state(&src, &pst);
+    } else {
+        ok = false;
+    }
+    if (ok && sel_contour_combined(dd, &j->snap, &src, j->mode, &out) == PC_OK)
+        (void)gfx_ants_create(&out, out.n_pts >= 100000u ? GFX_ANTS_WITH_LOD : 0u, &j->out);
+    pc_poly_free(&out);
+    if (has_ss) sel_ss_free(&ss);
+    if (has_pst) pc_sel_state_free(&pst);
+    pc_doc_destroy(dd);
+}
+
+static void mq_done(app *a, void *ud)
+{
+    mq_job *j = (mq_job *)ud;
+    sel_marquee *m = j->m;
+    app_doc *d = NULL;
+    for (int32_t i = 0; i < app_doc_count(a); i++)
+        if (app_doc_at(a, i)->id == j->doc_id) d = app_doc_at(a, i);
+    if (m->job == j) m->job = NULL;
+    if (d && m->tracking && m->doc_id == j->doc_id && j->seq == m->job_seq &&
+        d->doc->sel_gen == j->sel_gen && j->out) {
+        app_doc_ants_preview_take(d, j->out);
+        j->out = NULL;
+        sel_animate_ants(a);
+    }
+    if (m->job_again) {
+        m->job_again = false;
+        if (m->tracking) {
+            m->dirty = true;                 /* the newest shape, traced next */
+            app_request_frame(a);
+        }
+    }
+    mq_free(j);
+}
+
+static void preview_async(app *a, sel_marquee *m, app_doc *d, pc_rect r, bool ss_kind)
+{
+    mq_job *j;
+    m->job_seq++;
+    if (m->job) {
+        m->job_again = true;
+        return;
+    }
+    j = (mq_job *)calloc(1u, sizeof *j);
+    if (!j) return;
+    pc_poly_init(&j->poly);
+    j->m = m;
+    j->doc_id = d->id;
+    j->seq = m->job_seq;
+    j->sel_gen = d->doc->sel_gen;
+    j->w = d->doc->w;
+    j->h = d->doc->h;
+    j->kind = m->shape == SEL_SHAPE_RECT ? 0 : ss_kind ? 1 : 2;
+    j->rect = r;
+    j->rule = rule_of(m);
+    j->aa = a->ts.sel_clip_aa;
+    j->mode = m->mode;
+    if (pc_sel_snap_take(d->doc, &j->snap) != PC_OK ||
+        (j->kind != 0 && pc_poly_append(&j->poly, &m->poly, NULL) != PC_OK) ||
+        !app_task(a, mq_work, mq_done, j)) {
+        mq_free(j);
+        return;
+    }
+    m->job = j;
+}
+
 static void preview(app *a, sel_marquee *m, app_doc *d)
 {
     double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0;
@@ -330,12 +455,20 @@ static void preview(app *a, sel_marquee *m, app_doc *d)
     if (!ok) {
         /* an empty shape combines to nothing (Replace, Intersect) or to the
          * current selection (the other modes) */
+        m->job_seq++;                        /* a running combine trace is stale */
         if (m->mode == PC_SEL_REPLACE || m->mode == PC_SEL_INTERSECT)
             (void)app_doc_ants_preview(d, &m->preview);
         else
             (void)app_doc_ants_preview(d, NULL);
+        sel_ss_free(&ss);
         return;
     }
+    if (m->mode != PC_SEL_REPLACE && app_doc_sel_complex(d)) {
+        preview_async(a, m, d, r, a->ts.sel_clip_aa && have_ss);
+        sel_ss_free(&ss);
+        return;
+    }
+    m->job_seq++;
     if (m->shape == SEL_SHAPE_RECT) {
         pc_sel_src src;
         if (m->mode == PC_SEL_REPLACE) {

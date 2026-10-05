@@ -29,6 +29,8 @@ struct app_doc_ants_rt {
     uint64_t  version;
     ants_job *job;               /* running background trace (owned by its task) */
     pc_poly   empty;
+    uint64_t  complex_gen;       /* app_doc_sel_complex cache */
+    bool      complex_known, complex;
 };
 
 /* A background trace of one selection state. The worker reads only snap
@@ -229,7 +231,7 @@ static void update(app_doc_ants_rt *rt)
         if (rt->job->gen != gen) SDL_SetAtomicInt(&rt->job->cancel, 1);
         return;
     }
-    if (!rt->a || mixed_tiles(doc, g_sync_tiles) <= g_sync_tiles) trace_now(rt, gen);
+    if (!rt->a || !app_doc_sel_complex(rt->d)) trace_now(rt, gen);
     else start_job(rt, gen);
 }
 
@@ -329,6 +331,19 @@ void app_doc_ants_preview_take(app_doc *d, gfx_ants *g)
     }
     if (!g) drop_preview(d->ants_rt);
     else set_preview(d->ants_rt, g);
+}
+
+bool app_doc_sel_complex(app_doc *d)
+{
+    app_doc_ants_rt *rt = d ? d->ants_rt : NULL;
+    if (!d || !pc_sel_is_active(d->doc)) return false;
+    if (!rt) return mixed_tiles(d->doc, g_sync_tiles) > g_sync_tiles;
+    if (!rt->complex_known || rt->complex_gen != d->doc->sel_gen) {
+        rt->complex = mixed_tiles(d->doc, g_sync_tiles) > g_sync_tiles;
+        rt->complex_gen = d->doc->sel_gen;
+        rt->complex_known = true;
+    }
+    return rt->complex;
 }
 
 pc_status app_doc_sel_outline(app_doc *d, pc_poly *out)

@@ -169,6 +169,10 @@ bool      app_doc_ants_is_preview(app_doc *d);
  * up to date (waiting for a background build in progress), else traced
  * now. Nothing when nothing is selected. */
 pc_status app_doc_sel_outline(app_doc *d, pc_poly *out);
+/* True when tracing the selection's outline is too slow for a frame (it
+ * is then traced in the background; tools preview combinations with it in
+ * the background too). Cached per selection state. */
+bool      app_doc_sel_complex(app_doc *d);
 
 #ifdef __cplusplus
 }
