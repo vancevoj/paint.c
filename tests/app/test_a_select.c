@@ -301,7 +301,7 @@ static void t_nudge_and_esc(void)
     at_frames(a, 1);
     a_key(a, SDLK_RIGHT, SDL_KMOD_NONE);
     a_key(a, SDLK_RIGHT, SDL_KMOD_NONE);
-    a_key(a, SDLK_DOWN, SDL_KMOD_LCTRL);
+    a_key(a, SDLK_DOWN, a_kctrl());
     a_up(a, 40, 30, SDL_BUTTON_LEFT);
     CHECK(a_sel_is_rect(a, pc_rect_make(0, 0, 200, 150), pc_rect_make(12, 20, 30, 20)));
     /* Esc abandons a drag: nothing recorded, the selection unchanged */

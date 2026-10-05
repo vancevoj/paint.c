@@ -148,7 +148,7 @@ static void t_nudge(void)
     h = a_hist(a);
     a_key(a, SDLK_RIGHT, SDL_KMOD_NONE);
     a_key(a, SDLK_RIGHT, SDL_KMOD_NONE);
-    a_key(a, SDLK_DOWN, SDL_KMOD_LCTRL);
+    a_key(a, SDLK_DOWN, a_kctrl());
     CHECK(a_hist(a) == h + 3u);
     CHECK(eq(a_lpx(a, 22, 30), pat(20, 20)) && is_zero(a_lpx(a, 21, 25)));
     CHECK(a_sel_is_rect(a, pc_rect_make(0, 0, W, H), pc_rect_make(22, 30, 40, 30)));

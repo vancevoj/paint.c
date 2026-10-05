@@ -127,6 +127,12 @@ static inline uint32_t a_ctrl(void)
     return ui_mod_primary();
 }
 
+/* The key modifier for Ctrl (Cmd on macOS). */
+static inline SDL_Keymod a_kctrl(void)
+{
+    return ui_mod_primary() == UI_MOD_GUI ? SDL_KMOD_LGUI : SDL_KMOD_LCTRL;
+}
+
 static inline void a_key(app *a, SDL_Keycode k, SDL_Keymod mod)
 {
     SDL_Event e;
