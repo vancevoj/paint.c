@@ -55,9 +55,11 @@ typedef struct text_face_info {
 
 /* Scan dirs (NULL terminated) for TTF/OTF/TTC/OTC files. prev (may be
  * NULL) supplies descriptions of unchanged files (same path and mtime).
- * *out is malloc'ed (free()), *n faces. Any thread. PC_ERR_NOMEM. */
+ * cancel (may be NULL) is polled between files: nonzero stops the scan
+ * with PC_ERR_CANCELLED (the app sets it when it quits). *out is
+ * malloc'ed (free()), *n faces. Any thread. PC_ERR_NOMEM. */
 pc_status text_fonts_scan_dirs(const char *const *dirs, const text_face_info *prev, size_t nprev,
-                               text_face_info **out, size_t *n);
+                               pc_atomic_u32 *cancel, text_face_info **out, size_t *n);
 /* Cache file text <-> face list (hardened parser, P-08). */
 pc_status text_fonts_cache_write(const char *path, const text_face_info *f, size_t n);
 pc_status text_fonts_cache_read(const char *path, text_face_info **out, size_t *n);

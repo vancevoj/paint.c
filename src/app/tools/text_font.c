@@ -62,6 +62,7 @@ struct text_fonts {
     tf_set         *sets;       /* resolved family + style sets (owned) */
     size_t          nsets;
     bool            scanning;
+    struct scan_job *job;       /* the running scan (owned by its task) */
     char            cache_path[1024];
 };
 
@@ -519,7 +520,7 @@ static pc_status describe_file(const char *path, uint64_t mtime, tf_vec *out)
 }
 
 pc_status text_fonts_scan_dirs(const char *const *dirs, const text_face_info *prev, size_t nprev,
-                               text_face_info **out, size_t *n)
+                               pc_atomic_u32 *cancel, text_face_info **out, size_t *n)
 {
     typedef struct dir_item { char *path; uint32_t depth; } dir_item;
     dir_item *stack = NULL;
@@ -554,10 +555,19 @@ pc_status text_fonts_scan_dirs(const char *const *dirs, const text_face_info *pr
     }
     while (sn > 0 && st == PC_OK && files < TEXT_SCAN_MAX_FILES) {
         dir_item d = stack[--sn];
+        if (cancel && pc_atomic_load(cancel)) {
+            free(d.path);
+            st = PC_ERR_CANCELLED;
+            break;
+        }
         char **names = NULL;
         int nn = pal_list_dir(d.path, NULL, &names);
         for (int i = 0; i < nn && st == PC_OK && files < TEXT_SCAN_MAX_FILES; i++) {
             char path[1024];
+            if (cancel && pc_atomic_load(cancel)) {
+                st = PC_ERR_CANCELLED;
+                break;
+            }
             if (!names[i] || names[i][0] == '.') continue;
             pal_path_join(path, sizeof path, d.path, names[i]);
             if (pal_is_dir(path)) {
@@ -709,6 +719,7 @@ pc_status text_fonts_cache_read(const char *path, text_face_info **out, size_t *
 
 /* ---- the catalog --------------------------------------------------------------------------- */
 typedef struct scan_job {
+    pc_atomic_u32   cancel;     /* set on quit, polled by the worker */
     char          **dirs;       /* owned, NULL terminated */
     text_face_info *prev;       /* owned */
     size_t          nprev;
@@ -721,8 +732,8 @@ typedef struct scan_job {
 static void scan_work(void *ud)
 {
     scan_job *j = (scan_job *)ud;
-    j->st = text_fonts_scan_dirs((const char *const *)j->dirs, j->prev, j->nprev, &j->out,
-                                 &j->nout);
+    j->st = text_fonts_scan_dirs((const char *const *)j->dirs, j->prev, j->nprev, &j->cancel,
+                                 &j->out, &j->nout);
     if (j->st == PC_OK && j->cache[0]) (void)text_fonts_cache_write(j->cache, j->out, j->nout);
 }
 
@@ -742,6 +753,7 @@ static void scan_done(app *a, void *ud)
     text_fonts *tf = (text_fonts *)app_ext_get(a, "text.fonts");
     if (tf) {
         tf->scanning = false;
+        tf->job = NULL;
         if (j->st == PC_OK) (void)text_fonts_set_faces(tf, j->out, j->nout);
         app_tool_settings_changed(a);       /* the font list changed */
     }
@@ -786,10 +798,21 @@ static void start_scan(app *a, text_fonts *tf)
     }
     app_copy_str(j->cache, sizeof j->cache, tf->cache_path);
     tf->scanning = true;
+    tf->job = j;
     if (!app_task(a, scan_work, scan_done, j)) {
         tf->scanning = false;
+        tf->job = NULL;
         scan_free(j);
     }
+}
+
+/* Quitting must not wait for a first scan of a large font folder. */
+static void hook_quit(app *a, app_doc *d, void *ud)
+{
+    text_fonts *tf = (text_fonts *)app_ext_get(a, "text.fonts");
+    (void)d;
+    (void)ud;
+    if (tf && tf->job) pc_atomic_store(&tf->job->cancel, 1u);
 }
 
 text_fonts *text_fonts_get(app *a)
@@ -812,6 +835,7 @@ text_fonts *text_fonts_get(app *a)
             (void)text_fonts_set_faces(tf, f, n);
             free(f);
         }
+        (void)app_hook_add(a, APP_HOOK_QUIT, hook_quit, NULL);
         start_scan(a, tf);
     }
     return tf;

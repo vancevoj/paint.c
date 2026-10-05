@@ -264,7 +264,7 @@ static void t_scan(void)
     free(data);
     dirs[0] = root;
     dirs[1] = NULL;
-    CHECK(text_fonts_scan_dirs(dirs, NULL, 0, &f, &n) == PC_OK);
+    CHECK(text_fonts_scan_dirs(dirs, NULL, 0, NULL, &f, &n) == PC_OK);
     CHECK(n == 1u);
     if (n == 1u) {
         CHECK(strcmp(f[0].family, "Inter") == 0);
@@ -283,8 +283,17 @@ static void t_scan(void)
     /* unchanged files are taken from the previous scan */
     if (n) {
         app_copy_str(f[0].style, sizeof f[0].style, "FromCache");
-        CHECK(text_fonts_scan_dirs(dirs, f, n, &f3, &n3) == PC_OK);
+        CHECK(text_fonts_scan_dirs(dirs, f, n, NULL, &f3, &n3) == PC_OK);
         CHECK(n3 == 1u && strcmp(f3[0].style, "FromCache") == 0);
+    }
+    /* a cancelled scan stops with PC_ERR_CANCELLED */
+    {
+        pc_atomic_u32 stop;
+        text_face_info *fc = NULL;
+        size_t nc = 0;
+        pc_atomic_store(&stop, 1u);
+        CHECK(text_fonts_scan_dirs(dirs, NULL, 0, &stop, &fc, &nc) == PC_ERR_CANCELLED);
+        CHECK(fc == NULL && nc == 0u);
     }
     /* a damaged cache file is rejected, not trusted */
     CHECK(pal_write_file_atomic(cache, "garbage\n\t\t\n", 11u) == PC_OK);
