@@ -234,6 +234,13 @@ void sel_opt_tolerance(app *a)
         a->ts.tolerance = v;
         app_tool_settings_changed(a);
     }
+    ui_tooltip(ui, "Tolerance: how different a color may be and still be selected");
+    {
+        char txt[16];
+        snprintf(txt, sizeof txt, "%d%%", (int)a->ts.tolerance);
+        (void)app_opt_next(a, 36.0f);
+        ui_label(ui, txt);
+    }
 }
 
 void sel_opt_tol_alpha(app *a)
@@ -417,6 +424,8 @@ void sel_tint_draw(app *a, app_doc *d, app_overlay *o)
     uint64_t key = 1469598103934665603ull;
     pc_affine m;
     if (!d || !a->ren) return;
+    /* hidden while a dialog (Layer Properties, effects) shows colors */
+    if (app_dialog_active(a)) return;
     p = app_doc_ants(d);
     if (!p || p->n_contours == 0u || !pc_poly_bounds(p, &mn, &mx)) return;
     t = tint_get(a);

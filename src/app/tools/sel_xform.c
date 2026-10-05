@@ -212,7 +212,10 @@ bool sel_drag_update(sel_box *b, sel_drag *g, double x, double y, uint32_t mods)
     case SEL_DRAG_ROTATE: {
         double t0 = atan2(g->py0 - g->cy, g->px0 - g->cx), t1 = atan2(y - g->cy, x - g->cx);
         double deg = (y == g->cy && x == g->cx) ? 0.0 : (t1 - t0) * 180.0 / PI;
-        double total = g->angle0 + deg;
+        double total;
+        if (deg > 180.0) deg -= 360.0;
+        if (deg <= -180.0) deg += 360.0;
+        total = g->angle0 + deg;
         pc_affine r;
         if (mods & UI_MOD_SHIFT) {
             total = snap15(total);
