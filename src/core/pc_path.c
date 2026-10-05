@@ -208,6 +208,7 @@ pc_status pc_poly_append(pc_poly *dst, const pc_poly *src, const pc_affine *m)
 {
     size_t np, nc;
     pc_status st;
+    if (dst == src) return PC_ERR_ARG;
     if (src->n_contours == 0u) return PC_OK;
     np = src->ends[src->n_contours - 1u];               /* finished points */
     if (!pc_add_size(dst->n_pts, np, &np) || !pc_add_size(dst->n_contours, src->n_contours, &nc))

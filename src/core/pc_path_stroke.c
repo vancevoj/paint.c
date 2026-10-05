@@ -545,7 +545,7 @@ pc_status pc_poly_stroke(const pc_poly *src, const pc_stroke *s, double tol, pc_
     pc_status st = PC_OK;
     if (!s || !(s->width > 0.0) || !isfinite(s->width) || !(s->miter_limit >= 0.0))
         return PC_ERR_ARG;
-    if (s->n_dash > PC_DASH_MAX) return PC_ERR_ARG;
+    if (s->n_dash > PC_DASH_MAX || src == dst) return PC_ERR_ARG;
     memset(&k, 0, sizeof k);
     k.s = s;
     k.hw = s->width * 0.5;

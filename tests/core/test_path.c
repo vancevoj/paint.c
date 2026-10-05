@@ -221,6 +221,12 @@ static void t_build(void)
     CHECK(pc_path_line_to(&p, NAN, 0) == PC_ERR_ARG);
     CHECK(pc_path_add_ellipse(&p, INFINITY, 0, 1, 1) == PC_ERR_ARG);
     CHECK(pc_poly_add(&f, pc_pt_make(NAN, 1), 0) == PC_ERR_ARG);
+    CHECK(pc_poly_append(&f, &f, NULL) == PC_ERR_ARG);
+    {
+        pc_stroke st;
+        pc_stroke_default(&st);
+        CHECK(pc_poly_stroke(&f, &st, 0.1, &f) == PC_ERR_ARG);
+    }
     /* implicit subpaths: line_to without move starts at the origin */
     pc_path_clear(&p);
     CHECK(pc_path_line_to(&p, 5, 5) == PC_OK && p.verbs[0] == PC_PATH_MOVE && p.pts[0].x == 0);

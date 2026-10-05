@@ -95,7 +95,8 @@ pc_status pc_poly_reserve(pc_poly *p, size_t pts, size_t contours);
 pc_status pc_poly_add(pc_poly *p, pc_pt pt, uint8_t flags);
 /* Finish the contour being built. Runs of zero points are dropped. */
 pc_status pc_poly_end(pc_poly *p, bool closed);
-/* Append every finished contour of src to dst (optionally transformed). */
+/* Append every finished contour of src to dst (optionally transformed).
+ * dst and src must be different objects (PC_ERR_ARG otherwise). */
 pc_status pc_poly_append(pc_poly *dst, const pc_poly *src, const pc_affine *m);
 static inline size_t pc_poly_contour_start(const pc_poly *p, size_t i)
 {
@@ -246,7 +247,8 @@ pc_status pc_stroke_set_dash_style(pc_stroke *s, pc_dash_style style);
 /* Stroke the polylines of src into closed contours in dst (appended)
  * whose NONZERO fill is the stroke. tol is the flattening tolerance used
  * for round joins and caps. The result is only meant for nonzero fills
- * (overlapping pieces are not unioned geometrically). */
+ * (overlapping pieces are not unioned geometrically). src and dst must be
+ * different objects. */
 pc_status pc_poly_stroke(const pc_poly *src, const pc_stroke *s, double tol,
                          pc_poly *dst);
 /* Flatten then stroke a path. The stroke is built in path space and then
