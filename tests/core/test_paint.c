@@ -64,13 +64,22 @@ static void t_paint_random(void)
         for (int32_t i = 0; i < base.w * base.h; i++) base.px[i] = rpx();
         CHECK(pc_layer_store_rect(d, l, pc_doc_rect(d), base.px, (size_t)base.stride) == PC_OK);
         CHECK(pc_hist_add_layer(h, l, 0, "add") == PC_OK);
-        if (use_sel) CHECK(pc_sel_apply_rect(h, pc_rect_make((int32_t)rndu(W), (int32_t)rndu(H), 1 + (int32_t)rndu(W), 1 + (int32_t)rndu(H)), PC_SEL_REPLACE, "sel") == PC_OK);
+        if (use_sel && rndu(2)) {
+            CHECK(pc_sel_apply_rect(h, pc_rect_make((int32_t)rndu(W), (int32_t)rndu(H), 1 + (int32_t)rndu(W), 1 + (int32_t)rndu(H)), PC_SEL_REPLACE, "sel") == PC_OK);
+        } else if (use_sel) {      /* soft (antialiased) selection */
+            pc_mask sm;
+            CHECK(pc_mask_alloc(&sm, pc_rect_make(0, 0, (int32_t)W, (int32_t)H)) == PC_OK);
+            for (int32_t i = 0; i < sm.w * sm.h; i++) sm.px[i] = rnd8();
+            CHECK(pc_sel_apply(h, &sm, PC_SEL_REPLACE, "soft sel") == PC_OK);
+            pc_mask_free(&sm);
+        }
         CHECK(pc_mask_alloc(&cov, cr) == PC_OK);
         for (int32_t i = 0; i < cov.w * cov.h; i++) cov.px[i] = rndu(3) ? rnd8() : 0;
         op.mode = (pc_paint_mode)rndu(3);
         op.blend = (pc_blend_mode)rndu(PC_BLEND_COUNT);
         op.opacity = rndu(2) ? 255 : rnd8();
         op.clip_to_selection = rndu(4) != 0;
+        op.clip_pixelated = rndu(3) == 0;
         memset(&src, 0, sizeof src);
         src.solid = rpx();
         t = pc_txn_begin(d, "paint");
@@ -85,7 +94,10 @@ static void t_paint_random(void)
         for (int32_t y = 0; y < (int32_t)H; y++)
             for (int32_t x = 0; x < (int32_t)W; x++) {
                 uint32_t k = pc_mask_at(&cov, x, y);
-                if (op.clip_to_selection && pc_sel_is_active(d)) k = pc_mul255(k, pc_sel_coverage(d, x, y));
+                if (op.clip_to_selection && pc_sel_is_active(d)) {
+                    uint32_t sv = pc_sel_coverage(d, x, y);
+                    k = op.clip_pixelated ? (sv >= 128u ? k : 0u) : pc_mul255(k, sv);
+                }
                 ref_px(&want.px[y * want.stride + x], src.solid, k, &op);
             }
         CHECK(memcmp(got.px, want.px, (size_t)W * H * 4u) == 0);
