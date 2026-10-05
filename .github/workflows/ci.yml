@@ -8,15 +8,15 @@
 #
 # AVIF and JPEG XL (lane AVIFJXL, docs/codecs/avif_jxl.md): the jobs that
 # build release packages use the pinned static BUNDLED build (self-contained
-# packages): linux-gcc, mingw-w64, windows-cl, macos-14 and, on tags,
-# macos-15-intel. linux-clang and the sanitizer job use Ubuntu's
-# libavif-dev and libjxl-dev (the oldest supported versions, 1.0.4 and
-# 0.7.0), macos-15-intel Homebrew's libavif and jpeg-xl when bottles
-# install (AUTO, except on tags); windows-clang-cl builds with AUTO (no
-# libraries: both formats report disabled; the bundled libavif cannot be
-# built with clang-cl), so does the headless step with OFF, and the
-# mingw-w64 job checks that a cross build ignores the build machine's
-# libraries (AUTO reports them disabled).
+# packages): linux-gcc, mingw-w64, windows-cl and, on tags, both macOS jobs.
+# linux-clang and the sanitizer job use Ubuntu's libavif-dev and libjxl-dev
+# (the oldest supported versions, 1.0.4 and 0.7.0), macos-14 Homebrew's
+# libavif and jpeg-xl (AUTO, except on tags). windows-clang-cl and
+# macos-15-intel build with AUTO and no libraries (except on tags): both
+# formats report disabled, like the headless step with OFF; the bundled
+# libavif cannot be built with clang-cl. The mingw-w64 job checks that a
+# cross build ignores the build machine's libraries (AUTO reports them
+# disabled). macOS bills ten times Linux, so its bundled build runs on tags.
 #
 # Packages (lane I, docs/PACKAGING.md): the Linux GCC job builds the
 # AppImage and a tar.gz, the Windows MSVC job the portable zip and the NSIS
@@ -339,14 +339,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Ninja (and NASM for the bundled libaom, lane AVIFJXL)
         run: brew install ninja nasm || true
-      # macos-14 always builds the BUNDLED libraries (the release path).
-      # macos-15-intel tests the system-library path with Homebrew's libavif
-      # and jpeg-xl when their bottles install (never a source build:
-      # Homebrew's Intel support is winding down); AUTO then uses them or
-      # reports both formats disabled. Its .dmg needs Homebrew then, so tags
-      # (the release packages) build BUNDLED there too.
-      - name: AVIF and JPEG XL from Homebrew (macos-15-intel, not on tags)
-        if: matrix.os == 'macos-15-intel' && !startsWith(github.ref, 'refs/tags/')
+      # Except on tags (release packages: BUNDLED, self-contained .dmg),
+      # macos-14 tests the system-library path with Homebrew's libavif and
+      # jpeg-xl (arm64 bottles; never a source build) and macos-15-intel
+      # the no-library path; both configure AUTO.
+      - name: AVIF and JPEG XL from Homebrew (macos-14, not on tags)
+        if: matrix.os == 'macos-14' && !startsWith(github.ref, 'refs/tags/')
         continue-on-error: true
         timeout-minutes: 6
         run: brew install --force-bottle pkgconf libavif jpeg-xl
@@ -365,8 +363,8 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$PC_DEPS"
           -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_OSX_SYSROOT=macosx
-          -DPC_WITH_AVIF=${{ (matrix.os == 'macos-15-intel' && !startsWith(github.ref, 'refs/tags/')) && 'AUTO' || 'BUNDLED' }}
-          -DPC_WITH_JXL=${{ (matrix.os == 'macos-15-intel' && !startsWith(github.ref, 'refs/tags/')) && 'AUTO' || 'BUNDLED' }}
+          -DPC_WITH_AVIF=${{ startsWith(github.ref, 'refs/tags/') && 'BUNDLED' || 'AUTO' }}
+          -DPC_WITH_JXL=${{ startsWith(github.ref, 'refs/tags/') && 'BUNDLED' || 'AUTO' }}
       - name: Build
         run: cmake --build build -- -k 0
       - name: Test

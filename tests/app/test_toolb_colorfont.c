@@ -525,9 +525,11 @@ static void t_installed(void)
         pc_text_style st;
         const pc_text_glyph *g;
         size_t ng, vis = 0;
-        /* grinning face, thumbs up + skin tone, flag (U+1F1FA U+1F1F8) */
-        static const char s[] = "\xf0\x9f\x98\x80\xf0\x9f\x91\x8d\xf0\x9f\x8f\xbd"
-                                "\xf0\x9f\x87\xba\xf0\x9f\x87\xb8";
+        /* grinning face, thumbs up + skin tone. No flag: Segoe UI Emoji
+         * (Windows) has no flag glyphs and draws the two regional indicator
+         * letters; flag ligatures are covered by the synthetic "Toolb Bits"
+         * font above (integration, first run on a real Windows runner). */
+        static const char s[] = "\xf0\x9f\x98\x80\xf0\x9f\x91\x8d\xf0\x9f\x8f\xbd";
         CHECK(t && d && l && vr && pc_doc_insert_layer(d, l, 0) == PC_OK);
         memset(&src, 0, sizeof src);
         src.solid = app_px_make(0, 0, 0, 255);
@@ -539,8 +541,11 @@ static void t_installed(void)
         CHECK(pc_text_set_utf8(t, s, sizeof s - 1u) == PC_OK);
         g = pc_text_glyphs(t, &ng);
         for (size_t i = 0; i < ng; i++) vis += !g[i].hidden;
-        CHECK(vis == 3u);                                        /* both sequences ligate */
-        CHECK(pc_text_color_glyph_count(t) == 3u);
+        if (vis != 2u || pc_text_color_glyph_count(t) != 2u)
+            printf("  info: %zu visible glyphs, %zu color glyphs\n", vis,
+                   (size_t)pc_text_color_glyph_count(t));
+        CHECK(vis == 2u);                                        /* the modifier ligates */
+        CHECK(pc_text_color_glyph_count(t) == 2u);
         {
             pc_txn *x = pc_txn_begin(d, "Text");
             pc_surf sf;
