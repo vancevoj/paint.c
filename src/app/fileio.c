@@ -426,10 +426,10 @@ void app_open_paths(app *a, const char *const *paths, int n)
             app_error(a, "Could not open \"%s\": %s.", paths[i], pc_status_str(PC_ERR_NOMEM));
 }
 
-static void open_dialog_cb(void *ud, const char *const *paths, int n, int filter)
+static void open_dialog_cb(app *a, const char *const *paths, int n, int filter, void *ud)
 {
-    app *a = (app *)ud;
     (void)filter;
+    (void)ud;
     if (paths && n > 0) app_open_paths(a, paths, n);
 }
 
@@ -439,7 +439,7 @@ void app_cmd_open_dialog(app *a)
     const char *dir = a->last_open_dir[0] ? a->last_open_dir : pal_dir(PAL_DIR_PICTURES);
     if (!a->win) return;
     io_build_filters(&fs, false);
-    pal_dialog_open(a->win, fs.f, fs.n, dir, true, open_dialog_cb, a);
+    app_filedlg(a, APP_FILEDLG_OPEN_MULTI, fs.f, fs.n, dir, open_dialog_cb, NULL);
 }
 
 /* ---- save ---------------------------------------------------------------------------- */
@@ -639,7 +639,8 @@ static void step_flatten(app *a, save_flow *f)
 
 /* ---- Save Configuration (FS-CONFIG): options + preview + file size -------------------- */
 typedef struct cfg_dlg {
-    save_flow    *flow;
+    app          *a;
+    save_flow    *flow;                /* owned until OK, Cancel or teardown ends it */
     void         *params;              /* working copy */
     char          title[96];
     pc_doc       *snap;                /* preview source (shared tiles) */
@@ -677,6 +678,13 @@ static void cfg_free(void *p)
 {
     cfg_dlg *c = (cfg_dlg *)p;
     if (!c) return;
+    /* lane W4-MODAL: closed without OK or Cancel (app_dialogs_free at exit,
+     * a refused push): the save flow ends as cancelled, exactly once */
+    if (c->flow) {
+        save_flow *f = c->flow;
+        c->flow = NULL;
+        flow_finish(c->a, f, false);
+    }
     if (c->running) {                  /* the worker still uses snap: free in its done */
         c->ended = true;
         return;
@@ -992,6 +1000,8 @@ static bool cfg_frame(app *a, void *st)
     return false;
 }
 
+static uint32_t cfg_seq;
+
 static void step_config(app *a, save_flow *f)
 {
     app_doc *d = doc_by_id(a, f->doc_id);
@@ -1010,8 +1020,11 @@ static void step_config(app *a, save_flow *f)
     }
     c = (cfg_dlg *)calloc(1u, sizeof *c);
     if (!c) { flow_finish(a, f, false); return; }
+    c->a = a;
     c->flow = f;
-    snprintf(c->title, sizeof c->title, "Save Configuration: %s##savecfg", type_label(f->codec));
+    /* lane W4-MODAL: one ui id per dialog, so two can never share state */
+    snprintf(c->title, sizeof c->title, "Save Configuration: %s##savecfg%u", type_label(f->codec),
+             (unsigned)++cfg_seq);
     c->params = malloc(f->codec->params_size);
     c->snap = app_doc_snapshot(d);
     if (!c->params || !c->snap || io_meta_copy(&d->meta, &c->meta) != PC_OK) {
@@ -1024,27 +1037,22 @@ static void step_config(app *a, save_flow *f)
     memcpy(c->params, f->params, f->codec->params_size);
     c->img_w = d->doc->w;
     c->img_h = d->doc->h;
-    if (!app_dialog_push(a, cfg_frame, c, cfg_free)) { flow_finish(a, f, false); return; }
+    if (!app_dialog_push(a, cfg_frame, c, cfg_free)) return;   /* cfg_free ended the flow */
     cfg_start(a, c);
 }
-
-typedef struct save_cb_ctx { app *a; save_flow *f; } save_cb_ctx;
 
 /* Resolve the chosen path and type filter into a codec and a path with an
  * extension: a typed extension of a known type decides (the native dialogs
  * on Linux and macOS do not keep the filter and the name in sync), else
  * the selected filter, else the flow's type; its default extension is
  * appended then. */
-static void save_dialog_cb(void *ud, const char *const *paths, int n, int filter)
+static void save_dialog_cb(app *a, const char *const *paths, int n, int filter, void *ud)
 {
-    save_cb_ctx *cx = (save_cb_ctx *)ud;
-    app *a = cx->a;
-    save_flow *f = cx->f;
+    save_flow *f = (save_flow *)ud;
     io_filters fs;
     const pc_codec *c;
     char path[2048];
     app_doc *d;
-    free(cx);
     if (!paths || n < 1 || !paths[0] || !*paths[0]) { flow_finish(a, f, false); return; }
     d = doc_by_id(a, f->doc_id);
     if (!d) { flow_finish(a, f, false); return; }
@@ -1091,8 +1099,7 @@ static void ask_path(app *a, save_flow *f, app_doc *d)
     io_filters fs;
     char def[2048], ext[16];
     const pc_codec *c = default_save_codec(d);
-    save_cb_ctx *cx;
-    if (!a->win || !c) { flow_finish(a, f, false); return; }
+    if (!c) { flow_finish(a, f, false); return; }
     default_ext(c, ext, sizeof ext);
     if (d->path) {
         char dir[1024];
@@ -1126,12 +1133,10 @@ static void ask_path(app *a, save_flow *f, app_doc *d)
             fs.codec[0] = tc;
             break;
         }
-    cx = (save_cb_ctx *)malloc(sizeof *cx);
-    if (!cx) { flow_finish(a, f, false); return; }
-    cx->a = a;
-    cx->f = f;
-    /* fs.f names point into fs.label, which pal copies before returning */
-    pal_dialog_save(a->win, fs.f, fs.n, def, save_dialog_cb, cx);
+    /* fs.f names point into fs.label, which pal copies before returning;
+     * without a window save_dialog_cb runs at once as a cancel, and at exit
+     * the open dialog is answered as cancelled (filedlg.c) */
+    app_filedlg(a, APP_FILEDLG_SAVE, fs.f, fs.n, def, save_dialog_cb, f);
 }
 
 void app_save_doc(app *a, app_doc *d, bool save_as, app_save_done_fn done, void *ud)
@@ -1321,13 +1326,15 @@ static void close_all_save_next(app *a, close_all *c)
     close_all_end(a, c, true);
 }
 
-typedef struct close_all_dlg { close_all *c; } close_all_dlg;
+typedef struct close_all_dlg { app *a; close_all *c; } close_all_dlg;
 
 static void close_all_dlg_free(void *p)
 {
     close_all_dlg *g = (close_all_dlg *)p;
     if (!g) return;
-    close_all_free(g->c);              /* still owned when the dialog was dismissed */
+    /* still owned: the dialog closed without an answer (app_dialogs_free at
+     * exit, a refused push), which ends the flow like Cancel (lane W4-MODAL) */
+    if (g->c) close_all_end(g->a, g->c, false);
     free(g);
 }
 
@@ -1444,6 +1451,7 @@ void app_close_all(app *a, app_close_done_fn done, void *ud)
         close_all_dlg *g = (close_all_dlg *)calloc(1u, sizeof *g);
         app_doc *act = app_active_doc(a);
         if (!g) { close_all_end(a, c, false); return; }
+        g->a = a;
         g->c = c;
         if (act && !app_doc_dirty(act)) app_set_active_doc(a, doc_by_id(a, c->ids[0]));
         (void)app_dialog_push(a, close_all_frame, g, close_all_dlg_free);

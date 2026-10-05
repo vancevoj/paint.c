@@ -274,9 +274,10 @@ static void cmd_props(app *a, const app_cmd *c)
 /* ---- Import From File -------------------------------------------------------------------- */
 typedef struct import_req { app *a; uint32_t doc_id; } import_req;
 
-static void import_cb(void *ud, const char *const *paths, int n, int filter)
+static void import_cb(app *a, const char *const *paths, int n, int filter, void *ud)
 {
     import_req *r = (import_req *)ud;
+    (void)a;
     (void)filter;
     if (paths && n > 0) {
         char dir[1024];
@@ -311,8 +312,8 @@ static void cmd_import(app *a, const app_cmd *c)
     if (!r) return;
     r->a = a;
     r->doc_id = d->id;
-    pal_dialog_open(a->win, f, 2, a->last_open_dir[0] ? a->last_open_dir : NULL, true, import_cb,
-                    r);
+    app_filedlg(a, APP_FILEDLG_OPEN_MULTI, f, 2, a->last_open_dir[0] ? a->last_open_dir : NULL,
+                import_cb, r);
 }
 
 static bool has_window(app *a, const app_cmd *c)

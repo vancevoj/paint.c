@@ -329,7 +329,11 @@ static int run_line(app *a, char **tok, int n, int ln, char *err, size_t cap)
         a->ts.antialias = atoi(tok[1]) != 0;
     } else if (strcmp(c, "cmd") == 0 && n >= 2) {
         if (!app_cmd_exec(a, tok[1])) {
-            snprintf(msg, sizeof msg, "command %s is unknown or disabled", tok[1]);
+            /* lane W4-MODAL: commands do not run under a modal dialog */
+            if (app_dialog_active(a) && app_cmd_exists(a, tok[1]))
+                snprintf(msg, sizeof msg, "command %s refused: a dialog is open", tok[1]);
+            else
+                snprintf(msg, sizeof msg, "command %s is unknown or disabled", tok[1]);
             return fail(err, cap, ln, msg);
         }
         settle(a, 1);

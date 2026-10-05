@@ -7,7 +7,9 @@
 
 bool app_dialog_push(app *a, app_dialog_fn fn, void *st, void (*free_st)(void *st))
 {
-    if (!fn) {
+    /* lane W4-MODAL: nothing opens while the app is destroyed; free_st
+     * completes the dialog's flow as cancelled */
+    if (!fn || a->tearing_down) {
         if (free_st) free_st(st);
         return false;
     }
@@ -71,8 +73,12 @@ void app_dialogs_frame(app *a)
 
 void app_dialogs_free(app *a)
 {
-    for (int32_t i = a->ndialogs; i > 0; i--)
-        if (a->dialogs[i - 1].free_st) a->dialogs[i - 1].free_st(a->dialogs[i - 1].st);
+    /* lane W4-MODAL: topmost first; free_st completes the dialog's flow
+     * (cancelled), which may close or open others, so take one at a time */
+    while (a->ndialogs > 0) {
+        app_dialog_rec r = a->dialogs[--a->ndialogs];
+        if (r.free_st) r.free_st(r.st);
+    }
     free(a->dialogs);
     a->dialogs = NULL;
     a->ndialogs = a->cap_dialogs = 0;
@@ -84,14 +90,21 @@ typedef struct msg_dlg {
     char      *text;
     ui_icon    icon;
     uint32_t   buttons, def;
+    app       *a;
+    bool       answered;          /* done ran (exactly once) */
     app_msg_fn done;
     void      *ud;
 } msg_dlg;
 
+/* A box closed without an answer (app_dialogs_free) reports UI_DLG_CANCEL. */
 static void msg_free(void *p)
 {
     msg_dlg *m = (msg_dlg *)p;
     if (!m) return;
+    if (!m->answered) {
+        m->answered = true;
+        if (m->done) m->done(m->a, UI_DLG_CANCEL, m->ud);
+    }
     free(m->text);
     free(m);
 }
@@ -101,6 +114,7 @@ static bool msg_frame(app *a, void *st)
     msg_dlg *m = (msg_dlg *)st;
     uint32_t r = ui_message_box(a->ui, m->title, m->text, m->icon, m->buttons, m->def);
     if (!r) return true;
+    m->answered = true;
     if (m->done) m->done(a, r, m->ud);
     return false;
 }
@@ -110,19 +124,23 @@ void app_message(app *a, const char *title, const char *text, ui_icon icon, uint
 {
     static uint32_t seq;
     msg_dlg *m = (msg_dlg *)calloc(1u, sizeof *m);
-    if (!m) return;
+    if (!m) {
+        if (done) done(a, UI_DLG_CANCEL, ud);
+        return;
+    }
     snprintf(m->title, sizeof m->title, "%s##msg%u", title ? title : APP_NAME, (unsigned)++seq);
     m->text = app_strdup(text ? text : "");
     m->icon = icon;
     m->buttons = buttons ? buttons : UI_DLG_OK;
     m->def = def;
+    m->a = a;
     m->done = done;
     m->ud = ud;
     if (!m->text) {
-        msg_free(m);
+        msg_free(m);                  /* reports the cancel */
         return;
     }
-    (void)app_dialog_push(a, msg_frame, m, msg_free);
+    (void)app_dialog_push(a, msg_frame, m, msg_free);   /* on failure msg_free reports it */
 }
 
 /* ---- choices ---------------------------------------------------------------------- */
@@ -133,14 +151,23 @@ typedef struct choice_dlg {
     char          labels[3][64];
     int           n, def, cancel;
     uint32_t      thumb_doc;
+    app          *a;
+    bool          answered;       /* done ran (exactly once) */
     app_choice_fn done;
     void         *ud;
 } choice_dlg;
 
+/* lane W4-MODAL: a question closed without an answer (app_dialogs_free at
+ * exit, or a refused push) reports -1 like its Cancel button, so the flow
+ * that owns ud (close, save, drop) finishes and frees it. */
 static void choice_free(void *p)
 {
     choice_dlg *c = (choice_dlg *)p;
     if (!c) return;
+    if (!c->answered) {
+        c->answered = true;
+        if (c->done) c->done(c->a, -1, c->ud);
+    }
     free(c->text);
     free(c);
 }
@@ -206,6 +233,7 @@ static bool choice_frame(app *a, void *st)
     r = ui_dialog_end(ui);
     if (pick == -2 && r) pick = c->cancel;           /* Escape or the close button */
     if (pick == -2) return true;
+    c->answered = true;
     if (c->done) c->done(a, pick == c->cancel ? -1 : pick, c->ud);
     return false;
 }
@@ -231,12 +259,12 @@ void app_choice(app *a, const char *title, const char *text, ui_icon icon, const
     c->def = def;
     c->cancel = cancel;
     c->thumb_doc = thumb_doc;
+    c->a = a;
     c->done = done;
     c->ud = ud;
     if (!c->text) {
-        choice_free(c);
-        if (done) done(a, -1, ud);
+        choice_free(c);               /* reports -1 */
         return;
     }
-    if (!app_dialog_push(a, choice_frame, c, choice_free) && done) done(a, -1, ud);
+    (void)app_dialog_push(a, choice_frame, c, choice_free);   /* on failure: -1 */
 }
