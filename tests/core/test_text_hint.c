@@ -74,6 +74,31 @@ static void t_stems(void)
     }
 }
 
+/* A 't' whose crossbar is split by the stem, with a slanted top on the
+ * left (Liberation Serif): the bottom edge on both sides of the stem is
+ * one edge, so the crossbar stays a 1 px stem instead of collapsing. */
+static void t_split_crossbar(void)
+{
+    static const double xy[][2] = {
+        { 2.0, 0.0 },  { 2.0, -5.573 }, { 0.1, -5.573 }, { 0.1, -5.87 }, { 0.9, -6.12 },
+        { 2.0, -7.5 }, { 3.2, -7.5 },   { 3.2, -6.12 },  { 4.4, -6.12 }, { 4.4, -5.573 },
+        { 3.2, -5.573 }, { 3.2, 0.0 }
+    };
+    for (int m = 1; m < 3; m++) {
+        pc_path p;
+        pc_path_init(&p);
+        for (size_t i = 0; i < sizeof xy / sizeof xy[0]; i++) {
+            if (i == 0u) CHECK(pc_path_move_to(&p, xy[i][0], xy[i][1]) == PC_OK);
+            else CHECK(pc_path_line_to(&p, xy[i][0], xy[i][1]) == PC_OK);
+        }
+        CHECK(pc_path_close(&p) == PC_OK);
+        pc_text_hint_outline(&p, (pc_text_mode)m, 13.33, 6.12, 8.7);
+        CHECK(p.pts[8].y == -6.0 && p.pts[9].y == -5.0);      /* right part */
+        CHECK(p.pts[1].y == -5.0 && p.pts[2].y == -5.0);      /* left part, same bottom */
+        pc_path_free(&p);
+    }
+}
+
 /* An 'o' made of quadratic arcs: outer ring x [0.6, 6.4], y [-5.25, 0.2]
  * (round overshoot above x-height 5.0 and below the baseline), inner ring
  * x [1.9, 5.1], y [-4.0, -1.05]. */
@@ -290,6 +315,7 @@ int main(int argc, char **argv)
     pc_test_init(argc, argv);
     pc_tile_stats(&t0, &b0);
     RUN(t_stems);
+    RUN(t_split_crossbar);
     RUN(t_round_overshoot);
     RUN(t_monotonic);
     RUN(t_unsupported);

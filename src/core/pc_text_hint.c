@@ -10,9 +10,11 @@
  *     3.4 degrees) with one direction. The outline orientation tells on
  *     which side of an edge the ink is. Runs that contain off-curve points
  *     are round (the extremum of a curve), the others flat.
- *  2. Stems: an edge with ink on its far side is paired with the nearest
- *     opposite edge whose span overlaps it, at most 0.35 em away (vertical
- *     stems of n and m, crossbars, serifs, the bowls of o).
+ *  2. Stems: edges on one grid line with the same ink side merge (the
+ *     crossbar of a t is split by its stem); an edge with ink on its far
+ *     side is paired with the nearest opposite edge whose span overlaps
+ *     it, at most 0.35 em away (vertical stems of n and m, crossbars,
+ *     serifs, the bowls of o).
  *  3. Alignment zones (y only): the baseline, the x-height and the cap
  *     height. Flat edges at a zone go to the zone's rounded position;
  *     round edges overshooting it (by up to 0.035 em) by less than half a
@@ -21,9 +23,10 @@
  *     an aligned edge keeps that edge, others keep their center as close
  *     as possible; lone edges round to the nearest pixel boundary.
  *  5. Every point of the outline then moves by the piecewise linear,
- *     monotonic map through the (original, fitted) edge positions, so
- *     curves and points between edges follow smoothly and contours never
- *     fold over.
+ *     monotonic map through the (original, fitted) edge positions (where
+ *     edges of one position disagree, zone alignment beats stems, stems
+ *     beat lone edges), so curves and points between edges follow
+ *     smoothly and contours never fold over.
  *
  * Thread rules: pure function of its arguments (any thread). Ownership:
  * the path is modified in place; temporary arrays are owned and freed
@@ -40,6 +43,8 @@
 #define MAX_STEM_EM 0.35         /* widest stem, em */
 #define ZONE_OVERSHOOT_EM 0.035  /* round overshoot accepted by a zone, em */
 #define ZONE_TOL_EM 0.012        /* flat edges this close to a zone align with it, em */
+#define MAX_EDGES 4096u          /* more: the glyph is left unhinted */
+#define MAX_PAIRS ((size_t)1u << 20)
 
 typedef struct hpt {
     size_t idx;                  /* into the path's points */
@@ -53,11 +58,13 @@ typedef struct hedge {
     bool   round;
     int    pair;                 /* index of the stem partner, -1 */
     double fit;                  /* fitted position */
+    int    prio;                 /* as hknot.prio */
     bool   done;
 } hedge;
 
 typedef struct hknot {
     double u, f;
+    int    prio;                 /* 2 aligned to a zone, 1 stem, 0 lone edge */
 } hknot;
 
 typedef struct hctx {
@@ -160,6 +167,36 @@ static int flat_dir(const hctx *h, size_t a, size_t b, int axis)
     return dv > 0.0 ? 1 : -1;
 }
 
+static int edge_cmp(const void *x, const void *y)
+{
+    const hedge *a = (const hedge *)x, *b = (const hedge *)y;
+    if (a->ink != b->ink) return a->ink < b->ink ? -1 : 1;
+    if (a->u != b->u) return a->u < b->u ? -1 : 1;
+    return a->v0 < b->v0 ? -1 : (a->v0 > b->v0 ? 1 : 0);
+}
+
+/* Edges on one grid line with the same ink side are one edge (the
+ * crossbar of a t is split by its stem): union of their spans. */
+static void merge_edges(hctx *h)
+{
+    size_t n = 0;
+    double eps = 1e-6 * h->em;
+    if (h->n_e < 2u) return;
+    qsort(h->e, h->n_e, sizeof *h->e, edge_cmp);
+    for (size_t i = 0; i < h->n_e; i++) {
+        hedge *e = &h->e[i];
+        if (n && h->e[n - 1u].ink == e->ink && fabs(h->e[n - 1u].u - e->u) <= eps) {
+            hedge *m = &h->e[n - 1u];
+            if (e->v0 < m->v0) m->v0 = e->v0;
+            if (e->v1 > m->v1) m->v1 = e->v1;
+            m->round = m->round && e->round;
+            continue;
+        }
+        h->e[n++] = *e;
+    }
+    h->n_e = n;
+}
+
 /* Edges of one axis (u = axis coordinate). */
 static bool find_edges(hctx *h, int axis)
 {
@@ -216,34 +253,63 @@ static double overlap(const hedge *a, const hedge *b)
     return hi - lo;
 }
 
-/* Greedy pairing: nearest (low edge, high edge) pairs first. */
-static void pair_stems(hctx *h)
+typedef struct hpair {
+    double w;
+    size_t lo, hi;
+} hpair;
+
+static int pair_cmp(const void *x, const void *y)
+{
+    const hpair *a = (const hpair *)x, *b = (const hpair *)y;
+    if (a->w != b->w) return a->w < b->w ? -1 : 1;
+    if (a->lo != b->lo) return a->lo < b->lo ? -1 : 1;
+    return a->hi < b->hi ? -1 : (a->hi > b->hi ? 1 : 0);
+}
+
+/* Greedy pairing: every candidate (low edge, high edge) pair sorted by
+ * width, nearest first, each edge used once. False on OOM. */
+static bool pair_stems(hctx *h)
 {
     double maxw = MAX_STEM_EM * h->em;
-    for (;;) {
-        double best = 0.0;
-        size_t bi = 0, bj = 0;
-        bool found = false;
-        for (size_t i = 0; i < h->n_e; i++) {
-            const hedge *a = &h->e[i];
-            if (a->pair >= 0 || a->ink != 1) continue;
-            for (size_t j = 0; j < h->n_e; j++) {
-                const hedge *b = &h->e[j];
-                double w = b->u - a->u;
-                if (b->pair >= 0 || b->ink != -1 || !(w > 0.0) || w > maxw) continue;
-                if (overlap(a, b) <= 0.0) continue;
-                if (!found || w < best) {
-                    best = w;
-                    bi = i;
-                    bj = j;
-                    found = true;
+    size_t n = 0, cap = 0;
+    hpair *v = NULL;
+    for (size_t i = 0; i < h->n_e; i++) {
+        const hedge *a = &h->e[i];
+        if (a->ink != 1) continue;
+        for (size_t j = 0; j < h->n_e; j++) {
+            const hedge *b = &h->e[j];
+            double w = b->u - a->u;
+            if (b->ink != -1 || !(w > 0.0) || w > maxw || overlap(a, b) <= 0.0) continue;
+            if (n == cap) {
+                size_t nc = cap ? cap * 2u : 64u;
+                hpair *nv;
+                if (nc > MAX_PAIRS) {
+                    free(v);
+                    return false;
                 }
+                nv = (hpair *)realloc(v, nc * sizeof *nv);
+                if (!nv) {
+                    free(v);
+                    return false;
+                }
+                v = nv;
+                cap = nc;
             }
+            v[n].w = w;
+            v[n].lo = i;
+            v[n].hi = j;
+            n++;
         }
-        if (!found) return;
-        h->e[bi].pair = (int)bj;
-        h->e[bj].pair = (int)bi;
     }
+    if (n > 1u) qsort(v, n, sizeof *v, pair_cmp);
+    for (size_t k = 0; k < n; k++) {
+        hedge *a = &h->e[v[k].lo], *b = &h->e[v[k].hi];
+        if (a->pair >= 0 || b->pair >= 0) continue;
+        a->pair = (int)v[k].hi;
+        b->pair = (int)v[k].lo;
+    }
+    free(v);
+    return true;
 }
 
 /* Zone position of an edge (y axis), or false. Zones are y-down pixel
@@ -272,7 +338,8 @@ static bool zone_fit(const hctx *h, const hedge *e, const double *zones, size_t 
 static int knot_cmp(const void *x, const void *y)
 {
     const hknot *a = (const hknot *)x, *b = (const hknot *)y;
-    return a->u < b->u ? -1 : (a->u > b->u ? 1 : 0);
+    if (a->u != b->u) return a->u < b->u ? -1 : 1;
+    return a->prio > b->prio ? -1 : (a->prio < b->prio ? 1 : 0);
 }
 
 /* Fit the edges of one axis and move every point. */
@@ -280,27 +347,33 @@ static bool fit_axis(hctx *h, int axis, const double *zones, size_t nz)
 {
     hknot *k;
     size_t nk = 0;
-    if (!find_edges(h, axis)) return false;
+    if (!find_edges(h, axis) || h->n_e > MAX_EDGES) return false;
     if (!h->n_e) return true;
-    pair_stems(h);
+    merge_edges(h);
+    if (!pair_stems(h)) return false;
     for (size_t i = 0; i < h->n_e; i++) {
         hedge *e = &h->e[i];
         double z;
         if (e->done) continue;
         if (e->pair < 0) {
-            e->fit = axis && zone_fit(h, e, zones, nz, &z) ? z : floor(e->u + 0.5);
+            bool zone = axis && zone_fit(h, e, zones, nz, &z);
+            e->fit = zone ? z : floor(e->u + 0.5);
+            e->prio = zone ? 2 : 0;
             e->done = true;
         } else {
             hedge *lo = e->ink == 1 ? e : &h->e[e->pair];
             hedge *hi = e->ink == 1 ? &h->e[e->pair] : e;
             double w = hi->u - lo->u, W = floor(w + 0.5);
             if (W < 1.0) W = 1.0;
+            lo->prio = hi->prio = 1;
             if (axis && zone_fit(h, lo, zones, nz, &z)) {
                 lo->fit = z;
                 hi->fit = z + W;
+                lo->prio = 2;
             } else if (axis && zone_fit(h, hi, zones, nz, &z)) {
                 hi->fit = z;
                 lo->fit = z - W;
+                hi->prio = 2;
             } else {
                 lo->fit = floor(0.5 * (lo->u + hi->u) - 0.5 * W + 0.5);
                 hi->fit = lo->fit + W;
@@ -313,11 +386,16 @@ static bool fit_axis(hctx *h, int axis, const double *zones, size_t nz)
     for (size_t i = 0; i < h->n_e; i++) {
         k[i].u = h->e[i].u;
         k[i].f = h->e[i].fit;
+        k[i].prio = h->e[i].prio;
     }
     qsort(k, h->n_e, sizeof *k, knot_cmp);
-    /* merge equal positions, then keep the map monotonic */
+    /* merge equal positions (the strongest fit wins), then keep the map
+     * monotonic */
     for (size_t i = 0; i < h->n_e; i++) {
-        if (nk && fabs(k[i].u - k[nk - 1u].u) < 1e-9) continue;
+        if (nk && fabs(k[i].u - k[nk - 1u].u) < 1e-9) {
+            if (k[i].prio > k[nk - 1u].prio) k[nk - 1u] = k[i];
+            continue;
+        }
         k[nk++] = k[i];
     }
     for (size_t i = 1; i < nk; i++)

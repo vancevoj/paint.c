@@ -167,10 +167,22 @@ glyph cache. Fonts are `pc_font_face` callback tables, borrowed:
 | `kerning(ud, l, r, em)` | optional, pixels |
 | `outline(ud, gid, em, mode, path)` | append the outline at pen (0, 0), baseline y = 0, y down, nonzero |
 | `bold`, `italic` | the face already has the style (no synthesis) |
+| `color` | the face has color glyphs (lane TOOLB; used to choose fallbacks) |
+| `color_layers(ud, gid, out, cap)` | optional: COLR v0 layers (glyph, color or "text color"), returns the count |
+| `color_bitmap(ud, gid, em, out)` | optional: decoded color bitmap with scale and placement, `PC_ERR_UNSUPPORTED` = none |
+| `substitute(ud, gids, n)` | optional: ligatures of one cluster, returns the new count |
 
-`faces[0]` is the primary face; up to 15 fallbacks are tried in order for
-codepoints the primary lacks, otherwise the primary's glyph 0 (.notdef) is
-drawn. A stb_truetype backend maps directly: `stbtt_FindGlyphIndex`,
+`faces[0]` is the primary face; up to 15 fallbacks are tried for codepoints
+the primary lacks, otherwise the primary's glyph 0 (.notdef) is drawn.
+Faces are chosen per cluster by presentation (lane TOOLB): a character with
+Unicode Emoji_Presentation, or any base followed by U+FE0F, comes from the
+first color face that has it (the primary face included), so emoji are
+colored even when the chosen font has a monochrome glyph; other characters
+come from the primary face, else the first monochrome fallback (U+FE0E asks
+for text). The rest of a cluster stays on the base character's face when
+it can. Default ignorable code points (ZWJ, variation selectors, tags, ZWSP,
+soft hyphen...) the chosen face lacks are hidden glyphs without advance
+(`pc_text_glyph.hidden`). A stb_truetype backend maps directly: `stbtt_FindGlyphIndex`,
 `stbtt_ScaleForMappingEmToPixels(em)`, advance and kerning times the scale,
 `stbtt_GetFontVMetrics` (descent negated), and `stbtt_GetGlyphShape` with y
 negated (quadratic and cubic vertices map to `pc_path_quad_to` and
@@ -189,8 +201,11 @@ Layout (`pc_text_lines`, `pc_text_glyphs`):
 - `snap` rounds each line start and baseline to whole pixels. The Sharp
   rendering modes also put glyphs on whole pixels (Classic rounds every
   advance like GDI, Modern rounds each pen position of the fractional
-  layout); the backend receives the mode and may hint outlines and advances
-  as well.
+  layout) and grid-fit the outlines (see Hinting below).
+- Clusters with two or more glyphs of one face go through the face's
+  `substitute` callback (emoji ZWJ sequences, flags, keycaps, skin tones);
+  the result glyphs take the first slots of the cluster and the rest become
+  hidden glyphs, so there is still one `pc_text_glyph` per code point.
 - Synthetic italic shears by 0.2 (about 11.3 degrees); synthetic bold strokes
   the outline with em/24 (round joins) and widens advances by em/24. Glyph
   contours are oriented first so the stroke unions under the nonzero rule
@@ -216,9 +231,62 @@ Moving the text block is `pc_text_set_origin`.
 
 Rendering: `pc_text_render(t, vr, txn, layer, src, opts, par, &dirty)` paints
 the glyphs and decorations with the primary color (`src`), blend mode,
-antialiasing and selection clipping. `pc_text_build` exposes the geometry.
-The glyph cache keys on (face, glyph) and is flushed on font or style
-changes and beyond 4096 entries.
+antialiasing and selection clipping. `pc_text_build` exposes the geometry
+of the monochrome glyphs and decorations. The glyph cache keys on (face,
+glyph), also remembers each glyph's kind (outline, color layers, color
+bitmap), and is flushed on font or style changes and beyond 4096 entries.
+
+Color glyphs (T-TEXT-COLORFONT, lane TOOLB) are painted in their own colors
+through the vector renderer's image layer (`pc_vrender_draw_image`, below)
+above the outline coverage:
+
+- COLR layers: each layer glyph's outline (with the synthetic styles) is
+  rasterized (antialiased or aliased like the text) and composited bottom
+  first in premultiplied doubles; layers marked as text color use `src`
+  (its solid color, or a row source sampled at the glyph's pen pixel).
+- Bitmaps: the strike is resampled to the document grid, an area average
+  when it shrinks and bilinear when it grows; synthetic italic shears the
+  sampling, synthetic bold does not apply to bitmaps.
+- Images are made for the pen position rounded to a quarter pixel and
+  cached per (face, glyph, quarter offsets, antialiasing, text color) up to
+  512 images / 64 MiB between renders. One image has at most 4 Mpx at full
+  resolution (bigger glyphs are rendered at a reduced resolution and
+  sampled bilinearly), and once a render made 256 MiB of images the rest are
+  at most 256 x 256. Glyphs of color faces are not hinted, so layers stay
+  aligned.
+
+`pc_vrender_draw_image(vr, txn, layer, layers, n, img, opts, par, &dirty)`
+adds a straight-alpha image source (`pc_vimage`: a pure row callback and its
+bounds) above up to `PC_VLAYER_MAX` vector layers (n may be 0). The image's
+alpha is its coverage: in BLEND mode it is exactly a layer of full coverage
+whose source is the image (tested bit for bit against `pc_paint_apply`); in
+OVERWRITE mode its colors, made opaque, join the lerp chain with weight
+alpha / 255, so transparent image pixels keep the canvas. Selection
+clipping, pixelated clipping, banding and the restore bookkeeping are the
+same as for vector layers.
+
+Hinting (F-TOOL-TEXT-RENDER-SHARP-*, lane TOOLB): `pc_text_hint_outline` is
+paint.c's own automatic grid fitter, called for every outline of a
+non-color face in the Sharp modes (the backend now hands in plain outlines):
+
+1. Edges are runs of outline links (on- and off-curve points) within about
+   3.4 degrees of the fitted grid lines, all in one direction; the outline
+   orientation gives the ink side; runs with off-curve points are round.
+2. Stems pair an edge with ink on its far side with the nearest opposite
+   edge that overlaps it, at most 0.35 em away.
+3. Zones (y only): baseline, x-height and cap height from the face metrics
+   (else measured from 'x' and 'H'). Flat edges within 0.012 em align to
+   the rounded zone; round edges overshooting by up to 0.035 em are pulled
+   onto it when the overshoot is under half a pixel, else rounded and kept.
+4. Stem widths round to whole pixels (at least 1); a stem with an aligned
+   edge keeps that edge, others keep their center; lone edges round.
+5. All points move through the piecewise linear, monotonic map of the
+   (original, fitted) edge positions, so curves follow and nothing folds.
+
+Sharp (Modern) fits y only (DirectWrite natural symmetric: vertical
+hinting with fractional horizontal positions in the outline), Sharp
+(Classic) fits x and y (GDI classic: whole-pixel stems both ways), Smooth
+leaves the outline alone. Paths with arcs are left unhinted.
 
 ## Thread rules and ownership
 
@@ -252,10 +320,12 @@ Items marked I in TOOLS.md, or not covered by it, and how they were decided:
 - Text: lines are anchored by the 3.36 rule (first line centered on the
   click). Up on the first line and Down on the last do not move (3.36).
   Tabs become spaces.
-- Not implemented (gaps): color fonts (COLR/CBDT emoji, T-TEXT-COLORFONT),
-  complex-script shaping and bidirectional text (ADR-004 defers shaping),
-  hinting itself (the backend's job through the mode argument), custom shape
-  file parsing (L4 decision, TOOLS.md 3.5).
+- Not implemented (gaps): complex-script shaping and bidirectional text
+  (ADR-004 defers shaping; only cluster ligatures of color faces are
+  applied), COLR version 1 paint graphs (such glyphs use their COLR v0
+  records or their outlines), the font's own TrueType or CFF hinting
+  instructions (the Sharp modes use paint.c's automatic grid fitter),
+  custom shape file parsing (L4 decision, TOOLS.md 3.5).
 
 ## Tests
 
@@ -269,4 +339,10 @@ arrowhead geometry, dash fractions, thin lines, hit-testing and drags,
 rendering, random sequences), `test_text` (units, normalization, layout and
 alignment, clusters, caret mapping round trips, editing and words,
 synthetic styles and decorations with a synthetic box font, cache, rendering,
-random edits with layout invariants). All run with `--quick` under CTest.
+random edits with layout invariants), `test_text_color` (lane TOOLB: the
+image layer against `pc_paint_apply`, Overwrite and stacking, presentation
+and fallback choice, ignorables, ligatures, COLR layers with the text color,
+bitmaps scaled both ways and sheared, cache reuse, huge glyphs, errors,
+history), `test_text_hint` (stems, crossbars, zones and overshoots per mode,
+monotonic point maps on random outlines, unsupported paths, rendered stems).
+All run with `--quick` under CTest.
