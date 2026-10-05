@@ -313,11 +313,12 @@ fx_px fx1_bc_apply(const fx1_bc *bc, fx_px p)
 }
 
 /* ---- glow core ---------------------------------------------------------- */
-int fx1_glow_render(const fx1_sep *blur, const fx1_bc *bc, const fx_img *src, fx_img *dst,
-                    fx_rect roi, const fx_host *h, const void *job)
+int fx1_glow_render(const fx1_sep *blur, const fx1_vcache *cache, const fx1_bc *bc,
+                    const fx_img *src, fx_img *dst, fx_rect roi, const fx_host *h,
+                    const void *job)
 {
     int32_t x, y;
-    int st = fx1_sep_render(blur, src, dst, roi, h, job);
+    int st = fx1_sep_render_c(blur, cache, src, dst, roi, h, job);
     if (st != FX_OK) return st;
     for (y = roi.y; y < roi.y + roi.h; y++) {
         const fx_px *s = fx_row(src, y);

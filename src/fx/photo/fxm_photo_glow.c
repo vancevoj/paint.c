@@ -5,8 +5,9 @@
  * over the original. Radius is real-valued as in Paint.NET 5.1; the blur is
  * the lane's Gaussian (fx1_sep, quality 4).
  *
- * Thread rules: prepare builds the blur description and the brightness and
- * contrast table; render is reentrant.
+ * Thread rules: prepare builds the blur description (plus the vertical-pass
+ * cache for large radii) and the brightness and contrast table; render is
+ * reentrant.
  */
 #include "blur/fx1_lib.h"
 
@@ -26,27 +27,36 @@ static const fx_prop k_props[] = {
 };
 
 typedef struct glow_state {
-    fx1_sep blur;
-    fx1_bc  bc;
+    fx1_sep    blur;
+    fx1_vcache cache;          /* vertical passes for large radii */
+    fx1_bc     bc;
 } glow_state;
+
+static void glow_release(void *state, const fx_host *host)
+{
+    glow_state *st = (glow_state *)state;
+    if (!st) return;
+    fx1_sep_cache_free(&st->cache, host);
+    fx1_free(host, st);
+}
 
 static int glow_prepare(const void *params, const fx_img *src, const fx_env *env,
                         const fx_host *host, const void *job, void **state)
 {
     const glow_params *p = (const glow_params *)params;
     glow_state *st = (glow_state *)fx1_alloc(host, 1, sizeof(glow_state));
-    (void)src; (void)env; (void)job;
+    int rc;
     if (!st) return FX_ERROR;
     fx1_sep_gaussian(&st->blur, fx1_pd(p->radius, 1.0, 20.0), 4, 0.0);
     fx1_bc_init(&st->bc, (double)fx1_pi(p->brightness, -100, 100),
                 (double)fx1_pi(p->contrast, -100, 100));
+    rc = fx1_sep_cache_build(&st->blur, src, env->sel, &st->cache, host, job);
+    if (rc != FX_OK) {
+        fx1_free(host, st);
+        return rc;
+    }
     *state = st;
     return FX_OK;
-}
-
-static void glow_release(void *state, const fx_host *host)
-{
-    fx1_free(host, state);
 }
 
 static int glow_render(const void *params, const void *state, const fx_img *src, fx_img *dst,
@@ -55,7 +65,7 @@ static int glow_render(const void *params, const void *state, const fx_img *src,
     const glow_state *st = (const glow_state *)state;
     (void)params; (void)env;
     if (!st) return FX_ERROR;
-    return fx1_glow_render(&st->blur, &st->bc, src, dst, roi, host, job);
+    return fx1_glow_render(&st->blur, &st->cache, &st->bc, src, dst, roi, host, job);
 }
 
 static const fx_effect k_fx = {

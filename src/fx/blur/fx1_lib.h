@@ -176,9 +176,11 @@ int  fx1_sep_render_c(const fx1_sep *s, const fx1_vcache *cache, const fx_img *s
                       fx_img *dst, fx_rect roi, const fx_host *h, const void *job);
 
 /* Glow core shared by Glow and Ink Sketch (3.36 GlowEffect): blur, then
- * brightness and contrast on the blur, then Screen of the blur over src. */
-int fx1_glow_render(const fx1_sep *blur, const fx1_bc *bc, const fx_img *src, fx_img *dst,
-                    fx_rect roi, const fx_host *h, const void *job);
+ * brightness and contrast on the blur, then Screen of the blur over src.
+ * cache may be NULL. */
+int fx1_glow_render(const fx1_sep *blur, const fx1_vcache *cache, const fx1_bc *bc,
+                    const fx_img *src, fx_img *dst, fx_rect roi, const fx_host *h,
+                    const void *job);
 
 /* ---- local histogram engine (3.36 LocalHistogramEffect) ----------------- */
 /* Disk window of integer radius r ((u^2 + v^2) <= ((2r+1)^2 + 2) / 4),

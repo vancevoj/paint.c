@@ -85,10 +85,12 @@ gives border renormalization for any kernel.
 * Vertical cache: when the total reach is at least 24 pixels, `prepare` runs the
   vertical passes once over the selection plus apron (int32, 16 bytes per
   pixel, capped at 512 MiB) and `render` only runs the horizontal passes.
+  Gaussian Blur, Square Blur, Glow, Soften Portrait and Pencil Sketch use it.
   Above the cap the per-ROI path runs; both paths produce identical bytes
   (tested). Gaussian Blur radius 100 on 4096 x 4096 measured 0.8 s on 16
   threads (0.65 s of it in the single-threaded prepare), independent of how
-  thin the ROIs are.
+  thin the ROIs are; without the cache the per-ROI path took 0.6 s with
+  64-row bands, 0.9 s with 128 x 128 tiles and 1.4 s with 16-row bands.
 
 ### Disk histogram engine (`fx1_hist`)
 

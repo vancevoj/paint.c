@@ -263,6 +263,39 @@ static void t_cancel(void)
     }
 }
 
+/* Large radii take the prepared vertical-pass cache: split invariance,
+ * cancellation inside prepare, and no leaked buffers. */
+static void t_large_radius(void)
+{
+    struct { const char *id, *key; double v; } cases[] = {
+        { "org.paintc.blur.gaussian", "radius", 60.0 },
+        { "org.paintc.blur.square", "radius", 40.0 },
+        { "org.paintc.blur.bokeh", "radius", 40.0 },
+        { "org.paintc.photo.glow", "radius", 20.0 },
+        { "org.paintc.photo.soften_portrait", "softness", 10.0 },
+        { "org.paintc.artistic.pencil_sketch", "pencil_tip_size", 20.0 },
+    };
+    size_t i;
+    for (i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        const fx_effect *fx = t_find(cases[i].id);
+        fx_img src = t_img_new(0, 0, 70, 50), dst = t_img_new(0, 0, 70, 50);
+        void *p = t_params_new(fx);
+        size_t live0 = g_t_live_allocs;
+        t_img_random(&src, 1);
+        t_set(fx, p, cases[i].key, cases[i].v);
+        CHECK(t_split_invariant(fx, p, &src, t_rect(0, 0, 70, 50)));
+        CHECK(t_split_invariant(fx, p, &src, t_rect(9, 7, 41, 30)));
+        g_t_polls = 0;
+        g_t_cancel_after = 0;
+        CHECK(t_run1(fx, p, &src, &dst, t_rect(0, 0, 70, 50)) == FX_CANCELLED);
+        g_t_cancel_after = -1;
+        CHECK(g_t_live_allocs == live0);
+        free(p);
+        t_img_free(&src);
+        t_img_free(&dst);
+    }
+}
+
 /* Presets from files are untrusted: out-of-range and NaN values must be
  * clamped, never crash or read out of bounds. */
 static void t_hostile_params(void)
@@ -303,6 +336,7 @@ int main(int argc, char **argv)
     RUN(t_transparent_stays);
     RUN(t_origin);
     RUN(t_cancel);
+    RUN(t_large_radius);
     RUN(t_hostile_params);
     return pc_test_finish();
 }

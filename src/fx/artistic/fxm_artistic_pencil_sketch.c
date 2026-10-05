@@ -6,8 +6,8 @@
  * desaturated copy of the original. Both parameters are real-valued as in
  * Paint.NET 5.1.
  *
- * Thread rules: prepare builds the blur and the brightness and contrast
- * table; render is reentrant.
+ * Thread rules: prepare builds the blur (plus the vertical-pass cache for
+ * large tips) and the brightness and contrast table; render is reentrant.
  */
 #include "blur/fx1_lib.h"
 
@@ -24,9 +24,18 @@ static const fx_prop k_props[] = {
 };
 
 typedef struct pencil_state {
-    fx1_sep blur;
-    fx1_bc  bc;
+    fx1_sep    blur;
+    fx1_vcache cache;          /* vertical passes for large tips */
+    fx1_bc     bc;
 } pencil_state;
+
+static void pencil_release(void *state, const fx_host *host)
+{
+    pencil_state *st = (pencil_state *)state;
+    if (!st) return;
+    fx1_sep_cache_free(&st->cache, host);
+    fx1_free(host, st);
+}
 
 static int pencil_prepare(const void *params, const fx_img *src, const fx_env *env,
                           const fx_host *host, const void *job, void **state)
@@ -34,17 +43,17 @@ static int pencil_prepare(const void *params, const fx_img *src, const fx_env *e
     const pencil_params *p = (const pencil_params *)params;
     pencil_state *st = (pencil_state *)fx1_alloc(host, 1, sizeof(pencil_state));
     double range = fx1_pd(p->range, -20.0, 20.0);
-    (void)src; (void)env; (void)job;
+    int rc;
     if (!st) return FX_ERROR;
     fx1_sep_gaussian(&st->blur, fx1_pd(p->tip, 1.0, 20.0), 4, 0.0);
     fx1_bc_init(&st->bc, range, -range);
+    rc = fx1_sep_cache_build(&st->blur, src, env->sel, &st->cache, host, job);
+    if (rc != FX_OK) {
+        fx1_free(host, st);
+        return rc;
+    }
     *state = st;
     return FX_OK;
-}
-
-static void pencil_release(void *state, const fx_host *host)
-{
-    fx1_free(host, state);
 }
 
 static int pencil_render(const void *params, const void *state, const fx_img *src, fx_img *dst,
@@ -54,7 +63,7 @@ static int pencil_render(const void *params, const void *state, const fx_img *sr
     int32_t x, y, rc;
     (void)params; (void)env;
     if (!st) return FX_ERROR;
-    rc = fx1_sep_render(&st->blur, src, dst, roi, host, job);
+    rc = fx1_sep_render_c(&st->blur, &st->cache, src, dst, roi, host, job);
     if (rc != FX_OK) return rc;
     for (y = roi.y; y < roi.y + roi.h; y++) {
         const fx_px *s = fx_row(src, y);

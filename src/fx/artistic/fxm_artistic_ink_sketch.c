@@ -66,7 +66,7 @@ static int ink_render(const void *params, const void *state, const fx_img *src, 
     int32_t x, y, u, v, rc;
     (void)params; (void)env;
     if (!st) return FX_ERROR;
-    rc = fx1_glow_render(&st->blur, &st->bc, src, dst, roi, host, job);
+    rc = fx1_glow_render(&st->blur, NULL, &st->bc, src, dst, roi, host, job);
     if (rc != FX_OK) return rc;
     for (y = roi.y; y < roi.y + roi.h; y++) {
         int32_t top = y - 2 < Y0 ? Y0 : y - 2, bottom = y + 3 > Y1 ? Y1 : y + 3;
