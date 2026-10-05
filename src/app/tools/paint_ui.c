@@ -945,7 +945,7 @@ void paint_opt_fill(app *a)
     ui_draw_rect(ui, r, in.hovered ? p->field_hover : p->field);
     ui_draw_rect_outline(ui, r, ui_px_line(ui, 1.0f), in.hovered ? p->border_strong : p->border);
     sw = ui_rect_make(r.x + ui_px(ui, 5.0f), r.y + (r.h - s->fill_h) / 2, s->fill_w, s->fill_h);
-    fill_swatch(a, s, cur, sw);
+    if (cur != (int32_t)PC_FILL_SOLID) fill_swatch(a, s, cur, sw);   /* Solid Color: text only */
     name = paint_fill_name(cur);
     tr = ui_rect_make(sw.x + sw.w + ui_px(ui, 6.0f), r.y, r.x + r.w - ui_px(ui, 20.0f) -
                       (sw.x + sw.w + ui_px(ui, 6.0f)), r.h);
@@ -992,7 +992,7 @@ void paint_opt_fill(app *a)
             else if (ri.hovered) ui_draw_rect(ui, row, p->hover);
             sw2 = ui_rect_make(row.x + ui_px(ui, 4.0f), row.y + (row.h - ui_px(ui, 16.0f)) / 2,
                                ui_px(ui, 24.0f), ui_px(ui, 16.0f));
-            fill_swatch(a, s, i, sw2);
+            if (i != (int32_t)PC_FILL_SOLID) fill_swatch(a, s, i, sw2);
             tr2 = ui_rect_make(sw2.x + sw2.w + ui_px(ui, 8.0f), row.y,
                                row.x + row.w - (sw2.x + sw2.w + ui_px(ui, 8.0f)), row.h);
             ui_draw_text_box(ui, ui_font_regular(ui), ui_font_px(ui), tr2, UI_ALIGN_LEFT,
