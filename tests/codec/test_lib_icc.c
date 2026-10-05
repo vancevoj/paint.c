@@ -349,11 +349,20 @@ static void t_cmyk_jpeg(void)
         CHECK(jpg->load(with, n1, NULL, &a, &ma) == PC_OK);
         CHECK(jpg->load(without, n2, NULL, &b, &mb) == PC_OK);
         if (a && b) {
+            /* FL-CMYK: the managed decode is Adobe RGB (1998) and tagged with
+             * it; seen through that profile it matches the naive decode */
             pc_px32 *pa = tu_layer_px(a, a->stack[0]), *pb = tu_layer_px(b, b->stack[0]);
-            int md = tu_max_abs_diff(pa, pb, (size_t)W * H);
+            int md;
+            CHECK(ma.icc != NULL && strstr(ma.note, "Adobe RGB") != NULL);
+            CHECK(ma.icc && pc_icc_inspect(ma.icc, ma.icc_len, &info) == PC_OK &&
+                  info.space == PC_ICC_SPACE_RGB && strcmp(info.desc, "Adobe RGB (1998)") == 0);
+            if (ma.icc)
+                CHECK(pc_icc_to_srgb_px(ma.icc, ma.icc_len, pa, (int32_t)W, (int32_t)H, W) ==
+                      PC_OK);
+            md = tu_max_abs_diff(pa, pb, (size_t)W * H);
             CHECK(md <= 8);
-            INFO("managed vs naive CMYK decode: max difference %d", md);
-            CHECK(ma.icc == NULL && strstr(ma.note, "profile") != NULL);
+            INFO("managed (via Adobe RGB) vs naive CMYK decode: max difference %d", md);
+            CHECK(mb.icc == NULL && strstr(mb.note, "without") != NULL);
             free(pa); free(pb);
         }
         pc_doc_destroy(a); pc_doc_destroy(b);

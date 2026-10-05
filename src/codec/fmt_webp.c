@@ -4,18 +4,22 @@
  * before any pixel memory is allocated. Still images decode into one BGRA
  * buffer (libwebp has no public row-streaming output), then go to the
  * layer in bands. Animated files load their first frame, composited on
- * the canvas by WebPAnimDecoder. The ICCP chunk goes to meta.icc.
+ * the canvas by WebPAnimDecoder. The ICCP chunk goes to meta.icc, the EXIF
+ * and XMP chunks become the "exif" and "xmp" items (cmeta.h); the EXIF
+ * orientation is applied to the pixels and reset to 1.
  *
  * Save (options of the WebP file type bundled with Paint.NET 5.1): preset
  * (Default, Picture, Photo, Drawing, Icon, Text; default Photo), quality
  * 0..100 (default 95, unused when lossless), effort 0..9 (default 7; the
  * libwebp method for lossy, the lossless preset level for lossless) and a
  * lossless switch. Lossless output keeps exact RGB under transparency. The
- * embedded profile, if any, is muxed in as an ICCP chunk.
+ * embedded profile and the EXIF and XMP items are muxed in as ICCP, EXIF
+ * and XMP chunks.
  *
  * Threads: reentrant; libwebp's own worker threads are not used.
  */
 #include "lib_codec.h"
+#include "cmeta.h"
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -57,6 +61,7 @@ static pc_status webp_load(const uint8_t *p, size_t n, const pc_codec_limits *li
     pc_layer *layer = NULL;
     pc_status st;
     uint32_t cw, ch;
+    int orient = 1;
     if (out) *out = NULL;
     if (!p || !out || !meta) return PC_ERR_ARG;
     memset(meta, 0, sizeof *meta);
@@ -70,6 +75,20 @@ static pc_status webp_load(const uint8_t *p, size_t n, const pc_codec_limits *li
     ch = WebPDemuxGetI(dmx, WEBP_FF_CANVAS_HEIGHT);
     if (cw > WEBP_MAX_SIDE || ch > WEBP_MAX_SIDE) { WebPDemuxDelete(dmx); return PC_ERR_FORMAT; }
     st = pc_codec_check_size(lim, cw, ch, 1u);
+    if (st == PC_OK && (WebPDemuxGetI(dmx, WEBP_FF_FORMAT_FLAGS) & XMP_FLAG)) {
+        WebPChunkIterator it;
+        if (WebPDemuxGetChunk(dmx, "XMP ", 1, &it)) {
+            st = cm_meta_load_xmp(meta, it.chunk.bytes, it.chunk.size);
+            WebPDemuxReleaseChunkIterator(&it);
+        }
+    }
+    if (st == PC_OK && (WebPDemuxGetI(dmx, WEBP_FF_FORMAT_FLAGS) & EXIF_FLAG)) {
+        WebPChunkIterator it;
+        if (WebPDemuxGetChunk(dmx, "EXIF", 1, &it)) {
+            st = cm_meta_load_exif(meta, it.chunk.bytes, it.chunk.size, true, &orient);
+            WebPDemuxReleaseChunkIterator(&it);
+        }
+    }
     if (st == PC_OK && (WebPDemuxGetI(dmx, WEBP_FF_FORMAT_FLAGS) & ICCP_FLAG)) {
         WebPChunkIterator it;
         if (WebPDemuxGetChunk(dmx, "ICCP", 1, &it)) {
@@ -141,6 +160,8 @@ static pc_status webp_load(const uint8_t *p, size_t n, const pc_codec_limits *li
         free(buf);
         if (st != PC_OK) goto fail;
     }
+    st = lc_doc_orient(&d, lim, orient);
+    if (st != PC_OK) goto fail;
     *out = d;
     return PC_OK;
 fail:
@@ -253,27 +274,46 @@ static pc_status webp_save(const pc_doc *d, const pc_image_meta *meta, const voi
         return st;
     }
     WebPPictureFree(&pic);
-    if (meta && meta->icc && meta->icc_len) {
-        WebPData img, icc, asm_out;
-        WebPMux *mux;
-        img.bytes = bits.p;
-        img.size = bits.n;
-        icc.bytes = meta->icc;
-        icc.size = meta->icc_len;
-        WebPDataInit(&asm_out);
-        mux = WebPMuxCreate(&img, 0);
-        if (!mux) { pc_buf_free(&bits); return PC_ERR_NOMEM; }
-        if (WebPMuxSetChunk(mux, "ICCP", &icc, 0) != WEBP_MUX_OK ||
-            WebPMuxAssemble(mux, &asm_out) != WEBP_MUX_OK) {
+    {
+        uint8_t *ex = NULL;
+        size_t ex_n = 0, xmp_n = 0;
+        const char *xmp = meta ? cm_meta_xmp(meta, &xmp_n) : NULL;
+        st = cm_exif_for_save(meta, d->w, d->h, NULL, 0u, CM_EXIF_MAX, &ex, &ex_n);
+        if (st != PC_OK) { pc_buf_free(&bits); return st; }
+        if ((meta && meta->icc && meta->icc_len) || ex || xmp) {
+            WebPData img, chunk, asm_out;
+            WebPMux *mux;
+            bool ok;
+            img.bytes = bits.p;
+            img.size = bits.n;
+            WebPDataInit(&asm_out);
+            mux = WebPMuxCreate(&img, 0);
+            if (!mux) { free(ex); pc_buf_free(&bits); return PC_ERR_NOMEM; }
+            ok = true;
+            if (meta && meta->icc && meta->icc_len) {
+                chunk.bytes = meta->icc;
+                chunk.size = meta->icc_len;
+                ok = WebPMuxSetChunk(mux, "ICCP", &chunk, 0) == WEBP_MUX_OK;
+            }
+            if (ok && ex) {
+                chunk.bytes = ex;
+                chunk.size = ex_n;
+                ok = WebPMuxSetChunk(mux, "EXIF", &chunk, 0) == WEBP_MUX_OK;
+            }
+            if (ok && xmp) {
+                chunk.bytes = (const uint8_t *)xmp;
+                chunk.size = xmp_n;
+                ok = WebPMuxSetChunk(mux, "XMP ", &chunk, 0) == WEBP_MUX_OK;
+            }
+            if (ok) ok = WebPMuxAssemble(mux, &asm_out) == WEBP_MUX_OK;
             WebPMuxDelete(mux);
-            pc_buf_free(&bits);
-            return PC_ERR_NOMEM;
+            free(ex);
+            if (!ok) { pc_buf_free(&bits); return PC_ERR_NOMEM; }
+            st = pc_buf_append(out, asm_out.bytes, asm_out.size);
+            WebPDataClear(&asm_out);
+        } else {
+            st = pc_buf_append(out, bits.p, bits.n);
         }
-        WebPMuxDelete(mux);
-        st = pc_buf_append(out, asm_out.bytes, asm_out.size);
-        WebPDataClear(&asm_out);
-    } else {
-        st = pc_buf_append(out, bits.p, bits.n);
     }
     pc_buf_free(&bits);
     return st;

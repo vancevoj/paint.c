@@ -11,6 +11,7 @@
  */
 #include "nrbf.h"
 #include "pdn.h"
+#include "cmeta.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -117,43 +118,125 @@ static void rational(double dpi, uint8_t out[8])
 
 static void items_free(kv_item *it, uint32_t n)
 {
-    for (uint32_t i = 0; i < n; i++) { free(it[i].key); free(it[i].value); }
+    for (uint32_t i = 0; it && i < n; i++) { free(it[i].key); free(it[i].value); }
+    free(it);
 }
 
-/* Software, ResolutionUnit, XResolution, YResolution and the optional ICC
- * profile, keyed $exif.tagN[0] like a new Paint.NET 5.1 document. */
-static pc_status build_items(const pc_image_meta *meta, const pdn_save_opts *o,
-                             kv_item *it, uint32_t *n)
+/* A growable list of key/value items. */
+typedef struct kv_list {
+    kv_item *it;
+    uint32_t n, cap;
+} kv_list;
+
+static pc_status kv_push(kv_list *l, char *key, char *value)
+{
+    if (!key || !value) { free(key); free(value); return PC_ERR_NOMEM; }
+    if (l->n == l->cap) {
+        uint32_t nc = l->cap ? l->cap * 2u : 16u;
+        kv_item *ni;
+        if (nc > (1u << 24)) { free(key); free(value); return PC_ERR_LIMIT; }
+        ni = (kv_item *)realloc(l->it, (size_t)nc * sizeof *ni);
+        if (!ni) { free(key); free(value); return PC_ERR_NOMEM; }
+        memset(ni + l->cap, 0, (size_t)(nc - l->cap) * sizeof *ni);
+        l->it = ni;
+        l->cap = nc;
+    }
+    l->it[l->n].key = key;
+    l->it[l->n].value = value;
+    l->n++;
+    return PC_OK;
+}
+
+static char *key_fmt(const char *pre, const char *name)
+{
+    size_t a = strlen(pre), b = strlen(name);
+    char *k = (char *)malloc(a + b + 1u);
+    if (!k) return NULL;
+    memcpy(k, pre, a);
+    memcpy(k + a, name, b + 1u);
+    return k;
+}
+
+static char *dup_c(const char *s)
+{
+    return key_fmt("", s);
+}
+
+/* "$exif.tagN[0]" holding one EXIF value. */
+static pc_status push_exif(kv_list *l, uint32_t *tagno, uint32_t id, uint32_t type,
+                           const uint8_t *data, size_t n)
+{
+    char *v = NULL, *k;
+    pc_status st = exif_value(id, type, data, n, &v);
+    if (st != PC_OK) return st;
+    k = (char *)malloc(32u);
+    if (k) snprintf(k, 32u, "$exif.tag%u[0]", *tagno);
+    (*tagno)++;
+    return kv_push(l, k, v);
+}
+
+/* Document metadata like a new Paint.NET 5.1 document: Software,
+ * ResolutionUnit, XResolution, YResolution and the optional ICC profile,
+ * keyed $exif.tagN[0], then the other tags of the "exif" item (flattened
+ * across IFDs, little-endian values like .NET PropertyItems), IPTC as tag
+ * 33723, the XMP packet as "$xmp.packet0", "pdn.<section>.<name>" items as
+ * "$<section>.<name>" and every other item as "$paintc.<key>" (cmeta.h). */
+static pc_status build_items(const pc_image_meta *meta, const pdn_save_opts *o, uint32_t w,
+                             uint32_t h, kv_list *l)
 {
     uint8_t buf[8];
     pc_status st = PC_OK;
-    uint32_t k = 0;
+    uint32_t tagno = 0;
     double dx = meta && meta->dpi_x > 0.0 ? meta->dpi_x : 96.0;
     double dy = meta && meta->dpi_y > 0.0 ? meta->dpi_y : 96.0;
-    *n = 0;
+    memset(l, 0, sizeof *l);
     if (o->software) {
         size_t sl = strlen(o->software);
         if (sl > 4096u) return PC_ERR_ARG;
-        st = exif_value(305u, 2u, (const uint8_t *)o->software, sl + 1u, &it[k].value);
-        if (st != PC_OK) return st;
-        k++;
+        st = push_exif(l, &tagno, 305u, 2u, (const uint8_t *)o->software, sl + 1u);
     }
     buf[0] = 2u; buf[1] = 0u;      /* inches */
-    st = exif_value(296u, 3u, buf, 2u, &it[k].value);
-    if (st == PC_OK) { k++; rational(dx, buf); st = exif_value(282u, 5u, buf, 8u, &it[k].value); }
-    if (st == PC_OK) { k++; rational(dy, buf); st = exif_value(283u, 5u, buf, 8u, &it[k].value); }
-    if (st == PC_OK) k++;
+    if (st == PC_OK) st = push_exif(l, &tagno, 296u, 3u, buf, 2u);
+    if (st == PC_OK) { rational(dx, buf); st = push_exif(l, &tagno, 282u, 5u, buf, 8u); }
+    if (st == PC_OK) { rational(dy, buf); st = push_exif(l, &tagno, 283u, 5u, buf, 8u); }
     if (st == PC_OK && meta && meta->icc && meta->icc_len) {
         if (meta->icc_len > (16u << 20)) st = PC_ERR_LIMIT;
-        else st = exif_value(34675u, 7u, meta->icc, meta->icc_len, &it[k].value);
-        if (st == PC_OK) k++;
+        else st = push_exif(l, &tagno, 34675u, 7u, meta->icc, meta->icc_len);
     }
-    for (uint32_t i = 0; i < k && st == PC_OK; i++) {
-        it[i].key = (char *)malloc(32u);
-        if (!it[i].key) { st = PC_ERR_NOMEM; break; }
-        snprintf(it[i].key, 32u, "$exif.tag%u[0]", i);
+    if (st != PC_OK || !meta) return st;
+    {
+        static const uint16_t k_drop[] = { CM_TAG_XRES, CM_TAG_YRES, CM_TAG_RESUNIT };
+        uint8_t *blob = NULL, *iptc = NULL;
+        size_t bn = 0, iptc_n = 0;
+        cm_exif e;
+        cm_exif_init(&e);
+        st = cm_exif_for_save(meta, w, h, k_drop, sizeof k_drop / sizeof k_drop[0],
+                              CM_EXIF_MAX, &blob, &bn);
+        if (st == PC_OK && blob) st = cm_exif_parse(blob, bn, 0u, &e);
+        free(blob);
+        for (size_t i = 0; i < e.n && st == PC_OK; i++) {
+            const cm_tag *t = &e.t[i];
+            if (t->tag == CM_TAG_SOFTWARE && o->software) continue;
+            st = push_exif(l, &tagno, t->tag, t->type, t->val, t->len);
+        }
+        cm_exif_free(&e);
+        if (st == PC_OK) st = cm_get_blob(meta, CM_KEY_IPTC, &iptc, &iptc_n);
+        if (st == PC_OK && iptc) st = push_exif(l, &tagno, CM_TAG_IPTC, 7u, iptc, iptc_n);
+        free(iptc);
     }
-    *n = k;
+    if (st == PC_OK && cm_meta_xmp(meta, NULL))
+        st = kv_push(l, dup_c("$xmp.packet0"), dup_c(cm_meta_xmp(meta, NULL)));
+    for (size_t i = 0; i < meta->n_items && st == PC_OK; i++) {
+        const pc_meta_item *it = &meta->items[i];
+        const size_t pl = sizeof CM_KEY_PDN - 1u;
+        if (strcmp(it->key, CM_KEY_EXIF) == 0 || strcmp(it->key, CM_KEY_XMP) == 0 ||
+            strcmp(it->key, CM_KEY_IPTC) == 0 || !it->key[0])
+            continue;
+        if (strncmp(it->key, CM_KEY_PDN, pl) == 0 && strchr(it->key + pl, '.'))
+            st = kv_push(l, key_fmt("$", it->key + pl), dup_c(it->value));
+        else
+            st = kv_push(l, key_fmt("$paintc.", it->key), dup_c(it->value));
+    }
     return st;
 }
 
@@ -570,8 +653,7 @@ pc_status pdn_save_ex(const pc_doc *d, const pc_image_meta *meta, const pdn_save
                       const pc_par *par, pc_buf *out)
 {
     pdn_save_opts o;
-    kv_item items[6];
-    uint32_t n_items = 0;
+    kv_list kl;
     pc_buf hdr, png;
     char head[256];
     pc_status st;
@@ -585,11 +667,11 @@ pc_status pdn_save_ex(const pc_doc *d, const pc_image_meta *meta, const pdn_save
         return PC_ERR_ARG;
     if (strlen(o.version) > 40u) return PC_ERR_ARG;
     if (d->n_layers > 0x3FFFFFFFu) return PC_ERR_LIMIT;
-    memset(items, 0, sizeof items);
+    memset(&kl, 0, sizeof kl);
     memset(&hdr, 0, sizeof hdr);
     memset(&png, 0, sizeof png);
 
-    st = build_items(meta, &o, items, &n_items);
+    st = build_items(meta, &o, d->w, d->h, &kl);
     if (st != PC_OK) goto done;
     /* header XML */
     snprintf(head, sizeof head,
@@ -613,11 +695,11 @@ pc_status pdn_save_ex(const pc_doc *d, const pc_image_meta *meta, const pdn_save
     if (st == PC_OK) st = pc_buf_append(out, hdr.p, hdr.n);
     if (st == PC_OK) st = pc_buf_put_u8(out, 0x00u);
     if (st == PC_OK) st = pc_buf_put_u8(out, 0x01u);
-    if (st == PC_OK) st = write_nrbf(d, &o, items, n_items, out);
+    if (st == PC_OK) st = write_nrbf(d, &o, kl.it, kl.n, out);
     for (uint32_t i = 0; i < d->n_layers && st == PC_OK; i++)
         st = write_block(d, d->stack[i], &o, par, out);
 done:
-    items_free(items, n_items < 6u ? 6u : n_items);
+    items_free(kl.it, kl.n);
     pc_buf_free(&hdr);
     pc_buf_free(&png);
     return st;

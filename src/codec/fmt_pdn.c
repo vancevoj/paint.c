@@ -13,6 +13,7 @@
  */
 #include "nrbf.h"
 #include "pdn.h"
+#include "cmeta.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -188,6 +189,7 @@ typedef struct pdn_model {
     uint8_t  *icc;
     size_t    icc_len;
     bool      unknown_blend;
+    const nrbf_obj *meta_arr;   /* userMetadataItems, or NULL */
 } pdn_model;
 
 static void model_free(pdn_model *m)
@@ -255,6 +257,7 @@ static void read_metadata(const nrbf_doc *d, const nrbf_obj *doc, pdn_model *m)
     double res[2] = { 0.0, 0.0 };
     int unit = 2;
     if (!arr || arr->kind != NRBF_O_ARRAY) return;
+    m->meta_arr = arr;
     for (uint32_t i = 0; i < arr->n; i++) {
         const nrbf_obj *kv = nrbf_deref(d, nrbf_elem(d, arr, i));
         const nrbf_obj *k = member_obj(d, kv, "key"), *v = member_obj(d, kv, "value");
@@ -266,6 +269,119 @@ static void read_metadata(const nrbf_doc *d, const nrbf_obj *doc, pdn_model *m)
         m->dpi_x = res[0] * f;
         m->dpi_y = res[1] * f;
     }
+}
+
+/* NRBF string as a NUL-terminated UTF-8 copy (malloc), NULL when it is not
+ * valid UTF-8 or too long. */
+static char *str_copy(nrbf_str v, size_t max)
+{
+    char *c;
+    if (v.n == 0u || v.n > max || !cm_utf8_valid((const uint8_t *)v.p, v.n)) return NULL;
+    c = (char *)malloc(v.n + 1u);
+    if (!c) return NULL;
+    memcpy(c, v.p, v.n);
+    c[v.n] = '\0';
+    return c;
+}
+
+/* The IFD of a flattened tag: GPS ids 0..31, except the two
+ * Interoperability tags (index "R98" as 4 ASCII bytes, version UNDEFINED). */
+static uint8_t flat_ifd(uint32_t id, uint32_t type, size_t len)
+{
+    if ((id == 1u && type == 2u && len == 4u) || (id == 2u && type == 7u))
+        return CM_IFD_INTEROP;
+    return cm_exif_ifd_of((uint16_t)id);
+}
+
+/* One "$exif" value into the EXIF set e (or the IPTC item). Malformed
+ * entries are skipped. */
+static pc_status exif_entry(nrbf_str v, cm_exif *e, pc_image_meta *meta)
+{
+    const char *a;
+    size_t al, blen = 0;
+    uint32_t id = 0, type = 0, ts;
+    uint8_t *buf;
+    pc_status st = PC_OK;
+    uint8_t ifd;
+    if (v.n < 6u || memcmp(v.p, "<exif ", 6u) != 0) return PC_OK;
+    if (!xml_attr(v.p + 1, v.n - 1u, "id", &a, &al) || !parse_major(a, al, &id)) return PC_OK;
+    if (!xml_attr(v.p + 1, v.n - 1u, "type", &a, &al) || !parse_major(a, al, &type)) return PC_OK;
+    if (!xml_attr(v.p + 1, v.n - 1u, "value", &a, &al)) return PC_OK;
+    ts = cm_type_size(type);
+    if (id > 0xFFFFu || !ts || al == 0u || al % 4u || al / 4u * 3u > CM_EXIF_MAX) return PC_OK;
+    if (id == CM_TAG_ICC) return PC_OK;                  /* meta.icc (read_metadata) */
+    buf = (uint8_t *)malloc(al / 4u * 3u);
+    if (!buf) return PC_ERR_NOMEM;
+    if (pdn_base64_decode(a, al, buf, al / 4u * 3u, &blen) && blen && blen % ts == 0u) {
+        if (id == CM_TAG_IPTC) {
+            st = cm_meta_load_iptc(meta, buf, blen);
+        } else {
+            ifd = flat_ifd(id, type, blen);
+            if (!cm_exif_tag_dropped(ifd, (uint16_t)id) && !cm_exif_find(e, (uint16_t)id))
+                st = cm_exif_set(e, ifd, (uint16_t)id, (uint16_t)type, (uint32_t)(blen / ts),
+                                 buf, (uint32_t)blen);
+            if (st == PC_ERR_ARG) st = PC_OK;
+        }
+    }
+    free(buf);
+    return st;
+}
+
+/* Every userMetadataItem into meta's items (cmeta.h key scheme): "$exif"
+ * tags into the "exif" item (and tag 33723 into "iptc"), the first
+ * "$xmp.packetN" into "xmp", "$paintc.<key>" back into <key>, and any other
+ * "$<section>.<name>" into "pdn.<section>.<name>". */
+static pc_status read_items(const nrbf_doc *d, const nrbf_obj *arr, pc_image_meta *meta)
+{
+    cm_exif e;
+    pc_status st = PC_OK;
+    bool content = false;
+    if (!arr || arr->kind != NRBF_O_ARRAY) return PC_OK;
+    cm_exif_init(&e);
+    for (uint32_t i = 0; i < arr->n && st == PC_OK; i++) {
+        const nrbf_obj *kv = nrbf_deref(d, nrbf_elem(d, arr, i));
+        const nrbf_obj *k = member_obj(d, kv, "key"), *v = member_obj(d, kv, "value");
+        char *key, *val;
+        if (!k || !v || k->kind != NRBF_O_STRING || v->kind != NRBF_O_STRING) continue;
+        if (k->str.n >= 6u && memcmp(k->str.p, "$exif.", 6u) == 0) {
+            st = exif_entry(v->str, &e, meta);
+            continue;
+        }
+        if (k->str.n >= 5u && memcmp(k->str.p, "$xmp.", 5u) == 0) {
+            st = cm_meta_load_xmp(meta, (const uint8_t *)v->str.p, v->str.n);
+            continue;
+        }
+        if (k->str.n < 2u || k->str.p[0] != '$') continue;
+        key = str_copy(k->str, 4096u);
+        val = str_copy(v->str, CM_XMP_MAX);
+        if (key && val) {
+            if (strncmp(key, "$paintc.", 8u) == 0 && key[8]) {
+                if (!pc_meta_get(meta, key + 8)) st = pc_meta_add(meta, key + 8, val);
+            } else {
+                size_t kl = strlen(key);
+                char *nk = (char *)malloc(kl + 4u);
+                if (!nk) {
+                    st = PC_ERR_NOMEM;
+                } else {
+                    memcpy(nk, CM_KEY_PDN, 4u);          /* "pdn." + key without '$' */
+                    memcpy(nk + 4, key + 1, kl);
+                    if (!pc_meta_get(meta, nk)) st = pc_meta_add(meta, nk, val);
+                    free(nk);
+                }
+            }
+        }
+        free(key);
+        free(val);
+    }
+    /* Software and the resolution alone are what every .pdn carries */
+    for (size_t i = 0; i < e.n && !content; i++) {
+        uint16_t t = e.t[i].tag;
+        content = t != CM_TAG_SOFTWARE && t != CM_TAG_XRES && t != CM_TAG_YRES &&
+                  t != CM_TAG_RESUNIT;
+    }
+    if (st == PC_OK && content) st = cm_meta_put_exif(meta, &e);
+    cm_exif_free(&e);
+    return st;
 }
 
 static pc_status read_layer(const nrbf_doc *d, const nrbf_obj *bl, pdn_model *m, uint32_t i,
@@ -781,6 +897,11 @@ pc_status pdn_load_ex(const uint8_t *p, size_t n, const pc_codec_limits *lim,
     m.icc = NULL;
     meta->src_bits = 8u;
     meta->had_alpha = true;
+    st = read_items(&nd, m.meta_arr, meta);
+    if (st != PC_OK) {
+        pc_meta_free(meta);
+        goto fail;
+    }
     if (m.unknown_blend)
         snprintf(meta->note, sizeof meta->note, "Unknown layer blend modes were set to Normal.");
     else if (trunc)

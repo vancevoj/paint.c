@@ -8,17 +8,20 @@
  * decoder is strictly bounded (12-bit table, codes beyond the next free
  * entry end the stream); truncated or corrupt data keeps the pixels decoded
  * so far and leaves the rest transparent. Indices outside the color table
- * are opaque black. meta.note reports animations.
+ * are opaque black. meta.note reports animations. Comment extensions become
+ * the EXIF UserComment of the "exif" item (R 5.1.4, cmeta.h).
  *
  * Writer (Paint.NET options): one 8-bit frame, palette from quant.h
  * (Octree or Median Cut, dithering level 0..8). Pixels with alpha below the
  * transparency threshold become the transparent index; all others are
  * composited over white. A threshold of 0 disables transparency. When the
- * image already has at most 256 colors the palette is exact.
+ * image already has at most 256 colors the palette is exact. The EXIF
+ * UserComment, when present, is written as a comment extension.
  *
  * Threading: load and save are reentrant (no global state).
  */
 #include "quant.h"
+#include "cmeta.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -39,7 +42,7 @@ static const fx_prop k_props[] = {
       0, 8, 7, 1, NULL, NULL, 0, 0, NULL },
     { "threshold", "Transparency threshold", FXP_INT, (uint32_t)offsetof(gif_params, threshold),
       0, 255, 128, 1, NULL, NULL, 0, 0, NULL },
-    { "palette", "Palette", FXP_CHOICE, (uint32_t)offsetof(gif_params, palette),
+    { "palette", "Quantization algorithm", FXP_CHOICE, (uint32_t)offsetof(gif_params, palette),
       0, 1, 0, 0, k_palettes, NULL, 0, 0, NULL },
 };
 
@@ -245,11 +248,13 @@ static pc_status gif_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
     uint32_t sw, sh, gct_n = 0, frames = 0, mcs = 0;
     int32_t tidx = -1;
     bool found = false, truncated = false;
-    pc_status st;
+    pc_status st, st_c = PC_OK;
+    pc_buf com;
     if (!p || !out || !meta) return PC_ERR_ARG;
     *out = NULL;
     memset(meta, 0, sizeof *meta);
     memset(&o, 0, sizeof o);
+    memset(&com, 0, sizeof com);
     if (n < 13u || memcmp(p, "GIF", 3) != 0 ||
         (memcmp(p + 3, "87a", 3) != 0 && memcmp(p + 3, "89a", 3) != 0))
         return PC_ERR_FORMAT;
@@ -276,11 +281,21 @@ static pc_status gif_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
             if (label == 0xF9u && !found && pos + 5u < n && p[pos] >= 4u) {
                 if (p[pos + 1u] & 1u) tidx = p[pos + 4u]; else tidx = -1;
             }
+            if (label == 0xFEu && com.n < CM_TEXT_MAX) {          /* comment */
+                size_t q = pos;
+                while (q < n && p[q] && st_c == PC_OK) {
+                    size_t len = p[q];
+                    if (len > n - q - 1u) break;
+                    st_c = pc_buf_append(&com, p + q + 1u, len);
+                    q += len + 1u;
+                }
+                if (st_c == PC_OK) st_c = pc_buf_put_u8(&com, 0u);   /* comment separator */
+            }
             if (!skip_blocks(p, n, &pos)) break;
             continue;
         }
         if (b != 0x2Cu) {
-            if (!found) { free(f); return PC_ERR_FORMAT; }
+            if (!found) { free(f); pc_buf_free(&com); return PC_ERR_FORMAT; }
             break;                                          /* junk after the image */
         }
         if (n - pos < 9u) break;
@@ -294,7 +309,7 @@ static pc_status gif_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
             pos += 9u;
             if (flags & 0x80u) {
                 uint32_t ln = 2u << (flags & 7u);
-                if ((size_t)ln * 3u > n - pos) { free(f); return PC_ERR_FORMAT; }
+                if ((size_t)ln * 3u > n - pos) { free(f); pc_buf_free(&com); return PC_ERR_FORMAT; }
                 read_table(p + pos, ln, f->pal);
                 f->pal_n = ln;
                 pos += (size_t)ln * 3u;
@@ -302,9 +317,9 @@ static pc_status gif_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
                 read_table(p + gct_pos, gct_n, f->pal);
                 f->pal_n = gct_n;
             }
-            if (pos >= n) { free(f); return PC_ERR_FORMAT; }
+            if (pos >= n) { free(f); pc_buf_free(&com); return PC_ERR_FORMAT; }
             mcs = p[pos++];
-            if (mcs < 1u || mcs > 11u) { free(f); return PC_ERR_FORMAT; }
+            if (mcs < 1u || mcs > 11u) { free(f); pc_buf_free(&com); return PC_ERR_FORMAT; }
             data_pos = pos;                                 /* LZW data start */
             f->transparent = tidx;
             found = true;
@@ -323,12 +338,15 @@ static pc_status gif_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
         }
         if (!skip_blocks(p, n, &pos)) break;
     }
-    if (!found) { free(f); return PC_ERR_FORMAT; }
-    if (f->fw == 0u || f->fh == 0u) { free(f); return PC_ERR_FORMAT; }
+    if (!found || f->fw == 0u || f->fh == 0u || st_c != PC_OK) {
+        free(f);
+        pc_buf_free(&com);
+        return st_c != PC_OK ? st_c : PC_ERR_FORMAT;
+    }
     f->cw = sw > f->left + f->fw ? sw : f->left + f->fw;
     f->ch = sh > f->top + f->fh ? sh : f->top + f->fh;
     st = pc_rowsink_init(&rs, lim, f->cw, f->ch, 1u);
-    if (st != PC_OK) { free(f); return st; }
+    if (st != PC_OK) { free(f); pc_buf_free(&com); return st; }
     memset(&o, 0, sizeof o);
     o.f = f;
     o.rs = &rs;
@@ -338,8 +356,19 @@ static pc_status gif_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
     else st = decode_lzw(p, n, data_pos, mcs, &o, &truncated);
     free(o.idx);
     free(o.row);
-    if (st != PC_OK) { pc_rowsink_abort(&rs); free(f); return st; }
+    if (st != PC_OK) { pc_rowsink_abort(&rs); free(f); pc_buf_free(&com); return st; }
     st = pc_rowsink_finish(&rs, out);
+    for (size_t at = 0; st == PC_OK && at < com.n;) {       /* each comment, NUL separated */
+        size_t len = strlen((const char *)com.p + at);
+        st = cm_meta_load_comment(meta, com.p + at, len);
+        at += len + 1u;
+    }
+    pc_buf_free(&com);
+    if (st != PC_OK && *out) {
+        pc_doc_destroy(*out);
+        *out = NULL;
+        pc_meta_free(meta);
+    }
     if (st == PC_OK) {
         meta->src_bits = 8;
         meta->had_alpha = f->transparent >= 0 || truncated || f->cw != f->fw || f->ch != f->fh;
@@ -462,7 +491,7 @@ static pc_status gif_save(const pc_doc *d, const pc_image_meta *meta, const void
     int32_t tr;
     size_t base = out ? out->n : 0u;
     pc_status st;
-    (void)meta;
+    char *comment = NULL;
     if (!d || !out) return PC_ERR_ARG;
     if (params) memcpy(&prm, params, sizeof prm);
     else { prm.dither = 7; prm.threshold = 128; prm.palette = 0; }
@@ -505,6 +534,23 @@ static pc_status gif_save(const pc_doc *d, const pc_image_meta *meta, const void
         if (i < npal) { c[0] = pal[i].r; c[1] = pal[i].g; c[2] = pal[i].b; }
         st = pc_buf_append(out, c, 3u);
     }
+    if (st == PC_OK && meta) {              /* EXIF UserComment as a comment extension */
+        cm_exif ex;
+        st = cm_meta_get_exif(meta, &ex);
+        if (st == PC_OK) comment = cm_exif_get_text(&ex, CM_TAG_USERCOMMENT);
+        cm_exif_free(&ex);
+        if (st == PC_OK && comment) {
+            size_t len = strlen(comment);
+            uint8_t head[2] = { 0x21, 0xFE };
+            st = pc_buf_append(out, head, 2u);
+            for (size_t at = 0; at < len && st == PC_OK; at += 255u) {
+                size_t k = len - at < 255u ? len - at : 255u;
+                st = pc_buf_put_u8(out, (uint8_t)k);
+                if (st == PC_OK) st = pc_buf_append(out, comment + at, k);
+            }
+            if (st == PC_OK) st = pc_buf_put_u8(out, 0u);
+        }
+    }
     if (st == PC_OK && tr >= 0) {
         uint8_t gce[8] = { 0x21, 0xF9, 4, 0x01, 0, 0, (uint8_t)tr, 0 };
         st = pc_buf_append(out, gce, sizeof gce);
@@ -528,6 +574,7 @@ static pc_status gif_save(const pc_doc *d, const pc_image_meta *meta, const void
     if (st == PC_OK) st = pc_buf_put_u8(out, 0x3Bu);
 done:
     if (st != PC_OK) out->n = base;
+    free(comment);
     pc_quant_destroy(q);
     free(e);
     free(tmp);

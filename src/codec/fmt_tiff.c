@@ -6,14 +6,19 @@
  * Modified Huffman (2, 32771), T.4 Group 3 1D/2D (3) and T.6 Group 4 (4)
  * for 1-bit images; horizontal predictor 2 for 8/16/32/64-bit samples and the
  * floating point predictor 3; fill order 2; photometric min-is-white,
- * min-is-black, RGB, palette and separated CMYK (converted to RGB without
- * color management); 1/2/4/8/16/32-bit unsigned samples and 16/32/64-bit
+ * min-is-black, RGB, palette and separated CMYK (converted through an
+ * embedded CMYK profile to Adobe RGB (1998), which then becomes the image
+ * profile, FL-CMYK; without a profile with the naive formula);
+ * 1/2/4/8/16/32-bit unsigned samples and 16/32/64-bit
  * IEEE float (0.0 to 1.0), reduced to 8 bits with rounding; extra samples
  * (associated alpha is converted to straight alpha, unassociated alpha is
  * kept, unspecified extra samples are ignored; RGB with four samples and no
  * ExtraSamples tag is associated alpha, as libtiff assumes); orientation
- * 1..8; resolution; embedded ICC profiles (not for CMYK). Only the first
- * page is loaded, like Paint.NET; meta.note reports further pages.
+ * 1..8; resolution; embedded ICC profiles; metadata (cmeta.h key scheme):
+ * the descriptive IFD0 tags (Artist, Copyright, Make, Software, ...) with
+ * the Exif and GPS sub-IFDs become the "exif" item, XMP (tag 700) the
+ * "xmp" item and IPTC (tag 33723) the "iptc" item. Only the first page is
+ * loaded, like Paint.NET; meta.note reports further pages.
  * Hardening: IFD and value offsets are bounds checked, entry counts are
  * capped, the IFD chain is walked with loop detection, every decompressor
  * produces exactly the bytes the geometry asks for (decompression bombs
@@ -23,11 +28,16 @@
  * Writer: Auto-detect, 32-bit RGBA (unassociated alpha), 24-bit RGB, 8, 4,
  * 2 and 1-bit palette (quant.h, flattened onto white), compression LZW
  * (default) or Deflate with the horizontal predictor for 24/32-bit, or
- * none. Little-endian, strips of about 64 KiB.
+ * none. Little-endian, strips of about 64 KiB. The ICC profile (34675),
+ * the EXIF item (IFD0 tags plus Exif and GPS sub-IFDs), XMP (700) and IPTC
+ * (33723) are written back.
  *
  * Threading: load and save are reentrant (no global state).
  */
 #include "quant.h"
+#include "cmeta.h"
+#include "lib_codec.h"
+#include "pc/pc_icc.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -63,6 +73,10 @@
 #define T_T4OPTIONS   292u
 #define T_T6OPTIONS   293u
 #define T_ICC         34675u
+#define T_XMP         700u
+#define T_IPTC        33723u
+#define T_EXIF_IFD    34665u
+#define T_GPS_IFD     34853u
 
 #define C_NONE        1u
 #define C_CCITT_RLE   2u
@@ -92,15 +106,18 @@ static const char *const k_depths[] = {
 static const char *const k_comps[] = { "LZW", "Deflate (ZIP)", "None", NULL };
 static const char *const k_palettes[] = { "Octree", "Median Cut", NULL };
 
+/* dithering and the algorithm apply to the explicit indexed depths only */
+#define TIFF_IF_INDEXED "bit_depth=3|4|5|6"
+
 static const fx_prop k_props[] = {
     { "bit_depth", "Bit depth", FXP_CHOICE, (uint32_t)offsetof(tiff_params, depth),
       0, 6, 0, 0, k_depths, NULL, 0, 0, NULL },
     { "compression", "Compression", FXP_CHOICE, (uint32_t)offsetof(tiff_params, compression),
       0, 2, 0, 0, k_comps, NULL, 0, 0, NULL },
     { "dithering", "Dithering level", FXP_INT, (uint32_t)offsetof(tiff_params, dither),
-      0, 8, 7, 1, NULL, NULL, 0, 0, NULL },
-    { "palette", "Palette", FXP_CHOICE, (uint32_t)offsetof(tiff_params, palette),
-      0, 1, 0, 0, k_palettes, NULL, 0, 0, NULL },
+      0, 8, 7, 1, NULL, NULL, 0, 0, TIFF_IF_INDEXED },
+    { "palette", "Quantization algorithm", FXP_CHOICE, (uint32_t)offsetof(tiff_params, palette),
+      0, 1, 0, 0, k_palettes, NULL, 0, 0, TIFF_IF_INDEXED },
 };
 
 /* ==== reader ================================================================ */
@@ -119,7 +136,7 @@ typedef struct tif {
     uint32_t       t4opt, t6opt;
     bool           tiled, have_photo, have_extra;
     const int32_t *cc_tab;        /* CCITT run tables (white, black, 2D modes) */
-    tarr           offs, cnts, bpsa, cmap, extra, icc, xres, yres;
+    tarr           offs, cnts, bpsa, cmap, extra, icc, xres, yres, xmp, iptc;
     uint32_t       unit;
     uint32_t       next_ifd;
     /* derived */
@@ -127,6 +144,7 @@ typedef struct tif {
     int32_t        alpha_idx;     /* sample index of alpha, -1 = none */
     bool           assoc;
     pc_px32        pal[256];
+    lc_cmyk_xf    *cmyk_xf;       /* separated CMYK through the embedded profile */
 } tif;
 
 static uint32_t type_size(uint32_t t)
@@ -231,6 +249,8 @@ static pc_status parse_ifd(tif *t, size_t off)
         case T_T4OPTIONS:   t->t4opt = v; break;
         case T_T6OPTIONS:   t->t6opt = v; break;
         case T_ICC:         if (type == 1u || type == 7u) t->icc = a; break;
+        case T_XMP:         if (type == 1u || type == 7u) t->xmp = a; break;
+        case T_IPTC:        if (type == 1u || type == 7u || type == 4u) t->iptc = a; break;
         default: break;
         }
     }
@@ -919,18 +939,57 @@ static uint32_t norm16(const tif *t, uint32_t v)
 
 static uint8_t to8(uint32_t v16) { return (uint8_t)((v16 * 255u + 32767u) / 65535u); }
 
+/* Alpha of pixel x applied to p (straight alpha; associated alpha is
+ * divided out). */
+static void apply_alpha(const tif *t, uint8_t *const *planes, uint32_t x, pc_px32 *p)
+{
+    bool chunky = t->planar != 2u;
+    uint32_t si = (uint32_t)t->alpha_idx, a16;
+    const uint8_t *pb = chunky ? planes[0] : planes[si];
+    uint64_t at = chunky ? (uint64_t)x * t->spp + si : x;
+    a16 = t->bps == 64u ? unit16(rd_double(t, pb, at)) : norm16(t, raw_sample(t, pb, at));
+    p->a = to8(a16);
+    if (t->assoc) {
+        if (p->a == 0u) {
+            p->b = p->g = p->r = 0;
+        } else if (p->a != 255u) {
+            uint32_t a = p->a;
+            p->b = (uint8_t)(p->b >= a ? 255u : (p->b * 255u + a / 2u) / a);
+            p->g = (uint8_t)(p->g >= a ? 255u : (p->g * 255u + a / 2u) / a);
+            p->r = (uint8_t)(p->r >= a ? 255u : (p->r * 255u + a / 2u) / a);
+        }
+    }
+}
+
 /* Convert npx pixels. planes[k] is plane k (planar 2) or planes[0] holds all
  * samples interleaved. */
 static void convert_px(const tif *t, uint8_t *const *planes, uint32_t npx, pc_px32 *d)
 {
     bool chunky = t->planar != 2u;
     uint32_t spp = t->spp;
+    if (t->photo == 5u && t->cmyk_xf) {
+        /* CMYK bytes in place, through the profile, then alpha */
+        for (uint32_t x = 0; x < npx; x++) {
+            uint8_t c4[4];
+            for (uint32_t k = 0; k < 4u; k++) {
+                const uint8_t *pb = chunky ? planes[0] : planes[k];
+                uint64_t at = chunky ? (uint64_t)x * spp + k : x;
+                c4[k] = to8(t->bps == 64u ? unit16(rd_double(t, pb, at))
+                                          : norm16(t, raw_sample(t, pb, at)));
+            }
+            memcpy(&d[x], c4, 4u);
+        }
+        lc_cmyk_run(t->cmyk_xf, (const uint8_t *)(const void *)d, d, npx);
+        if (t->alpha_idx >= 0)
+            for (uint32_t x = 0; x < npx; x++) apply_alpha(t, planes, x, &d[x]);
+        return;
+    }
     for (uint32_t x = 0; x < npx; x++) {
         uint32_t s[5] = { 0, 0, 0, 0, 0 };
-        uint32_t need = t->color_ch + (t->alpha_idx >= 0 ? 1u : 0u);
+        uint32_t need = t->color_ch;
         pc_px32 p;
         for (uint32_t k = 0; k < need; k++) {
-            uint32_t si = k < t->color_ch ? k : (uint32_t)t->alpha_idx;
+            uint32_t si = k;
             const uint8_t *pb = chunky ? planes[0] : planes[si];
             uint64_t at = chunky ? (uint64_t)x * spp + si : x;
             if (t->photo == 3u && k == 0u) s[k] = raw_sample(t, pb, at);   /* index */
@@ -958,20 +1017,7 @@ static void convert_px(const tif *t, uint8_t *const *planes, uint32_t npx, pc_px
         }
         }
         p.a = 255;
-        if (t->alpha_idx >= 0) {
-            uint32_t a16 = s[t->color_ch];
-            p.a = to8(a16);
-            if (t->assoc) {
-                if (p.a == 0u) {
-                    p.b = p.g = p.r = 0;
-                } else if (p.a != 255u) {
-                    uint32_t a = p.a;
-                    p.b = (uint8_t)(p.b >= a ? 255u : (p.b * 255u + a / 2u) / a);
-                    p.g = (uint8_t)(p.g >= a ? 255u : (p.g * 255u + a / 2u) / a);
-                    p.r = (uint8_t)(p.r >= a ? 255u : (p.r * 255u + a / 2u) / a);
-                }
-            }
-        }
+        if (t->alpha_idx >= 0) apply_alpha(t, planes, x, &p);
         d[x] = p;
     }
 }
@@ -1220,6 +1266,40 @@ done:
     return st;
 }
 
+/* Metadata of the first page: EXIF (descriptive IFD0 tags and the Exif and
+ * GPS sub-IFDs; the orientation was applied by the row sink), XMP, IPTC.
+ * Broken parts are ignored. */
+static pc_status tiff_meta(const tif *t, pc_image_meta *meta)
+{
+    cm_exif e;
+    pc_status st;
+    cm_exif_init(&e);
+    st = cm_exif_parse(t->p, t->n, CM_PARSE_TIFF_FILE, &e);
+    if (st == PC_ERR_FORMAT) st = PC_OK;
+    if (st == PC_OK && cm_exif_find(&e, CM_TAG_ORIENTATION)) {
+        uint8_t one[2] = { 1, 0 };
+        st = cm_exif_set(&e, CM_IFD0, CM_TAG_ORIENTATION, 3u, 1u, one, 2u);
+    }
+    if (st == PC_OK) {
+        bool content = false;
+        for (size_t i = 0; i < e.n && !content; i++) {
+            uint16_t g = e.t[i].tag;
+            content = g != CM_TAG_ORIENTATION && g != CM_TAG_XRES && g != CM_TAG_YRES &&
+                      g != CM_TAG_RESUNIT;
+        }
+        if (content) st = cm_meta_put_exif(meta, &e);
+    }
+    cm_exif_free(&e);
+    if (st == PC_OK && t->xmp.ok)
+        st = cm_meta_load_xmp(meta, t->p + t->xmp.pos,
+                              (size_t)t->xmp.count * type_size(t->xmp.type));
+    if (st == PC_OK && t->orient != 1u) st = cm_meta_xmp_reset_orientation(meta);
+    if (st == PC_OK && t->iptc.ok)
+        st = cm_meta_load_iptc(meta, t->p + t->iptc.pos,
+                               (size_t)t->iptc.count * type_size(t->iptc.type));
+    return st;
+}
+
 static pc_status tiff_load(const uint8_t *p, size_t n, const pc_codec_limits *lim,
                            pc_doc **out, pc_image_meta *meta)
 {
@@ -1227,7 +1307,8 @@ static pc_status tiff_load(const uint8_t *p, size_t n, const pc_codec_limits *li
     pc_rowsink rs;
     pc_codec_limits dl;
     int32_t *cct = NULL;
-    size_t first;
+    uint8_t *adobe = NULL;
+    size_t first, adobe_n = 0;
     uint32_t pages;
     bool trunc = false;
     pc_status st;
@@ -1253,12 +1334,29 @@ static pc_status tiff_load(const uint8_t *p, size_t n, const pc_codec_limits *li
         t->cc_tab = cct;
         if (!cct) st = PC_ERR_NOMEM;
     }
+    if (st == PC_OK && t->photo == 5u && t->icc.ok && t->icc.count > 0u) {
+        st = pc_icc_adobe_rgb_profile(&adobe, &adobe_n);
+        if (st == PC_OK)
+            t->cmyk_xf = lc_cmyk_open(p + t->icc.pos, t->icc.count, false, adobe, adobe_n);
+    }
     if (st == PC_OK) st = pc_rowsink_init(&rs, lim, t->w, t->h, t->orient);
-    if (st != PC_OK) { free(cct); free(t); return st; }
+    if (st != PC_OK) {
+        lc_cmyk_close(t->cmyk_xf);
+        free(adobe);
+        free(cct);
+        free(t);
+        return st;
+    }
     st = t->tiled ? decode_tiles(t, lim, &rs, &trunc) : decode_strips(t, &rs, &trunc);
     free(cct);
     t->cc_tab = NULL;
-    if (st != PC_OK) { pc_rowsink_abort(&rs); free(t); return st; }
+    if (st != PC_OK) {
+        pc_rowsink_abort(&rs);
+        lc_cmyk_close(t->cmyk_xf);
+        free(adobe);
+        free(t);
+        return st;
+    }
     st = pc_rowsink_finish(&rs, out);
     if (st == PC_OK) {
         double xr = arr_rational(t, &t->xres), yr = arr_rational(t, &t->yres);
@@ -1273,6 +1371,10 @@ static pc_status tiff_load(const uint8_t *p, size_t n, const pc_codec_limits *li
                 memcpy(meta->icc, p + t->icc.pos, t->icc.count);
                 meta->icc_len = t->icc.count;
             }
+        } else if (t->cmyk_xf) {
+            meta->icc = adobe;                /* the pixels are Adobe RGB (1998) now */
+            meta->icc_len = adobe_n;
+            adobe = NULL;
         }
         pages = count_pages(t, first);
         if (pages > 1u)
@@ -1280,7 +1382,20 @@ static pc_status tiff_load(const uint8_t *p, size_t n, const pc_codec_limits *li
                      "Multi-page TIFF: loaded the first of %u pages.", (unsigned)pages);
         else if (trunc)
             snprintf(meta->note, sizeof meta->note, "The TIFF data is incomplete.");
+        else if (t->photo == 5u)
+            snprintf(meta->note, sizeof meta->note, "%s",
+                     t->cmyk_xf ? "CMYK converted to Adobe RGB (1998) with the embedded color "
+                                  "profile"
+                                : "CMYK converted to RGB without a color profile");
+        st = tiff_meta(t, meta);
+        if (st != PC_OK) {
+            pc_doc_destroy(*out);
+            *out = NULL;
+            pc_meta_free(meta);
+        }
     }
+    lc_cmyk_close(t->cmyk_xf);
+    free(adobe);
     free(t);
     return st;
 }
@@ -1394,13 +1509,73 @@ static pc_status deflate_buf(pc_buf *out, const uint8_t *src, size_t n)
     return PC_OK;
 }
 
-typedef struct ifd_ent { uint32_t tag, type, count, value; } ifd_ent;
+/* An IFD entry: either a value / offset (data NULL), or raw little-endian
+ * value bytes (inline when len <= 4, else written before the IFD). */
+typedef struct ifd_ent {
+    uint32_t       tag, type, count, value;
+    const uint8_t *data;
+    uint32_t       len;
+} ifd_ent;
 
 static void add_ent(ifd_ent *e, uint32_t *n, uint32_t tag, uint32_t type, uint32_t count,
                     uint32_t value)
 {
     e[*n].tag = tag; e[*n].type = type; e[*n].count = count; e[*n].value = value;
+    e[*n].data = NULL; e[*n].len = 0;
     (*n)++;
+}
+
+static void add_raw(ifd_ent *e, uint32_t *n, uint32_t tag, uint32_t type, uint32_t count,
+                    const uint8_t *data, uint32_t len)
+{
+    for (uint32_t i = 0; i < *n; i++) if (e[i].tag == tag) return;   /* writer's own wins */
+    e[*n].tag = tag; e[*n].type = type; e[*n].count = count; e[*n].value = 0;
+    e[*n].data = data; e[*n].len = len;
+    (*n)++;
+}
+
+static int cmp_ent(const void *a, const void *b)
+{
+    uint32_t x = ((const ifd_ent *)a)->tag, y = ((const ifd_ent *)b)->tag;
+    return x < y ? -1 : (x > y ? 1 : 0);
+}
+
+/* Metadata to write: the EXIF item (normalized for this image, without the
+ * tags the writer sets itself), XMP and IPTC. */
+typedef struct tiff_md {
+    cm_exif     e;
+    const char *xmp;
+    size_t      xmp_n;
+    uint8_t    *iptc;
+    size_t      iptc_n;
+} tiff_md;
+
+static pc_status tiff_md_get(tiff_md *m, const pc_image_meta *meta, uint32_t w, uint32_t h)
+{
+    static const uint16_t k_drop[] = { CM_TAG_ORIENTATION, CM_TAG_XRES, CM_TAG_YRES,
+                                       CM_TAG_RESUNIT };
+    uint8_t *blob = NULL;
+    size_t n = 0;
+    pc_status st;
+    memset(m, 0, sizeof *m);
+    cm_exif_init(&m->e);
+    if (!meta) return PC_OK;
+    st = cm_exif_for_save(meta, w, h, k_drop, sizeof k_drop / sizeof k_drop[0], CM_EXIF_MAX,
+                          &blob, &n);
+    if (st == PC_OK && blob) st = cm_exif_parse(blob, n, 0u, &m->e);
+    free(blob);
+    if (st == PC_OK) {
+        m->xmp = cm_meta_xmp(meta, &m->xmp_n);
+        st = cm_get_blob(meta, CM_KEY_IPTC, &m->iptc, &m->iptc_n);
+    }
+    return st;
+}
+
+static void tiff_md_free(tiff_md *m)
+{
+    cm_exif_free(&m->e);
+    free(m->iptc);
+    memset(m, 0, sizeof *m);
 }
 
 static void le16(uint8_t *d, uint32_t v) { d[0] = (uint8_t)v; d[1] = (uint8_t)(v >> 8); }
@@ -1431,8 +1606,11 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
     uint32_t depth, w, h, spp, bps, rps, nstrips, comp, npal = 0;
     size_t rb, base;
     pc_status st;
-    ifd_ent ent[20];
+    ifd_ent *ent = NULL;
+    tiff_md md;
     uint32_t ne = 0;
+    memset(&md, 0, sizeof md);
+    cm_exif_init(&md.e);
     if (!d || !out) return PC_ERR_ARG;
     if (params) memcpy(&prm, params, sizeof prm);
     else { prm.depth = 0; prm.compression = 0; prm.dither = 7; prm.palette = 0; }
@@ -1447,6 +1625,10 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
     idx = (uint8_t *)malloc(w);
     lz = (tlzw *)malloc(sizeof *lz);
     if (!tmp || !idx || !lz) { st = PC_ERR_NOMEM; goto done; }
+    st = tiff_md_get(&md, meta, w, h);
+    if (st != PC_OK) goto done;
+    ent = (ifd_ent *)calloc(32u + cm_exif_count(&md.e, CM_IFD0), sizeof *ent);
+    if (!ent) { st = PC_ERR_NOMEM; goto done; }
     {
         static const uint32_t k_map[7] = { 0, 32, 24, 8, 4, 2, 1 };
         depth = k_map[prm.depth];
@@ -1577,6 +1759,14 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
         }
         if (st != PC_OK) goto done;
         if (out->n - base > 0xFFFFFF00u - 300u) { st = PC_ERR_LIMIT; goto done; }
+        {   /* metadata sub-IFDs */
+            uint32_t exif_off = 0, gps_off = 0;
+            st = cm_exif_write_subifd(&md.e, CM_IFD_EXIF, out, base, &exif_off);
+            if (st == PC_OK) st = cm_exif_write_subifd(&md.e, CM_IFD_GPS, out, base, &gps_off);
+            if (st != PC_OK) goto done;
+            if (exif_off) add_ent(ent, &ne, T_EXIF_IFD, 4, 1, exif_off);
+            if (gps_off) add_ent(ent, &ne, T_GPS_IFD, 4, 1, gps_off);
+        }
         add_ent(ent, &ne, T_SUBFILE, 4, 1, 0);
         add_ent(ent, &ne, T_WIDTH, 4, 1, w);
         add_ent(ent, &ne, T_LENGTH, 4, 1, h);
@@ -1595,6 +1785,29 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
         if (depth > 8u && comp != C_NONE) add_ent(ent, &ne, T_PREDICTOR, 3, 1, 2);
         if (depth <= 8u) add_ent(ent, &ne, T_COLORMAP, 3, 3u << depth, cmap_off);
         if (depth == 32u) add_ent(ent, &ne, T_EXTRA, 3, 1, 2);
+        /* metadata: IFD0 tags of the EXIF item, XMP, IPTC, ICC profile */
+        for (size_t i = 0; i < md.e.n; i++) {
+            const cm_tag *tg = &md.e.t[i];
+            if (tg->ifd == CM_IFD0)
+                add_raw(ent, &ne, tg->tag, tg->type, tg->count, tg->val, tg->len);
+        }
+        if (md.xmp && md.xmp_n <= 0x7FFFFFFFu)
+            add_raw(ent, &ne, T_XMP, 1, (uint32_t)md.xmp_n, (const uint8_t *)md.xmp,
+                    (uint32_t)md.xmp_n);
+        if (md.iptc && md.iptc_n <= 0x7FFFFFFFu)
+            add_raw(ent, &ne, T_IPTC, 7, (uint32_t)md.iptc_n, md.iptc, (uint32_t)md.iptc_n);
+        if (meta && meta->icc && meta->icc_len && meta->icc_len <= 0x7FFFFFFFu)
+            add_raw(ent, &ne, T_ICC, 7, (uint32_t)meta->icc_len, meta->icc,
+                    (uint32_t)meta->icc_len);
+        for (uint32_t i = 0; i < ne && st == PC_OK; i++) {
+            if (!ent[i].data || ent[i].len <= 4u) continue;
+            if ((out->n - base) & 1u) st = pc_buf_put_u8(out, 0);
+            if (st == PC_OK && out->n - base + ent[i].len > 0xFFFFFF00u) st = PC_ERR_LIMIT;
+            ent[i].value = (uint32_t)(out->n - base);
+            if (st == PC_OK) st = pc_buf_append(out, ent[i].data, ent[i].len);
+        }
+        if (st != PC_OK) goto done;
+        qsort(ent, ne, sizeof *ent, cmp_ent);
         if ((out->n - base) & 1u) st = pc_buf_put_u8(out, 0);
         ifd_off = (uint32_t)(out->n - base);
         if (st == PC_OK) st = pc_buf_put_le16(out, (uint16_t)ne);
@@ -1603,7 +1816,10 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
             le16(e, ent[i].tag);
             le16(e + 2, ent[i].type);
             le32(e + 4, ent[i].count);
-            if (ent[i].type == 3u && ent[i].count == 1u) {
+            if (ent[i].data && ent[i].len <= 4u) {
+                memset(e + 8, 0, 4u);
+                memcpy(e + 8, ent[i].data, ent[i].len);
+            } else if (ent[i].type == 3u && ent[i].count == 1u) {
                 le16(e + 8, ent[i].value);
                 le16(e + 10, 0);
             } else {
@@ -1616,6 +1832,8 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
     }
 done:
     if (st != PC_OK) out->n = base;
+    tiff_md_free(&md);
+    free(ent);
     pc_quant_destroy(q);
     free(lz);
     free(tmp);
