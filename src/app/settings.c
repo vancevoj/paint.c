@@ -1,11 +1,30 @@
-/* settings.c - persistent key/value settings (see app_settings.h). */
+/* settings.c - persistent key/value settings (see app_settings.h).
+ *
+ * Robustness (lane I):
+ *  - saves are atomic (pal_write_file_atomic) and the previous good file is
+ *    kept as "<file>.bak" before it is replaced;
+ *  - a damaged file (unreadable, larger than the limit, NUL bytes, not
+ *    UTF-8 text) is moved aside as "<file>.corrupt" and the backup is
+ *    loaded instead; damaged lines inside a text file are skipped;
+ *  - the header comment carries the format version ("# paint.c settings,
+ *    format N"): older files are migrated on load, files from a newer
+ *    paint.c are read as far as understood and keep their version (and
+ *    unknown keys) when saved again. */
 #include "app/app_settings.h"
 #include "pal/pal.h"
 
+#include <SDL3/SDL_filesystem.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define SETTINGS_VERSION 1
+#define SETTINGS_MAGIC   "# paint.c settings, format "
+
+/* Lane I internals used by the autosave module (io/autosave.c). */
+pc_status app_settings_write_text(const char *path, const char *text, size_t n);
+void      app_settings_mark(app_settings *s, bool dirty);
 
 typedef struct entry {
     char *key, *value;
@@ -15,6 +34,7 @@ struct app_settings {
     entry  *e;
     size_t  n, cap;
     bool    dirty;
+    int     version;            /* format of the parsed file, 0 = unknown / none */
 };
 
 app_settings *app_settings_create(void)
@@ -139,6 +159,17 @@ size_t app_settings_parse(app_settings *s, const char *text, size_t n)
         (uint8_t)text[2] == 0xBFu)
         pos = 3u;
     section[0] = '\0';
+    s->version = 0;
+    if (n - pos > sizeof SETTINGS_MAGIC - 1u &&
+        memcmp(text + pos, SETTINGS_MAGIC, sizeof SETTINGS_MAGIC - 1u) == 0) {
+        size_t q = pos + sizeof SETTINGS_MAGIC - 1u;
+        int v = 0;
+        while (q < n && text[q] >= '0' && text[q] <= '9' && v < 100000) {
+            v = v * 10 + (text[q] - '0');
+            q++;
+        }
+        s->version = v;
+    }
     while (pos < n) {
         size_t a = pos, b, e, eq;
         while (pos < n && text[pos] != '\n') pos++;
@@ -192,11 +223,15 @@ size_t app_settings_parse(app_settings *s, const char *text, size_t n)
 
 pc_status app_settings_serialize(const app_settings *s, char **out, size_t *len)
 {
-    static const char header[] = "# paint.c settings (written by the app; edits are kept)\n";
-    size_t total = sizeof header - 1u, at;
+    char header[96];
+    size_t total, at;
     char *buf;
     *out = NULL;
     if (len) *len = 0;
+    /* the format version; a newer file keeps its own */
+    total = (size_t)snprintf(header, sizeof header, "%s%d (written by the app; edits are kept)\n",
+                             SETTINGS_MAGIC, s->version > SETTINGS_VERSION ? s->version
+                                                                           : SETTINGS_VERSION);
     for (size_t i = 0; i < s->n; i++) {
         size_t line;
         if (!pc_add_size(strlen(s->e[i].key), strlen(s->e[i].value), &line) ||
@@ -205,8 +240,8 @@ pc_status app_settings_serialize(const app_settings *s, char **out, size_t *len)
     }
     buf = (char *)malloc(total + 1u);
     if (!buf) return PC_ERR_NOMEM;
-    memcpy(buf, header, sizeof header - 1u);
-    at = sizeof header - 1u;
+    at = strlen(header);
+    memcpy(buf, header, at);
     for (size_t i = 0; i < s->n; i++) {
         size_t kl = strlen(s->e[i].key), vl = strlen(s->e[i].value);
         memcpy(buf + at, s->e[i].key, kl);
@@ -222,18 +257,115 @@ pc_status app_settings_serialize(const app_settings *s, char **out, size_t *len)
     return PC_OK;
 }
 
+/* A settings file must be UTF-8 text without NUL bytes. */
+static bool looks_like_text(const uint8_t *p, size_t n)
+{
+    size_t i = 0;
+    while (i < n) {
+        uint8_t c = p[i];
+        size_t k, need;
+        if (c == 0u) return false;
+        if (c < 0x80u) { i++; continue; }
+        if (c >= 0xC2u && c <= 0xDFu) need = 1u;
+        else if (c >= 0xE0u && c <= 0xEFu) need = 2u;
+        else if (c >= 0xF0u && c <= 0xF4u) need = 3u;
+        else return false;
+        for (k = 1u; k <= need; k++)
+            if (i + k >= n || (p[i + k] & 0xC0u) != 0x80u) return false;
+        i += need + 1u;
+    }
+    return true;
+}
+
+/* Read and validate a settings file. PC_ERR_FORMAT for damaged content. */
+static pc_status read_text(const char *path, uint8_t **data, size_t *n)
+{
+    pc_status st = pal_read_file(path, APP_SETTINGS_MAX_FILE, data, n);
+    if (st == PC_ERR_LIMIT) return PC_ERR_FORMAT;
+    if (st != PC_OK) return st;
+    if (!looks_like_text(*data, *n)) {
+        free(*data);
+        *data = NULL;
+        return PC_ERR_FORMAT;
+    }
+    return PC_OK;
+}
+
+static void bak_path(char *out, size_t cap, const char *path, const char *suffix)
+{
+    snprintf(out, cap, "%s%s", path, suffix);
+}
+
+/* Upgrade older files in place (version 0: files written before versioning
+ * have the same keys, nothing to change). */
+static void migrate(app_settings *s)
+{
+    if (s->version > SETTINGS_VERSION) {
+        pal_log(PAL_LOG_INFO, "settings: written by a newer paint.c (format %d); unknown "
+                "entries are kept", s->version);
+        return;
+    }
+    /* format 0 (no header) and 1 share their keys: nothing to convert yet */
+}
+
 pc_status app_settings_load(app_settings *s, const char *path)
 {
     uint8_t *data = NULL;
     size_t n = 0;
     pc_status st;
+    char other[1100];
+    bool from_bak = false;
     if (!s || !path) return PC_ERR_ARG;
-    if (!pal_file_exists(path)) return PC_OK;
-    st = pal_read_file(path, APP_SETTINGS_MAX_FILE, &data, &n);
-    if (st != PC_OK) return st;
+    st = pal_file_exists(path) ? read_text(path, &data, &n) : PC_ERR_IO;
+    if (st == PC_ERR_FORMAT) {
+        /* keep the damaged file for diagnosis, then fall back to the backup */
+        bak_path(other, sizeof other, path, ".corrupt");
+        (void)pal_remove(other);
+        if (!SDL_RenamePath(path, other)) (void)pal_remove(path);
+        pal_log(PAL_LOG_WARN, "settings: %s is damaged; moved to %s", path, other);
+    }
+    if (st != PC_OK) {
+        bak_path(other, sizeof other, path, ".bak");
+        if (pal_file_exists(other) && read_text(other, &data, &n) == PC_OK) {
+            from_bak = true;
+            st = PC_OK;
+            pal_log(PAL_LOG_INFO, "settings: using the backup %s", other);
+        } else {
+            app_settings_parse(s, "", 0u);       /* defaults */
+            return PC_OK;                        /* a missing file is not an error */
+        }
+    }
     app_settings_parse(s, (const char *)data, n);
     free(data);
-    return PC_OK;
+    migrate(s);
+    s->dirty = from_bak;                         /* rewrite the main file from the backup */
+    return st;
+}
+
+pc_status app_settings_write_text(const char *path, const char *text, size_t n)
+{
+    char bak[1100];
+    uint8_t *old = NULL;
+    size_t on = 0;
+    if (!path || !text) return PC_ERR_ARG;
+    /* keep the previous good file as the backup (only when it differs) */
+    if (pal_file_exists(path) && read_text(path, &old, &on) == PC_OK) {
+        if (on != n || memcmp(old, text, n) != 0) {
+            bak_path(bak, sizeof bak, path, ".bak");
+            (void)pal_write_file_atomic(bak, old, on);
+        }
+        free(old);
+    } else {
+        char dir[1100];
+        pal_path_dirname(dir, sizeof dir, path);
+        if (dir[0] && !pal_is_dir(dir)) (void)pal_mkdirs(dir);
+    }
+    return pal_write_file_atomic(path, text, n);
+}
+
+void app_settings_mark(app_settings *s, bool dirty)
+{
+    if (s) s->dirty = dirty;
 }
 
 pc_status app_settings_save(const app_settings *s, const char *path)
@@ -244,7 +376,7 @@ pc_status app_settings_save(const app_settings *s, const char *path)
     if (!s || !path) return PC_ERR_ARG;
     st = app_settings_serialize(s, &text, &n);
     if (st != PC_OK) return st;
-    st = pal_write_file_atomic(path, text, n);
+    st = app_settings_write_text(path, text, n);
     free(text);
     if (st == PC_OK) ((app_settings *)s)->dirty = false;
     return st;

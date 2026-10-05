@@ -202,31 +202,7 @@ static void recent_menu(app *a)
 {
     ui_ctx *ui = a->ui;
     if (!ui_menu_begin(ui, "Open Recent")) return;
-    if (a->nrecent == 0) {
-        ui_menu_item(ui, "No recent images", NULL, false);
-    } else {
-        int32_t pick = -1;
-        for (int32_t i = 0; i < a->nrecent; i++) {
-            char label[300];
-            snprintf(label, sizeof label, "%d  %s", (int)(i + 1), pal_path_basename(a->recent[i]));
-            ui_push_id_int(ui, i);
-            if (ui_menu_item(ui, label, NULL, true)) pick = i;
-            ui_pop_id(ui);
-        }
-        ui_menu_separator(ui);
-        if (ui_menu_item(ui, "Clear List", NULL, true)) {
-            for (int32_t i = 0; i < a->nrecent; i++) free(a->recent[i]);
-            a->nrecent = 0;
-            app_recent_store(a);
-        }
-        if (pick >= 0) {
-            char *p = app_strdup(a->recent[pick]);
-            if (p) {
-                (void)app_open_path(a, p);
-                free(p);
-            }
-        }
-    }
+    app_recent_menu_items(a);           /* lane I (io/recent.c): thumbnails, tooltips */
     ui_menu_end(ui);
 }
 

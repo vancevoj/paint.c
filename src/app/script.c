@@ -27,8 +27,25 @@
  *   screenshot PATH           write the frame as BMP
  *   expect pixel X Y #AARRGGBB   composite of the visible layers
  *   expect dirty 0|1 | layers N | size W H | docs N | history N | tool ID
+ *
+ * Lane I additions (files, autosave, recovery, drag and drop):
+ *   saveas PATH               save with the type of the extension (Save As
+ *                             without the dialogs; flattens when needed)
+ *   autosave                  write every modified image's autosave now
+ *   idle MS                   run the frame loop for MS milliseconds
+ *                             (timers such as the autosave interval fire)
+ *   print TEXT                write TEXT and a newline to stdout (flushed)
+ *   touch PATH                write an empty file (a marker for other processes)
+ *   recover [all|I]           open the images of crashed sessions
+ *   discard [all|I]           delete them
+ *   drop open|layers|ask PATH a file dropped on the window
+ *   select N                  make image N (0 based) active
+ *   expect autosaved N        images whose current state is autosaved
+ *   expect recovery N         images found by a recovery scan
+ *   expect recent N | dialogs N | name NAME | path PATH | layername I NAME
  */
 #include "app_internal.h"
+#include "app/app_io.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -172,6 +189,58 @@ static int run_line(app *a, char **tok, int n, int ln, char *err, size_t cap)
             snprintf(msg, sizeof msg, "save: %s", pc_status_str(st));
             return fail(err, cap, ln, msg);
         }
+    } else if (strcmp(c, "saveas") == 0 && n >= 2) {
+        pc_status st;
+        if (!d) return fail(err, cap, ln, "no image");
+        st = app_save_doc_to(a, d, rest_of(tok, n, buf, sizeof buf), NULL, NULL, true);
+        if (st != PC_OK) {
+            snprintf(msg, sizeof msg, "saveas: %s", pc_status_str(st));
+            return fail(err, cap, ln, msg);
+        }
+        settle(a, 1);
+    } else if (strcmp(c, "autosave") == 0) {
+        (void)app_autosave_now(a, true);
+        settle(a, 1);
+    } else if (strcmp(c, "idle") == 0 && n >= 2) {
+        uint64_t end = SDL_GetTicks() + (uint64_t)(atoi(tok[1]) > 0 ? atoi(tok[1]) : 0);
+        while (SDL_GetTicks() < end) {
+            SDL_Event e;
+            while (SDL_PollEvent(&e)) app_event(a, &e);
+            if (!app_frame(a, false)) break;
+            SDL_Delay(5);
+        }
+        settle(a, 1);
+    } else if (strcmp(c, "touch") == 0 && n >= 2) {
+        if (pal_write_file_atomic(rest_of(tok, n, buf, sizeof buf), "", 0u) != PC_OK)
+            return fail(err, cap, ln, "touch");
+    } else if (strcmp(c, "print") == 0) {
+        printf("%s\n", n >= 2 ? rest_of(tok, n, buf, sizeof buf) : "");
+        fflush(stdout);
+    } else if ((strcmp(c, "recover") == 0 || strcmp(c, "discard") == 0)) {
+        int which = n >= 2 && strcmp(tok[1], "all") != 0 ? atoi(tok[1]) : -1;
+        (void)app_recovery_scan(a);
+        if (c[0] == 'r') (void)app_recovery_restore(a, which);
+        else (void)app_recovery_discard(a, which);
+        settle(a, 3);
+    } else if (strcmp(c, "drop") == 0 && n >= 3) {
+        app_drop_action act = strcmp(tok[1], "open") == 0     ? APP_DROP_OPEN
+                              : strcmp(tok[1], "layers") == 0 ? APP_DROP_LAYERS
+                                                              : APP_DROP_ASK;
+        const char *path;
+        char pbuf[2048];
+        pbuf[0] = '\0';
+        for (int i = 2; i < n; i++) {
+            if (i > 2) strncat(pbuf, " ", sizeof pbuf - strlen(pbuf) - 1u);
+            strncat(pbuf, tok[i], sizeof pbuf - strlen(pbuf) - 1u);
+        }
+        path = pbuf;
+        app_drop_files(a, &path, 1, act);
+        settle(a, 3);
+    } else if (strcmp(c, "select") == 0 && n >= 2) {
+        app_doc *sd = app_doc_at(a, atoi(tok[1]));
+        if (!sd) return fail(err, cap, ln, "no such image");
+        app_set_active_doc(a, sd);
+        settle(a, 1);
     } else if (strcmp(c, "close") == 0) {
         if (d) app_close_doc_now(a, d);
         settle(a, 1);
@@ -286,6 +355,30 @@ static int run_line(app *a, char **tok, int n, int ln, char *err, size_t cap)
             if (app_doc_count(a) != atoi(tok[2])) return fail(err, cap, ln, "expect docs");
             return 0;
         }
+        if (strcmp(what, "autosaved") == 0) {
+            if (app_autosave_saved_count(a) != atoi(tok[2])) {
+                snprintf(msg, sizeof msg, "%d images autosaved, expected %s",
+                         app_autosave_saved_count(a), tok[2]);
+                return fail(err, cap, ln, msg);
+            }
+            return 0;
+        }
+        if (strcmp(what, "recovery") == 0) {
+            int got = app_recovery_scan(a);
+            if (got != atoi(tok[2])) {
+                snprintf(msg, sizeof msg, "%d images to recover, expected %s", got, tok[2]);
+                return fail(err, cap, ln, msg);
+            }
+            return 0;
+        }
+        if (strcmp(what, "recent") == 0) {
+            if (app_recent_count(a) != atoi(tok[2])) return fail(err, cap, ln, "expect recent");
+            return 0;
+        }
+        if (strcmp(what, "dialogs") == 0) {
+            if (app_dialog_depth(a) != atoi(tok[2])) return fail(err, cap, ln, "expect dialogs");
+            return 0;
+        }
         if (!d) return fail(err, cap, ln, "no image");
         if (strcmp(what, "pixel") == 0 && n >= 5) {
             bool ok;
@@ -309,6 +402,36 @@ static int run_line(app *a, char **tok, int n, int ln, char *err, size_t cap)
         } else if (strcmp(what, "history") == 0) {
             if ((int)app_doc_history_list(d, NULL, 0, NULL) != atoi(tok[2]))
                 return fail(err, cap, ln, "expect history");
+        } else if (strcmp(what, "name") == 0) {
+            char nb[1024];
+            nb[0] = '\0';
+            for (int i = 2; i < n; i++) {
+                if (i > 2) strncat(nb, " ", sizeof nb - strlen(nb) - 1u);
+                strncat(nb, tok[i], sizeof nb - strlen(nb) - 1u);
+            }
+            if (strcmp(d->name, nb) != 0) {
+                snprintf(msg, sizeof msg, "name is \"%.200s\"", d->name);
+                return fail(err, cap, ln, msg);
+            }
+        } else if (strcmp(what, "path") == 0) {
+            char pb[2048];
+            pb[0] = '\0';
+            for (int i = 2; i < n; i++) {
+                if (i > 2) strncat(pb, " ", sizeof pb - strlen(pb) - 1u);
+                strncat(pb, tok[i], sizeof pb - strlen(pb) - 1u);
+            }
+            if (!d->path || strcmp(d->path, pb) != 0) return fail(err, cap, ln, "expect path");
+        } else if (strcmp(what, "layername") == 0 && n >= 4) {
+            int li = atoi(tok[2]);
+            char nb[256];
+            nb[0] = '\0';
+            for (int i = 3; i < n; i++) {
+                if (i > 3) strncat(nb, " ", sizeof nb - strlen(nb) - 1u);
+                strncat(nb, tok[i], sizeof nb - strlen(nb) - 1u);
+            }
+            if (li < 0 || (uint32_t)li >= d->doc->n_layers ||
+                strcmp(d->doc->stack[li]->name, nb) != 0)
+                return fail(err, cap, ln, "expect layername");
         } else if (strcmp(what, "tool") == 0) {
             const app_tool *t = app_tool_current(a);
             if (!t || strcmp(t->id, tok[2]) != 0) return fail(err, cap, ln, "expect tool");

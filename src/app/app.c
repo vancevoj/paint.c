@@ -620,6 +620,7 @@ static void quit_closed(app *a, bool closed, void *ud)
  * Save Configuration); then everything else. */
 static void quit_step(app *a)
 {
+    if (app_quit_unsaved(a)) return;   /* lane I: two or more unsaved images */
     for (int32_t i = 0; i < a->ndocs; i++) {
         if (app_doc_dirty(a->docs[i])) {
             app_set_active_doc(a, a->docs[i]);
@@ -684,8 +685,10 @@ void app_event(app *a, const SDL_Event *e)
         for (int32_t i = 0; i < a->ndocs; i++) app_thumbs_free(a->docs[i]);
         app_request_frame(a);
         break;
+    case SDL_EVENT_DROP_BEGIN:      /* lane I: drop dialog, OS document opens */
     case SDL_EVENT_DROP_FILE:
-        if (e->drop.data) (void)app_open_path(a, e->drop.data);
+    case SDL_EVENT_DROP_COMPLETE:
+        app_drop_event(a, e);
         break;
     default:
         break;
