@@ -1,9 +1,9 @@
 /* test_comp_mt.c - every parallel path of lane L1b run on REAL threads
- * (C11 <threads.h> where the platform has it) and compared bit for bit
- * with the serial result: compositor, masked blend, resampling, warps,
- * geometry and layer operations, display cache. Build with PC_TSAN=ON to
- * have ThreadSanitizer check the workers. Platforms without C11 threads
- * skip the test (it still passes). */
+ * (C11 <threads.h> where libc provides it) and compared bit for bit with
+ * the serial result: compositor, masked blend, resampling, warps, geometry
+ * and layer operations, display cache. Under ASan this also catches memory
+ * errors in workers. Platforms without usable C11 threads and TSan builds
+ * skip the checks (the test still passes); see below. */
 #include "pc_test.h"
 #include "l1b_testutil.h"
 #include "pc/pc_geom.h"
@@ -11,8 +11,12 @@
 #include "pc/pc_mip.h"
 #include "pc/pc_resample.h"
 
-#if defined(__has_include)
-#  if __has_include(<threads.h>) && !defined(__STDC_NO_THREADS__)
+/* Enabled where C11 threads live in libc itself (glibc 2.34+), so no extra
+ * link flags are needed; other platforms (macOS has no <threads.h>, older
+ * glibc keeps them in libpthread, MSVC and MinGW vary) skip the test. */
+#if defined(__GLIBC__) && defined(__GLIBC_MINOR__) && defined(__has_include)
+#  if (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 34)) && \
+      __has_include(<threads.h>) && !defined(__STDC_NO_THREADS__)
 #    define L1B_HAVE_THREADS 1
 #  endif
 #endif
