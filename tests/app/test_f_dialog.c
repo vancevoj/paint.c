@@ -508,6 +508,55 @@ static void t_busy_document(void)
     app_destroy(a);
 }
 
+/* A long final render shows the progress box after 300 ms; Esc there
+ * cancels the whole effect (frames are run without waiting for workers). */
+static void t_apply_cancel(void)
+{
+    app *a = f_app(1200, 900);
+    app_doc *d;
+    afx_session *s;
+    const fx_effect *fx;
+    size_t n0;
+    SDL_Event e;
+    CHECK(a != NULL);
+    if (!a) return;
+    d = app_active_doc(a);
+    n0 = app_doc_history_list(d, NULL, 0, NULL);
+    fx = find(a, "org.paintc.blur.bokeh");
+    CHECK(app_cmd_exec(a, "effects.org.paintc.blur.bokeh"));
+    s = afx_active(a);
+    if (!s || !fx) {
+        app_destroy(a);
+        return;
+    }
+    CHECK(fx_param_set(fx, afx_session_params(s), "radius", 300.0) == PC_OK);
+    CHECK(fx_param_set(fx, afx_session_params(s), "quality", 10.0) == PC_OK);
+    afx_session_changed(a, s);
+    (void)app_frame(a, true);
+    CHECK(afx_session_ok(a, s));
+    for (int i = 0; i < 30; i++) {
+        (void)app_frame(a, true);
+        SDL_Delay(15);
+    }
+    if (afx_session_state(s) == AFX_APPLYING) {
+        memset(&e, 0, sizeof e);
+        e.type = SDL_EVENT_KEY_DOWN;
+        e.key.key = SDLK_ESCAPE;
+        e.key.down = true;
+        app_event(a, &e);
+        e.type = SDL_EVENT_KEY_UP;
+        e.key.down = false;
+        app_event(a, &e);
+        (void)app_frame(a, true);
+        (void)app_frame(a, true);
+        CHECK(afx_active(a) == NULL && d->txn == NULL && !app_dialog_active(a));
+        CHECK(app_doc_history_list(d, NULL, 0, NULL) == n0);
+    } else {
+        INFO("the render finished within 450 ms; the cancel path was not reached");
+    }
+    app_destroy(a);
+}
+
 /* The same flows from an app_script_run script (headless --script runs). */
 static void t_script(void)
 {
@@ -560,6 +609,7 @@ int main(int argc, char **argv)
     RUN(t_close_while_rendering);
     RUN(t_backdrop);
     RUN(t_busy_document);
+    RUN(t_apply_cancel);
     RUN(t_script);
     at_quit();
     return pc_test_finish();

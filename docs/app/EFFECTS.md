@@ -42,7 +42,10 @@ Everything happens on the main thread except the copy and the render.
    the selection coverage over its bounds becomes `fx_env.sel_mask` (v1.1),
    a selection-area thumbnail is made for the pan pads, and for Levels the
    input histogram of the pixels selected at 50 % or more. Allocation sizes
-   are checked by `pc_surf_alloc` (P-08).
+   are checked by `pc_surf_alloc` (P-08), and a run whose working copies
+   (about 12 bytes per pixel: src, dst and the preview tiles) cannot fit in
+   half of the physical memory is refused with a message before anything
+   is allocated (Linux overcommits, X-26).
 3. **Render** (`afx_run`): one `app_task` runs `fx_job_work` itself and pool
    helper tasks join the same job (one per pool thread). ROIs are 64 x 64
    cells handed out nearest to the viewport center first. When parameters
@@ -97,7 +100,7 @@ one control per `fx_prop` in schema order, like Paint.NET's property dialogs
 
 | Kind | Control |
 |---|---|
-| INT, REAL | label; slider, numeric up/down (typing, arrows, wheel, drag) and reset button; `FXP_F_SLIDER_LOG`, `FXP_F_PERCENT`, decimals from `step` |
+| INT, REAL | label; slider, numeric up/down (typing, arrows, wheel, drag) and reset button; `FXP_F_SLIDER_LOG`, `FXP_F_PERCENT`, decimals from `step`; an empty label gives the row without a label line (Posterize levels under their check boxes) |
 | BOOL | check box |
 | CHOICE | `Label:` and a drop-down on one row |
 | COLOR | header; color wheel, R G B A channel bars with numbers, swatch, hex entry and reset (to the palette color for `FX_COLOR_PRIMARY` / `FX_COLOR_SECONDARY`) |
@@ -132,9 +135,9 @@ black, gray and white), output white point, gray point (gamma 0.10 .. 10.00)
 and black point, output histogram (the input mapped through the current
 levels), R G B check boxes choosing the edited channels (all controls are
 disabled when none is checked), Auto (`fx_levels_auto` of the input
-histogram, the Auto-Level logic) and Reset. Double-clicking a swatch opens
-a color picker that sets that point per channel. Numeric and arrow edits go through
-`fx_levels_edit` (3.36 per-mask averaging).
+histogram, the Auto-Level logic) and Reset. Double-clicking a swatch
+opens a color picker that sets that point per channel. Numeric and arrow
+edits go through `fx_levels_edit` (3.36 per-mask averaging).
 
 ## Plugins
 
@@ -176,10 +179,10 @@ shows how to build one.
 | Test | Covers |
 |---|---|
 | `test_f_effects` | All 55 adjustments and effects through the app (command, dialog, preview, OK) against an independent oracle (`fx_run_sync` on a copy, blended through the selection), through an antialiased selection and on the whole image; one history item each, exact undo; menu contents, order and shortcuts |
-| `test_f_dialog` | Preview and Cancel / Esc, OK at identity, restarts, remembered parameters, Repeat, progress, mouse on Reseed / check box / angle / pan pad and resets, enabled_if, palette colors, closing the image or the app mid-render, undimmed canvas, busy documents |
+| `test_f_dialog` | Preview and Cancel / Esc, OK at identity, restarts, remembered parameters, Repeat, progress, mouse on Reseed / check box / angle / pan pad and resets, enabled_if, palette colors, closing the image or the app mid-render, undimmed canvas, busy documents, Esc in the apply progress box, the same flows from an `app_script_run` script |
 | `test_f_curves`, `test_f_levels` | The editors' rules and the widgets driven by mouse events in the real dialogs; Auto equals Auto-Level |
 | `test_f_plugins` | Loader against the fixtures: valid and nested plugins, wrong ABI, short struct, invalid props, failing entry, duplicate ids, empty, not a library; plugin commands, tooltip, Repeat, Plugin Errors dialog, `--disable-plugins` |
-| `test_f_large` | 8192 x 8192: open, frame times while rendering, change, restart, cancel, commit |
+| `test_f_large` | 8192 x 8192: open, frame times while rendering, change, restart, cancel, commit; refusal of runs that cannot fit in memory |
 
 Lane-private hooks for tests: `afx_active`, `afx_session_*`, `afx_wait_idle`,
 `afx_wait_preview`, `afx_prop_hit` (where a prop's controls are),
