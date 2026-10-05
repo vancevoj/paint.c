@@ -363,6 +363,15 @@ function(_pc_axj_import tgt lib)
 endfunction()
 
 function(pc_avifjxl_bundle_avif out)
+  # libavif 1.4.2 merges its static library with an ar MRI script whenever
+  # the compiler id is Clang, which clang-cl's llvm-lib cannot run (seen on
+  # the windows-clang-cl CI job): say so at configure time instead of
+  # failing in its install step.
+  if(MSVC AND CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    message(FATAL_ERROR "paint.c: the bundled libavif cannot be built with clang-cl "
+      "(libavif merges its static library with an ar script that llvm-lib does not run). "
+      "Use PC_WITH_AVIF=AUTO or OFF, a libavif from vcpkg, or build with cl.")
+  endif()
   include(ExternalProject)
   set(_aom_sha 44bf90dbd23e734d50e70a8c41c285193922938bd0d3bc2ee56764d181d55ef5)
   set(_avif_sha 2b645287340ba5a631d268b551dc2d72bd73ac33335962dd36dcdb6d8366921d)
