@@ -149,6 +149,32 @@ Helper files must not use these prefixes (for example `tools/stroke.c`).
   Space + left drag pan in every tool. Pen events carry pressure and the
   eraser flag; the mouse events SDL synthesizes from pens are ignored.
 
+### Lane SHELL additions (wave 3b)
+
+`src/app/shell_ext.h` collects the view and window extensions:
+
+* Canvas (`canvas.c`): auto-scroll while a tool drags at the view edge
+  (time based, never into overscroll, Settings `ui.autoscroll`), two-finger
+  pinch zoom from SDL 3.2 finger events, Space + arrows panning taken from
+  the frame's key presses, Zoom to Window twice re-centers, a new image is
+  presented only once its visible tiles exist, marching ants at the display
+  refresh rate (paused when unfocused or on low battery).
+* Display color management (`shell_cm.c`): the canvas uploads tiles through
+  `gfx_style.xf`, a 33^3 lookup table from the image profile (`meta.icc`)
+  to sRGB or to the display profile (`SDL_GetWindowICCProfile`, Settings
+  `cm.use_display`); thumbnails and the Colors window use
+  `app_cm_to_display`. Identity (no table) when both sides are equal.
+* Rendering (`src/gfx`): non-integer zooms above 100 % draw through a
+  sharp-bilinear target (crisp pixels, antialiased edges); mip levels are
+  averaged in linear light (`pc_mip.h`).
+* Windows (`shell_panels.c`): utility windows fade to 75 % over the image
+  while the pointer is elsewhere (`ui_panel_set_alpha`, Settings
+  `ui.translucent`).
+* Dialogs: `ui_dialog_begin_ex(..., UI_DIALOG_NO_DIM)` for dialogs whose
+  preview is the canvas (Layer Properties, Rotate / Zoom).
+* Crash logs: `include/pal/pal_crash.h`, installed by the interactive app
+  (`mod_m_settings.c`), newest 20 kept in `PAL_DIR_STATE/crash`.
+
 ## How to add a tool
 
 1. Create `src/app/tools/tool_<id>.c` with the canonical id from TOOLS.md

@@ -54,6 +54,7 @@ static size_t put_str(char *b, size_t at, size_t cap, const char *s)
     return at;
 }
 
+#if !defined(_WIN32)
 static size_t put_dec(char *b, size_t at, size_t cap, uint64_t v)
 {
     char t[24];
@@ -66,6 +67,8 @@ static size_t put_dec(char *b, size_t at, size_t cap, uint64_t v)
     b[at] = '\0';
     return at;
 }
+
+#endif
 
 static size_t put_hex(char *b, size_t at, size_t cap, uint64_t v)
 {

@@ -5,8 +5,10 @@
  * GL_VERSION) of the renderer's context (current on the main thread).
  * Vulkan renderer: VkPhysicalDeviceProperties of the renderer's physical
  * device (deviceName, API and driver versions) through the loader that SDL
- * opened. The GPU renderer reports its backend. Other back ends (Direct3D,
- * Metal) and the software renderer report the renderer only. No Vulkan
+ * opened. Direct3D 11 renderer (Windows): the DXGI adapter of the device
+ * (description, vendor, video memory). The GPU renderer reports its
+ * backend. Other back ends (Direct3D 9 and 12, Metal) and the software
+ * renderer report the renderer only. No Vulkan
  * or OpenGL headers are needed: the few entry points are declared here
  * with their fixed C ABI.
  *
@@ -17,6 +19,18 @@
 #include <SDL3/SDL_vulkan.h>
 #include <stdio.h>
 #include <string.h>
+
+#if defined(_WIN32)
+#  ifndef COBJMACROS
+#    define COBJMACROS
+#  endif
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#  include <initguid.h>
+#  include <dxgi.h>
+#endif
 
 #if defined(_WIN32) && !defined(_WIN64) && defined(_MSC_VER)
 #  define GFX_APIENTRY __stdcall
@@ -80,6 +94,30 @@ static void vk_info(SDL_PropertiesID props, char *out, size_t cap)
              (unsigned)(api & 0xFFFu), (unsigned)drv);
 }
 
+#if defined(_WIN32)
+static void d3d11_info(SDL_PropertiesID props, char *out, size_t cap)
+{
+    IUnknown *dev =
+        (IUnknown *)SDL_GetPointerProperty(props, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER, NULL);
+    IDXGIDevice *xd = NULL;
+    IDXGIAdapter *ad = NULL;
+    DXGI_ADAPTER_DESC desc;
+    char name[384];
+    if (!dev) return;
+    if (FAILED(IUnknown_QueryInterface(dev, &IID_IDXGIDevice, (void **)&xd)) || !xd) return;
+    if (SUCCEEDED(IDXGIDevice_GetAdapter(xd, &ad)) && ad) {
+        memset(&desc, 0, sizeof desc);
+        if (SUCCEEDED(IDXGIAdapter_GetDesc(ad, &desc)) &&
+            WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, name, (int)sizeof name, NULL,
+                                NULL) > 0)
+            snprintf(out, cap, "%s (vendor 0x%04X, %u MiB video memory), Direct3D 11", name,
+                     (unsigned)desc.VendorId, (unsigned)(desc.DedicatedVideoMemory >> 20));
+        IDXGIAdapter_Release(ad);
+    }
+    IDXGIDevice_Release(xd);
+}
+#endif
+
 void gfx_renderer_describe(SDL_Renderer *r, char *out, size_t cap)
 {
     const char *name;
@@ -98,6 +136,10 @@ void gfx_renderer_describe(SDL_Renderer *r, char *out, size_t cap)
         gl_info(adapter, sizeof adapter);
     } else if (name && strcmp(name, "vulkan") == 0) {
         vk_info(props, adapter, sizeof adapter);
+#if defined(_WIN32)
+    } else if (name && strcmp(name, "direct3d11") == 0) {
+        d3d11_info(props, adapter, sizeof adapter);
+#endif
     } else if (name && strcmp(name, "gpu") == 0) {
         SDL_GPUDevice *dev = (SDL_GPUDevice *)SDL_GetPointerProperty(
             props, SDL_PROP_RENDERER_GPU_DEVICE_POINTER, NULL);

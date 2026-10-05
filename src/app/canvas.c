@@ -59,7 +59,6 @@ typedef struct shell_cv {
     SDL_TouchID  pinch_touch;
     double       p_d0, p_cx0, p_cy0;  /* start distance and centroid (normalized) */
     double       p_z0, p_docx, p_docy;/* zoom at the start, image point under the centroid */
-    bool         native_pinch;        /* SDL >= 3.4 pinch events seen */
     bool         pen_seen;            /* a pen event arrived (Settings > Diagnostics) */
     bool         touch_block;         /* ignore touch-synthesized mouse until fingers lift */
     bool         touch_press;         /* the last canvas press came from a touch screen */
@@ -469,8 +468,10 @@ static int map_btn(Uint8 b)
  * report positions on the pad: the gesture zooms around the pointer once
  * the finger distance changed clearly before the fingers moved together
  * (otherwise it is a two-finger scroll, which arrives as wheel events).
- * With SDL >= 3.4 the native pinch events of touchpads are used instead
- * and indirect finger pinches are ignored from then on. */
+ * Only the SDL 3.2 API is used (cmake/PcDeps.cmake): touchpads whose
+ * pinch the platform only reports as a gesture (libinput on X11 and
+ * Wayland) are not covered; Windows turns touchpad pinches into
+ * Ctrl+wheel, which zooms through the presets. */
 static int finger_find(const shell_cv *s, SDL_TouchID t, SDL_FingerID f)
 {
     for (int i = 0; i < s->nfing; i++)
@@ -527,7 +528,6 @@ static void pinch_begin(app *a, shell_cv *s)
     gfx_view v;
     s->pinching = false;
     if (!d || app_dialog_active(a) || !pinch_geom(s, a, &dist, &cx, &cy)) return;
-    if (!s->pinch_direct && s->native_pinch) return;
     v = app_doc_gview(a, d);
     if (s->pinch_direct) {
         /* the gesture must start over the image view */
@@ -643,23 +643,6 @@ void app_canvas_event(app *a, const SDL_Event *e)
         touch_event(a, e);
         return;
     }
-#if SDL_VERSION_ATLEAST(3, 4, 0)
-    if (e->type == SDL_EVENT_PINCH_BEGIN || e->type == SDL_EVENT_PINCH_UPDATE ||
-        e->type == SDL_EVENT_PINCH_END) {
-        shell_cv *s = scv(a);
-        app_doc *d = app_active_doc(a);
-        if (s) s->native_pinch = true;
-        if (e->type == SDL_EVENT_PINCH_UPDATE && d && !app_dialog_active(a) && c->mouse_in &&
-            app_canvas_over(a) && e->pinch.scale > 0.0f) {
-            gfx_view v = app_doc_gview(a, d);
-            gfx_view_zoom_at(&v, v.zoom * (double)e->pinch.scale, (double)c->mx, (double)c->my,
-                             a->overscroll);
-            d->view.fit_mode = false;
-            app_doc_set_gview(a, d, &v);
-        }
-        return;
-    }
-#endif
     if (e->type == SDL_EVENT_PEN_DOWN || e->type == SDL_EVENT_PEN_MOTION ||
         e->type == SDL_EVENT_PEN_PROXIMITY_IN) {
         shell_cv *s = scv(a);

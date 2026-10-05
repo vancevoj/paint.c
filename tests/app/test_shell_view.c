@@ -10,7 +10,8 @@
  *   t_first_shown  a new image is never presented with holes (V-NOFLICKER)
  *   t_ants         refresh-rate frames, pause when unfocused or battery saver,
  *                  antialiased dash ends for fractional phases
- *   t_upscale      antialiased magnification only at non-integer zooms (SDL 3.4) */
+ *   t_upscale      antialiased pixel edges at non-integer zooms above 100 %,
+ *                  crisp pixels at whole zooms (V-RENDER-UP) */
 #include "pc_test.h"
 #include "app_test_util.h"
 #include "panels/pnl.h"
@@ -500,16 +501,69 @@ static void t_ants(void)
     app_destroy(a);
 }
 
+/* Gray pixels along a screen row across the striped image (black and
+ * white image columns). */
+static int stripes_gray(app *a, double zoom, int *edges)
+{
+    app_doc *d = app_active_doc(a);
+    float sx0, sy, sx1, dummy;
+    int gray = 0, prev = -1;
+    app_view_set_zoom(a, d, zoom);
+    at_frames(a, 2);
+    (void)at_screen(a, 2.0, 20.0, &sx0, &sy);
+    (void)at_screen(a, 30.0, 20.0, &sx1, &dummy);
+    *edges = 0;
+    for (int x = (int)sx0; x < (int)sx1; x++) {
+        uint32_t c = at_pixel(a, x, (int)sy);
+        int v = (int)(c & 0xFFu);
+        if (v > 8 && v < 247) gray++;
+        if (prev >= 0 && ((prev < 128) != (v < 128))) (*edges)++;
+        prev = v;
+    }
+    return gray;
+}
+
 static void t_upscale(void)
 {
-    bool aa = gfx_upscale_antialiased(1.5);
+    app *a = at_app(800, 600);
+    pc_doc *doc = pc_doc_create(40, 40);
+    pc_layer *l = doc ? pc_layer_create(doc, "Background") : NULL;
+    pc_px32 px[40 * 40];
+    app_doc *d;
+    int edges = 0, g;
     CHECK(!gfx_upscale_antialiased(2.0) && !gfx_upscale_antialiased(1.0));
     CHECK(!gfx_upscale_antialiased(0.5) && !gfx_upscale_antialiased(0.25));
-#if SDL_VERSION_ATLEAST(3, 4, 0)
-    CHECK(aa == (SDL_GetVersion() >= SDL_VERSIONNUM(3, 4, 0)));
-#else
-    CHECK(!aa);
-#endif
+    CHECK(gfx_upscale_antialiased(1.5) && gfx_upscale_antialiased(7.25));
+    CHECK(a && doc && l);
+    if (!a || !doc || !l) {
+        if (l) pc_layer_destroy(l);
+        pc_doc_destroy(doc);
+        if (a) app_destroy(a);
+        return;
+    }
+    for (int i = 0; i < 40 * 40; i++) {
+        uint8_t v = ((i % 40) & 1) ? 255u : 0u;
+        px[i].b = v; px[i].g = v; px[i].r = v; px[i].a = 255u;
+    }
+    CHECK(pc_doc_insert_layer(doc, l, 0) == PC_OK);
+    CHECK(pc_layer_store_rect(doc, l, pc_rect_make(0, 0, 40, 40), px, 40u) == PC_OK);
+    d = app_doc_create(a, doc, NULL, NULL, NULL, "New Image");
+    CHECK(d && app_add_doc(a, d));
+    app_panels_set_translucent(a, false);
+    at_frames(a, 3);
+    /* whole zooms: crisp black and white only */
+    g = stripes_gray(a, 2.0, &edges);
+    CHECK(g == 0 && edges >= 25);
+    g = stripes_gray(a, 3.0, &edges);
+    CHECK(g == 0 && edges >= 25);
+    /* 150 % and 350 %: every column edge is antialiased over at most one or
+     * two screen pixels, the pixels stay crisp squares in between */
+    g = stripes_gray(a, 1.5, &edges);
+    CHECK(g > 0 && edges >= 25);
+    CHECK(g <= 2 * edges + 2);
+    g = stripes_gray(a, 3.5, &edges);
+    CHECK(g > 0 && g <= 2 * edges + 2 && edges >= 25);
+    app_destroy(a);
 }
 
 int main(int argc, char **argv)

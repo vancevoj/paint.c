@@ -37,6 +37,8 @@ struct gfx_canvas {
     size_t               nrects_cap;
     /* display transform of this draw (lane SHELL) */
     const gfx_style     *st;
+    SDL_Texture         *sharp;              /* V-RENDER-UP magnification target, owned */
+    bool                 sharp_failed;       /* the renderer cannot make one */
     uint64_t             xf_key;
     uint8_t             *xbuf;               /* one tile, owned */
 };
@@ -68,6 +70,7 @@ void gfx_canvas_destroy(gfx_canvas *c)
     if (!c) return;
     drop_pages(c);
     if (c->checker) SDL_DestroyTexture(c->checker);
+    if (c->sharp) SDL_DestroyTexture(c->sharp);
     free(c->rects);
     free(c->xbuf);
     free(c);
@@ -79,6 +82,9 @@ void gfx_canvas_reset(gfx_canvas *c)
     drop_pages(c);
     if (c->checker) SDL_DestroyTexture(c->checker);
     c->checker = NULL;
+    if (c->sharp) SDL_DestroyTexture(c->sharp);
+    c->sharp = NULL;
+    c->sharp_failed = false;
     c->vc = NULL;
 }
 
@@ -333,29 +339,161 @@ static void draw_grid(gfx_canvas *c, const gfx_view *v, const gfx_style *st, con
     SDL_RenderFillRects(c->r, c->rects, (int)n);
 }
 
-/* ---- upscaling (V-RENDER-UP) ------------------------------------------------------- */
+/* ---- upscaling (V-RENDER-UP, lane SHELL) -------------------------------------------- */
 /* Above 100 % at a zoom that is not a whole number, Paint.NET 5.0.4+
  * antialiases the edges of the magnified pixels instead of showing uneven
- * pixel widths. SDL 3.4 provides that sampler (SDL_SCALEMODE_PIXELART:
- * nearest inside a texel, a one screen pixel linear blend across texel
- * edges; premultiplied pages make the blend correct). Builds against SDL
- * 3.2 and renderers without it keep plain nearest (ADR-003). */
-static SDL_ScaleMode gfx_upscale_mode(double zoom)
-{
-#if SDL_VERSION_ATLEAST(3, 4, 0)
-    static int runtime_ok = -1;
-    if (runtime_ok < 0) runtime_ok = SDL_GetVersion() >= SDL_VERSIONNUM(3, 4, 0) ? 1 : 0;
-    if (runtime_ok && zoom > 1.0 + 1e-9 && fabs(zoom - floor(zoom + 0.5)) > 1e-6)
-        return SDL_SCALEMODE_PIXELART;
-#else
-    (void)zoom;
-#endif
-    return SDL_SCALEMODE_NEAREST;
-}
+ * pixel widths. With the SDL 3.2 renderer API this is done in two steps
+ * ("sharp bilinear"): the visible image pixels are magnified by the next
+ * whole factor k = ceil(zoom) with nearest sampling into a target texture,
+ * which is then drawn at zoom / k (a slight reduction) with linear
+ * filtering, so every image pixel stays a crisp square and only its edges
+ * blend over one screen pixel. The target is a fixed GFX_SHARP_DIM square
+ * reused for chunks of the view; each chunk carries a one pixel apron so
+ * the filter sees the true neighbours and chunks join without seams.
+ * Premultiplied pages keep the filtering correct (X-14). */
+#define GFX_SHARP_DIM 2048
 
 bool gfx_upscale_antialiased(double zoom)
 {
-    return gfx_upscale_mode(zoom) != SDL_SCALEMODE_NEAREST;
+    return zoom > 1.0 + 1e-9 && zoom <= GFX_ZOOM_MAX && fabs(zoom - floor(zoom + 0.5)) > 1e-6;
+}
+
+/* ---- pages of a level rect ------------------------------------------------------------ */
+static void page_range(pc_rect lr, uint32_t *px0, uint32_t *py0, uint32_t *px1, uint32_t *py1)
+{
+    *px0 = ((uint32_t)lr.x >> PC_TILE_SHIFT) / GFX_PAGE_TILES;
+    *py0 = ((uint32_t)lr.y >> PC_TILE_SHIFT) / GFX_PAGE_TILES;
+    *px1 = ((uint32_t)(lr.x + lr.w - 1) >> PC_TILE_SHIFT) / GFX_PAGE_TILES;
+    *py1 = ((uint32_t)(lr.y + lr.h - 1) >> PC_TILE_SHIFT) / GFX_PAGE_TILES;
+}
+
+/* Bring every tile of level rect lr into its page (changed tiles only). */
+static void upload_pages(gfx_canvas *c, const pc_view_cache *vc, uint32_t level, pc_rect lr)
+{
+    uint32_t tx0 = (uint32_t)lr.x >> PC_TILE_SHIFT;
+    uint32_t ty0 = (uint32_t)lr.y >> PC_TILE_SHIFT;
+    uint32_t tx1 = (uint32_t)(lr.x + lr.w - 1) >> PC_TILE_SHIFT;
+    uint32_t ty1 = (uint32_t)(lr.y + lr.h - 1) >> PC_TILE_SHIFT;
+    uint32_t px0, py0, px1, py1;
+    page_range(lr, &px0, &py0, &px1, &py1);
+    for (uint32_t py = py0; py <= py1; py++) {
+        for (uint32_t px = px0; px <= px1; px++) {
+            gfx_page *p = get_page(c, level, px, py);
+            uint32_t ptx0 = px * GFX_PAGE_TILES, pty0 = py * GFX_PAGE_TILES;
+            uint32_t ax0 = tx0 > ptx0 ? tx0 : ptx0, ay0 = ty0 > pty0 ? ty0 : pty0;
+            uint32_t ax1 = tx1 < ptx0 + GFX_PAGE_TILES - 1u ? tx1 : ptx0 + GFX_PAGE_TILES - 1u;
+            uint32_t ay1 = ty1 < pty0 + GFX_PAGE_TILES - 1u ? ty1 : pty0 + GFX_PAGE_TILES - 1u;
+            if (!p) continue;
+            for (uint32_t ty = ay0; ty <= ay1; ty++) {
+                for (uint32_t tx = ax0; tx <= ax1; tx++) {
+                    uint32_t slot = (ty - pty0) * GFX_PAGE_TILES + (tx - ptx0);
+                    pc_view_tile t;
+                    c->visible++;
+                    if (pc_view_cache_get(vc, level, tx, ty, &t)) {
+                        if (p->stamp[slot] != t.stamp) {
+                            upload(c, p, slot, t.px);
+                            p->stamp[slot] = t.stamp;
+                        }
+                    } else {
+                        c->missing++;
+                        if (p->stamp[slot] == STAMP_NONE) {
+                            upload(c, p, slot, NULL);
+                            p->stamp[slot] = STAMP_HOLE;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* Draw the level pixels of lr: level pixel (x, y) lands at
+ * (ox + x * scale, oy + y * scale). The pages were uploaded this frame. */
+static void draw_pages(gfx_canvas *c, uint32_t level, pc_rect lr, double ox, double oy,
+                       double scale, SDL_ScaleMode mode)
+{
+    uint32_t px0, py0, px1, py1;
+    if (pc_rect_is_empty(lr)) return;
+    page_range(lr, &px0, &py0, &px1, &py1);
+    for (uint32_t py = py0; py <= py1; py++) {
+        for (uint32_t px = px0; px <= px1; px++) {
+            gfx_page *p = find_page(c, level, px, py);
+            int32_t sx0, sy0, sx1, sy1;
+            SDL_FRect src, dst;
+            if (!p) continue;
+            sx0 = (int32_t)(px * GFX_PAGE_DIM);
+            sy0 = (int32_t)(py * GFX_PAGE_DIM);
+            sx1 = sx0 + (int32_t)GFX_PAGE_DIM;
+            sy1 = sy0 + (int32_t)GFX_PAGE_DIM;
+            if (sx0 < lr.x) sx0 = lr.x;
+            if (sy0 < lr.y) sy0 = lr.y;
+            if (sx1 > lr.x + lr.w) sx1 = lr.x + lr.w;
+            if (sy1 > lr.y + lr.h) sy1 = lr.y + lr.h;
+            if (sx1 <= sx0 || sy1 <= sy0) continue;
+            src.x = (float)(sx0 - (int32_t)(px * GFX_PAGE_DIM));
+            src.y = (float)(sy0 - (int32_t)(py * GFX_PAGE_DIM));
+            src.w = (float)(sx1 - sx0);
+            src.h = (float)(sy1 - sy0);
+            dst.x = (float)(ox + (double)sx0 * scale);
+            dst.y = (float)(oy + (double)sy0 * scale);
+            dst.w = (float)((double)(sx1 - sx0) * scale);
+            dst.h = (float)((double)(sy1 - sy0) * scale);
+            SDL_SetTextureScaleMode(p->tex, mode);
+            SDL_RenderTexture(c->r, p->tex, &src, &dst);
+        }
+    }
+}
+
+/* V-RENDER-UP: false when the target cannot be used (then nearest). */
+static bool draw_sharp(gfx_canvas *c, pc_rect lr, double ox, double oy, double zoom,
+                       int32_t dw, int32_t dh)
+{
+    int32_t k = (int32_t)ceil(zoom - 1e-9), chunk;
+    SDL_Texture *prev;
+    if (c->sharp_failed || k < 2) return false;
+    chunk = GFX_SHARP_DIM / k - 2;
+    if (chunk < 1) return false;
+    if (!c->sharp) {
+        c->sharp = SDL_CreateTexture(c->r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET,
+                                     GFX_SHARP_DIM, GFX_SHARP_DIM);
+        if (!c->sharp) {
+            c->sharp_failed = true;
+            return false;
+        }
+        SDL_SetTextureBlendMode(c->sharp, SDL_BLENDMODE_BLEND_PREMULTIPLIED);
+        SDL_SetTextureScaleMode(c->sharp, SDL_SCALEMODE_LINEAR);
+    }
+    prev = SDL_GetRenderTarget(c->r);
+    for (int32_t cy = lr.y; cy < lr.y + lr.h; cy += chunk) {
+        for (int32_t cx = lr.x; cx < lr.x + lr.w; cx += chunk) {
+            int32_t rw = lr.x + lr.w - cx < chunk ? lr.x + lr.w - cx : chunk;
+            int32_t rh = lr.y + lr.h - cy < chunk ? lr.y + lr.h - cy : chunk;
+            /* the chunk with a one pixel apron, clipped to the image */
+            pc_rect ap = pc_rect_intersect(pc_rect_make(cx - 1, cy - 1, rw + 2, rh + 2),
+                                           pc_rect_make(0, 0, dw, dh));
+            SDL_FRect src, dst;
+            if (!SDL_SetRenderTarget(c->r, c->sharp)) {
+                c->sharp_failed = true;
+                return false;
+            }
+            SDL_SetRenderDrawColor(c->r, 0, 0, 0, 0);
+            SDL_RenderClear(c->r);
+            /* image pixel (x, y) -> target texel ((x - cx + 1) * k, ...) */
+            draw_pages(c, 0u, ap, -(double)(cx - 1) * (double)k, -(double)(cy - 1) * (double)k,
+                       (double)k, SDL_SCALEMODE_NEAREST);
+            SDL_SetRenderTarget(c->r, prev);
+            src.x = (float)k;
+            src.y = (float)k;
+            src.w = (float)(rw * k);
+            src.h = (float)(rh * k);
+            dst.x = (float)(ox + (double)cx * zoom);
+            dst.y = (float)(oy + (double)cy * zoom);
+            dst.w = (float)((double)rw * zoom);
+            dst.h = (float)((double)rh * zoom);
+            SDL_RenderTexture(c->r, c->sharp, &src, &dst);
+        }
+    }
+    return true;
 }
 
 /* ---- main draw --------------------------------------------------------------------- */
@@ -368,7 +506,6 @@ void gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
     double ox, oy, scale, ix0, iy0, ix1, iy1;
     pc_rect lr;
     bool nearest;
-    SDL_ScaleMode up_mode;
     if (!c || !v || !st) return;
     c->frame++;
     c->uploads = c->visible = c->missing = 0;
@@ -400,7 +537,6 @@ void gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
     level = gfx_view_level(v->zoom);
     scale = v->zoom * (double)(1u << level);
     nearest = gfx_view_nearest(v->zoom);
-    up_mode = gfx_upscale_mode(v->zoom);
     gfx_view_origin(v, &ox, &oy);
     {
         /* level pixels under the clipped screen area (same origin as v) */
@@ -416,64 +552,13 @@ void gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
         if (e <= a || f <= b) goto grid;
         lr = pc_rect_make((int32_t)a, (int32_t)b, (int32_t)(e - a), (int32_t)(f - b));
     }
-    {
-        uint32_t tx0 = (uint32_t)lr.x >> PC_TILE_SHIFT;
-        uint32_t ty0 = (uint32_t)lr.y >> PC_TILE_SHIFT;
-        uint32_t tx1 = (uint32_t)(lr.x + lr.w - 1) >> PC_TILE_SHIFT;
-        uint32_t ty1 = (uint32_t)(lr.y + lr.h - 1) >> PC_TILE_SHIFT;
-        uint32_t px0 = tx0 / GFX_PAGE_TILES, px1 = tx1 / GFX_PAGE_TILES;
-        uint32_t py0 = ty0 / GFX_PAGE_TILES, py1 = ty1 / GFX_PAGE_TILES;
-        for (uint32_t py = py0; py <= py1; py++) {
-            for (uint32_t px = px0; px <= px1; px++) {
-                gfx_page *p = get_page(c, level, px, py);
-                uint32_t ptx0 = px * GFX_PAGE_TILES, pty0 = py * GFX_PAGE_TILES;
-                uint32_t ax0 = tx0 > ptx0 ? tx0 : ptx0, ay0 = ty0 > pty0 ? ty0 : pty0;
-                uint32_t ax1 = tx1 < ptx0 + GFX_PAGE_TILES - 1u ? tx1 : ptx0 + GFX_PAGE_TILES - 1u;
-                uint32_t ay1 = ty1 < pty0 + GFX_PAGE_TILES - 1u ? ty1 : pty0 + GFX_PAGE_TILES - 1u;
-                int32_t sx0, sy0, sx1, sy1;
-                SDL_FRect src, dst;
-                if (!p) continue;
-                for (uint32_t ty = ay0; ty <= ay1; ty++) {
-                    for (uint32_t tx = ax0; tx <= ax1; tx++) {
-                        uint32_t slot = (ty - pty0) * GFX_PAGE_TILES + (tx - ptx0);
-                        pc_view_tile t;
-                        c->visible++;
-                        if (pc_view_cache_get(vc, level, tx, ty, &t)) {
-                            if (p->stamp[slot] != t.stamp) {
-                                upload(c, p, slot, t.px);
-                                p->stamp[slot] = t.stamp;
-                            }
-                        } else {
-                            c->missing++;
-                            if (p->stamp[slot] == STAMP_NONE) {
-                                upload(c, p, slot, NULL);
-                                p->stamp[slot] = STAMP_HOLE;
-                            }
-                        }
-                    }
-                }
-                /* visible level pixels inside this page */
-                sx0 = (int32_t)(px * GFX_PAGE_DIM);
-                sy0 = (int32_t)(py * GFX_PAGE_DIM);
-                sx1 = sx0 + (int32_t)GFX_PAGE_DIM;
-                sy1 = sy0 + (int32_t)GFX_PAGE_DIM;
-                if (sx0 < lr.x) sx0 = lr.x;
-                if (sy0 < lr.y) sy0 = lr.y;
-                if (sx1 > lr.x + lr.w) sx1 = lr.x + lr.w;
-                if (sy1 > lr.y + lr.h) sy1 = lr.y + lr.h;
-                if (sx1 <= sx0 || sy1 <= sy0) continue;
-                src.x = (float)(sx0 - (int32_t)(px * GFX_PAGE_DIM));
-                src.y = (float)(sy0 - (int32_t)(py * GFX_PAGE_DIM));
-                src.w = (float)(sx1 - sx0);
-                src.h = (float)(sy1 - sy0);
-                dst.x = (float)(ox + (double)sx0 * scale);
-                dst.y = (float)(oy + (double)sy0 * scale);
-                dst.w = (float)((double)(sx1 - sx0) * scale);
-                dst.h = (float)((double)(sy1 - sy0) * scale);
-                SDL_SetTextureScaleMode(p->tex, nearest ? up_mode : SDL_SCALEMODE_LINEAR);
-                SDL_RenderTexture(c->r, p->tex, &src, &dst);
-            }
-        }
+    upload_pages(c, vc, level, lr);
+    if (level == 0u && gfx_upscale_antialiased(v->zoom) &&
+        draw_sharp(c, lr, ox, oy, v->zoom, (int32_t)v->dw, (int32_t)v->dh)) {
+        /* drawn magnified with antialiased pixel edges */
+    } else {
+        draw_pages(c, level, lr, ox, oy, scale,
+                   nearest ? SDL_SCALEMODE_NEAREST : SDL_SCALEMODE_LINEAR);
     }
 grid:
     if (st->grid && v->zoom >= 2.0 - 1e-9) draw_grid(c, v, st, &vis);
