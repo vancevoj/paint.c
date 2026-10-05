@@ -19,6 +19,10 @@
  *
  * Versioning: structs carry their size and grow only at the end. Fields are
  * never reordered or removed. FX_ABI_VERSION bumps on incompatible changes.
+ * Additive revisions keep FX_ABI_VERSION 1: v1.1 (ADR-015: fx_env.sel_mask,
+ * FX_FLAG_NO_SEL_CLIP) and v1.2 (ADR-024: fx_host.notice,
+ * FXP_F_PREVIEW_ONLY). Widget hints the paint.c dialog understands are in
+ * fx_widgets.h.
  */
 #ifndef FX_ABI_H
 #define FX_ABI_H
@@ -68,6 +72,12 @@ typedef enum fxp_kind {
 #define FXP_F_SLIDER_LOG   1u   /* logarithmic slider (large radius ranges) */
 #define FXP_F_PERCENT      2u   /* display value with a % sign */
 #define FXP_F_NO_PREVIEW   4u   /* changing it does not restart the preview */
+/* v1.2 (ADR-024): a preview aid. Hosts reset the value to its default for
+ * the final render (OK, Repeat, runs without a dialog), so it never reaches
+ * the image; older hosts ignore the bit and apply what the preview shows.
+ * Jobs and fx_run_sync render the params they are given. (8 is
+ * FXP_F_COLOR_NO_ALPHA in fx_abi_ext.h.) */
+#define FXP_F_PREVIEW_ONLY 16u
 
 typedef struct fx_prop {
     const char *key;               /* stable ASCII id, used by saved presets */
@@ -105,6 +115,14 @@ typedef struct fx_host {
     void   (*free)(void *p);
     int    (*cancelled)(const void *job);  /* poll at least once per row */
     void   (*log)(int level, const char *utf8);   /* 0 info, 1 warn, 2 error */
+    /* Added in v1.2 (ADR-024; check size >= offsetof(fx_host, notice) +
+     * sizeof, and NULL): a message for the user about this invocation, such
+     * as why it leaves the image unchanged ("There is no object to align").
+     * job is the value passed to prepare() or render(); utf8 is one or two
+     * short sentences, copied by the host (at most 511 bytes are kept). The
+     * first notice of an invocation wins, later ones are ignored. paint.c
+     * shows it in a message box once the render ends. Any thread. */
+    void   (*notice)(const void *job, const char *utf8);
 } fx_host;
 
 /* fx_effect.flags */

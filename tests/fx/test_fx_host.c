@@ -1,7 +1,8 @@
 /* test_fx_host.c - effect host runtime (lane L5a): validation, menu paths,
  * registry, parameters, presets (round trip and parser robustness), the job
  * runner (prepare once, ROI queue, priority order, cancellation, failures,
- * the AGAIN protocol) and the fx_test_util.h detectors themselves. */
+ * the AGAIN protocol), notices (ADR-024) and the fx_test_util.h detectors
+ * themselves. */
 #include "fx_test_util.h"
 #include "fx/fx_builtin.h"
 
@@ -952,6 +953,113 @@ static void t_job_stress(void)
 }
 #endif
 
+/* ==== notices (ADR-024) ============================================================ */
+static char g_long_note[700];
+
+static int note_prepare(const void *params, const fx_img *src, const fx_env *env,
+                        const fx_host *host, const void *job, void **state)
+{
+    int32_t kind;
+    (void)src;
+    (void)env;
+    memcpy(&kind, params, sizeof kind);
+    *state = NULL;
+    if (host->size < offsetof(fx_host, notice) + sizeof host->notice || !host->notice)
+        return FX_ERROR;
+    if (kind == 1) {
+        host->notice(job, "first");
+        host->notice(job, "second");
+    } else if (kind == 2) {
+        host->notice(job, g_long_note);
+    }
+    return FX_OK;
+}
+
+/* kind 3: every ROI reports its own notice, from several threads */
+static int note_render(const void *params, const void *state, const fx_img *src, fx_img *dst,
+                       fx_rect roi, const fx_env *env, const fx_host *host, const void *job)
+{
+    int32_t kind;
+    (void)state;
+    (void)env;
+    memcpy(&kind, params, sizeof kind);
+    if (kind == 3) {
+        char msg[64];
+        snprintf(msg, sizeof msg, "roi %d,%d", (int)roi.x, (int)roi.y);
+        host->notice(job, msg);
+    }
+    for (int32_t y = roi.y; y < roi.y + roi.h; y++)
+        memcpy(fx_row(dst, y) + roi.x, fx_row(src, y) + roi.x, (size_t)roi.w * 4u);
+    return FX_OK;
+}
+
+static const fx_prop k_note_props[] = {
+    { "kind", "Kind", FXP_INT, 0u, 0.0, 3.0, 0.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+};
+static const fx_effect k_note = {
+    sizeof(fx_effect), "test.note", "Effects/Test/Note", k_note_props, 1u, 4u, 0u,
+    NULL, note_prepare, NULL, note_render
+};
+
+static void t_notice(void)
+{
+    const fx_host *h = fx_run_host();
+    fx_img src = fxt_img_new(fxt_rect(0, 0, 40, 30), 4), dst = fxt_img_new(src.r, 4);
+    fx_env env = fxt_env(40, 30, src.r);
+    CHECK(h->size >= offsetof(fx_host, notice) + sizeof h->notice && h->notice != NULL);
+    h->notice(NULL, "dropped");                              /* no job: ignored */
+    CHECK(fx_job_notice(NULL) == NULL);
+    {
+        size_t n = 0;
+        while (n + 2u < sizeof g_long_note) {                /* U+00E9, 2 bytes each */
+            g_long_note[n++] = (char)0xC3;
+            g_long_note[n++] = (char)0xA9;
+        }
+        g_long_note[n] = '\0';
+    }
+    for (int32_t kind = 0; kind <= 3; kind++) {
+        fx_job *job = NULL;
+        const char *note;
+        if (fx_job_create(&k_note, &kind, &src, &dst, &env, env.sel, 8, NULL, &job) != PC_OK) {
+            CHECK(false);
+            continue;
+        }
+        CHECK(fx_job_notice(job) == NULL);
+#if FXT_HAVE_THREADS
+        {
+            fxt_thread th[3];
+            fxt_worker wk[3];
+            uint32_t started = 0;
+            for (uint32_t w = 0; w < 3u; w++) {
+                wk[w].job = job;
+                wk[w].index = w + 1u;
+                if (fxt_thread_start(&th[started], fxt_worker_main, &wk[w])) started++;
+            }
+            while (fx_job_work(job, 0u) == FX_WORK_AGAIN) fxt_yield();
+            for (uint32_t t = 0; t < started; t++) fxt_thread_join(th[t]);
+        }
+#else
+        while (fx_job_work(job, 0u) == FX_WORK_AGAIN) {}
+#endif
+        CHECK(fx_job_state(job) == FX_JOB_DONE);
+        note = fx_job_notice(job);
+        if (kind == 0) {
+            CHECK(note == NULL);
+        } else if (kind == 1) {
+            CHECK(note && strcmp(note, "first") == 0);       /* the first one wins */
+        } else if (kind == 2) {
+            /* cut to FX_NOTICE_MAX - 1 bytes at a character boundary */
+            CHECK(note && strlen(note) == FX_NOTICE_MAX - 2u);
+            CHECK(note && memcmp(note, g_long_note, FX_NOTICE_MAX - 2u) == 0);
+        } else {
+            CHECK(note && strncmp(note, "roi ", 4u) == 0);    /* exactly one of them */
+        }
+        fx_job_destroy(job);
+    }
+    fxt_img_free(&src);
+    fxt_img_free(&dst);
+}
+
 int main(int argc, char **argv)
 {
     pc_test_init(argc, argv);
@@ -968,6 +1076,7 @@ int main(int argc, char **argv)
     RUN(t_job_basics);
     RUN(t_job_prepare_and_failures);
     RUN(t_detectors);
+    RUN(t_notice);
 #if FXT_HAVE_THREADS
     RUN(t_job_again);
     RUN(t_job_stress);

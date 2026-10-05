@@ -48,7 +48,9 @@ extern "C" {
 /* The host table every effect receives: alloc/free are malloc/free (one heap
  * for plugins and host, X-17), cancelled() reads the cancel flag of the
  * fx_job passed as `job` (NULL job: never cancelled), log() forwards to the
- * hook below. Static storage, valid for the whole process. Any thread. */
+ * hook below, notice() (v1.2, ADR-024) stores the first notice on the
+ * fx_job passed as `job` (fx_job_notice; NULL job: dropped). Static
+ * storage, valid for the whole process. Any thread. */
 const fx_host *fx_run_host(void);
 
 /* Log hook for messages from effects and from the registry (rejected
@@ -276,6 +278,15 @@ uint32_t fx_job_roi_count(const fx_job *job);
 fx_rect  fx_job_roi(const fx_job *job, uint32_t i); /* queue order; empty if out of range */
 uint32_t fx_job_active_workers(const fx_job *job);  /* callers inside work() now */
 const void *fx_job_params(const fx_job *job);      /* the job's clamped copy */
+
+/* ADR-024: the message the effect reported for this job through
+ * fx_host.notice (the first one, at most FX_NOTICE_MAX - 1 bytes, cut at a
+ * UTF-8 boundary), or NULL when it reported none so far. Borrowed until
+ * fx_job_destroy. Any thread; once the job is DONE every notice of its
+ * prepare() and renders is visible. Notices of jobs that are not fx_job
+ * objects (a NULL job) are dropped. */
+#define FX_NOTICE_MAX 512u
+const char *fx_job_notice(const fx_job *job);
 
 /* Diagnostics for tests: host->cancelled() turns the cancel flag on by itself
  * at its n-th poll (0 disables). fx_job_polls counts polls so far. */
