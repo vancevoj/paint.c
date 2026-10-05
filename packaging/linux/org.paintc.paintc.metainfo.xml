@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata of paint.c (validated with appstreamcli validate). -->
+<component type="desktop-application">
+  <id>org.paintc.paintc</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>paint.c</name>
+  <summary>Edit images with layers, effects and adjustments</summary>
+  <developer id="org.paintc">
+    <name>The paint.c authors</name>
+  </developer>
+  <description>
+    <p>
+      paint.c is a fast native image editor written in C. It follows the workflow
+      of a well known Windows image editor: layers with blend modes, unlimited
+      history, selection tools, painting tools, adjustments and effects.
+    </p>
+    <ul>
+      <li>Layers with opacity, blend modes and visibility</li>
+      <li>History of every change with undo and redo</li>
+      <li>Selections, brushes, shapes, text, gradients and fills</li>
+      <li>Adjustments and effects with live previews</li>
+      <li>Opens and saves PDN, PNG, JPEG, WebP, TIFF, BMP, GIF, TGA, DDS and OpenRaster</li>
+      <li>Autosave with crash recovery</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">org.paintc.paintc.desktop</launchable>
+  <provides>
+    <binary>paintc</binary>
+    <mediatype>image/x-paintnet</mediatype>
+    <mediatype>image/png</mediatype>
+    <mediatype>image/jpeg</mediatype>
+    <mediatype>image/bmp</mediatype>
+    <mediatype>image/gif</mediatype>
+    <mediatype>image/tiff</mediatype>
+    <mediatype>image/webp</mediatype>
+    <mediatype>image/x-tga</mediatype>
+    <mediatype>image/x-dds</mediatype>
+    <mediatype>image/openraster</mediatype>
+  </provides>
+  <categories>
+    <category>Graphics</category>
+    <category>2DGraphics</category>
+    <category>RasterGraphics</category>
+  </categories>
+  <keywords>
+    <keyword>image</keyword>
+    <keyword>photo</keyword>
+    <keyword>paint</keyword>
+    <keyword>layers</keyword>
+  </keywords>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <releases>
+    <release version="0.1.0" date="2026-10-05">
+      <description>
+        <p>First preview release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

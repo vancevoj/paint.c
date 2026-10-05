@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- paint.c bundle metadata (lane L2/L4), configured by src/app/CMakeLists.txt.
-     High DPI rendering, and document types for every format paint.c opens;
-     the .pdn and .ora types are declared as imported UTIs. -->
+<!-- paint.c bundle metadata (lanes L2/L4 and I), configured by src/app/CMakeLists.txt.
+     High DPI rendering, the icon (Resources/paintc.icns), one instance per
+     user (LaunchServices forwards opened documents as drop events), and
+     document types for every format paint.c opens; the .pdn and .ora types
+     are declared as imported UTIs. -->
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>               <string>paint.c</string>
@@ -18,6 +20,9 @@
   <key>NSHighResolutionCapable</key>    <true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key> <true/>
   <key>NSPrincipalClass</key>           <string>NSApplication</string>
+  <key>CFBundleIconFile</key>           <string>paintc.icns</string>
+  <key>LSMultipleInstancesProhibited</key> <true/>
+  <key>NSHumanReadableCopyright</key>   <string>MIT License. See Resources/licenses.</string>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>

@@ -1,14 +1,23 @@
-/* fileio.c - File menu flows (MENUS.md File, FILES.md):
- *  - Open: native dialog with filters from the codec registry (multi
- *    select), decoding on a worker, errors with pc_status_str;
- *  - Save / Save As: native save dialog, file type from the extension or
- *    filter, the Flatten prompt for flat formats (an undoable history
- *    step), the Save Configuration dialog generated from the codec's
- *    fx_prop options with a live preview and file size, encoding of a
- *    retained snapshot on a worker and pal_write_file_atomic;
- *  - Close with the unsaved-changes prompt, recent files, New Image.
- * Main thread; workers only see owned job data. */
+/* fileio.c - File menu flows (MENUS.md File, FILES.md), lane I:
+ *  - Open: native dialog with Paint.NET's type list (multi select), decoding
+ *    on a worker (content sniffing, FL-SNIFF), errors with the path and
+ *    pc_status_str (FL-ERR), already open files are activated;
+ *  - Save / Save As / Save All: native save dialog, the file type from the
+ *    typed extension or the type filter, Save Configuration (FS-CONFIG:
+ *    options from the codec's fx_prop list, live preview of the re-opened
+ *    result with zoom and pan, file size, options remembered per image and
+ *    per type), then the Flatten prompt (FS-FLATTEN, an undoable history
+ *    step; OBSERVED 3.3 shows it after the options), then encoding of a
+ *    retained snapshot on a worker and an atomic replace (FS-ATOMIC);
+ *  - Close with the unsaved changes prompt; Close All and Exit with the
+ *    list of unsaved images (3.36 UnsavedChangesDialog semantics);
+ *  - New Image (sizes, resolution, print size, remembered choices).
+ *
+ * Thread rules: main thread; workers only see owned job data (snapshots
+ * share immutable tiles). Ownership: flows own their state until their done
+ * callback ran. */
 #include "app_internal.h"
+#include "io/io_internal.h"
 #include "pc/pc_layerops.h"
 
 #include <math.h>
@@ -16,45 +25,166 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_OPEN_BYTES ((uint64_t)3u << 30)
+#define MAX_OPEN_BYTES   ((uint64_t)3u << 30)
+#define PREVIEW_MAX_SIDE 2048
+#define FILE_STATE_KEY   "lane_i.fileio"
 
-/* ---- codecs and filters ------------------------------------------------------------- */
-typedef struct filter_set {
-    pal_filter      f[40];
-    const pc_codec *codec[40];       /* codec of filter i (NULL for "All") */
-    int             n;
-    char            all[512];
-} filter_set;
+/* ---- per-app state ----------------------------------------------------------------- */
+typedef struct file_state {
+    char  **opening;            /* paths being decoded (owned strings) */
+    int32_t nopening, cap_opening;
+} file_state;
 
-static void build_filters(filter_set *fs, bool save)
+static void file_state_free(void *p)
 {
-    size_t n = 0;
+    file_state *s = (file_state *)p;
+    if (!s) return;
+    for (int32_t i = 0; i < s->nopening; i++) free(s->opening[i]);
+    free(s->opening);
+    free(s);
+}
+
+static file_state *fstate(app *a)
+{
+    file_state *s = (file_state *)app_ext_get(a, FILE_STATE_KEY);
+    if (s) return s;
+    s = (file_state *)calloc(1u, sizeof *s);
+    if (!s) return NULL;
+    if (!app_ext_set(a, FILE_STATE_KEY, s, file_state_free)) {
+        free(s);
+        return NULL;
+    }
+    return s;
+}
+
+static bool opening_has(app *a, const char *path)
+{
+    file_state *s = fstate(a);
+    if (!s) return false;
+    for (int32_t i = 0; i < s->nopening; i++)
+        if (strcmp(s->opening[i], path) == 0) return true;
+    return false;
+}
+
+static bool opening_add(app *a, const char *path)
+{
+    file_state *s = fstate(a);
+    char *p;
+    if (!s) return false;
+    if (s->nopening == s->cap_opening) {
+        int32_t nc = s->cap_opening ? s->cap_opening * 2 : 8;
+        char **n = (char **)realloc(s->opening, (size_t)nc * sizeof *n);
+        if (!n) return false;
+        s->opening = n;
+        s->cap_opening = nc;
+    }
+    p = app_strdup(path);
+    if (!p) return false;
+    s->opening[s->nopening++] = p;
+    return true;
+}
+
+static void opening_remove(app *a, const char *path)
+{
+    file_state *s = fstate(a);
+    if (!s) return;
+    for (int32_t i = 0; i < s->nopening; i++)
+        if (strcmp(s->opening[i], path) == 0) {
+            free(s->opening[i]);
+            memmove(&s->opening[i], &s->opening[i + 1],
+                    (size_t)(s->nopening - i - 1) * sizeof *s->opening);
+            s->nopening--;
+            return;
+        }
+}
+
+int app_opening_count(const app *a)
+{
+    const file_state *s = (const file_state *)app_ext_get(a, FILE_STATE_KEY);
+    return s ? (int)s->nopening : 0;
+}
+
+/* ---- file types ----------------------------------------------------------------------- */
+/* Paint.NET's Save As type order (OBSERVED 3.3), then paint.c extras. */
+static const char *const k_type_order[] = { "pdn", "png", "jpeg", "jxl", "avif", "heic", "webp",
+                                            "dds", "tiff", "gif", "bmp", "tga", "jxr", "ora" };
+static const struct { const char *id, *label; } k_type_label[] = {
+    { "pdn", "Paint.NET" }, { "png", "PNG" }, { "jpeg", "JPEG" }, { "jxl", "JPEG XL" },
+    { "avif", "AV1 (AVIF)" }, { "heic", "HEIC" }, { "webp", "WebP" },
+    { "dds", "DirectDraw Surface (DDS)" }, { "tiff", "TIFF" }, { "gif", "GIF" }, { "bmp", "BMP" },
+    { "tga", "TGA" }, { "jxr", "JPEG XR" }, { "ora", "OpenRaster" }
+};
+
+static const char *type_label(const pc_codec *c)
+{
+    for (size_t i = 0; i < sizeof k_type_label / sizeof k_type_label[0]; i++)
+        if (strcmp(k_type_label[i].id, c->id) == 0) return k_type_label[i].label;
+    return c->name;
+}
+
+/* Codecs with the needed flag in display order. Returns the count. */
+static size_t ordered_codecs(const pc_codec **out, size_t cap, uint32_t flag)
+{
+    size_t n = 0, k = 0;
     const pc_codec *const *list = pc_codec_list(&n);
+    for (size_t o = 0; o < sizeof k_type_order / sizeof k_type_order[0]; o++)
+        for (size_t i = 0; i < n; i++)
+            if (strcmp(list[i]->id, k_type_order[o]) == 0 && (list[i]->flags & flag) &&
+                k < cap)
+                out[k++] = list[i];
+    for (size_t i = 0; i < n; i++) {
+        bool known = false;
+        for (size_t o = 0; o < sizeof k_type_order / sizeof k_type_order[0]; o++)
+            if (strcmp(list[i]->id, k_type_order[o]) == 0) known = true;
+        if (!known && (list[i]->flags & flag) && k < cap) out[k++] = list[i];
+    }
+    return k;
+}
+
+/* "JPEG (*.jpg; *.jpeg; *.jpe)" */
+static void filter_label(const pc_codec *c, char *out, size_t cap)
+{
+    size_t at;
+    const char *e = c->exts;
+    snprintf(out, cap, "%s (", type_label(c));
+    at = strlen(out);
+    while (*e && at + 8u < cap) {
+        if (e != c->exts) { out[at++] = ';'; out[at++] = ' '; }
+        out[at++] = '*';
+        out[at++] = '.';
+        while (*e && *e != ';' && at + 3u < cap) out[at++] = *e++;
+        if (*e == ';') e++;
+    }
+    out[at++] = ')';
+    out[at] = '\0';
+}
+
+void io_build_filters(io_filters *fs, bool save)
+{
+    const pc_codec *cs[32];
+    size_t n = ordered_codecs(cs, 32u, save ? PC_CODEC_SAVE : PC_CODEC_LOAD);
     memset(fs, 0, sizeof *fs);
     if (!save) {
-        fs->all[0] = '\0';
         for (size_t i = 0; i < n; i++) {
-            if (!(list[i]->flags & PC_CODEC_LOAD)) continue;
             if (fs->all[0]) strncat(fs->all, ";", sizeof fs->all - strlen(fs->all) - 1u);
-            strncat(fs->all, list[i]->exts, sizeof fs->all - strlen(fs->all) - 1u);
+            strncat(fs->all, cs[i]->exts, sizeof fs->all - strlen(fs->all) - 1u);
         }
-        fs->f[fs->n].name = "All images";
-        fs->f[fs->n].pattern = fs->all;
-        fs->codec[fs->n] = NULL;
-        fs->n++;
+        app_copy_str(fs->label[0], sizeof fs->label[0], "All images");
+        fs->f[0].name = fs->label[0];
+        fs->f[0].pattern = fs->all;
+        fs->n = 1;
     }
     for (size_t i = 0; i < n && fs->n < 38; i++) {
-        const pc_codec *c = list[i];
-        if (!(c->flags & (save ? PC_CODEC_SAVE : PC_CODEC_LOAD))) continue;
-        fs->f[fs->n].name = c->name;
-        fs->f[fs->n].pattern = c->exts;
-        fs->codec[fs->n] = c;
+        filter_label(cs[i], fs->label[fs->n], sizeof fs->label[0]);
+        fs->f[fs->n].name = fs->label[fs->n];
+        fs->f[fs->n].pattern = cs[i]->exts;
+        fs->codec[fs->n] = cs[i];
         fs->n++;
     }
     if (!save) {
-        fs->f[fs->n].name = "All files";
+        app_copy_str(fs->label[fs->n], sizeof fs->label[0], "All files");
+        fs->f[fs->n].name = fs->label[fs->n];
         fs->f[fs->n].pattern = "*";
-        fs->codec[fs->n] = NULL;
         fs->n++;
     }
 }
@@ -67,9 +197,44 @@ static void default_ext(const pc_codec *c, char *out, size_t cap)
     out[k] = '\0';
 }
 
-static void set_dir_from(char *dir, size_t cap, const char *path)
+const pc_codec *io_codec_for_path(const char *path, const pc_codec *fallback)
 {
-    pal_path_dirname(dir, cap, path);
+    const pc_codec *c = path ? pc_codec_by_ext(pal_path_ext(path)) : NULL;
+    if (c && (c->flags & PC_CODEC_SAVE)) return c;
+    return fallback && (fallback->flags & PC_CODEC_SAVE) ? fallback : NULL;
+}
+
+/* ---- remembered save options ------------------------------------------------------------ */
+static bool param_key(const pc_codec *c, const fx_prop *p, char *key, size_t cap)
+{
+    if (!p->key || p->kind == FXP_POINT || p->kind == FXP_CUSTOM || p->kind == FXP_SEED)
+        return false;
+    snprintf(key, cap, "file.save.%s.%s", c->id, p->key);
+    return true;
+}
+
+void io_params_load(app *a, const pc_codec *c, void *params)
+{
+    if (!c || !params || !c->params_size) return;
+    pc_codec_default_params(c, params);
+    for (uint32_t i = 0; i < c->n_props; i++) {
+        char key[160];
+        const char *v;
+        if (!param_key(c, &c->props[i], key, sizeof key)) continue;
+        v = app_settings_get(a->settings, key);
+        if (v && *v) app_prop_set(&c->props[i], params, app_settings_double(a->settings, key,
+                                                                          c->props[i].def));
+    }
+}
+
+void io_params_store(app *a, const pc_codec *c, const void *params)
+{
+    if (!c || !params || !c->params_size) return;
+    for (uint32_t i = 0; i < c->n_props; i++) {
+        char key[160];
+        if (!param_key(c, &c->props[i], key, sizeof key)) continue;
+        (void)app_settings_set_double(a->settings, key, app_prop_get(&c->props[i], params));
+    }
 }
 
 /* ---- recent files -------------------------------------------------------------------- */
@@ -88,7 +253,10 @@ void app_recent_add(app *a, const char *path)
     }
     p = app_strdup(path);
     if (!p) return;
-    if (a->nrecent == APP_MAX_RECENT) free(a->recent[--a->nrecent]);
+    if (a->nrecent == APP_MAX_RECENT) {
+        io_recent_thumb(a, a->recent[a->nrecent - 1], NULL, 0, 0);
+        free(a->recent[--a->nrecent]);
+    }
     memmove(&a->recent[1], &a->recent[0], (size_t)a->nrecent * sizeof *a->recent);
     a->recent[0] = p;
     a->nrecent++;
@@ -123,27 +291,11 @@ void app_recent_store(app *a)
     if (a->last_save_dir[0]) app_settings_set(a->settings, "file.save_dir", a->last_save_dir);
 }
 
-/* ---- metadata copies for workers ----------------------------------------------------- */
-static pc_status meta_copy(const pc_image_meta *src, pc_image_meta *dst)
+static app_doc *doc_by_id(app *a, uint32_t id)
 {
-    memset(dst, 0, sizeof *dst);
-    dst->dpi_x = src->dpi_x;
-    dst->dpi_y = src->dpi_y;
-    dst->src_bits = src->src_bits;
-    dst->had_alpha = src->had_alpha;
-    memcpy(dst->note, src->note, sizeof dst->note);
-    if (src->icc && src->icc_len) {
-        dst->icc = (uint8_t *)malloc(src->icc_len);
-        if (!dst->icc) return PC_ERR_NOMEM;
-        memcpy(dst->icc, src->icc, src->icc_len);
-        dst->icc_len = src->icc_len;
-    }
-    for (size_t i = 0; i < src->n_items; i++)
-        if (pc_meta_add(dst, src->items[i].key, src->items[i].value) != PC_OK) {
-            pc_meta_free(dst);
-            return PC_ERR_NOMEM;
-        }
-    return PC_OK;
+    for (int32_t i = 0; i < a->ndocs; i++)
+        if (a->docs[i]->id == id) return a->docs[i];
+    return NULL;
 }
 
 /* ---- open ---------------------------------------------------------------------------- */
@@ -153,15 +305,11 @@ typedef struct open_job {
     pc_image_meta   meta;
     const pc_codec *codec;
     pc_status       st;
+    bool            missing;
+    uint8_t        *thumb;          /* recent list thumbnail (owned) */
+    int32_t         tw, th;
+    char           *thumb_file;     /* its cache file, NULL = none (owned) */
 } open_job;
-
-static int g_opening;
-
-int app_opening_count(const app *a)
-{
-    (void)a;
-    return g_opening;
-}
 
 static void open_work(void *ud)
 {
@@ -169,11 +317,18 @@ static void open_work(void *ud)
     uint8_t *data = NULL;
     size_t len = 0;
     pc_codec_limits lim;
+    if (!pal_file_exists(j->path)) {
+        j->missing = true;
+        j->st = PC_ERR_IO;
+        return;
+    }
     j->st = pal_read_file(j->path, MAX_OPEN_BYTES, &data, &len);
     if (j->st != PC_OK) return;
     pc_codec_limits_default(&lim);
     j->st = pc_codec_load_any(data, len, j->path, &lim, &j->doc, &j->meta, &j->codec);
     free(data);
+    if (j->st == PC_OK && j->doc) j->thumb = io_thumb_rgba(j->doc, IO_THUMB_MAX, &j->tw, &j->th);
+    if (j->thumb && j->thumb_file) (void)io_thumb_write(j->thumb_file, j->thumb, j->tw, j->th);
 }
 
 static bool startup_untouched(app *a, app_doc *d)
@@ -182,32 +337,53 @@ static bool startup_untouched(app *a, app_doc *d)
            d->hist->cur == d->hist->root && d->hist->count == 1u;
 }
 
+static void open_error(app *a, const char *path, pc_status st, bool missing)
+{
+    if (missing) app_error(a, "Could not open \"%s\": the file does not exist.", path);
+    else app_error(a, "Could not open \"%s\": %s.", path, pc_status_str(st));
+}
+
 static void open_done(app *a, void *ud)
 {
     open_job *j = (open_job *)ud;
-    g_opening--;
+    opening_remove(a, j->path);
     if (j->st != PC_OK || !j->doc) {
-        app_error(a, "Could not open \"%s\": %s.", j->path, pc_status_str(j->st));
+        open_error(a, j->path, j->st, j->missing);
     } else {
         app_doc *old = NULL;
         app_doc *d;
+        /* load by content (FL-SNIFF), save by name: a WebP file called .png
+         * opens as WebP and Save writes PNG into the .png */
+        const pc_codec *save_codec = io_codec_for_path(j->path, j->codec);
         for (int32_t i = 0; i < a->ndocs; i++)
             if (startup_untouched(a, a->docs[i])) old = a->docs[i];
-        d = app_doc_create(a, j->doc, j->path, j->codec, &j->meta, "Open Image");
+        d = app_doc_create(a, j->doc, j->path, save_codec ? save_codec : j->codec, &j->meta,
+                           "Open Image");
         j->doc = NULL;
         if (!d) {
             app_error(a, "Could not open \"%s\": %s.", j->path, pc_status_str(PC_ERR_NOMEM));
         } else if (app_add_doc(a, d)) {
             app_recent_add(a, j->path);
-            set_dir_from(a->last_open_dir, sizeof a->last_open_dir, j->path);
+            io_recent_thumb(a, j->path, j->thumb, j->tw, j->th);
+            j->thumb = NULL;
+            pal_path_dirname(a->last_open_dir, sizeof a->last_open_dir, j->path);
             /* an untouched startup image is replaced by the first opened one */
             if (old) app_close_doc_now(a, old);
         }
     }
     pc_doc_destroy(j->doc);
     pc_meta_free(&j->meta);
+    free(j->thumb);
+    free(j->thumb_file);
     free(j->path);
     free(j);
+}
+
+/* The recent thumbnail cache file of path, owned (NULL when there is none). */
+static char *thumb_file_of(app *a, const char *path)
+{
+    char file[1100];
+    return io_recent_thumb_path(a, path, file, sizeof file) ? app_strdup(file) : NULL;
 }
 
 bool app_open_path(app *a, const char *path)
@@ -216,25 +392,36 @@ bool app_open_path(app *a, const char *path)
     if (!path || !*path) return false;
     for (int32_t i = 0; i < a->ndocs; i++)
         if (a->docs[i]->path && strcmp(a->docs[i]->path, path) == 0) {
-            app_set_active_doc(a, a->docs[i]);
+            app_set_active_doc(a, a->docs[i]);         /* F-MENU-FILE-OPEN-ALREADY */
             return true;
         }
+    if (opening_has(a, path)) return true;             /* already being decoded */
     j = (open_job *)calloc(1u, sizeof *j);
     if (!j) return false;
     j->path = app_strdup(path);
-    if (!j->path || !app_task(a, open_work, open_done, j)) {
+    j->thumb_file = thumb_file_of(a, path);
+    if (!j->path || !opening_add(a, path)) {
+        free(j->thumb_file);
         free(j->path);
         free(j);
         return false;
     }
-    g_opening++;
+    if (!app_task(a, open_work, open_done, j)) {
+        opening_remove(a, path);
+        free(j->thumb_file);
+        free(j->path);
+        free(j);
+        return false;
+    }
     app_status(a, NULL);
     return true;
 }
 
 void app_open_paths(app *a, const char *const *paths, int n)
 {
-    for (int i = 0; i < n; i++) (void)app_open_path(a, paths[i]);
+    for (int i = 0; i < n; i++)
+        if (paths[i] && *paths[i] && !app_open_path(a, paths[i]))
+            app_error(a, "Could not open \"%s\": %s.", paths[i], pc_status_str(PC_ERR_NOMEM));
 }
 
 static void open_dialog_cb(void *ud, const char *const *paths, int n, int filter)
@@ -246,18 +433,11 @@ static void open_dialog_cb(void *ud, const char *const *paths, int n, int filter
 
 void app_cmd_open_dialog(app *a)
 {
-    filter_set fs;
+    io_filters fs;
     const char *dir = a->last_open_dir[0] ? a->last_open_dir : pal_dir(PAL_DIR_PICTURES);
     if (!a->win) return;
-    build_filters(&fs, false);
+    io_build_filters(&fs, false);
     pal_dialog_open(a->win, fs.f, fs.n, dir, true, open_dialog_cb, a);
-}
-
-static app_doc *doc_by_id(app *a, uint32_t id)
-{
-    for (int32_t i = 0; i < a->ndocs; i++)
-        if (a->docs[i]->id == id) return a->docs[i];
-    return NULL;
 }
 
 /* ---- save ---------------------------------------------------------------------------- */
@@ -267,6 +447,7 @@ typedef struct save_flow {
     char            *path;
     const pc_codec  *codec;
     void            *params;          /* owned, codec->params_size bytes */
+    bool             configured;      /* the options dialog ran (or there are no options) */
     app_save_done_fn done;
     void            *ud;
 } save_flow;
@@ -286,14 +467,18 @@ static void flow_finish(app *a, save_flow *f, bool ok)
     flow_free(f);
 }
 
-static bool flow_set_codec(save_flow *f, const pc_codec *c, const void *params)
+/* Use codec c for the flow: params from the image when it already saves
+ * as c with chosen options, else the remembered options of the type. */
+static bool flow_set_codec(app *a, save_flow *f, app_doc *d, const pc_codec *c)
 {
     void *p = NULL;
     if (c && c->params_size) {
         p = malloc(c->params_size);
         if (!p) return false;
-        if (params) memcpy(p, params, c->params_size);
-        else pc_codec_default_params(c, p);
+        if (d && d->codec == c && d->save_params && d->save_configured)
+            memcpy(p, d->save_params, c->params_size);
+        else
+            io_params_load(a, c, p);
     }
     free(f->params);
     f->params = p;
@@ -306,10 +491,14 @@ typedef struct write_job {
     pc_doc         *snap;
     pc_image_meta   meta;
     const pc_codec *codec;
-    void           *params;          /* borrowed from the flow (alive until done) */
+    void           *params;          /* owned copy */
     char           *path;
     uint64_t        seq;
+    bool            configured;
     pc_status       st;
+    uint8_t        *thumb;
+    int32_t         tw, th;
+    char           *thumb_file;      /* recent thumbnail cache file (owned, may be NULL) */
     save_flow      *flow;            /* NULL for direct saves */
 } write_job;
 
@@ -329,6 +518,8 @@ static void write_work(void *ud)
 {
     write_job *j = (write_job *)ud;
     j->st = encode_and_write(j->snap, &j->meta, j->codec, j->params, j->path);
+    if (j->st == PC_OK) j->thumb = io_thumb_rgba(j->snap, IO_THUMB_MAX, &j->tw, &j->th);
+    if (j->thumb && j->thumb_file) (void)io_thumb_write(j->thumb_file, j->thumb, j->tw, j->th);
 }
 
 static void write_finish(app *a, write_job *j)
@@ -337,9 +528,11 @@ static void write_finish(app *a, write_job *j)
     if (j->st == PC_OK && d) {
         (void)app_doc_set_file(d, j->path, j->codec, j->params);
         d->saved_seq = j->seq;
-        d->save_configured = true;
+        d->save_configured = j->configured;
         app_recent_add(a, j->path);
-        set_dir_from(a->last_save_dir, sizeof a->last_save_dir, j->path);
+        io_recent_thumb(a, j->path, j->thumb, j->tw, j->th);
+        j->thumb = NULL;
+        pal_path_dirname(a->last_save_dir, sizeof a->last_save_dir, j->path);
         app_request_frame(a);
     } else if (j->st != PC_OK) {
         app_error(a, "Could not save \"%s\": %s.", j->path, pc_status_str(j->st));
@@ -353,7 +546,9 @@ static void write_done(app *a, void *ud)
     pc_doc_destroy(j->snap);
     pc_meta_free(&j->meta);
     if (j->flow) flow_finish(a, j->flow, j->st == PC_OK);
-    else free(j->params);
+    free(j->params);
+    free(j->thumb);
+    free(j->thumb_file);
     free(j->path);
     free(j);
 }
@@ -368,13 +563,21 @@ static write_job *make_write_job(app_doc *d, const char *path, const pc_codec *c
     j->path = app_strdup(path);
     j->snap = app_doc_snapshot(d);
     j->seq = d->hist->cur->seq;
-    if (!j->path || !j->snap || meta_copy(&d->meta, &j->meta) != PC_OK) {
+    if (codec->params_size) {
+        j->params = malloc(codec->params_size);
+        if (j->params) {
+            if (params) memcpy(j->params, params, codec->params_size);
+            else pc_codec_default_params(codec, j->params);
+        }
+    }
+    if (!j->path || !j->snap || (codec->params_size && !j->params) ||
+        io_meta_copy(&d->meta, &j->meta) != PC_OK) {
         pc_doc_destroy(j->snap);
+        free(j->params);
         free(j->path);
         free(j);
         return NULL;
     }
-    (void)params;
     return j;
 }
 
@@ -389,7 +592,8 @@ static void step_write(app *a, save_flow *f)
         flow_finish(a, f, false);
         return;
     }
-    j->params = f->params;
+    j->configured = f->configured;
+    j->thumb_file = thumb_file_of(a, f->path);
     j->flow = f;
     if (!app_task(a, write_work, write_done, j)) {
         write_work(j);                      /* no worker: save synchronously */
@@ -397,26 +601,65 @@ static void step_write(app *a, save_flow *f)
     }
 }
 
-/* ---- Save Configuration (FS-CONFIG): props + preview + file size --------------------- */
+/* FS-FLATTEN: after the options (OBSERVED 3.3), before writing. */
+static void flatten_choice(app *a, int pick, void *ud)
+{
+    save_flow *f = (save_flow *)ud;
+    app_doc *d = doc_by_id(a, f->doc_id);
+    pc_status st;
+    if (pick != 0 || !d) { flow_finish(a, f, false); return; }
+    st = pc_layerop_flatten(d->hist, &a->par, "Flatten");
+    if (st != PC_OK) {
+        app_error(a, "Could not flatten the image: %s.", pc_status_str(st));
+        flow_finish(a, f, false);
+        return;
+    }
+    app_doc_history_changed(a, d);
+    step_write(a, f);
+}
+
+static void step_flatten(app *a, save_flow *f)
+{
+    app_doc *d = doc_by_id(a, f->doc_id);
+    if (!d) { flow_finish(a, f, false); return; }
+    if (!(f->codec->flags & PC_CODEC_LAYERED) && d->doc->n_layers > 1u) {
+        char text[512];
+        snprintf(text, sizeof text,
+                 "The %s file type keeps a single layer, so the image is flattened before it "
+                 "is saved. The flattening is a step in the History window and can be undone "
+                 "after saving.", type_label(f->codec));
+        app_choice(a, "Flatten Image", text, UI_ICON_LAYER_MERGE, "Flatten", "Cancel", NULL, 0, 1,
+                   d->id, flatten_choice, f);
+        return;
+    }
+    step_write(a, f);
+}
+
+/* ---- Save Configuration (FS-CONFIG): options + preview + file size -------------------- */
 typedef struct cfg_dlg {
-    save_flow   *flow;
-    void        *params;               /* working copy */
-    void        *initial;
-    char         title[96];
-    pc_doc      *snap;                 /* preview source */
+    save_flow    *flow;
+    void         *params;              /* working copy */
+    char          title[96];
+    pc_doc       *snap;                /* preview source (shared tiles) */
     pc_image_meta meta;
-    SDL_Texture *tex;
-    int32_t      tw, th;
-    char         info[96];
-    uint32_t     gen;                  /* bumps with every change */
-    bool         running, dirty;
-    bool         ended;                /* the dialog closed while a job ran */
+    SDL_Texture  *tex;
+    int32_t       tw, th;              /* texture size */
+    uint32_t      img_w, img_h;        /* decoded image size */
+    char          info[128];
+    uint32_t      gen;                 /* bumps with every change */
+    bool          running, dirty;
+    bool          ended;               /* the dialog closed while a job ran */
+    bool          have_result;
+    /* preview view: zoom (screen px per image px, 0 = fit) and center */
+    double        zoom, cx, cy;
+    bool          panning;
+    float         pan_x, pan_y;
 } cfg_dlg;
 
 typedef struct cfg_job {
     cfg_dlg        *dlg;
     uint32_t        gen;
-    pc_doc         *snap;
+    pc_doc         *snap;              /* borrowed from the dialog (alive until done) */
     pc_image_meta  *meta;
     const pc_codec *codec;
     void           *params;            /* owned copy */
@@ -424,6 +667,7 @@ typedef struct cfg_job {
     pc_status       st;
     uint8_t        *rgba;              /* owned preview, tw x th */
     int32_t         tw, th;
+    uint32_t        img_w, img_h;
 } cfg_job;
 
 static void cfg_free(void *p)
@@ -438,19 +682,19 @@ static void cfg_free(void *p)
     pc_doc_destroy(c->snap);
     pc_meta_free(&c->meta);
     free(c->params);
-    free(c->initial);
     free(c);
 }
 
-/* Composite a loaded preview document into a small RGBA thumbnail. */
+/* The re-opened image as RGBA, longest side at most PREVIEW_MAX_SIDE. */
 static uint8_t *preview_rgba(const pc_doc *d, int32_t *tw, int32_t *th)
 {
-    int32_t mw = 360, mh = 260, w, h;
+    int32_t w, h;
     uint8_t *out;
     pc_px32 *row;
-    double s = (double)mw / (double)d->w;
-    if ((double)mh / (double)d->h < s) s = (double)mh / (double)d->h;
-    if (s > 1.0) s = 1.0;
+    double s = 1.0;
+    if (d->w > PREVIEW_MAX_SIDE || d->h > PREVIEW_MAX_SIDE) {
+        s = (double)PREVIEW_MAX_SIDE / (double)(d->w > d->h ? d->w : d->h);
+    }
     w = (int32_t)((double)d->w * s + 0.5);
     h = (int32_t)((double)d->h * s + 0.5);
     if (w < 1) w = 1;
@@ -461,7 +705,7 @@ static uint8_t *preview_rgba(const pc_doc *d, int32_t *tw, int32_t *th)
     for (int32_t y = 0; y < h; y++) {
         int32_t sy = (int32_t)(((double)y + 0.5) / s);
         if (sy >= (int32_t)d->h) sy = (int32_t)d->h - 1;
-        pc_comp_rect(d, pc_rect_make(0, sy, (int32_t)d->w, 1), row, d->w, NULL);
+        (void)pc_comp_rect(d, pc_rect_make(0, sy, (int32_t)d->w, 1), row, d->w, NULL);
         for (int32_t x = 0; x < w; x++) {
             int32_t sx = (int32_t)(((double)x + 0.5) / s);
             uint8_t *o = out + ((size_t)y * (size_t)w + (size_t)x) * 4u;
@@ -491,6 +735,8 @@ static void cfg_work(void *ud)
             pc_codec_limits_default(&lim);
             if (j->codec->load(out.p, out.n, &lim, &back, &m) == PC_OK && back) {
                 j->rgba = preview_rgba(back, &j->tw, &j->th);
+                j->img_w = back->w;
+                j->img_h = back->h;
                 pc_doc_destroy(back);
             }
             pc_meta_free(&m);
@@ -500,6 +746,15 @@ static void cfg_work(void *ud)
 }
 
 static void cfg_start(app *a, cfg_dlg *c);
+
+static void format_size(double bytes, char *out, size_t cap)
+{
+    if (bytes < 1024.0) snprintf(out, cap, "%.0f bytes", bytes);
+    else if (bytes < 1024.0 * 1024.0) snprintf(out, cap, "%.1f KB", bytes / 1024.0);
+    else if (bytes < 1024.0 * 1024.0 * 1024.0)
+        snprintf(out, cap, "%.1f MB", bytes / (1024.0 * 1024.0));
+    else snprintf(out, cap, "%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0));
+}
 
 static void cfg_done(app *a, void *ud)
 {
@@ -515,11 +770,11 @@ static void cfg_done(app *a, void *ud)
     }
     if (j->gen == c->gen) {
         if (j->st == PC_OK) {
-            double kb = (double)j->bytes / 1024.0;
-            if (kb < 1024.0) snprintf(c->info, sizeof c->info, "File size: %.1f KB", kb);
-            else snprintf(c->info, sizeof c->info, "File size: %.2f MB", kb / 1024.0);
+            char sz[48];
+            format_size((double)j->bytes, sz, sizeof sz);
+            snprintf(c->info, sizeof c->info, "File size: %s", sz);
         } else {
-            snprintf(c->info, sizeof c->info, "Preview error: %s", pc_status_str(j->st));
+            snprintf(c->info, sizeof c->info, "File size: error (%s)", pc_status_str(j->st));
         }
         if (j->rgba) {
             if (c->tex && (c->tw != j->tw || c->th != j->th)) {
@@ -534,6 +789,9 @@ static void cfg_done(app *a, void *ud)
             if (c->tex) SDL_UpdateTexture(c->tex, NULL, j->rgba, j->tw * 4);
             c->tw = j->tw;
             c->th = j->th;
+            c->img_w = j->img_w;
+            c->img_h = j->img_h;
+            c->have_result = true;
         }
     }
     free(j->params);
@@ -570,52 +828,138 @@ static void cfg_start(app *a, cfg_dlg *c)
     }
 }
 
+static void cfg_changed(app *a, cfg_dlg *c)
+{
+    c->gen++;
+    if (c->running) c->dirty = true;
+    else cfg_start(a, c);
+}
+
+/* Fit zoom of the preview box (never above 100 %). */
+static double cfg_fit(const cfg_dlg *c, ui_rect box)
+{
+    double s;
+    if (c->img_w == 0u || c->img_h == 0u) return 1.0;
+    s = (double)(box.w - 12) / (double)c->img_w;
+    if ((double)(box.h - 12) / (double)c->img_h < s) s = (double)(box.h - 12) / (double)c->img_h;
+    return s > 1.0 ? 1.0 : s;
+}
+
+/* F-DLG-SAVECFG-ZOOMPAN: wheel zooms at the pointer, drag pans, double
+ * click returns to the fitted view. */
+static void cfg_preview(app *a, cfg_dlg *c, ui_rect box)
+{
+    ui_ctx *ui = a->ui;
+    const ui_palette *p = ui_pal(ui);
+    ui_interaction in = ui_interact(ui, ui_get_id(ui, "##cfgpreview"), box, 0u);
+    double fit = cfg_fit(c, box), z = c->zoom > 0.0 ? c->zoom : fit;
+    ui_vec2 wheel = ui_wheel_take(ui, box);
+    ui_draw_rrect(ui, box, 4.0f, p->field);
+    ui_draw_rrect_outline(ui, box, 4.0f, 1, p->border);
+    if (!c->tex || !c->have_result || c->img_w == 0u) return;
+    if (c->zoom <= 0.0) {
+        c->cx = (double)c->img_w * 0.5;
+        c->cy = (double)c->img_h * 0.5;
+    }
+    if (in.hovered && wheel.y != 0.0f) {
+        double mx = (double)in.mouse.x, my = (double)in.mouse.y;
+        double bx = (double)box.x + (double)box.w * 0.5, by = (double)box.y + (double)box.h * 0.5;
+        double ix = c->cx + (mx - bx) / z, iy = c->cy + (my - by) / z;
+        double nz = z * pow(1.25, (double)wheel.y);
+        if (nz < fit) nz = fit;
+        if (nz > 32.0) nz = 32.0;
+        c->cx = ix - (mx - bx) / nz;
+        c->cy = iy - (my - by) / nz;
+        c->zoom = nz <= fit ? 0.0 : nz;
+        z = nz;
+    }
+    if (in.double_clicked) c->zoom = 0.0;
+    if (in.pressed) {
+        c->panning = true;
+        c->pan_x = in.mouse.x;
+        c->pan_y = in.mouse.y;
+    }
+    if (c->panning && in.held && c->zoom > 0.0) {
+        c->cx -= (double)(in.mouse.x - c->pan_x) / z;
+        c->cy -= (double)(in.mouse.y - c->pan_y) / z;
+        c->pan_x = in.mouse.x;
+        c->pan_y = in.mouse.y;
+    }
+    if (!in.held) c->panning = false;
+    if (c->zoom <= 0.0) {
+        z = fit;
+        c->cx = (double)c->img_w * 0.5;
+        c->cy = (double)c->img_h * 0.5;
+    } else {
+        /* keep the image inside the box when it is larger */
+        double hw = (double)box.w * 0.5 / z, hh = (double)box.h * 0.5 / z;
+        if (hw * 2.0 < (double)c->img_w) {
+            if (c->cx < hw) c->cx = hw;
+            if (c->cx > (double)c->img_w - hw) c->cx = (double)c->img_w - hw;
+        } else {
+            c->cx = (double)c->img_w * 0.5;
+        }
+        if (hh * 2.0 < (double)c->img_h) {
+            if (c->cy < hh) c->cy = hh;
+            if (c->cy > (double)c->img_h - hh) c->cy = (double)c->img_h - hh;
+        } else {
+            c->cy = (double)c->img_h * 0.5;
+        }
+    }
+    {
+        double bx = (double)box.x + (double)box.w * 0.5, by = (double)box.y + (double)box.h * 0.5;
+        ui_rect img;
+        img.x = (int32_t)floor(bx - c->cx * z + 0.5);
+        img.y = (int32_t)floor(by - c->cy * z + 0.5);
+        img.w = (int32_t)((double)c->img_w * z + 0.5);
+        img.h = (int32_t)((double)c->img_h * z + 0.5);
+        if (img.w < 1) img.w = 1;
+        if (img.h < 1) img.h = 1;
+        ui_push_clip(ui, ui_rect_inset(box, 1, 1));
+        ui_draw_checker(ui, img, ui_px(ui, 6.0f), p->checker_a, p->checker_b);
+        ui_draw_image(ui, c->tex, NULL, img, z >= 1.0 ? UI_FILTER_NEAREST : UI_FILTER_LINEAR,
+                      ui_rgba(255, 255, 255, 255));
+        ui_pop_clip(ui);
+    }
+    if (in.hovered) ui_set_cursor(ui, c->zoom > 0.0 ? UI_CURSOR_MOVE : UI_CURSOR_DEFAULT);
+}
+
 static bool cfg_frame(app *a, void *st)
 {
     cfg_dlg *c = (cfg_dlg *)st;
     ui_ctx *ui = a->ui;
-    const ui_palette *p = ui_pal(ui);
     const pc_codec *codec = c->flow->codec;
     ui_size cells[2];
     app_props_ctx pctx;
     uint32_t r;
     bool ok = false, cancel = false, enter;
-    ui_dialog_begin(ui, c->title, 700.0f, 0.0f);
+    ui_dialog_begin(ui, c->title, 760.0f, 0.0f);
     enter = app_dialog_take_enter(a);
     cells[0] = ui_size_fr(1.0f);
-    cells[1] = ui_size_px(380.0f);
+    cells[1] = ui_size_px(420.0f);
     ui_layout_row(ui, 0.0f, 2, cells);
     ui_layout_begin(ui, 0.0f);
     memset(&pctx, 0, sizeof pctx);
     pctx.id = "##saveopts";
-    if (app_props_ui(a, codec->props, codec->n_props, c->params, &pctx) & APP_PROPS_CHANGED) {
-        c->gen++;
-        if (c->running) c->dirty = true;
-        else cfg_start(a, c);
-    }
+    if (app_props_ui(a, codec->props, codec->n_props, c->params, &pctx) & APP_PROPS_CHANGED)
+        cfg_changed(a, c);
     ui_layout_space(ui, 6.0f);
     if (ui_button_ex(ui, "Defaults##cfgdef", UI_ICON_RESET, 0)) {
         pc_codec_default_params(codec, c->params);
-        c->gen++;
-        if (c->running) c->dirty = true;
-        else cfg_start(a, c);
+        cfg_changed(a, c);
     }
     ui_layout_end(ui);
     ui_layout_begin(ui, 0.0f);
     {
-        ui_rect box = ui_layout_next(ui, ui_px(ui, 372.0f), ui_px(ui, 272.0f));
-        ui_draw_rrect(ui, box, 4.0f, p->field);
-        ui_draw_rrect_outline(ui, box, 4.0f, 1, p->border);
-        if (c->tex && c->tw > 0 && c->th > 0) {
-            float s = (float)(box.w - 12) / (float)c->tw;
-            ui_rect img;
-            if ((float)(box.h - 12) / (float)c->th < s) s = (float)(box.h - 12) / (float)c->th;
-            if (s > (float)ui_scale(ui)) s = ui_scale(ui);
-            img = ui_rect_center(box, (int32_t)((float)c->tw * s), (int32_t)((float)c->th * s));
-            ui_draw_checker(ui, img, ui_px(ui, 6.0f), p->checker_a, p->checker_b);
-            ui_draw_image(ui, c->tex, NULL, img, UI_FILTER_LINEAR, ui_rgba(255, 255, 255, 255));
-        }
+        ui_rect box = ui_layout_next(ui, ui_px(ui, 412.0f), ui_px(ui, 300.0f));
+        char zl[48];
+        cfg_preview(a, c, box);
         ui_label_ex(ui, c->info, UI_LABEL_DIM);
+        if (c->have_result) {
+            double z = c->zoom > 0.0 ? c->zoom : cfg_fit(c, box);
+            snprintf(zl, sizeof zl, "Preview %.0f%%  (wheel: zoom, drag: pan)", z * 100.0);
+            ui_label_ex(ui, zl, UI_LABEL_DIM | UI_LABEL_SMALL);
+        }
         if (c->running) app_request_frame_at(a, a->now + 50u);
     }
     ui_layout_end(ui);
@@ -627,10 +971,10 @@ static bool cfg_frame(app *a, void *st)
     else if (r) cancel = true;
     if (!ok && !cancel) return true;
     if (ok) {
-        app_doc *d = doc_by_id(a, c->flow->doc_id);
         memcpy(c->flow->params, c->params, codec->params_size);
-        if (d) d->save_configured = true;
-        step_write(a, c->flow);
+        io_params_store(a, codec, c->params);         /* last used options per type */
+        c->flow->configured = true;
+        step_flatten(a, c->flow);
     } else {
         flow_finish(a, c->flow, false);
     }
@@ -643,88 +987,70 @@ static void step_config(app *a, save_flow *f)
     app_doc *d = doc_by_id(a, f->doc_id);
     cfg_dlg *c;
     if (!d) { flow_finish(a, f, false); return; }
-    if (!f->codec->n_props || !f->codec->params_size || (!f->save_as && d->save_configured &&
-                                                          d->codec == f->codec)) {
-        step_write(a, f);
+    if (!f->codec->n_props || !f->codec->params_size) {
+        f->configured = true;
+        step_flatten(a, f);
+        return;
+    }
+    /* Save reuses the options chosen this session (MENUS.md Save) */
+    if (!f->save_as && d->save_configured && d->codec == f->codec) {
+        f->configured = true;
+        step_flatten(a, f);
         return;
     }
     c = (cfg_dlg *)calloc(1u, sizeof *c);
     if (!c) { flow_finish(a, f, false); return; }
     c->flow = f;
-    snprintf(c->title, sizeof c->title, "Save Configuration: %s##savecfg", f->codec->name);
+    snprintf(c->title, sizeof c->title, "Save Configuration: %s##savecfg", type_label(f->codec));
     c->params = malloc(f->codec->params_size);
-    c->initial = malloc(f->codec->params_size);
     c->snap = app_doc_snapshot(d);
-    if (!c->params || !c->initial || !c->snap || meta_copy(&d->meta, &c->meta) != PC_OK) {
+    if (!c->params || !c->snap || io_meta_copy(&d->meta, &c->meta) != PC_OK) {
         pc_doc_destroy(c->snap);
-        c->snap = NULL;
         free(c->params);
-        free(c->initial);
         free(c);
         flow_finish(a, f, false);
         return;
     }
     memcpy(c->params, f->params, f->codec->params_size);
-    memcpy(c->initial, f->params, f->codec->params_size);
+    c->img_w = d->doc->w;
+    c->img_h = d->doc->h;
     if (!app_dialog_push(a, cfg_frame, c, cfg_free)) { flow_finish(a, f, false); return; }
     cfg_start(a, c);
 }
 
-static void flatten_choice(app *a, int pick, void *ud)
-{
-    save_flow *f = (save_flow *)ud;
-    app_doc *d = doc_by_id(a, f->doc_id);
-    if (pick != 0 || !d) { flow_finish(a, f, false); return; }
-    if (pc_layerop_flatten(d->hist, &a->par, "Flatten") != PC_OK) {
-        app_error(a, "Could not flatten the image.");
-        flow_finish(a, f, false);
-        return;
-    }
-    app_doc_history_changed(a, d);
-    step_config(a, f);
-}
-
-static void step_flatten(app *a, save_flow *f)
-{
-    app_doc *d = doc_by_id(a, f->doc_id);
-    if (!d) { flow_finish(a, f, false); return; }
-    if (!(f->codec->flags & PC_CODEC_LAYERED) && d->doc->n_layers > 1u) {
-        char text[512];
-        snprintf(text, sizeof text,
-                 "The %s file type stores a single layer. Flatten the image to save it? "
-                 "Flattening is recorded in the history and can be undone.", f->codec->name);
-        app_choice(a, "Flatten Image", text, UI_ICON_WARNING, "Flatten", "Cancel", NULL, 0, 1, 0,
-                   flatten_choice, f);
-        return;
-    }
-    step_config(a, f);
-}
-
 typedef struct save_cb_ctx { app *a; save_flow *f; } save_cb_ctx;
 
-/* Resolve the chosen path and filter into a codec and a path with an
- * extension. */
+/* Resolve the chosen path and type filter into a codec and a path with an
+ * extension: a typed extension of a known type decides (the native dialogs
+ * on Linux and macOS do not keep the filter and the name in sync), else
+ * the selected filter, else the flow's type; its default extension is
+ * appended then. */
 static void save_dialog_cb(void *ud, const char *const *paths, int n, int filter)
 {
     save_cb_ctx *cx = (save_cb_ctx *)ud;
     app *a = cx->a;
     save_flow *f = cx->f;
-    filter_set fs;
+    io_filters fs;
     const pc_codec *c;
     char path[2048];
+    app_doc *d;
     free(cx);
     if (!paths || n < 1 || !paths[0] || !*paths[0]) { flow_finish(a, f, false); return; }
-    build_filters(&fs, true);
+    d = doc_by_id(a, f->doc_id);
+    if (!d) { flow_finish(a, f, false); return; }
+    io_build_filters(&fs, true);
     app_copy_str(path, sizeof path, paths[0]);
     c = pc_codec_by_ext(pal_path_ext(path));
     if (!c || !(c->flags & PC_CODEC_SAVE)) {
-        /* no or unknown extension: the selected filter decides, else keep the type */
-        const pc_codec *fc = filter >= 0 && filter < fs.n ? fs.codec[filter] : f->codec;
+        const pc_codec *fc = filter >= 0 && filter < fs.n && fs.codec[filter] ? fs.codec[filter]
+                                                                              : f->codec;
         char ext[16];
         if (!fc) fc = pc_codec_by_id("png");
         if (!fc) { flow_finish(a, f, false); return; }
         default_ext(fc, ext, sizeof ext);
         if (strlen(path) + strlen(ext) + 2u < sizeof path) {
+            size_t pl = strlen(path);
+            if (pl > 0u && path[pl - 1u] == '.') path[--pl] = '\0';
             strcat(path, ".");
             strcat(path, ext);
         }
@@ -732,30 +1058,37 @@ static void save_dialog_cb(void *ud, const char *const *paths, int n, int filter
     }
     free(f->path);
     f->path = app_strdup(path);
-    if (!f->path || !flow_set_codec(f, c, f->codec == c ? f->params : NULL)) {
+    if (!f->path || !flow_set_codec(a, f, d, c)) {
         flow_finish(a, f, false);
         return;
     }
-    step_flatten(a, f);
+    step_config(a, f);
+}
+
+/* Default Save As type: .pdn for layered images, else the current type,
+ * else PNG (MENUS.md Save As, 3.36 DoSaveAs). */
+static const pc_codec *default_save_codec(const app_doc *d)
+{
+    const pc_codec *c = d->codec;
+    if (d->doc->n_layers > 1u && (!c || !(c->flags & PC_CODEC_LAYERED)))
+        c = pc_codec_by_id("pdn");
+    if (!c || !(c->flags & PC_CODEC_SAVE)) c = pc_codec_by_id("png");
+    return c;
 }
 
 static void ask_path(app *a, save_flow *f, app_doc *d)
 {
-    filter_set fs;
+    io_filters fs;
     char def[2048], ext[16];
-    const pc_codec *c = f->codec;
+    const pc_codec *c = default_save_codec(d);
     save_cb_ctx *cx;
-    if (!a->win) { flow_finish(a, f, false); return; }
-    /* default type: .pdn for layered images, else the current type, else PNG */
-    if (d->doc->n_layers > 1u && pc_codec_by_id("pdn")) c = pc_codec_by_id("pdn");
-    else if (!c || !(c->flags & PC_CODEC_SAVE)) c = pc_codec_by_id("png");
-    if (!c) { flow_finish(a, f, false); return; }
+    if (!a->win || !c) { flow_finish(a, f, false); return; }
     default_ext(c, ext, sizeof ext);
     if (d->path) {
         char dir[1024];
         const char *base = pal_path_basename(d->path);
         const char *dot = strrchr(base, '.');
-        size_t bl = dot ? (size_t)(dot - base) : strlen(base);
+        size_t bl = dot && dot != base ? (size_t)(dot - base) : strlen(base);
         char name[512];
         pal_path_dirname(dir, sizeof dir, d->path);
         snprintf(name, sizeof name, "%.*s.%s", (int)bl, base, ext);
@@ -766,14 +1099,14 @@ static void ask_path(app *a, save_flow *f, app_doc *d)
         snprintf(name, sizeof name, "%s.%s", d->name, ext);
         pal_path_join(def, sizeof def, dir ? dir : "", name);
     }
-    if (!flow_set_codec(f, c, f->codec == c ? f->params : NULL)) {
+    if (!flow_set_codec(a, f, d, c)) {
         flow_finish(a, f, false);
         return;
     }
-    build_filters(&fs, true);
-    /* put the default type first so the dialog preselects it */
-    for (int i = 0; i < fs.n; i++)
-        if (fs.codec[i] == c && i > 0) {
+    io_build_filters(&fs, true);
+    /* the default type first so the dialog preselects it */
+    for (int i = 1; i < fs.n; i++)
+        if (fs.codec[i] == c) {
             pal_filter tf = fs.f[i];
             const pc_codec *tc = fs.codec[i];
             memmove(&fs.f[1], &fs.f[0], (size_t)i * sizeof fs.f[0]);
@@ -781,38 +1114,39 @@ static void ask_path(app *a, save_flow *f, app_doc *d)
                     (size_t)i * sizeof fs.codec[0]);
             fs.f[0] = tf;
             fs.codec[0] = tc;
+            break;
         }
     cx = (save_cb_ctx *)malloc(sizeof *cx);
     if (!cx) { flow_finish(a, f, false); return; }
     cx->a = a;
     cx->f = f;
+    /* fs.f names point into fs.label, which pal copies before returning */
     pal_dialog_save(a->win, fs.f, fs.n, def, save_dialog_cb, cx);
 }
 
 void app_save_doc(app *a, app_doc *d, bool save_as, app_save_done_fn done, void *ud)
 {
     save_flow *f;
+    const pc_codec *c;
     if (!d) { if (done) done(a, d, false, ud); return; }
-    if (a->cv.captured) app_canvas_lost_capture(a);
-    (void)app_tool_finish(a);
+    if (app_doc_index(a, d) == a->active) {
+        if (a->cv.captured) app_canvas_lost_capture(a);
+        (void)app_tool_finish(a);
+    }
     f = (save_flow *)calloc(1u, sizeof *f);
     if (!f) { if (done) done(a, d, false, ud); return; }
     f->doc_id = d->id;
     f->save_as = save_as;
     f->done = done;
     f->ud = ud;
-    if (!save_as && d->path && d->codec && (d->codec->flags & PC_CODEC_SAVE)) {
+    c = d->path ? io_codec_for_path(d->path, d->codec) : NULL;
+    if (!save_as && d->path && c) {
         f->path = app_strdup(d->path);
-        if (!f->path || !flow_set_codec(f, d->codec, d->save_params)) {
+        if (!f->path || !flow_set_codec(a, f, d, c)) {
             flow_finish(a, f, false);
             return;
         }
-        step_flatten(a, f);
-        return;
-    }
-    if (d->codec && (d->codec->flags & PC_CODEC_SAVE) &&
-        !flow_set_codec(f, d->codec, d->save_params)) {
-        flow_finish(a, f, false);
+        step_config(a, f);
         return;
     }
     ask_path(a, f, d);
@@ -822,30 +1156,33 @@ pc_status app_save_doc_to(app *a, app_doc *d, const char *path, const pc_codec *
                           const void *params, bool sync)
 {
     write_job *j;
+    void *p = NULL;
     if (!d || !path) return PC_ERR_ARG;
-    if (!codec) codec = pc_codec_by_ext(pal_path_ext(path));
+    if (!codec) codec = io_codec_for_path(path, NULL);
     if (!codec || !(codec->flags & PC_CODEC_SAVE)) return PC_ERR_UNSUPPORTED;
-    if (a->cv.captured) app_canvas_lost_capture(a);
-    (void)app_tool_finish(a);
+    if (app_doc_index(a, d) == a->active) {
+        if (a->cv.captured) app_canvas_lost_capture(a);
+        (void)app_tool_finish(a);
+    }
     if (!(codec->flags & PC_CODEC_LAYERED) && d->doc->n_layers > 1u) {
         pc_status st = pc_layerop_flatten(d->hist, &a->par, "Flatten");
         if (st != PC_OK) return st;
         app_doc_history_changed(a, d);
     }
-    j = make_write_job(d, path, codec, params);
-    if (!j) return PC_ERR_NOMEM;
-    if (codec->params_size) {
-        j->params = malloc(codec->params_size);
-        if (!j->params) {
-            pc_doc_destroy(j->snap);
-            pc_meta_free(&j->meta);
-            free(j->path);
-            free(j);
-            return PC_ERR_NOMEM;
-        }
-        if (params) memcpy(j->params, params, codec->params_size);
-        else pc_codec_default_params(codec, j->params);
+    if (!params && codec->params_size) {
+        p = malloc(codec->params_size);
+        if (!p) return PC_ERR_NOMEM;
+        if (d->codec == codec && d->save_params && d->save_configured)
+            memcpy(p, d->save_params, codec->params_size);
+        else
+            io_params_load(a, codec, p);
+        params = p;
     }
+    j = make_write_job(d, path, codec, params);
+    free(p);
+    if (!j) return PC_ERR_NOMEM;
+    j->configured = true;
+    j->thumb_file = thumb_file_of(a, path);
     if (sync || !app_task(a, write_work, write_done, j)) {
         pc_status st;
         write_work(j);
@@ -876,7 +1213,7 @@ static void close_after_save(app *a, app_doc *d, bool ok, void *ud)
         app_close_doc_now(a, d);
         close_finish(a, c, true);
     } else {
-        close_finish(a, c, false);
+        close_finish(a, c, false);                 /* F-DLG-UNSAVED-CHAIN */
     }
 }
 
@@ -914,13 +1251,217 @@ void app_close_doc(app *a, app_doc *d, app_close_done_fn done, void *ud)
     c->doc_id = d->id;
     c->done = done;
     c->ud = ud;
-    snprintf(text, sizeof text, "Save changes to \"%s\" before closing? Unsaved changes are lost "
-             "otherwise.", d->name);
+    snprintf(text, sizeof text, "\"%s\" has changes that were not saved. Save them before "
+             "closing the image?", d->name);
     app_choice(a, "Unsaved Changes", text, UI_ICON_WARNING, "Save", "Don't Save", "Cancel", 0, 2,
                d->id, close_choice, c);
 }
 
-/* ---- New Image dialog (MENUS.md New Image) ------------------------------------------- */
+/* ---- Close All / Exit: the list of unsaved images ----------------------------------- */
+typedef struct close_all {
+    app_close_done_fn done;
+    void             *ud;
+    uint32_t         *ids;           /* unsaved images when the dialog opened */
+    int32_t           n;
+    int32_t           next;          /* Save: next image to save */
+    uint32_t          orig_active;   /* image to return to on Cancel */
+} close_all;
+
+static void close_all_free(close_all *c)
+{
+    if (!c) return;
+    free(c->ids);
+    free(c);
+}
+
+static void close_all_end(app *a, close_all *c, bool closed)
+{
+    if (closed) {
+        while (a->ndocs > 0) app_close_doc_now(a, a->docs[a->ndocs - 1]);
+    } else {
+        app_doc *d = doc_by_id(a, c->orig_active);
+        if (d) app_set_active_doc(a, d);
+    }
+    if (c->done) c->done(a, closed, c->ud);
+    close_all_free(c);
+}
+
+static void close_all_save_next(app *a, close_all *c);
+
+static void close_all_saved(app *a, app_doc *d, bool ok, void *ud)
+{
+    close_all *c = (close_all *)ud;
+    if (!ok || (d && app_doc_dirty(d))) {          /* cancelled or failed: stop */
+        close_all_end(a, c, false);
+        return;
+    }
+    close_all_save_next(a, c);
+}
+
+static void close_all_save_next(app *a, close_all *c)
+{
+    while (c->next < c->n) {
+        app_doc *d = doc_by_id(a, c->ids[c->next++]);
+        if (d && app_doc_dirty(d)) {
+            app_set_active_doc(a, d);
+            app_save_doc(a, d, false, close_all_saved, c);
+            return;
+        }
+    }
+    close_all_end(a, c, true);
+}
+
+typedef struct close_all_dlg { close_all *c; } close_all_dlg;
+
+static void close_all_dlg_free(void *p)
+{
+    close_all_dlg *g = (close_all_dlg *)p;
+    if (!g) return;
+    close_all_free(g->c);              /* still owned when the dialog was dismissed */
+    free(g);
+}
+
+static bool close_all_frame(app *a, void *st)
+{
+    close_all_dlg *g = (close_all_dlg *)st;
+    close_all *c = g->c;
+    ui_ctx *ui = a->ui;
+    const ui_palette *p = ui_pal(ui);
+    int pick = -2;
+    uint32_t r;
+    ui_size cells[4];
+    ui_dialog_begin(ui, "Unsaved Changes##closeall", 560.0f, 0.0f);
+    ui_text_wrapped(ui, "These images have changes that were not saved. Click an image to look "
+                    "at it.", 0);
+    ui_layout_space(ui, 6.0f);
+    /* thumbnail strip of the unsaved images (3.36 document strip) */
+    {
+        int32_t cell = ui_px(ui, 88.0f), gap = ui_px(ui, 8.0f);
+        ui_rect strip = ui_layout_next(ui, 0, cell + ui_px(ui, 22.0f));
+        int32_t x = strip.x;
+        ui_draw_rrect(ui, strip, 4.0f, p->field);
+        ui_push_clip(ui, strip);
+        for (int32_t i = 0; i < c->n; i++) {
+            app_doc *d = doc_by_id(a, c->ids[i]);
+            ui_rect box = ui_rect_make(x + gap / 2, strip.y + ui_px(ui, 4.0f), cell - gap,
+                                       cell - gap);
+            ui_interaction in;
+            if (!d) continue;
+            ui_push_id_int(ui, (int64_t)d->id);
+            in = ui_interact(ui, ui_get_id(ui, "##thumb"), box, 0u);
+            ui_pop_id(ui);
+            if (app_active_doc(a) == d) ui_draw_rrect(ui, ui_rect_inset(box, -3, -3), 4.0f,
+                                                      p->selection);
+            else if (in.hovered) ui_draw_rrect(ui, ui_rect_inset(box, -3, -3), 4.0f, p->hover);
+            if (d->thumb && d->thumb_w > 0 && d->thumb_h > 0) {
+                float sx = (float)box.w / (float)d->thumb_w, sy = (float)box.h / (float)d->thumb_h;
+                float s = sx < sy ? sx : sy;
+                ui_rect img = ui_rect_center(box, (int32_t)((float)d->thumb_w * s),
+                                             (int32_t)((float)d->thumb_h * s));
+                ui_draw_checker(ui, img, ui_px(ui, 4.0f), p->checker_a, p->checker_b);
+                ui_draw_image(ui, d->thumb, NULL, img, UI_FILTER_LINEAR,
+                              ui_rgba(255, 255, 255, 255));
+            }
+            ui_draw_text_box(ui, ui_font_regular(ui), ui_font_px(ui),
+                             ui_rect_make(x, box.y + box.h + ui_px(ui, 2.0f), cell,
+                                          ui_px(ui, 16.0f)),
+                             UI_ALIGN_CENTER, UI_TEXT_ELLIPSIS, p->text, d->name, strlen(d->name));
+            if (in.clicked) app_set_active_doc(a, d);
+            x += cell;
+        }
+        ui_pop_clip(ui);
+    }
+    ui_layout_space(ui, 8.0f);
+    cells[0] = ui_size_fr(1.0f);
+    cells[1] = ui_size_auto();
+    cells[2] = ui_size_auto();
+    cells[3] = ui_size_auto();
+    ui_layout_row(ui, 0.0f, 4, cells);
+    (void)ui_layout_next(ui, 0, ui_px(ui, ui_get_theme(ui)->m.control_h));
+    if (ui_button_ex(ui, "Save All##ca_save", UI_ICON_SAVE, UI_BUTTON_PRIMARY)) pick = 0;
+    if (ui_button_ex(ui, "Don't Save##ca_discard", UI_ICON_NONE, 0)) pick = 1;
+    if (ui_button_ex(ui, "Cancel##ca_cancel", UI_ICON_NONE, 0)) pick = 2;
+    ui_layout_column(ui);
+    /* Enter saves; Alt+S / Alt+N are the Save All / Don't Save mnemonics */
+    if (pick == -2 && a->dlg_top && !ui_text_input_active(ui)) {
+        if (ui_key_take(ui, SDLK_RETURN, 0) || ui_key_take(ui, SDLK_KP_ENTER, 0) ||
+            ui_key_take(ui, SDLK_S, UI_MOD_ALT))
+            pick = 0;
+        else if (ui_key_take(ui, SDLK_N, UI_MOD_ALT))
+            pick = 1;
+    }
+    r = ui_dialog_end(ui);
+    if (pick == -2 && r) pick = 2;
+    if (pick == -2) return true;
+    g->c = NULL;                       /* ownership moves to the flow */
+    if (pick == 0) {
+        c->next = 0;
+        close_all_save_next(a, c);
+    } else {
+        close_all_end(a, c, pick == 1);
+    }
+    return false;
+}
+
+static void close_all_single(app *a, bool closed, void *ud)
+{
+    close_all *c = (close_all *)ud;
+    close_all_end(a, c, closed);
+}
+
+void app_close_all(app *a, app_close_done_fn done, void *ud)
+{
+    close_all *c = (close_all *)calloc(1u, sizeof *c);
+    int32_t n = 0;
+    if (!c) { if (done) done(a, false, ud); return; }
+    if (a->cv.captured) app_canvas_lost_capture(a);
+    (void)app_tool_finish(a);
+    c->done = done;
+    c->ud = ud;
+    c->orig_active = app_active_doc(a) ? app_active_doc(a)->id : 0u;
+    c->ids = (uint32_t *)calloc((size_t)(a->ndocs > 0 ? a->ndocs : 1), sizeof *c->ids);
+    if (!c->ids) { close_all_free(c); if (done) done(a, false, ud); return; }
+    for (int32_t i = 0; i < a->ndocs; i++)
+        if (app_doc_dirty(a->docs[i])) c->ids[n++] = a->docs[i]->id;
+    c->n = n;
+    if (n == 0) {
+        close_all_end(a, c, true);
+    } else if (n == 1) {
+        app_doc *d = doc_by_id(a, c->ids[0]);
+        app_set_active_doc(a, d);
+        app_close_doc(a, d, close_all_single, c);
+    } else {
+        close_all_dlg *g = (close_all_dlg *)calloc(1u, sizeof *g);
+        app_doc *act = app_active_doc(a);
+        if (!g) { close_all_end(a, c, false); return; }
+        g->c = c;
+        if (act && !app_doc_dirty(act)) app_set_active_doc(a, doc_by_id(a, c->ids[0]));
+        (void)app_dialog_push(a, close_all_frame, g, close_all_dlg_free);
+    }
+}
+
+static void quit_after_close_all(app *a, bool closed, void *ud)
+{
+    (void)ud;
+    if (closed) {
+        a->quit_done = true;
+        app_request_frame(a);
+    } else {
+        a->quit_req = false;
+    }
+}
+
+bool app_quit_unsaved(app *a)
+{
+    int32_t n = 0;
+    for (int32_t i = 0; i < a->ndocs; i++)
+        if (app_doc_dirty(a->docs[i])) n++;
+    if (n < 2) return false;           /* one image: the normal close prompt */
+    app_close_all(a, quit_after_close_all, NULL);
+    return true;
+}
+
+/* ---- New Image dialog (MENUS.md New Image, OBSERVED 2) -------------------------------- */
 typedef struct new_dlg {
     int32_t w, h;
     bool    keep;
@@ -930,13 +1471,17 @@ typedef struct new_dlg {
     double  pw, ph;              /* print size in inches or centimeters */
 } new_dlg;
 
-static int32_t g_new_w, g_new_h;   /* last used size (session) */
-static bool g_new_keep;
-
 static void new_sync_print(new_dlg *n)
 {
     n->pw = (double)n->w / n->res;
     n->ph = (double)n->h / n->res;
+}
+
+static int32_t clamp_dim(double v)
+{
+    if (!(v >= 1.0)) return 1;
+    if (v > (double)PC_MAX_DIM) return (int32_t)PC_MAX_DIM;
+    return (int32_t)v;
 }
 
 static bool new_frame(app *a, void *st)
@@ -945,15 +1490,14 @@ static bool new_frame(app *a, void *st)
     ui_ctx *ui = a->ui;
     ui_size cells[3];
     uint32_t r;
-    char est[96];
-    double bytes = (double)n->w * (double)n->h * 4.0;
+    char est[96], sz[48];
     static const char *const res_units[] = { "Pixels/inch", "Pixels/centimeter" };
     static const char *const print_units[] = { "Inches", "Centimeters" };
     bool enter;
     ui_dialog_begin(ui, "New Image##newimg", 420.0f, 0.0f);
     enter = app_dialog_take_enter(a);
-    if (bytes < 1024.0 * 1024.0) snprintf(est, sizeof est, "Size: %.1f KB", bytes / 1024.0);
-    else snprintf(est, sizeof est, "Size: %.1f MB", bytes / (1024.0 * 1024.0));
+    format_size((double)n->w * (double)n->h * 4.0, sz, sizeof sz);
+    snprintf(est, sizeof est, "New image size: %s", sz);
     ui_label_ex(ui, est, UI_LABEL_DIM);
     ui_checkbox(ui, "Maintain aspect ratio##keep", &n->keep);
     if (n->keep && !(n->ratio > 0.0)) n->ratio = (double)n->w / (double)n->h;
@@ -964,19 +1508,13 @@ static bool new_frame(app *a, void *st)
     ui_layout_row(ui, 0.0f, 3, cells);
     ui_label_ex(ui, "Width", UI_LABEL_DIM);
     if (ui_number_int(ui, "##nw", &n->w, 1, (int32_t)PC_MAX_DIM, 1, 0)) {
-        if (n->keep && n->ratio > 0.0) {
-            double hh = (double)n->w / n->ratio + 0.5;
-            n->h = hh < 1.0 ? 1 : (hh > (double)PC_MAX_DIM ? (int32_t)PC_MAX_DIM : (int32_t)hh);
-        }
+        if (n->keep && n->ratio > 0.0) n->h = clamp_dim((double)n->w / n->ratio + 0.5);
         new_sync_print(n);
     }
     ui_label_ex(ui, "pixels", UI_LABEL_DIM);
     ui_label_ex(ui, "Height", UI_LABEL_DIM);
     if (ui_number_int(ui, "##nh", &n->h, 1, (int32_t)PC_MAX_DIM, 1, 0)) {
-        if (n->keep && n->ratio > 0.0) {
-            double ww = (double)n->h * n->ratio + 0.5;
-            n->w = ww < 1.0 ? 1 : (ww > (double)PC_MAX_DIM ? (int32_t)PC_MAX_DIM : (int32_t)ww);
-        }
+        if (n->keep && n->ratio > 0.0) n->w = clamp_dim((double)n->h * n->ratio + 0.5);
         new_sync_print(n);
     }
     ui_label_ex(ui, "pixels", UI_LABEL_DIM);
@@ -986,7 +1524,7 @@ static bool new_frame(app *a, void *st)
     cells[2] = ui_size_px(150.0f);
     ui_layout_row(ui, 0.0f, 3, cells);
     ui_label_ex(ui, "Resolution", UI_LABEL_DIM);
-    if (ui_number_double(ui, "##nres", &n->res, 1.0, 10000.0, 1.0, 2, 0)) new_sync_print(n);
+    if (ui_number_double(ui, "##nres", &n->res, 0.01, 65536.0, 1.0, 2, 0)) new_sync_print(n);
     {
         int u = n->res_unit;
         if (ui_combo(ui, "##nresu", &u, res_units, 2) && u != n->res_unit) {
@@ -999,20 +1537,16 @@ static bool new_frame(app *a, void *st)
     ui_heading(ui, "Print size");
     ui_layout_row(ui, 0.0f, 3, cells);
     ui_label_ex(ui, "Width", UI_LABEL_DIM);
-    if (ui_number_double(ui, "##npw", &n->pw, 0.01, 100000.0, 0.1, 2, 0)) {
-        double w = n->pw * n->res + 0.5;
-        n->w = w < 1.0 ? 1 : (w > (double)PC_MAX_DIM ? (int32_t)PC_MAX_DIM : (int32_t)w);
-        if (n->keep && n->ratio > 0.0) n->h = (int32_t)((double)n->w / n->ratio + 0.5);
-        if (n->h < 1) n->h = 1;
+    if (ui_number_double(ui, "##npw", &n->pw, 0.0001, 1.0e7, 0.1, 2, 0)) {
+        n->w = clamp_dim(n->pw * n->res + 0.5);
+        if (n->keep && n->ratio > 0.0) n->h = clamp_dim((double)n->w / n->ratio + 0.5);
         new_sync_print(n);
     }
     ui_label_ex(ui, print_units[n->res_unit], UI_LABEL_DIM);
     ui_label_ex(ui, "Height", UI_LABEL_DIM);
-    if (ui_number_double(ui, "##nph", &n->ph, 0.01, 100000.0, 0.1, 2, 0)) {
-        double h = n->ph * n->res + 0.5;
-        n->h = h < 1.0 ? 1 : (h > (double)PC_MAX_DIM ? (int32_t)PC_MAX_DIM : (int32_t)h);
-        if (n->keep && n->ratio > 0.0) n->w = (int32_t)((double)n->h * n->ratio + 0.5);
-        if (n->w < 1) n->w = 1;
+    if (ui_number_double(ui, "##nph", &n->ph, 0.0001, 1.0e7, 0.1, 2, 0)) {
+        n->h = clamp_dim(n->ph * n->res + 0.5);
+        if (n->keep && n->ratio > 0.0) n->w = clamp_dim((double)n->h * n->ratio + 0.5);
         new_sync_print(n);
     }
     ui_label_ex(ui, print_units[n->res_unit], UI_LABEL_DIM);
@@ -1032,23 +1566,22 @@ static bool new_frame(app *a, void *st)
             d->meta.dpi_x = d->meta.dpi_y = dpi;
             app_doc_set_untitled(a, d);
             (void)app_add_doc(a, d);
-            g_new_w = n->w;
-            g_new_h = n->h;
         }
     }
-    g_new_keep = n->keep;
+    /* remembered: aspect lock and units (MENUS.md New Image) */
+    (void)app_settings_set_bool(a->settings, "file.new.keep_aspect", n->keep);
+    (void)app_settings_set_int(a->settings, "file.new.res_unit", n->res_unit);
     return false;
 }
 
-void app_new_image_dialog(app *a)
+/* Default size: the clipboard image (CB-NEWIMAGE-SIZE), else 800 x 600
+ * scaled by the display scale. */
+static void new_default_size(app *a, int32_t *w, int32_t *h)
 {
-    new_dlg *n = (new_dlg *)calloc(1u, sizeof *n);
     float ds = a->win ? SDL_GetWindowDisplayScale(a->win) : 1.0f;
-    if (!n) return;
     if (!(ds > 0.0f)) ds = 1.0f;
-    n->w = g_new_w > 0 ? g_new_w : (int32_t)(800.0f * ds + 0.5f);
-    n->h = g_new_h > 0 ? g_new_h : (int32_t)(600.0f * ds + 0.5f);
-    /* CB-NEWIMAGE-SIZE: the clipboard image size when there is one */
+    *w = (int32_t)(800.0f * ds + 0.5f);
+    *h = (int32_t)(600.0f * ds + 0.5f);
     if (a->win && pal_clip_has_image()) {
         uint8_t *data = NULL;
         size_t len = 0;
@@ -1060,18 +1593,25 @@ void app_new_image_dialog(app *a)
             memset(&m, 0, sizeof m);
             pc_codec_limits_default(&lim);
             if (pc_codec_load_any(data, len, NULL, &lim, &doc, &m, NULL) == PC_OK && doc) {
-                n->w = (int32_t)doc->w;
-                n->h = (int32_t)doc->h;
+                *w = (int32_t)doc->w;
+                *h = (int32_t)doc->h;
                 pc_doc_destroy(doc);
             }
             pc_meta_free(&m);
             free(data);
         }
     }
-    n->keep = g_new_keep;
+}
+
+void app_new_image_dialog(app *a)
+{
+    new_dlg *n = (new_dlg *)calloc(1u, sizeof *n);
+    if (!n) return;
+    new_default_size(a, &n->w, &n->h);
+    n->keep = app_settings_bool(a->settings, "file.new.keep_aspect", false);
+    n->res_unit = app_settings_int(a->settings, "file.new.res_unit", 0) == 1 ? 1 : 0;
     n->ratio = (double)n->w / (double)n->h;
-    n->res = 96.0;
-    n->res_unit = 0;
+    n->res = n->res_unit == 1 ? 96.0 / 2.54 : 96.0;
     new_sync_print(n);
     (void)app_dialog_push(a, new_frame, n, free);
 }

@@ -1,7 +1,10 @@
 /* mod_file.c - File menu commands (MENUS.md File) and image list commands
- * (SHORTCUTS.md K-IMG-*). Print and Acquire are not registered (optional,
- * shown disabled / hidden by the menu table). */
+ * (SHORTCUTS.md K-IMG-*), plus the lane I services started with the app:
+ * recent file thumbnails, autosave and crash recovery, the window icon.
+ * Print and Acquire are out of scope (docs/PACKAGING.md): they are not
+ * registered, so the menu shows Print disabled and hides Acquire. */
 #include "../app_internal.h"
+#include "../io/io_internal.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,18 +81,33 @@ static void cmd_close(app *a, const app_cmd *c)
     app_close_doc(a, app_active_doc(a), NULL, NULL);
 }
 
-static void close_all_next(app *a, bool closed, void *ud)
-{
-    (void)ud;
-    if (closed && app_doc_count(a) > 0)
-        app_close_doc(a, app_doc_at(a, app_doc_count(a) - 1), close_all_next, NULL);
-}
-
+/* Close All: one prompt per image, or the list of unsaved images when
+ * there are several (3.36 CloseAllWorkspacesAction). */
 static void cmd_close_all(app *a, const app_cmd *c)
 {
     (void)c;
-    if (app_doc_count(a) > 0)
-        app_close_doc(a, app_doc_at(a, app_doc_count(a) - 1), close_all_next, NULL);
+    app_close_all(a, NULL, NULL);
+}
+
+static void cmd_recent_clear(app *a, const app_cmd *c)
+{
+    (void)c;
+    app_recent_clear(a);
+}
+
+static bool has_recent(app *a, const app_cmd *c)
+{
+    (void)c;
+    return app_recent_count(a) > 0;
+}
+
+/* Look for images of a crashed session again and offer them. */
+static void cmd_recover(app *a, const app_cmd *c)
+{
+    (void)c;
+    if (app_recovery_scan(a) > 0) app_recovery_prompt(a);
+    else app_message(a, "Recover Images", "There are no unsaved images left from an earlier "
+                     "session.", UI_ICON_INFO, UI_DLG_OK, UI_DLG_OK, NULL, NULL);
 }
 
 static void cmd_exit(app *a, const app_cmd *c)
@@ -146,6 +164,9 @@ static void reg(app *a, const char *id, const char *label, ui_icon icon, uint32_
     (void)app_cmd_register(a, &d);
 }
 
+void io_recent_init(app *a);
+void io_autosave_init(app *a);
+
 void mod_file(app *a)
 {
     reg(a, "file.new", "New...", UI_ICON_NEW, 0, cmd_new, NULL, 0);
@@ -156,6 +177,9 @@ void mod_file(app *a)
     reg(a, "file.close", "Close", UI_ICON_CLOSE, APP_CMD_NEEDS_DOC, cmd_close, NULL, 0);
     reg(a, "file.close_all", "Close All", UI_ICON_CLOSE, APP_CMD_NEEDS_DOC, cmd_close_all, NULL, 0);
     reg(a, "file.exit", "Exit", UI_ICON_NONE, 0, cmd_exit, NULL, 0);
+    reg(a, "file.recent.clear", "Clear List", UI_ICON_NONE, APP_CMD_NO_COMMIT, cmd_recent_clear,
+        has_recent, 0);
+    reg(a, "file.recover", "Recover Images...", UI_ICON_OPEN, 0, cmd_recover, NULL, 0);
     reg(a, "docs.next", "Next Image", UI_ICON_CHEVRON_RIGHT, 0, cmd_doc_step, many_docs, 1);
     reg(a, "docs.prev", "Previous Image", UI_ICON_CHEVRON_LEFT, 0, cmd_doc_step, many_docs, -1);
     reg(a, "docs.move_left", "Move Image Left", UI_ICON_NONE, APP_CMD_NO_COMMIT, cmd_doc_move,
@@ -168,4 +192,7 @@ void mod_file(app *a)
         snprintf(label, sizeof label, "Image %d", i);
         reg(a, id, label, UI_ICON_NONE, 0, cmd_doc_n, NULL, i - 1);
     }
+    io_recent_init(a);
+    io_autosave_init(a);
+    (void)app_set_window_icon(a);
 }

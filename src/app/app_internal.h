@@ -350,4 +350,20 @@ ui_color app_px_to_ui(pc_px32 p);
 pc_px32  app_ui_to_px(ui_color c);
 pc_px32  app_px_make(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 
+
+/* ---- lane I additions (file I/O, integration) -------------------------------------- */
+/* fileio.c: Close All / Exit with the list of unsaved images (3.36
+ * UnsavedChangesDialog); done(closed) after every image was closed or the
+ * user cancelled. */
+void     app_close_all(app *a, app_close_done_fn done, void *ud);
+/* fileio.c: called by the quit sequence; true when two or more images are
+ * unsaved and the Unsaved Changes list took over the quit. */
+bool     app_quit_unsaved(app *a);
+/* io/recent.c: the File > Open Recent submenu items (thumbnails, path
+ * tooltips, Clear List); called inside the open submenu. */
+void     app_recent_menu_items(app *a);
+/* io/wake.c: events lane I consumes before everything else (file drops,
+ * the loop wake-ups that deliver forwarded opens); true when consumed. */
+bool     app_io_event(app *a, const SDL_Event *e);
+
 #endif /* APP_INTERNAL_H */

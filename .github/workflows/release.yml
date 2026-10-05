@@ -1,0 +1,51 @@
+# paint.c releases (lane I). Pushing a tag v<version> (the project version
+# in CMakeLists.txt, e.g. v0.1.0) runs the whole CI workflow (tests on every
+# platform, macOS included because the ref is a tag), then attaches the
+# packages it built (pkg-* artifacts: AppImage, tar.gz, Windows portable
+# zip and installer, macOS dmg for arm64 and x86_64) to a GitHub release.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  check-version:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches the project version
+        run: |
+          v=$(sed -n 's/^project(paintc VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          echo "project version $v, tag $GITHUB_REF_NAME"
+          test "v$v" = "$GITHUB_REF_NAME"
+
+  build:
+    needs: check-version
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          ls -la
+          sha256sum * > SHA256SUMS.txt
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "paint.c ${GITHUB_REF_NAME#v}" --generate-notes

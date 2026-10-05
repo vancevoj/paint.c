@@ -13,7 +13,16 @@
  *                                         reload an image; exit code 0 on success
  *   options: --headless --size WxH --scale S --frames N --theme light|dark
  *            --software --no-vsync --config-dir DIR --reset-windows
- *            --diagnostics --disable-plugins (lane F: no effect plugins)
+ *            --diagnostics --version --disable-plugins (lane F: no effect plugins)
+ *            --state-dir DIR          autosave and recovery data (default:
+ *                                     the per-user state folder, or
+ *                                     <config dir>/state with --config-dir;
+ *                                     scripted runs without either: off)
+ *            --autosave-interval S    seconds after the first unsaved change
+ *                                     (default: settings, 120; 0 = off)
+ *
+ * Lane I owns this file (integration): single instance with forwarded
+ * opens, autosave configuration and the recovery prompt at startup.
  */
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>   /* UTF-8 argv on Windows */
@@ -22,13 +31,16 @@
 #include <string.h>
 
 #include "app_internal.h"
+#include "app/app_io.h"
 
 typedef struct cli {
-    const char  *screenshot, *script, *config_dir;
+    const char  *screenshot, *script, *config_dir, *state_dir;
     bool         headless, self_test, software, no_vsync, reset_windows, diagnostics, help;
     bool         no_plugins;    /* lane F: --disable-plugins (K-CLI-NOPLUGINS) */
+    bool         version;
     int          w, h, frames, theme;
     float        scale;
+    double       autosave_s;          /* < 0: settings */
     const char **files;
     int          nfiles;
 } cli;
@@ -41,7 +53,8 @@ static void usage(const char *argv0)
             "       %s --script file.txt [--headless] [files...]\n"
             "       %s --self-test [--headless]\n"
             "options: --theme light|dark --software --no-vsync --frames N --config-dir DIR\n"
-            "         --reset-windows --diagnostics --disable-plugins\n",
+            "         --state-dir DIR --autosave-interval SECONDS --reset-windows\n"
+            "         --diagnostics --version --disable-plugins\n",
             argv0, argv0, argv0, argv0);
 }
 
@@ -51,6 +64,7 @@ static bool parse(int argc, char **argv, cli *c)
     c->theme = -1;
     c->scale = 1.0f;
     c->frames = 4;
+    c->autosave_s = -1.0;
     c->files = (const char **)calloc((size_t)(argc > 0 ? argc : 1), sizeof *c->files);
     if (!c->files) return false;
     for (int i = 1; i < argc; i++) {
@@ -59,6 +73,13 @@ static bool parse(int argc, char **argv, cli *c)
         if (strcmp(s, "--screenshot") == 0 && more) c->screenshot = argv[++i];
         else if (strcmp(s, "--script") == 0 && more) c->script = argv[++i];
         else if (strcmp(s, "--config-dir") == 0 && more) c->config_dir = argv[++i];
+        else if (strcmp(s, "--state-dir") == 0 && more) c->state_dir = argv[++i];
+        else if (strcmp(s, "--autosave-interval") == 0 && more) {
+            char *end;
+            c->autosave_s = strtod(argv[++i], &end);
+            if (*end || !(c->autosave_s >= 0.0) || c->autosave_s > 1.0e7) return false;
+        }
+        else if (strcmp(s, "--version") == 0) c->version = true;
         else if (strcmp(s, "--headless") == 0) c->headless = true;
         else if (strcmp(s, "--self-test") == 0) c->self_test = true;
         else if (strcmp(s, "--software") == 0) c->software = true;
@@ -109,6 +130,28 @@ static void forwarded(void *ud, const char *const *paths, int n, int filter)
     if (!a) return;
     if (n > 0 && paths) app_open_paths(a, paths, n);
     if (a->win) SDL_RaiseWindow(a->win);
+}
+
+/* Autosave and recovery: on for the editor, off for scripted runs unless
+ * they name a state or config folder. The single instance primary owns the
+ * folder exclusively (pal's lock: Linux and Windows; macOS falls back to
+ * the liveness checks), so a session found there at startup is a crash. */
+static void configure_autosave(app *a, const cli *c, bool interactive, bool primary)
+{
+    app_autosave_cfg cfg;
+    app_autosave_cfg_default(&cfg);
+    cfg.interval_s = c->autosave_s;
+    cfg.prompt = interactive;
+#if defined(__APPLE__)
+    (void)primary;
+    cfg.exclusive = false;
+#else
+    cfg.exclusive = primary && !c->state_dir;
+#endif
+    if (c->state_dir) cfg.root = c->state_dir;
+    else if (!interactive && !c->config_dir) cfg.root = "";
+    if (!app_autosave_configure(a, &cfg))
+        fprintf(stderr, "paintc: autosave is off (cannot use the state folder)\n");
 }
 
 static const char k_self_test[] =
@@ -185,11 +228,16 @@ int main(int argc, char **argv)
     app_opts o;
     app *a;
     int rc = 0;
-    bool interactive;
+    bool interactive, primary = false;
     if (!parse(argc, argv, &c) || c.help) {
         usage(argc > 0 ? argv[0] : "paintc");
         free((void *)c.files);
         return c.help ? 0 : 2;
+    }
+    if (c.version) {
+        printf("%s %s\n", APP_NAME, APP_VERSION);
+        free((void *)c.files);
+        return 0;
     }
     interactive = !c.screenshot && !c.script && !c.self_test && !c.diagnostics;
     SDL_SetAppMetadata(APP_NAME, APP_VERSION, APP_ID);
@@ -212,12 +260,15 @@ int main(int argc, char **argv)
         free((void *)c.files);
         return 0;
     }
-    if (interactive && !c.headless &&
-        !pal_single_instance(APP_ID, c.nfiles, c.files, forwarded, NULL)) {
-        pal_quit();
-        SDL_Quit();
-        free((void *)c.files);
-        return 0;
+    if (interactive && !c.headless) {
+        if (!pal_single_instance(APP_ID, c.nfiles, c.files, forwarded, NULL)) {
+            /* a running paint.c opens the files (forwarded) */
+            pal_quit();
+            SDL_Quit();
+            free((void *)c.files);
+            return 0;
+        }
+        primary = true;
     }
     app_opts_default(&o);
     o.headless = c.headless;
@@ -242,7 +293,11 @@ int main(int argc, char **argv)
         free((void *)c.files);
         return 1;
     }
-    if (interactive && !c.headless) (void)pal_single_instance(APP_ID, 0, NULL, forwarded, a);
+    if (interactive && !c.headless) {
+        (void)pal_single_instance(APP_ID, 0, NULL, forwarded, a);
+        app_wake_poll(a, 200u);        /* forwarded opens arrive while idle */
+    }
+    configure_autosave(a, &c, interactive, primary);
     if (c.reset_windows) app_panels_reset_all(a);
     app_open_paths(a, c.files, c.nfiles);
     if (c.self_test) {

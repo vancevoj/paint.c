@@ -633,6 +633,7 @@ static void quit_closed(app *a, bool closed, void *ud)
  * Save Configuration); then everything else. */
 static void quit_step(app *a)
 {
+    if (app_quit_unsaved(a)) return;   /* lane I: two or more unsaved images */
     for (int32_t i = 0; i < a->ndocs; i++) {
         if (app_doc_dirty(a->docs[i])) {
             app_set_active_doc(a, a->docs[i]);
@@ -664,6 +665,7 @@ bool app_quitting(const app *a) { return a->quit_req || a->quit_done; }
 /* ---- events -------------------------------------------------------------------------- */
 void app_event(app *a, const SDL_Event *e)
 {
+    if (app_io_event(a, e)) return;    /* lane I: file drops, event loop wake-ups */
     switch (e->type) {
     case SDL_EVENT_QUIT:
         app_quit(a);

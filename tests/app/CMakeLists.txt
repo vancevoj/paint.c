@@ -16,3 +16,9 @@ if(TARGET paintc)
   add_test(NAME paintc_self_test COMMAND paintc --self-test --headless)
   set_tests_properties(paintc_self_test PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=dummy")
 endif()
+
+# Lane I: the crash recovery test starts paintc itself (kill -9 and restart).
+if(TARGET paintc AND TARGET test_i_recovery)
+  target_compile_definitions(test_i_recovery PRIVATE PC_PAINTC_EXE="$<TARGET_FILE:paintc>")
+  add_dependencies(test_i_recovery paintc)
+endif()

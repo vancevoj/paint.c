@@ -1,3 +1,5 @@
 /* paintc.rc - MinGW resource script (generated from paintc.rc.in): embeds
- * the application manifest (long paths, UTF-8 code page, per-monitor DPI). */
+ * the application manifest (long paths, UTF-8 code page, per-monitor DPI).
+ * The icon and version resources are in paintc_version.rc (lane I), added
+ * as a second resource script for every Windows toolchain. */
 1 24 "@PC_APP_MANIFEST@"
