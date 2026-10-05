@@ -24,3 +24,4 @@
 - 2026-10-05 W1-L6A merged: BMP, TGA, GIF, TIFF (own, hardened) read/write + quant.h (octree/median cut + k-means, Floyd-Steinberg level 0..8); PNG 8-bit save now uses it. 46 CTest executables pass.
 - 2026-10-05 W1-L3 merged: pc_ui toolkit over SDL_Renderer, embedded Inter, stb_truetype behind a font validator, 98 original icons, all widgets, gallery (paintc_ui_gallery). 57 CTest executables pass. Wave 1 complete.
 - 2026-10-05 W15-E3 merged: pc_shapes.h (29 shapes + shared pc_vrender), pc_linecurve.h, pc_text.h (backend-agnostic layout); 60 CTest executables pass.
+- 2026-10-05 W2-FXP merged: effect parameter parity per ADR-016 (docs/fx/parity.md), 5.2 golden test tests/golden (27 items within pre-written tolerances; Invert, Brightness/Contrast, Posterize exact).
