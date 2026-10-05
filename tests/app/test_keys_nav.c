@@ -187,8 +187,9 @@ static void t_typed_chars(void)
     /* German: AltGr+8 types "[", AltGr+9 "]" (AltGr is not a UI modifier) */
     CHECK(app_key_press_ex(a, '8', '[', 0u, 0u, false) && a->ts.width == 8.0f);
     CHECK(app_key_press_ex(a, '9', ']', 0u, 0u, false) && a->ts.width == 9.0f);
-    /* Ctrl + AltGr+8: minus five */
-    CHECK(app_key_press_ex(a, '8', '[', UI_MOD_CTRL, UI_MOD_CTRL, false) && a->ts.width == 4.0f);
+    /* Ctrl (Cmd on macOS) + AltGr+8: minus five */
+    CHECK(app_key_press_ex(a, '8', '[', ui_mod_primary(), ui_mod_primary(), false) &&
+          a->ts.width == 4.0f);
     /* German Shift+7 types "/": the Line / Curve end cap, forward */
     CHECK(app_tool_select(a, "line_curve"));
     at_frames(a, 1);

@@ -133,6 +133,15 @@ static void t_alt_alone(void)
     static uint32_t before[400 * 40];
     CHECK(a != NULL);
     if (!a) return;
+#if defined(__APPLE__)
+    /* macOS: Option is a typing modifier; a lone press does nothing */
+    k_alt_tap(a);
+    CHECK(!ui_menubar_focused(a->ui));
+    (void)before;
+    (void)bar_diff;
+    app_destroy(a);
+    return;
+#endif
     /* holding Alt underlines the access keys of the menu bar */
     for (int y = 0; y < 40; y++)
         for (int x = 0; x < 400; x++) before[y * 400 + x] = at_pixel(a, x, y);

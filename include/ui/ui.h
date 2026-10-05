@@ -530,8 +530,8 @@ void ui_menu_separator(ui_ctx *ctx);
  * label marks the next character as its access key ("&&" shows one '&').
  * The flag is off at the start of every frame, so labels from elsewhere
  * (file names, plugin names) are never parsed. Access keys are underlined
- * while Alt is held, while the menu bar has keyboard focus and in menus
- * opened or used from the keyboard.
+ * while Alt is held (not on macOS), while the menu bar has keyboard focus
+ * and in menus opened or used from the keyboard.
  * Keys: Alt + a title's access key opens that menu (also while another
  * menu bar menu is open); a lone Alt press (Windows and Linux) gives the
  * menu bar keyboard focus (Left / Right move, Down / Up / Enter / Space or

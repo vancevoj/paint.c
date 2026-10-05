@@ -85,8 +85,11 @@ static void parse_label(const ui_ctx *ctx, const char *label, bool parse, mlabel
 
 bool ui_mnemonics_shown(const ui_ctx *ctx)
 {
+#if !defined(__APPLE__)
+    /* Alt held (not on macOS, where Option is a typing modifier) */
     uint32_t m = ctx->in.mods;
     if ((m & UI_MOD_ALT) && !(m & (UI_MOD_CTRL | UI_MOD_GUI))) return true;
+#endif
     return ctx->mb_focus || ctx->mnem_session;
 }
 

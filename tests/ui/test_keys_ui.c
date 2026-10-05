@@ -254,6 +254,17 @@ static void t_alt_tap(void)
     if (!ut_open(&e, 640, 520, 1.0f)) { CHECK(0); ut_close(&e); return; }
     settle(&e);
     CHECK(!ui_mnemonics_shown(e.ctx));
+#if defined(__APPLE__)
+    /* macOS: Option is a typing modifier; a lone press does nothing */
+    alt_tap(&e);
+    settle(&e);
+    CHECK(!ui_menubar_focused(e.ctx) && !ui_mnemonics_shown(e.ctx));
+    (void)k;
+    (void)before;
+    (void)diff_lower_half;
+    ut_close(&e);
+    return;
+#endif
     ut_render(&e);
     for (int y = K.file_r.y + K.file_r.h / 2; y < K.file_r.y + K.file_r.h; y++)
         for (int x = K.file_r.x; x < K.file_r.x + K.file_r.w && k < 4096; x++)
