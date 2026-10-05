@@ -136,16 +136,20 @@ static void t_catalog(void)
     check_prop(E(ID_POST), "red", FXP_INT, 2, 64, 16);
     check_prop(E(ID_POST), "green", FXP_INT, 2, 64, 16);
     check_prop(E(ID_POST), "blue", FXP_INT, 2, 64, 16);
-    check_prop(E(ID_POST), "alpha", FXP_INT, 2, 64, 64);
+    check_prop(E(ID_POST), "alpha", FXP_INT, 2, 64, 16);
     check_prop(E(ID_POST), "linked", FXP_BOOL, 0, 1, 1);
+    check_prop(E(ID_POST), "red_on", FXP_BOOL, 0, 1, 1);
+    check_prop(E(ID_POST), "green_on", FXP_BOOL, 0, 1, 1);
+    check_prop(E(ID_POST), "blue_on", FXP_BOOL, 0, 1, 1);
+    check_prop(E(ID_POST), "alpha_on", FXP_BOOL, 0, 1, 1);
     p = fx_prop_find(E(ID_POST), "green");
     CHECK(p && p->enabled_if && strcmp(p->enabled_if, "linked=0") == 0);
     check_prop(E(ID_SEPIA), "intensity", FXP_INT, 0, 100, 50);
-    check_prop(E(ID_EXPO), "exposure", FXP_REAL, -2, 2, 0);
+    check_prop(E(ID_EXPO), "exposure", FXP_INT, -200, 200, 0);
     check_prop(E(ID_HLSH), "shadows", FXP_INT, -100, 100, 0);
     check_prop(E(ID_HLSH), "highlights", FXP_INT, -100, 100, 0);
     check_prop(E(ID_HLSH), "clarity", FXP_INT, -100, 100, 0);
-    check_prop(E(ID_HLSH), "radius", FXP_REAL, 0, 100, 20);
+    check_prop(E(ID_HLSH), "radius", FXP_REAL, 0, 40, 5);
     check_prop(E(ID_TEMP), "temperature", FXP_INT, -100, 100, 0);
     check_prop(E(ID_TEMP), "tint", FXP_INT, -100, 100, 0);
     check_prop(E(ID_CURVES), "curves", FXP_CUSTOM, 0, 0, 0);
@@ -187,7 +191,7 @@ static void t_generic(void)
         p = params_with(E(ID_SEPIA), "intensity", 83, NULL, 0, NULL, 0);
         fxt_check_effect(E(ID_SEPIA), p, w, h, 6u);
         fx_params_free(p);
-        p = params_with(E(ID_EXPO), "exposure", 1.37, NULL, 0, NULL, 0);
+        p = params_with(E(ID_EXPO), "exposure", 137, NULL, 0, NULL, 0);
         fxt_check_effect(E(ID_EXPO), p, w, h, 7u);
         fx_params_free(p);
         p = params_with(E(ID_HLSH), "shadows", 60, "highlights", -40, "clarity", 35);
@@ -265,9 +269,11 @@ static void t_known_simple(void)
     CHECK(px_eq(apply_px(inv, NULL, px4(1, 2, 3, 0)), 254, 253, 252, 0));
     CHECK(px_eq(apply_px(ia, NULL, px4(30, 20, 10, 40)), 30, 20, 10, 215));
     CHECK(px_eq(apply_px(ia, NULL, px4(7, 8, 9, 0)), 7, 8, 9, 255));
-    CHECK(px_eq(apply_px(bw, NULL, px4(255, 0, 0, 200)), 76, 76, 76, 200));
+    /* Paint.NET 5 weights (BT.601 with red and blue exchanged) */
+    CHECK(px_eq(apply_px(bw, NULL, px4(255, 0, 0, 200)), 29, 29, 29, 200));
     CHECK(px_eq(apply_px(bw, NULL, px4(0, 255, 0, 255)), 149, 149, 149, 255));
-    CHECK(px_eq(apply_px(bw, NULL, px4(0, 0, 255, 0)), 29, 29, 29, 0));
+    CHECK(px_eq(apply_px(bw, NULL, px4(0, 0, 255, 0)), 76, 76, 76, 0));
+    CHECK(px_eq(apply_px(bw, NULL, px4(10, 200, 90, 3)), 145, 145, 145, 3));
     CHECK(px_eq(apply_px(bw, NULL, px4(255, 255, 255, 9)), 255, 255, 255, 9));
 
     /* Sepia of gray at intensity 50 is the Paint.NET 3.36 result */
@@ -279,7 +285,7 @@ static void t_known_simple(void)
     CHECK(px_eq(apply_px(sep, p, px4(255, 255, 255, 255)), 255, 255, 255, 255));
     CHECK(fx_param_set(sep, p, "intensity", 0) == PC_OK);
     CHECK(px_eq(apply_px(sep, p, px4(128, 128, 128, 255)), 128, 128, 128, 255));
-    CHECK(px_eq(apply_px(sep, p, px4(255, 0, 0, 255)), 76, 76, 76, 255));   /* = B&W */
+    CHECK(px_eq(apply_px(sep, p, px4(255, 0, 0, 255)), 76, 76, 76, 255));   /* BT.601 */
     CHECK(fx_param_set(sep, p, "intensity", 100) == PC_OK);
     CHECK(px_eq(apply_px(sep, p, px4(128, 128, 128, 255)), 168, 128, 97, 255));
     fx_params_free(p);
@@ -353,11 +359,17 @@ static void t_known_posterize(void)
     CHECK(fx_param_set(pz, p, "green", 2) == PC_OK);
     CHECK(fx_param_set(pz, p, "blue", 3) == PC_OK);
     CHECK(px_eq(apply_px(pz, p, px4(64, 130, 127, 255)), 85, 255, 127, 255));
-    /* alpha: default 64 levels keeps 0 and 255, quantizes the rest */
-    CHECK(px_eq(apply_px(pz, p, px4(0, 0, 0, 127)), 0, 0, 0, 125));
-    CHECK(px_eq(apply_px(pz, p, px4(0, 0, 0, 128)), 0, 0, 0, 129));
+    /* alpha: own 16 levels when unlinked; 0 and 255 never change */
+    CHECK(px_eq(apply_px(pz, p, px4(0, 0, 0, 127)), 0, 0, 0, 119));
+    CHECK(px_eq(apply_px(pz, p, px4(0, 0, 0, 128)), 0, 0, 0, 136));
     CHECK(fx_param_set(pz, p, "alpha", 2) == PC_OK);
     CHECK(px_eq(apply_px(pz, p, px4(0, 0, 0, 127)), 0, 0, 0, 0));
+    /* unchecked channels stay unchanged */
+    CHECK(fx_param_set(pz, p, "alpha_on", 0) == PC_OK);
+    CHECK(fx_param_set(pz, p, "red_on", 0) == PC_OK);
+    CHECK(px_eq(apply_px(pz, p, px4(64, 130, 127, 127)), 64, 255, 127, 127));
+    CHECK(fx_param_set(pz, p, "linked", 1) == PC_OK);       /* red drives the rest */
+    CHECK(px_eq(apply_px(pz, p, px4(64, 64, 127, 127)), 64, 85, 85, 127));
     fx_params_free(p);
     /* n levels on a full ramp give exactly n values including 0 and 255 */
     {
@@ -386,22 +398,22 @@ static void t_known_posterize(void)
 static void t_known_photo(void)
 {
     const fx_effect *ex = E(ID_EXPO), *tt = E(ID_TEMP);
-    void *p = params_with(ex, "exposure", 1, NULL, 0, NULL, 0);
+    void *p = params_with(ex, "exposure", 100, NULL, 0, NULL, 0);
     fx_px q;
     CHECK(px_eq(apply_px(ex, p, px4(128, 128, 128, 66)), 176, 176, 176, 66));
     CHECK(px_eq(apply_px(ex, p, px4(0, 255, 0, 255)), 0, 255, 0, 255));
-    CHECK(fx_param_set(ex, p, "exposure", -2) == PC_OK);
+    CHECK(fx_param_set(ex, p, "exposure", -200) == PC_OK);
     CHECK(px_eq(apply_px(ex, p, px4(255, 255, 255, 255)), 137, 137, 137, 255));
-    CHECK(fx_param_set(ex, p, "exposure", -1) == PC_OK);
+    CHECK(fx_param_set(ex, p, "exposure", -100) == PC_OK);
     CHECK(px_eq(apply_px(ex, p, px4(128, 128, 128, 255)), 92, 92, 92, 255));
-    CHECK(fx_param_set(ex, p, "exposure", 2) == PC_OK);
+    CHECK(fx_param_set(ex, p, "exposure", 200) == PC_OK);
     CHECK(px_eq(apply_px(ex, p, px4(64, 64, 64, 255)), 125, 125, 125, 255));
     /* monotone in the exposure value */
     {
         int last = -1;
         bool mono = true;
         for (int k = -20; k <= 20; k++) {
-            CHECK(fx_param_set(ex, p, "exposure", k / 10.0) == PC_OK);
+            CHECK(fx_param_set(ex, p, "exposure", k * 10) == PC_OK);
             q = apply_px(ex, p, px4(90, 90, 90, 255));
             mono = mono && (int)q.r >= last;
             last = q.r;
@@ -417,12 +429,18 @@ static void t_known_photo(void)
     q = apply_px(tt, p, px4(128, 128, 128, 255));
     CHECK(q.b > 128 && q.r < 128);
     CHECK(fx_param_set(tt, p, "temperature", 0) == PC_OK);
-    CHECK(fx_param_set(tt, p, "tint", 60) == PC_OK);
+    CHECK(fx_param_set(tt, p, "tint", 60) == PC_OK);           /* positive: green */
     q = apply_px(tt, p, px4(128, 128, 128, 255));
-    CHECK(q.g < 128 && q.r > 128 && q.r == q.b);
+    CHECK(q.g > 128 && q.r == 128 && q.b == 128);
+    CHECK(fx_param_set(tt, p, "tint", -60) == PC_OK);          /* negative: magenta */
+    q = apply_px(tt, p, px4(128, 128, 128, 255));
+    CHECK(q.g < 128 && q.r == 128 && q.b == 128);
+    /* temperature 100: red x 2^0.625, blue x 2^-0.625 on encoded values */
+    CHECK(fx_param_set(tt, p, "tint", 0) == PC_OK);
+    CHECK(fx_param_set(tt, p, "temperature", 100) == PC_OK);
+    q = apply_px(tt, p, px4(100, 100, 100, 255));
+    CHECK(q.r == 154 && q.g == 100 && q.b == 65);
     CHECK(fx_param_set(tt, p, "tint", -60) == PC_OK);
-    q = apply_px(tt, p, px4(128, 128, 128, 255));
-    CHECK(q.g > 128 && q.r < 128 && q.r == q.b);
     q = apply_px(tt, p, px4(0, 0, 0, 255));
     CHECK(px_eq(q, 0, 0, 0, 255));
     fx_params_free(p);
@@ -446,13 +464,13 @@ static void t_known_highlights_shadows(void)
     CHECK(fx_param_set(fx, p, "radius", 5) == PC_OK);
     apply(fx, p, &s, &d);
     CHECK(fxt_at(&d, 10, 20)[1] >= 55);
-    CHECK(abs((int)fxt_at(&d, 110, 20)[1] - 220) <= 6);
+    CHECK(abs((int)fxt_at(&d, 110, 20)[1] - 220) <= 10);
     CHECK(fxt_at(&d, 10, 20)[3] == 255);
     fx_params_free(p);
     p = params_with(fx, "highlights", -100, NULL, 0, NULL, 0);
     CHECK(fx_param_set(fx, p, "radius", 5) == PC_OK);
     apply(fx, p, &s, &d);
-    CHECK(fxt_at(&d, 110, 20)[0] <= 180);
+    CHECK(fxt_at(&d, 110, 20)[0] <= 205);
     CHECK(abs((int)fxt_at(&d, 10, 20)[0] - 40) <= 3);
     fx_params_free(p);
     /* clarity raises the step's local contrast but not a flat area */

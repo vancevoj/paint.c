@@ -1,23 +1,27 @@
 /* fxm_adj_highlights_shadows.c - Adjustments > Highlights / Shadows
- * (lane L5a). Original design from the documented behavior ("adjusts the
- * highlights and shadows", dark areas recovered without flattening the
- * rest); see docs/fx/adjustments.md for the full description.
+ * (lane L5a). Original implementation from the documented behavior and the
+ * documentation screenshot (sliders Highlights, Shadows and Clarity
+ * -100..100 with default 0, Radius with two decimals); the curve strengths
+ * were calibrated on that screenshot's before/after pair. See
+ * docs/fx/adjustments.md.
  *
  *  prepare(): a tone mask M = blurred BT.601 intensity over the selection
  *    bounds. The blur is three box passes per axis (an approximation of a
  *    Gaussian with sigma = radius / 2) in exact integer arithmetic, edge
  *    clamped at the layer border. The mask is computed over the selection
  *    bounds plus the blur apron, so its values do not depend on the
- *    selection or on how the job is tiled.
- *  render(): with m = M / 65280 in [0, 1], s = shadows / 100,
- *    h = highlights / 100 and c = clarity / 100:
- *      ev   = 1.5 * (s * (1 - m)^2 + h * m^2)      exposure in stops
- *      lin' = lin * 2^ev                            per channel, linear light
- *      out  = srgb(lin') + c * (i - m) * (1 - (2m - 1)^2)
- *    where i is the pixel's own intensity on the mask's scale (so a flat
- *    area has i == m and clarity leaves it alone); the clarity term adds
- *    local contrast mostly in the midtones. Alpha is kept, all zero copies
- *    the source.
+ *    selection or on how the job is tiled. A gain table over the 65281 mask
+ *    levels is built from the tone curve below.
+ *  Tone curve, with m = M / 65280 in [0, 1], s = shadows / 100 and
+ *    h = highlights / 100 (positive values brighten):
+ *      S = m^(2^(-0.4 s))                       shadows: a gamma curve
+ *      H = 1 - (1 - S)^(2^(0.4 h))              highlights: mirrored gamma
+ *      T = S + (H - S) * S                      highlights fade out in darks
+ *  render(): every color channel (gamma-encoded) is multiplied by
+ *    min(T / m, 4), so local detail is kept, then clarity adds
+ *    255 c (i - m) (1 - (2m - 1)^2), c = clarity / 100 and i the pixel's own
+ *    intensity on the mask's scale (a flat area has i == m and is left
+ *    alone). Alpha is kept; all zero copies the source.
  */
 #include "fxa_common.h"
 
@@ -26,18 +30,19 @@
 int fxm_adj_highlights_shadows(const fx_host *host, int (*reg)(const fx_effect *fx));
 
 typedef struct hl_params {
-    int32_t shadows, highlights, clarity, pad;
+    int32_t highlights, shadows, clarity, pad;
     double  radius;
 } hl_params;
 
-#define HL_ENC_N 65536            /* linear -> sRGB table resolution */
-#define HL_MASK_ONE 65280.0       /* full scale of the 16-bit intensity */
+#define HL_MASK_ONE  65280.0      /* full scale of the 16-bit intensity */
+#define HL_LEVELS    65281        /* mask levels 0..65280 */
+#define HL_MAX_GAIN  4.0
+#define HL_STRENGTH  0.4          /* log2 of the gamma at slider +-100 */
 
 typedef struct hl_state {
     fx_rect   m;                  /* mask area: selection bounds clipped */
     uint16_t *mask;               /* m.w * m.h, row-major, host->alloc */
-    float     dec[256];           /* sRGB byte -> linear */
-    uint16_t  enc[HL_ENC_N];      /* linear (i / 65535) -> sRGB * 65535 */
+    float     gain[HL_LEVELS];    /* T(m) / m per mask level */
 } hl_state;
 
 static void hl_release(void *state, const fx_host *host)
@@ -187,9 +192,19 @@ static int prepare(const void *params, const fx_img *src, const fx_env *env,
     st = (hl_state *)fxa_alloc(host, sizeof(hl_state));
     if (!st) return FX_ERROR;
     st->m = rect_isect(env->sel, src->r);
-    for (int v = 0; v < 256; v++) st->dec[v] = (float)fxa_srgb_to_linear((double)v / 255.0);
-    for (int i = 0; i < HL_ENC_N; i++)
-        st->enc[i] = (uint16_t)(fxa_linear_to_srgb((double)i / 65535.0) * 65535.0 + 0.5);
+    {
+        double gs = exp2(-HL_STRENGTH * (double)p->shadows / 100.0);
+        double gh = exp2(HL_STRENGTH * (double)p->highlights / 100.0);
+        for (int k = 0; k < HL_LEVELS; k++) {
+            double m = (double)k / HL_MASK_ONE, sv, hv, t, g;
+            sv = pow(m, gs);
+            hv = 1.0 - pow(1.0 - sv, gh);
+            t = sv + (hv - sv) * sv;
+            if (k == 0) g = gs < 1.0 ? HL_MAX_GAIN : (gs > 1.0 ? 0.0 : 1.0);
+            else g = t / m;
+            st->gain[k] = (float)fx_clampd(g, 0.0, HL_MAX_GAIN);
+        }
+    }
     if (st->m.w > 0 && st->m.h > 0) {
         if (!fxa_mul_size((size_t)st->m.w, (size_t)st->m.h, &n) ||
             !fxa_mul_size(n, 2u, &bytes)) {
@@ -202,7 +217,7 @@ static int prepare(const void *params, const fx_img *src, const fx_env *env,
             return FX_ERROR;
         }
         /* three boxes of width w approximate a Gaussian when w^2 = 4 sigma^2 + 1 */
-        sigma = fx_clampd(p->radius, 0.0, 100.0) * 0.5;
+        sigma = fx_clampd(p->radius, 0.0, 40.0) * 0.5;
         wbox = sqrt(4.0 * sigma * sigma + 1.0);
         rb = (int32_t)floor((wbox - 1.0) * 0.5 + 0.5);
         r = build_mask(st, src, rb, host, job);
@@ -220,7 +235,7 @@ static int render(const void *params, const void *state, const fx_img *src, fx_i
 {
     const hl_params *p = (const hl_params *)params;
     const hl_state *st = (const hl_state *)state;
-    double s = p->shadows / 100.0, h = p->highlights / 100.0, c = p->clarity / 100.0;
+    double c = (double)p->clarity / 100.0;
     (void)env;
     if (!st) return fxa_copy(src, dst, roi, host, job);
     for (int32_t y = roi.y; y < roi.y + roi.h; y++) {
@@ -231,37 +246,27 @@ static int render(const void *params, const void *state, const fx_img *src, fx_i
         FX_CHECK_CANCEL(host, job);
         for (int32_t x = 0; x < roi.w; x++) {
             fx_px px = sp[x];
-            double m = (double)mrow[x] / HL_MASK_ONE;
-            double ev = 1.5 * (s * (1.0 - m) * (1.0 - m) + h * m * m);
-            double gain = exp2(ev);
+            uint16_t mk = mrow[x];
+            double m = (double)mk / HL_MASK_ONE, g = (double)st->gain[mk];
             double i = (double)((7471u * px.b + 38470u * px.g + 19595u * px.r + 128u) >> 8) /
                        HL_MASK_ONE;
-            double cl = c * (i - m) * (1.0 - (2.0 * m - 1.0) * (2.0 * m - 1.0));
-            uint8_t ch[3], in[3];
-            in[0] = px.b;
-            in[1] = px.g;
-            in[2] = px.r;
-            for (int k = 0; k < 3; k++) {
-                double lin = (double)st->dec[in[k]] * gain;
-                int idx = lin >= 1.0 ? HL_ENC_N - 1 : (int)(lin * 65535.0 + 0.5);
-                double out = (double)st->enc[idx] / 65535.0 + cl;
-                ch[k] = fx_u8(out * 255.0);
-            }
-            d[x] = fx_px_make(ch[2], ch[1], ch[0], px.a);
+            double cl = 255.0 * c * (i - m) * (1.0 - (2.0 * m - 1.0) * (2.0 * m - 1.0));
+            d[x] = fx_px_make(fx_u8((double)px.r * g + cl), fx_u8((double)px.g * g + cl),
+                              fx_u8((double)px.b * g + cl), px.a);
         }
     }
     return FX_OK;
 }
 
 static const fx_prop k_props[] = {
-    { "shadows", "Shadows", FXP_INT, (uint32_t)offsetof(hl_params, shadows),
-      -100.0, 100.0, 0.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "highlights", "Highlights", FXP_INT, (uint32_t)offsetof(hl_params, highlights),
+      -100.0, 100.0, 0.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+    { "shadows", "Shadows", FXP_INT, (uint32_t)offsetof(hl_params, shadows),
       -100.0, 100.0, 0.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "clarity", "Clarity", FXP_INT, (uint32_t)offsetof(hl_params, clarity),
       -100.0, 100.0, 0.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "radius", "Radius", FXP_REAL, (uint32_t)offsetof(hl_params, radius),
-      0.0, 100.0, 20.0, 0.1, NULL, NULL, 0u, 0u, NULL },
+      0.0, 40.0, 5.0, 0.01, NULL, NULL, 0u, 0u, NULL },
 };
 
 static const fx_effect k_fx = {

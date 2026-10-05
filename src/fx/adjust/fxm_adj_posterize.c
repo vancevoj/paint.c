@@ -1,15 +1,21 @@
 /* fxm_adj_posterize.c - Adjustments > Posterize (lane L5a).
- * Red, Green and Blue 2..64 levels (default 16) with Linked (default on:
- * Red drives all three color channels), plus Alpha 2..64 levels as in
- * Paint.NET 5.0 and later (default 64, independent of Linked). The level
- * tables are the Paint.NET 3.36 (MIT, Ed Harvey) PosterizePixelOp.CalcLevels
- * tables, bit-exact; 0 and 255 always map to themselves.
- * See docs/notice/l5a.md and docs/fx/adjustments.md. */
+ *
+ * Layout of the Paint.NET 5 dialog (documentation screenshot): a check box
+ * and a 2..64 level slider for each of Red, Green, Blue and Alpha (all
+ * checked, 16 levels by default) and a Linked check box (checked). An
+ * unchecked channel is left unchanged. With Linked, the Red slider drives
+ * every channel (the other sliders are disabled through enabled_if, since
+ * the parameter schema cannot move sliders together).
+ * The level tables are the Paint.NET 3.36 (MIT, Ed Harvey)
+ * PosterizePixelOp.CalcLevels tables, bit-exact; 0 and 255 always map to
+ * themselves. See docs/notice/l5a.md and docs/fx/adjustments.md. */
 #include "fxa_common.h"
 
 int fxm_adj_posterize(const fx_host *host, int (*reg)(const fx_effect *fx));
 
-typedef struct pz_params { int32_t red, green, blue, alpha, linked; } pz_params;
+typedef struct pz_params {
+    int32_t red_on, red, green_on, green, blue_on, blue, alpha_on, alpha, linked;
+} pz_params;
 
 static void calc_levels(int n, uint8_t out[256])
 {
@@ -29,6 +35,15 @@ static void calc_levels(int n, uint8_t out[256])
     }
 }
 
+static void channel(int on, int n, uint8_t out[256])
+{
+    if (on) {
+        calc_levels(n, out);
+    } else {
+        for (int v = 0; v < 256; v++) out[v] = (uint8_t)v;
+    }
+}
+
 static int prepare(const void *params, const fx_img *src, const fx_env *env,
                    const fx_host *host, const void *job, void **state)
 {
@@ -37,10 +52,10 @@ static int prepare(const void *params, const fx_img *src, const fx_env *env,
     (void)src; (void)env; (void)job;
     l = (fxa_lut *)fxa_alloc(host, sizeof(fxa_lut));
     if (!l) return FX_ERROR;
-    calc_levels(p->linked ? p->red : p->green, l->t[1]);
-    calc_levels(p->linked ? p->red : p->blue, l->t[0]);
-    calc_levels(p->red, l->t[2]);
-    calc_levels(p->alpha, l->t[3]);
+    channel(p->blue_on, p->linked ? p->red : p->blue, l->t[0]);
+    channel(p->green_on, p->linked ? p->red : p->green, l->t[1]);
+    channel(p->red_on, p->red, l->t[2]);
+    channel(p->alpha_on, p->linked ? p->red : p->alpha, l->t[3]);
     *state = l;
     return FX_OK;
 }
@@ -52,22 +67,24 @@ static int render(const void *params, const void *state, const fx_img *src, fx_i
     return fxa_render_lut((const fxa_lut *)state, src, dst, roi, host, job);
 }
 
+#define PZ_ON(key, label, field) \
+    { key, label, FXP_BOOL, (uint32_t)offsetof(pz_params, field), 0.0, 1.0, 1.0, 0.0, NULL, \
+      NULL, 0u, 0u, NULL }
+#define PZ_LEVELS(key, field, cond) \
+    { key, "", FXP_INT, (uint32_t)offsetof(pz_params, field), 2.0, 64.0, 16.0, 1.0, NULL, \
+      NULL, 0u, 0u, cond }
+
 static const fx_prop k_props[] = {
-    { "red", "Red", FXP_INT, (uint32_t)offsetof(pz_params, red),
-      2.0, 64.0, 16.0, 1.0, NULL, NULL, 0u, 0u, NULL },
-    { "green", "Green", FXP_INT, (uint32_t)offsetof(pz_params, green),
-      2.0, 64.0, 16.0, 1.0, NULL, NULL, 0u, 0u, "linked=0" },
-    { "blue", "Blue", FXP_INT, (uint32_t)offsetof(pz_params, blue),
-      2.0, 64.0, 16.0, 1.0, NULL, NULL, 0u, 0u, "linked=0" },
-    { "alpha", "Alpha", FXP_INT, (uint32_t)offsetof(pz_params, alpha),
-      2.0, 64.0, 64.0, 1.0, NULL, NULL, 0u, 0u, NULL },
-    { "linked", "Linked", FXP_BOOL, (uint32_t)offsetof(pz_params, linked),
-      0.0, 1.0, 1.0, 0.0, NULL, NULL, 0u, 0u, NULL },
+    PZ_ON("red_on", "Red", red_on),       PZ_LEVELS("red", red, NULL),
+    PZ_ON("green_on", "Green", green_on), PZ_LEVELS("green", green, "linked=0"),
+    PZ_ON("blue_on", "Blue", blue_on),    PZ_LEVELS("blue", blue, "linked=0"),
+    PZ_ON("alpha_on", "Alpha", alpha_on), PZ_LEVELS("alpha", alpha, "linked=0"),
+    PZ_ON("linked", "Linked", linked),
 };
 
 static const fx_effect k_fx = {
     (uint32_t)sizeof(fx_effect), "org.paintc.adjust.posterize", "Adjustments/Posterize",
-    k_props, 5u, (uint32_t)sizeof(pz_params), FX_FLAG_ADJUSTMENT, NULL, prepare, fxa_release,
+    k_props, 9u, (uint32_t)sizeof(pz_params), FX_FLAG_ADJUSTMENT, NULL, prepare, fxa_release,
     render
 };
 
