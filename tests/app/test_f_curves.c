@@ -149,7 +149,7 @@ static void t_dialog(void)
     d = app_active_doc(a);
     fx = fx_registry_find(a->fx, "org.paintc.adjust.curves");
     CHECK(fx != NULL);
-    f_key(a, SDLK_M, (SDL_Keymod)(SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT));   /* Ctrl+Shift+M */
+    f_key(a, SDLK_M, (SDL_Keymod)(AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT));   /* Ctrl+Shift+M */
     s = afx_active(a);
     CHECK(s && afx_session_fx(s) == fx);
     if (!s || !fx) {

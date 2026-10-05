@@ -246,7 +246,7 @@ static void t_app_plugins(void)
     CHECK(strcmp(d->hist->cur->label, "Tint") == 0);
     /* Repeat works for plugin effects too */
     CHECK(app_cmd_enabled(a, "effects.repeat"));
-    key(a, SDLK_F, SDL_KMOD_LCTRL);
+    key(a, SDLK_F, AT_KMOD_PRIMARY);
     CHECK(afx_wait_idle(a, 50));
     CHECK(px_eq(at_doc_px(a, 3, 3), 50, 5, 194, 255));
     CHECK(app_doc_history_list(d, NULL, 0, NULL) == 4u);

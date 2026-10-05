@@ -235,7 +235,7 @@ static void t_repeat(void)
     CHECK(s && fx_param_set(noise, afx_session_params(s), "intensity", 5.0) == PC_OK);
     afx_session_cancel(a, s);
     at_frames(a, 2);
-    f_key(a, SDLK_F, SDL_KMOD_LCTRL);                   /* Ctrl+F */
+    f_key(a, SDLK_F, AT_KMOD_PRIMARY);                   /* Ctrl+F */
     CHECK(afx_wait_idle(a, 100));
     CHECK(app_doc_history_list(d, NULL, 0, &cur) == 4u && cur == 3u);
     CHECK(strcmp(d->hist->cur->label, "Add Noise") == 0);

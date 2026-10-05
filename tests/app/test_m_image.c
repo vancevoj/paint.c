@@ -152,7 +152,7 @@ static void t_resize_dialog(void)
     /* the width box has the focus; the height follows (aspect on by default) */
     CHECK(app_cmd_exec(a, "image.resize"));
     at_frames(a, 3);
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "50");
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     at_frames(a, 2);
@@ -163,7 +163,7 @@ static void t_resize_dialog(void)
     /* zero: OK stays disabled, Enter does nothing, Escape cancels */
     CHECK(app_cmd_exec(a, "image.resize"));
     at_frames(a, 3);
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "0");
     tap(a, SDLK_TAB, SDL_KMOD_NONE);
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
@@ -172,7 +172,7 @@ static void t_resize_dialog(void)
     for (int i = 0; i < 3 && app_dialog_active(a); i++) tap(a, SDLK_ESCAPE, SDL_KMOD_NONE);
     CHECK(!app_dialog_active(a) && d->doc->w == 200u && hist_len(d) == n0);
     /* Ctrl+R opens it; unchanged OK records nothing */
-    tap(a, SDLK_R, SDL_KMOD_LCTRL);
+    tap(a, SDLK_R, AT_KMOD_PRIMARY);
     CHECK(app_dialog_active(a));
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     CHECK(!app_dialog_active(a) && hist_len(d) == n0);
@@ -201,7 +201,7 @@ static void t_resolution_only(void)
     at_frames(a, 3);
     tap(a, SDLK_TAB, SDL_KMOD_NONE);
     tap(a, SDLK_TAB, SDL_KMOD_NONE);
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "150");
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     at_frames(a, 2);
@@ -221,7 +221,7 @@ static void t_canvas_size(void)
     /* default anchor Top Left, transparent fill; aspect off: only the width */
     CHECK(app_cmd_exec(a, "image.canvas_size"));
     at_frames(a, 3);
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "300");
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     at_frames(a, 2);
@@ -243,10 +243,10 @@ static void t_canvas_size(void)
     CHECK(app_cmd_exec(a, "layers.add_new"));
     CHECK(app_cmd_exec(a, "image.canvas_size"));
     at_frames(a, 3);
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "400");
     tap(a, SDLK_TAB, SDL_KMOD_NONE);
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "160");
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     at_frames(a, 2);
@@ -273,17 +273,17 @@ static void t_geometry(void)
     CHECK(pc_sel_apply_rect(d->hist, pc_rect_make(10, 20, 30, 15), PC_SEL_REPLACE, "S") == PC_OK);
     app_doc_history_changed(a, d);
     n0 = hist_len(d);
-    tap(a, SDLK_X, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    tap(a, SDLK_X, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     CHECK(d->doc->w == 30u && d->doc->h == 15u && !pc_sel_is_active(d->doc));
     CHECK(hist_len(d) == n0 + 1u && strcmp(d->hist->cur->label, "Crop to Selection") == 0);
     CHECK(app_cmd_exec(a, "edit.undo") && d->doc->w == 100u && pc_sel_is_active(d->doc));
     CHECK(pc_sel_bounds(d->doc).x == 10 && pc_sel_bounds(d->doc).w == 30);
     /* rotate 90: dimensions swap, the selection follows, one step each */
-    tap(a, SDLK_H, SDL_KMOD_LCTRL);
+    tap(a, SDLK_H, AT_KMOD_PRIMARY);
     CHECK(d->doc->w == 60u && d->doc->h == 100u && strcmp(d->hist->cur->label,
                                                          "Rotate 90\xC2\xB0 Clockwise") == 0);
     CHECK(pc_sel_bounds(d->doc).w == 15 && pc_sel_bounds(d->doc).h == 30);
-    tap(a, SDLK_G, SDL_KMOD_LCTRL);
+    tap(a, SDLK_G, AT_KMOD_PRIMARY);
     CHECK(d->doc->w == 100u && pc_sel_bounds(d->doc).x == 10);
     CHECK(app_cmd_exec(a, "image.rotate_180") && pc_sel_bounds(d->doc).x == 60);
     CHECK(app_cmd_exec(a, "image.flip_h") && pc_sel_bounds(d->doc).x == 10);
@@ -291,7 +291,7 @@ static void t_geometry(void)
     /* Flatten: enabled with two layers, one step */
     CHECK(app_cmd_exec(a, "layers.add_new") && app_cmd_enabled(a, "image.flatten"));
     n0 = hist_len(d);
-    tap(a, SDLK_F, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    tap(a, SDLK_F, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     CHECK(d->doc->n_layers == 1u && hist_len(d) == n0 + 1u && !app_cmd_enabled(a, "image.flatten"));
     app_destroy(a);
 }

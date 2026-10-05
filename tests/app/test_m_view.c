@@ -60,14 +60,14 @@ static void t_zoom_commands(void)
     h0 = app_doc_history_list(d, NULL, 0, NULL);
     CHECK(near(d->view.zoom, 1.0, 1e-9));          /* fits: never above 100 % */
     /* Zoom In / Out one preset step at the center */
-    tap(a, SDLK_PLUS, SDL_KMOD_LCTRL);
+    tap(a, SDLK_PLUS, AT_KMOD_PRIMARY);
     CHECK(near(d->view.zoom, 1.5, 1e-9) && near(d->view.cx, 150.0, 1.0));
-    tap(a, SDLK_MINUS, SDL_KMOD_LCTRL);
-    tap(a, SDLK_MINUS, SDL_KMOD_LCTRL);
+    tap(a, SDLK_MINUS, AT_KMOD_PRIMARY);
+    tap(a, SDLK_MINUS, AT_KMOD_PRIMARY);
     CHECK(near(d->view.zoom, 0.67, 1e-9));
     /* Actual Size (Ctrl+0) keeps the view center */
     v = app_doc_gview(a, d);
-    tap(a, SDLK_0, SDL_KMOD_LCTRL);
+    tap(a, SDLK_0, AT_KMOD_PRIMARY);
     v2 = app_doc_gview(a, d);
     CHECK(near(v2.zoom, 1.0, 1e-9) && near(v2.cx, v.cx, 1.0) && near(v2.cy, v.cy, 1.0));
     /* limits disable the commands */
@@ -81,9 +81,9 @@ static void t_zoom_commands(void)
     app_view_set_zoom(a, d, 4.0);
     at_frames(a, 1);
     v = app_doc_gview(a, d);
-    tap(a, SDLK_B, SDL_KMOD_LCTRL);
+    tap(a, SDLK_B, AT_KMOD_PRIMARY);
     CHECK(app_cmd_checked(a, "view.zoom_window") && near(d->view.zoom, 1.0, 1e-9));
-    tap(a, SDLK_B, SDL_KMOD_LCTRL);
+    tap(a, SDLK_B, AT_KMOD_PRIMARY);
     v2 = app_doc_gview(a, d);
     CHECK(!app_cmd_checked(a, "view.zoom_window") && near(v2.zoom, 4.0, 1e-9));
     CHECK(near(v2.cx, v.cx, 1.0) && near(v2.cy, v.cy, 1.0));
@@ -92,16 +92,16 @@ static void t_zoom_commands(void)
     CHECK(pc_sel_apply_rect(d->hist, pc_rect_make(100, 50, 40, 20), PC_SEL_REPLACE, "S") == PC_OK);
     app_doc_history_changed(a, d);
     h0 = app_doc_history_list(d, NULL, 0, NULL);
-    tap(a, SDLK_B, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    tap(a, SDLK_B, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     v = app_doc_gview(a, d);
     CHECK(v.zoom > 5.0 && near(v.cx, 120.0, 1.0) && near(v.cy, 60.0, 1.0));
-    tap(a, SDLK_B, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    tap(a, SDLK_B, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     v2 = app_doc_gview(a, d);
     CHECK(near(v2.zoom, v.zoom, 1e-9) && near(v2.cx, v.cx, 1e-6) && near(v2.cy, v.cy, 1e-6));
     /* Select All then Zoom to Selection centers the image like Zoom to Window */
     CHECK(app_cmd_exec(a, "edit.select_all"));
     h0 = app_doc_history_list(d, NULL, 0, NULL);
-    tap(a, SDLK_B, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    tap(a, SDLK_B, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     v = app_doc_gview(a, d);
     CHECK(near(v.cx, 150.0, 1.0) && near(v.cy, 100.0, 1.0));
     /* view commands add no history */

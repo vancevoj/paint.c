@@ -200,7 +200,16 @@ static void t_menus(void)
     CHECK(ns == 9u);
     for (size_t i = 0; i < sizeof k_keys / sizeof k_keys[0]; i++) {
         const char *t = app_cmd_shortcut_text(a, k_keys[i].id);
+#if defined(__APPLE__)
+        /* macOS shows Command for Ctrl, in its own notation */
+        app_key k;
+        char want[64] = "";
+        CHECK(app_key_parse(k_keys[i].key, true, &k, 1) == 1);
+        app_key_format(k, true, want, sizeof want);
+        CHECK(t && strcmp(t, want) == 0);
+#else
         CHECK(t && strcmp(t, k_keys[i].key) == 0);
+#endif
     }
     /* Exposure, Highlights / Shadows, Temperature / Tint: no accelerator */
     CHECK(app_cmd_shortcut_text(a, "adjust.org.paintc.adjust.exposure") == NULL);
