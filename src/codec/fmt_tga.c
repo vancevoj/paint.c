@@ -332,7 +332,7 @@ static pc_status tga_save(const pc_doc *d, const pc_image_meta *meta, const void
     pc_px32 *tmp = NULL;
     uint8_t hdr[18], ext[TGA_EXT_SIZE], foot[26];
     uint32_t depth, bytes, w, h;
-    size_t base, ext_off;
+    size_t base, ext_off = 0;
     pc_status st;
     (void)meta;
     if (!d || !out) return PC_ERR_ARG;
@@ -395,7 +395,7 @@ static pc_status tga_save(const pc_doc *d, const pc_image_meta *meta, const void
     }
     if (st == PC_OK) {
         memset(ext, 0, sizeof ext);
-        ext[0] = (uint8_t)TGA_EXT_SIZE; ext[1] = (uint8_t)(TGA_EXT_SIZE >> 8);
+        ext[0] = (uint8_t)(TGA_EXT_SIZE & 0xFFu); ext[1] = (uint8_t)(TGA_EXT_SIZE >> 8);
         memcpy(ext + 426, "paint.c", 7);           /* software id */
         ext[494] = depth == 32u ? 3u : 0u;          /* attribute type */
         memset(foot, 0, sizeof foot);

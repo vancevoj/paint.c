@@ -12,9 +12,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* STREAMING, not STATIC: the pages change every frame, and SDL's software
+ * renderer RLE-encodes STATIC textures. In SDL 3.4 the RLE blitter rounds
+ * alpha differently from its flipped-copy path (mirrored rounded-rect
+ * corners came out 1 level apart), and a clipped, scaled copy from an RLE
+ * surface reads its freed pixel buffer (NULL). */
 static bool page_texture(ui_ctx *ctx, ui_atlas_page *pg)
 {
-    pg->tex = SDL_CreateTexture(ctx->r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC,
+    pg->tex = SDL_CreateTexture(ctx->r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING,
                                 UI_ATLAS_DIM, UI_ATLAS_DIM);
     if (!pg->tex) return false;
     SDL_SetTextureBlendMode(pg->tex, SDL_BLENDMODE_BLEND);

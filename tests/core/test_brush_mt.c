@@ -186,6 +186,7 @@ int main(int argc, char **argv)
     RUN(t_mt_equal);
     RUN(t_mt_speed);
 #else
+    (void)pc_test_run;                   /* no RUN here: keep -Wunused-function quiet */
     INFO("C11 threads unavailable (or TSan build): real-thread comparison skipped");
 #endif
     CHECK(tiles_live() == t0);

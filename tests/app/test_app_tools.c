@@ -187,7 +187,7 @@ static int32_t stroke_height(app *a, int32_t x)
 static void t_pen_pressure(void)
 {
     app *a = with_image(300, 200, app_px_make(255, 255, 255, 255));
-    float sx0, sy0, sx1, sy1;
+    float sx0 = 0.0f, sy0 = 0.0f, sx1 = 0.0f, sy1 = 0.0f;
     CHECK(a != NULL);
     if (!a) return;
     CHECK(app_tool_select(a, "paintbrush"));
@@ -293,7 +293,7 @@ static void t_commit_before_command(void)
     CHECK(app_tool_live(a) && d->txn != NULL);
     CHECK(!app_doc_dirty(d));
     /* Ctrl+Z while drawing: the stroke is committed, then undone */
-    key_press(a, SDLK_Z, SDL_KMOD_LCTRL);
+    key_press(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(!app_tool_live(a) && d->txn == NULL && !app_doc_dirty(d));
     CHECK(app_doc_can_redo(d));
     at_mouse(a, SDL_EVENT_MOUSE_BUTTON_UP, sx, sy, SDL_BUTTON_LEFT);
@@ -322,7 +322,7 @@ static void t_effects(void)
     CHECK(strcmp(d->hist->cur->label, "Invert Colors") == 0 && !d->txn);
     /* Repeat (Ctrl+F) inverts back */
     CHECK(app_cmd_enabled(a, "effects.repeat"));
-    key_press(a, SDLK_F, SDL_KMOD_LCTRL);
+    key_press(a, SDLK_F, AT_KMOD_PRIMARY);
     CHECK(px_eq(at_doc_px(a, 5, 5), 10, 200, 30, 255));
     CHECK(app_doc_history_list(d, NULL, 0, NULL) == 3u);
     /* a dialog effect: preview in the transaction, Enter applies */

@@ -72,12 +72,12 @@ static void t_menu_click(void)
     CHECK(!app_dialog_active(a) && app_doc_count(a) == 2);
     CHECK(app_active_doc(a)->doc->w == 800u && app_active_doc(a)->doc->h == 600u);
     /* Ctrl+Tab and Ctrl+Shift+Tab switch between the images */
-    key_ev(a, SDLK_TAB, SDL_KMOD_LCTRL, true);
-    key_ev(a, SDLK_TAB, SDL_KMOD_LCTRL, false);
+    key_ev(a, SDLK_TAB, AT_KMOD_PRIMARY, true);
+    key_ev(a, SDLK_TAB, AT_KMOD_PRIMARY, false);
     at_frames(a, 2);
     CHECK(app_doc_index(a, app_active_doc(a)) == 0);
-    key_ev(a, SDLK_TAB, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT, true);
-    key_ev(a, SDLK_TAB, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT, false);
+    key_ev(a, SDLK_TAB, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT, true);
+    key_ev(a, SDLK_TAB, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT, false);
     at_frames(a, 2);
     CHECK(app_doc_index(a, app_active_doc(a)) == 1);
     app_destroy(a);
@@ -141,10 +141,10 @@ static void t_wheel_zoom(void)
     gfx_view_to_doc(&v, sx, sy, &dx0, &dy0);
     at_mouse(a, SDL_EVENT_MOUSE_MOTION, sx, sy, 0);
     at_frames(a, 2);
-    key_ev(a, SDLK_LCTRL, SDL_KMOD_LCTRL, true);
+    key_ev(a, AT_KEY_PRIMARY, AT_KMOD_PRIMARY, true);
     wheel(a, sx, sy, 1.0f);
     wheel(a, sx, sy, 1.0f);
-    key_ev(a, SDLK_LCTRL, SDL_KMOD_NONE, false);
+    key_ev(a, AT_KEY_PRIMARY, SDL_KMOD_NONE, false);
     at_frames(a, 1);
     CHECK(d->view.zoom == gfx_zoom_next_in(gfx_zoom_next_in(z0)));
     v = app_doc_gview(a, d);
@@ -305,7 +305,7 @@ static void t_size_dialogs(void)
     at_frames(a, 3);
     CHECK(app_dialog_active(a));
     tap(a, SDLK_TAB, SDL_KMOD_NONE);              /* By percentage -> the percentage */
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "50");
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     at_frames(a, 2);
@@ -317,7 +317,7 @@ static void t_size_dialogs(void)
     CHECK(app_cmd_exec(a, "image.canvas_size"));
     at_frames(a, 3);
     tap(a, SDLK_TAB, SDL_KMOD_NONE);              /* By percentage radio -> percentage */
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "150");
     tap(a, SDLK_TAB, SDL_KMOD_NONE);              /* commit; the size follows */
     tap(a, SDLK_ESCAPE, SDL_KMOD_NONE);

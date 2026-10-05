@@ -17,6 +17,13 @@ if(MSVC)
   endif()
 else()
   set(PC_WARN_FLAGS -Wall -Wextra -Wpedantic -Wshadow -Wstrict-prototypes -Werror)
+  # Same floating-point results on every target: no fused multiply-add
+  # contraction. Clang (also Apple clang) contracts a * b + c by default
+  # where FMA is in the base ISA (arm64), x86-64 has no FMA in its base ISA,
+  # so arm64 builds rounded differently from the x86-64 builds the tests
+  # were validated on (test_shapes dash fractions on macOS arm64). MSVC
+  # does not contract under the default /fp:precise.
+  list(APPEND PC_WARN_FLAGS -ffp-contract=off)
 endif()
 
 # Sanitizers apply to every target in the build, including dependencies,
@@ -43,7 +50,8 @@ if(WIN32)
                           WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
 endif()
 
-# pc_warnings(<target>) - strict warnings for first-party code only.
+# pc_warnings(<target>) - strict warnings (and the floating-point mode
+# above) for first-party code only.
 function(pc_warnings tgt)
   target_compile_options(${tgt} PRIVATE ${PC_WARN_FLAGS})
 endfunction()

@@ -149,8 +149,8 @@ static void t_registry(void)
     g_runs = 0;
     g_enabled = true;
     CHECK(app_cmd_exec(a, "test.count") && g_runs == 1);
-    CHECK(app_key_press(a, 'k', UI_MOD_CTRL | UI_MOD_ALT, false) && g_runs == 2);
-    CHECK(app_key_press(a, 'k', UI_MOD_CTRL | UI_MOD_ALT, true) && g_runs == 2);  /* no repeat */
+    CHECK(app_key_press(a, 'k', ui_mod_primary() | UI_MOD_ALT, false) && g_runs == 2);
+    CHECK(app_key_press(a, 'k', ui_mod_primary() | UI_MOD_ALT, true) && g_runs == 2);  /* no repeat */
     g_enabled = false;
     CHECK(!app_cmd_exec(a, "test.count") && g_runs == 2);
     CHECK(!app_cmd_enabled(a, "test.count"));
@@ -202,7 +202,7 @@ static void t_dispatch(void)
     at_frames(a, 2);
     /* Ctrl+N opens the New Image dialog; Escape closes it */
     CHECK(!app_dialog_active(a));
-    CHECK(app_key_press(a, 'n', UI_MOD_CTRL, false));
+    CHECK(app_key_press(a, 'n', ui_mod_primary(), false));
     CHECK(app_dialog_active(a));
     {
         SDL_Event e;
@@ -221,9 +221,9 @@ static void t_dispatch(void)
     /* view keys */
     {
         double z = d->view.zoom;
-        CHECK(app_key_press(a, SDLK_EQUALS, UI_MOD_CTRL, false));
+        CHECK(app_key_press(a, SDLK_EQUALS, ui_mod_primary(), false));
         CHECK(d->view.zoom > z);
-        CHECK(app_key_press(a, '0', UI_MOD_CTRL, false) && d->view.zoom == 1.0);
+        CHECK(app_key_press(a, '0', ui_mod_primary(), false) && d->view.zoom == 1.0);
     }
     /* X swaps the colors */
     {

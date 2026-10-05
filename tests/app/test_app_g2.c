@@ -165,7 +165,7 @@ static void t_g2(void)
     }
 
     /* undo and redo from the keyboard */
-    key(a, SDLK_Z, SDL_KMOD_LCTRL);
+    key(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(!app_doc_dirty(d));
     CHECK(px_eq(at_doc_px(a, 5, 5), 10, 10, 90, 255));
     {
@@ -173,7 +173,7 @@ static void t_g2(void)
         CHECK(at_screen(a, 5.5, 5.5, &sx, &sy));
         CHECK(at_pixel(a, (int)sx, (int)sy) == ((10u << 16) | (10u << 8) | 90u));
     }
-    key(a, SDLK_Y, SDL_KMOD_LCTRL);
+    key(a, SDLK_Y, AT_KMOD_PRIMARY);
     CHECK(app_doc_dirty(d));
     CHECK(px_eq(at_doc_px(a, 5, 5), 0, 0, 255, 255));
 
