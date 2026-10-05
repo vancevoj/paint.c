@@ -994,7 +994,10 @@ static int SDLCALL si_thread(void *ud)
             connected = true;
         } else {
             DWORD e = GetLastError();
-            if (e == ERROR_PIPE_CONNECTED) connected = true;
+            /* ERROR_NO_DATA: the client connected, wrote and closed its end
+             * before this call (a fast second instance); what it wrote is
+             * still in the pipe, so read it like any other connection */
+            if (e == ERROR_PIPE_CONNECTED || e == ERROR_NO_DATA) connected = true;
             else if (e == ERROR_IO_PENDING) connected = si_wait(g_si.pipe, &ov, INFINITE, &got);
             else connected = false;
         }
