@@ -18,6 +18,7 @@
  * Threads: load and save are reentrant (one spng context per call).
  */
 #include "lib_codec.h"
+#include "quant.h"
 #include "spng.h"
 
 #include <stddef.h>
@@ -480,13 +481,30 @@ static pc_status scan_source(png_scan *s, uint32_t w, uint32_t h, lc_rows_src sr
  * build a palette of at most 256 entries (255 plus one transparent entry
  * when transparent_entry), then encode with lc_png_encode(LC_PNG_PALETTE)
  * from a source that maps each pixel to its quantized color. */
+/* More than 256 prepared colors: octree palette + dithering (quant.h, lane
+ * L6a). The mapped rows yield palette colors, so the encoder looks them up in
+ * m.pal; a transparent entry, when present, is the palette's last entry. */
 static pc_status png_quantize_8bit(pc_buf *out, uint32_t w, uint32_t h, png_prep *prep,
                                    int32_t dither, bool transparent_entry,
                                    const lc_png_opts *base)
 {
-    (void)out; (void)w; (void)h; (void)prep; (void)dither; (void)transparent_entry;
-    (void)base;
-    return PC_ERR_UNSUPPORTED;
+    pc_quant *q = NULL;
+    pc_quant_rows m;
+    lc_png_opts o = *base;
+    pc_status st = pc_quant_create(&q);
+    (void)transparent_entry;
+    if (st == PC_OK) st = pc_quant_add_rows(q, w, h, png_src_prep, prep);
+    if (st == PC_OK) st = pc_quant_build(q, 256, PC_QUANT_OCTREE);
+    if (st == PC_OK) st = pc_quant_rows_begin(&m, q, w, h, dither, png_src_prep, prep);
+    if (st == PC_OK) {
+        o.kind = LC_PNG_PALETTE;
+        o.pal = m.pal;
+        o.n_pal = pc_quant_palette(q, NULL, NULL);
+        st = lc_png_encode(out, w, h, pc_quant_rows_get, &m, &o);
+        pc_quant_rows_end(&m);
+    }
+    pc_quant_destroy(q);
+    return st;
 }
 
 /* Encode the palette image whose distinct prepared colors are in s. */

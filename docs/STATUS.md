@@ -21,3 +21,4 @@
 - 2026-10-04 W1-L7 inventory merged: docs/inventory (MENUS, TOOLS, WINDOWS, SHORTCUTS, FILES, VIEW, PARITY with 1469 rows). Values tagged I need a 5.1.12 check.
 - 2026-10-05 wave 1 lanes L0, L1A, L1B, L5A, L5B, L5C, L6B, L6C merged; 39 CTest executables pass, full pc_tests 20,488,758 checks pass. MinGW timespec fallback and MSVC narrowing casts applied from docs/patches.
 - 2026-10-05 CI green on all nine jobs (run 37266845400): Linux GCC/Clang/ASan+UBSan/TSan, mingw-w64 + Wine, Windows MSVC /W4 /WX and clang-cl, macOS 14 arm64 and macOS 15 Intel; 40/40 tests each. macOS jobs now run on dispatch, tags or [mac] commits.
+- 2026-10-05 W1-L6A merged: BMP, TGA, GIF, TIFF (own, hardened) read/write + quant.h (octree/median cut + k-means, Floyd-Steinberg level 0..8); PNG 8-bit save now uses it. 46 CTest executables pass.

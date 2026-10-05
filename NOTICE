@@ -36,7 +36,10 @@ Additional Paint.NET 3.36 derived algorithms
 Several adjustments and effects (src/fx/adjust, src/fx/blur, src/fx/noise, src/fx/photo,
 src/fx/artistic, src/fx/distort, src/fx/render, src/fx/stylize) and a few codec and core
 behaviors re-implement algorithms from the MIT-licensed Paint.NET 3.36 source under the
-license reproduced above. Per-file details are in docs/notice/*.md. Some of those 3.36
+license reproduced above. The save pipeline of the BMP, GIF, TGA, TIFF and PNG codecs
+(src/codec/quant.c: Auto-detect bit depth, flattening onto white, transparency threshold,
+dithering level) follows Paint.NET 3.36's InternalFileType and Quantizer classes. Per-file
+details are in docs/notice/*.md. Some of those 3.36
 files carry an additional notice, also under the MIT License reproduced above:
 
     Copyright (c) 2006-2008 Ed Harvey

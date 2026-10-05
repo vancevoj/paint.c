@@ -532,7 +532,7 @@ static void t_save_palette(void)
         pc_buf_free(&out);
         pc_doc_destroy(d);
     }
-    /* more than 256 colors in 8-bit needs the L6A quantizer (documented gap) */
+    /* more than 256 colors in 8-bit: octree quantizer + dithering (quant.h) */
     {
         pc_px32 *n = tu_noise(W, H, 0);
         pc_doc *d = tu_doc_from_px(W, H, n);
@@ -540,7 +540,32 @@ static void t_save_palette(void)
         memset(&out, 0, sizeof out);
         pc_codec_default_params(png(), &p);
         p.bit_depth = 3;
-        CHECK(png()->save(d, NULL, &p, NULL, &out) == PC_ERR_UNSUPPORTED);
+        CHECK(png()->save(d, NULL, &p, NULL, &out) == PC_OK);
+        CHECK(ihdr_color_type(&out) == 3);                 /* palette */
+        {
+            pc_image_meta m;
+            pc_doc *r = reload(&out, &m);
+            CHECK(r != NULL);
+            if (r) {
+                pc_px32 *px = tu_layer_px(r, r->stack[0]);
+                uint32_t distinct = 0;
+                double err = 0;
+                for (uint32_t i = 0; i < W * H; i++) {
+                    bool seen = false;
+                    for (uint32_t k = 0; k < i && !seen && distinct <= 256u; k++)
+                        seen = memcmp(&px[k], &px[i], 4) == 0;
+                    if (!seen) distinct++;
+                    err += abs(px[i].r - n[i].r) + abs(px[i].g - n[i].g) + abs(px[i].b - n[i].b);
+                }
+                CHECK(distinct <= 256u);
+                INFO("8-bit noise: %u colors, mean abs channel error %.2f", distinct,
+                     err / (3.0 * W * H));
+                CHECK(err / (3.0 * W * H) < 40.0);       /* uniform noise is the worst case */
+                free(px);
+                pc_doc_destroy(r);
+                pc_meta_free(&m);
+            }
+        }
         pc_buf_free(&out);
         /* Auto on opaque noise: 24 or 32-bit, lossless */
         p.bit_depth = 0;
