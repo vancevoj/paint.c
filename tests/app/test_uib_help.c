@@ -121,6 +121,20 @@ static void t_md_blocks(void)
         CHECK(strcmp(d.sec[3].anchor, "part-a-2") == 0 && d.sec[4].level == 3);
     }
     help_doc_free(&d);
+    /* pages that share one document: ids and anchors carry the page */
+    {
+        const char *src = "# A\n\nSee [tips](layers.md#tips), [here](#a), [page](layers.md) "
+                          "and [file](fade_plugin.c).\n\n## A\n";
+        memset(&d, 0, sizeof d);
+        CHECK(help_md_render_page(src, strlen(src), "tools", NULL, NULL, &d));
+        CHECK(d.html.s && strcmp(d.html.s,
+              "<h1 id=\"tools-a\">A</h1>\n<p>See <a href=\"layers.html#layers-tips\">tips</a>, "
+              "<a href=\"#tools-a\">here</a>, <a href=\"layers.html\">page</a> and "
+              "<a href=\"fade_plugin.c\">file</a>.</p>\n<h2 id=\"tools-a-2\">A</h2>\n") == 0);
+        if (d.html.s && !strstr(d.html.s, "layers-tips")) INFO("%s", d.html.s);
+        CHECK(d.nsec == 3 && strcmp(d.sec[2].anchor, "tools-a-2") == 0);
+        help_doc_free(&d);
+    }
     {
         char slug[16];
         help_md_slug("  Hello, World!  ", 17u, slug, sizeof slug);
@@ -380,6 +394,15 @@ static void t_pages(void)
         CHECK(strncmp(t, "<!DOCTYPE html>", 15) == 0 && strstr(t, "</html>") != NULL);
         CHECK(strstr(t, "<title>") && strstr(t, "<h1 id=") && strstr(t, "aria-current"));
         CHECK(strstr(t, "{{") == NULL);                /* every directive resolved */
+        {
+            /* the whole guide, with this file's own page shown */
+            char cur[160];
+            snprintf(cur, sizeof cur, "<section class=\"page current\" id=\"%s\"",
+                     app_help_page_name(i));
+            CHECK(strstr(t, cur) != NULL && count_of(t, "page current") == 1);
+            CHECK(count_of(t, "<section class=\"page") == app_help_page_count() + 1);
+            CHECK(count_of(t, "</script>") == 1);  /* no index text closes the script */
+        }
         CHECK(strstr(t, "/wiki") == NULL && strstr(t, "/discussions") == NULL);
         CHECK(strstr(t, "\xE2\x80\x94") == NULL && strstr(t, "\xE2\x80\x93") == NULL);
     }
@@ -423,8 +446,9 @@ static void t_pages(void)
         CHECK(strstr(t, PC_PROJECT_PUBLIC ? "opens the project's issue list" :
                                             "is hidden until") != NULL);
         t = page_text(&set, "search.html");
-        CHECK(strstr(t, "var IDX=[") && strstr(t, "{p:\"tools.html\",a:\"selection-tools-s\""));
-        CHECK(count_of(t, "</script>") == 1);      /* no index text closes the script */
+        CHECK(strstr(t, "var IDX=[") && strstr(t, "{a:\"tools-selection-tools-s\",g:\"Tools\""));
+        CHECK(strstr(t, "<section class=\"page current\" id=\"search\"") != NULL);
+        CHECK(strstr(t, "<h2 id=\"tools-selection-tools-s\">") != NULL);
     }
     app_help_set_free(&set);
     app_destroy(a);

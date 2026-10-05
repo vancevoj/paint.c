@@ -27,10 +27,17 @@ the wiki and the discussions led to missing pages (final verification items
    `{{getting_help}}`, and inline `{{ctrl}}` / `{{alt}}` (Cmd / Option on
    macOS), `{{version}}`, `{{plugin_dir}}`, `{{exe_plugin_dir}}`,
    `{{config_dir}}`, `{{help_dir}}`.
-3. Every page gets the same frame (navigation in source order, a search box,
-   light and dark colors from `prefers-color-scheme`, no external resources).
-   `search.html` carries an index of every section and a small script that
-   searches it; it works on `file://` pages.
+3. Every file holds the whole guide: one `<section class="page">` per source
+   page plus the search page, with the file's own page marked `current` (the
+   only one shown, no script needed). Links to other pages are plain links
+   to their files; a small script switches sections in place instead (and
+   searches an index of every section), so the guide keeps working when a
+   sandbox such as the Flatpak document portal hands the browser only the
+   one file that was opened, and no URL needs a `#fragment` (Windows drops
+   fragments of `file://` URLs it opens). Heading ids carry the page name
+   (`help_md_render_page`: "tools-selection-tools-s"), so they stay unique.
+   Light and dark colors follow `prefers-color-scheme`; nothing is loaded
+   from the network.
 4. A worker writes the files into the help folder: `<--config-dir>/help`, or
    the per-user cache folder's `help`. Files that are already up to date are
    not rewritten.

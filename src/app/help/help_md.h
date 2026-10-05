@@ -80,6 +80,12 @@ typedef bool (*help_directive_fn)(void *ud, const char *name, bool block, help_b
  * fn may be NULL. Returns false only when memory or the limits ran out;
  * out is still well formed up to that point and must be freed. */
 bool help_md_render(const char *md, size_t n, help_directive_fn fn, void *ud, help_doc *out);
+/* The same for one page of a guide whose pages share one HTML document:
+ * heading ids become "<page>-<id>" (so they stay unique across pages) and
+ * link targets follow ("tools.md#tips" -> "tools.html#tools-tips", "#tips"
+ * -> "#<page>-tips"). page: [a-z0-9_-], under 40 bytes; NULL = plain. */
+bool help_md_render_page(const char *md, size_t n, const char *page, help_directive_fn fn,
+                         void *ud, help_doc *out);
 void help_doc_free(help_doc *d);
 
 /* The id a heading with this plain text gets ("Getting started" ->

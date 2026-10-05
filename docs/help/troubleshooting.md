@@ -17,9 +17,9 @@ the crash log folder and to copy a report for bug reports.
 - **The program does not start or the canvas stays black**: start it once
   with hardware acceleration off: `paintc --set gfx.software=1` (or
   `paintc --software` for one run). Settings > Graphics turns it back on.
-- **A window is lost off screen**: press its key (F5 to F8) twice, or
-  {{ctrl}}+Shift+F5 to F8 to put it back. `paintc --reset-windows` resets all
-  of them at start.
+- **A window is lost off screen**: {{ctrl}}+Shift+F5 to F8 put the Tools,
+  History, Layers or Colors window back at its default place.
+  `paintc --reset-windows` resets all of them at start.
 - **A plugin misbehaves**: start with `paintc --disable-plugins` and check
   Effects > Plugin Errors.
 - **paint.c stopped unexpectedly**: start it again. It offers to restore

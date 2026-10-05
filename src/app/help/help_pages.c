@@ -450,14 +450,23 @@ static const char k_css[] =
     "blockquote{margin:12px 0;padding:6px 16px;border-left:4px solid var(--accent);"
     "background:var(--side)}"
     "ul.cols{columns:3 180px}"
+    ".page{display:none}.page.current{display:block}"
     "#results li{margin:8px 0}.snip{color:var(--dim);font-size:14px}"
     "footer{color:var(--dim);font-size:14px;text-align:center;padding:24px;"
     "border-top:1px solid var(--line)}"
     "@media (max-width:760px){.wrap{display:block}nav{position:static;padding:8px 16px}"
     "nav ul{display:flex;flex-wrap:wrap;gap:4px}main{padding:0 16px 32px}}";
 
-static void page_begin(help_buf *h, const char *title, const char *current,
-                       const help_doc *docs, const int *nav, int nnav)
+/* ---- the guide document ------------------------------------------------------------------
+ * Every file of the guide holds the whole guide: one <section class="page"> per source page
+ * plus the search page, with the file's own page marked "current" (the only one shown; no
+ * script is needed for that). Links to other pages stay plain links to their files, and the
+ * script switches between the sections in place instead, so the guide also works when a
+ * sandbox (a Flatpak document portal, for example) hands the browser only the one file
+ * that was opened. Heading ids carry their page name (help_md_render_page), so every id is
+ * unique in the document. */
+static void page_head(help_buf *h, const char *title, const char *current, const help_doc *docs,
+                      const int *nav, int nnav)
 {
     help_buf_puts(h, "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
                      "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
@@ -466,7 +475,7 @@ static void page_begin(help_buf *h, const char *title, const char *current,
     help_buf_puts(h, " | paint.c Help</title>\n<style>");
     help_buf_puts(h, k_css);
     help_buf_puts(h, "</style>\n</head>\n<body>\n<header><a class=\"brand\" href=\"index.html\">"
-                     "paint.c Help</a><form action=\"search.html\" method=\"get\" "
+                     "paint.c Help</a><form id=\"sform\" action=\"search.html\" method=\"get\" "
                      "role=\"search\"><input type=\"search\" name=\"q\" id=\"q\" "
                      "placeholder=\"Search the guide\" aria-label=\"Search the guide\">"
                      "<button type=\"submit\">Search</button></form></header>\n"
@@ -475,7 +484,9 @@ static void page_begin(help_buf *h, const char *title, const char *current,
         const char *name = k_src[nav[i]].name;
         help_buf_puts(h, "<li><a href=\"");
         help_buf_escs(h, name);
-        help_buf_puts(h, ".html\"");
+        help_buf_puts(h, ".html\" data-page=\"");
+        help_buf_escs(h, name);
+        help_buf_puts(h, "\"");
         if (current && strcmp(current, name) == 0) help_buf_puts(h, " aria-current=\"page\"");
         help_buf_puts(h, ">");
         help_buf_escs(h, docs[i].title[0] ? docs[i].title : name);
@@ -484,11 +495,14 @@ static void page_begin(help_buf *h, const char *title, const char *current,
     help_buf_puts(h, "</ul></nav>\n<main>\n");
 }
 
-static void page_end(help_buf *h)
+static void section_open(help_buf *h, const char *id, const char *title, bool current)
 {
-    help_buf_puts(h, "</main>\n</div>\n<footer>paint.c " APP_VERSION ". This guide is part of "
-                     "the program and was written for this computer; it needs no network "
-                     "connection.</footer>\n</body>\n</html>\n");
+    help_buf_puts(h, current ? "<section class=\"page current\" id=\""
+                             : "<section class=\"page\" id=\"");
+    help_buf_escs(h, id);
+    help_buf_puts(h, "\" data-title=\"");
+    help_buf_escs(h, title);
+    help_buf_puts(h, "\">\n");
 }
 
 /* A JavaScript string literal (JSON compatible, safe inside <script>). */
@@ -515,63 +529,103 @@ static void js_str(help_buf *h, const char *s, size_t n)
     help_buf_putc(h, '"');
 }
 
-static const char k_search_js[] =
-    "(function(){\n"
-    "var box=document.getElementById('q'),out=document.getElementById('results'),"
-    "count=document.getElementById('count');\n"
-    "var q='';try{q=new URLSearchParams(location.search).get('q')||'';}catch(e){}\n"
-    "box.value=q;\n"
-    "function low(s){return s.toLowerCase();}\n"
-    "function snip(x,w){var i=low(x).indexOf(w);if(i<0)return x.slice(0,160);"
-    "var s=Math.max(0,i-60);return (s?'...':'')+x.slice(s,s+180)+(s+180<x.length?'...':'');}\n"
-    "function run(q){var words=low(q).split(/\\s+/).filter(function(w){return w;});"
-    "out.innerHTML='';if(!words.length){count.textContent='';return;}var hits=[];\n"
-    "IDX.forEach(function(e){var t=low(e.t),hay=t+' '+low(e.x),score=0;"
-    "var ok=words.every(function(w){if(hay.indexOf(w)<0)return false;"
-    "score+=t.indexOf(w)>=0?10:1;return true;});if(ok)hits.push({e:e,s:score});});\n"
-    "hits.sort(function(a,b){return b.s-a.s;});\n"
-    "hits.slice(0,60).forEach(function(h){var li=document.createElement('li'),"
-    "a=document.createElement('a');a.href=h.e.p+(h.e.a?'#'+h.e.a:'');"
-    "a.textContent=h.e.g+(h.e.t&&h.e.t!==h.e.g?': '+h.e.t:'');li.appendChild(a);"
-    "var d=document.createElement('div');d.className='snip';d.textContent=snip(h.e.x,words[0]);"
-    "li.appendChild(d);out.appendChild(li);});\n"
-    "count.textContent=hits.length?hits.length+(hits.length===1?' result':' results'):"
-    "'Nothing found. Try fewer or shorter words.';}\n"
-    "box.addEventListener('input',function(){run(box.value);});\n"
-    "run(q);box.focus();})();\n";
-
-static void build_search(help_buf *h, const help_doc *docs, const int *nav, int nnav)
+/* The search index: one entry per section of every page. */
+static void build_index(help_buf *h, const help_doc *docs, const int *nav, int nnav)
 {
-    page_begin(h, "Search", "search", docs, nav, nnav);
-    help_buf_puts(h, "<h1>Search</h1>\n<p id=\"count\"></p>\n<ol id=\"results\"></ol>\n"
-                     "<noscript><p>Searching needs JavaScript, which is turned off in this "
-                     "browser. Use the list of pages instead.</p></noscript>\n"
-                     "<script>\nvar IDX=[\n");
+    help_buf_puts(h, "var IDX=[\n");
     for (int i = 0; i < nnav; i++) {
         const help_doc *d = &docs[i];
-        for (int s = 0; s < d->nsec; s++) {
-            const help_section *sec = &d->sec[s];
-            char file[96];
+        for (int k = 0; k < d->nsec; k++) {
+            const help_section *sec = &d->sec[k];
+            const char *anchor = sec->anchor[0] ? sec->anchor : k_src[nav[i]].name;
+            const char *title = sec->title[0] ? sec->title : d->title;
             if (sec->text.n == 0u && !sec->title[0]) continue;
-            snprintf(file, sizeof file, "%s.html", k_src[nav[i]].name);
-            help_buf_puts(h, "{p:");
-            js_str(h, file, strlen(file));
-            help_buf_puts(h, ",a:");
-            js_str(h, sec->anchor, strlen(sec->anchor));
+            help_buf_puts(h, "{a:");
+            js_str(h, anchor, strlen(anchor));
             help_buf_puts(h, ",g:");
             js_str(h, d->title, strlen(d->title));
             help_buf_puts(h, ",t:");
-            js_str(h, sec->title[0] ? sec->title : d->title,
-                   strlen(sec->title[0] ? sec->title : d->title));
+            js_str(h, title, strlen(title));
             help_buf_puts(h, ",x:");
             js_str(h, sec->text.s ? sec->text.s : "", sec->text.n);
             help_buf_puts(h, "},\n");
         }
     }
     help_buf_puts(h, "];\n");
-    help_buf_puts(h, k_search_js);
-    help_buf_puts(h, "</script>\n");
-    page_end(h);
+}
+
+static const char k_js[] =
+    "(function(){\n"
+    "var pages=document.querySelectorAll('section.page'),"
+    "links=document.querySelectorAll('nav a[data-page]'),box=document.getElementById('q'),"
+    "out=document.getElementById('results'),count=document.getElementById('count');\n"
+    "function show(id){var el=id?document.getElementById(id):null,i;"
+    "var sec=el&&el.closest?el.closest('section.page'):null;if(!sec)return false;\n"
+    "for(i=0;i<pages.length;i++)pages[i].classList.toggle('current',pages[i]===sec);\n"
+    "for(i=0;i<links.length;i++){if(links[i].getAttribute('data-page')===sec.id)"
+    "links[i].setAttribute('aria-current','page');else links[i].removeAttribute('aria-current');}\n"
+    "document.title=sec.getAttribute('data-title')+' | paint.c Help';\n"
+    "if(el===sec)window.scrollTo(0,0);else el.scrollIntoView();return true;}\n"
+    "function target(a){var h=a.getAttribute('href')||'';if(/^[a-z][a-z0-9+.-]*:/i.test(h))"
+    "return null;var m=/^([^#?]*?)(\\.html)?(#(.*))?$/.exec(h);if(!m)return null;"
+    "if(m[1]&&!m[2])return null;var id=m[4]||m[1];"
+    "return id&&document.getElementById(id)?id:null;}\n"
+    "document.addEventListener('click',function(e){var a=e.target&&e.target.closest?"
+    "e.target.closest('a'):null;if(!a)return;var id=target(a);if(!id)return;"
+    "e.preventDefault();if(location.hash==='#'+id)show(id);else location.hash=id;});\n"
+    "window.addEventListener('hashchange',function(){"
+    "show(decodeURIComponent(location.hash.slice(1)));});\n"
+    "function low(s){return s.toLowerCase();}\n"
+    "function snip(x,w){var i=low(x).indexOf(w);if(i<0)return x.slice(0,160);"
+    "var s=Math.max(0,i-60);return (s?'...':'')+x.slice(s,s+180)+(s+180<x.length?'...':'');}\n"
+    "function run(q){var words=low(q).split(/\\s+/).filter(function(w){return w;});"
+    "out.innerHTML='';if(!words.length){count.textContent='Type words to search for.';return;}"
+    "var hits=[];\n"
+    "IDX.forEach(function(e){var t=low(e.t),hay=t+' '+low(e.x),score=0;"
+    "var ok=words.every(function(w){if(hay.indexOf(w)<0)return false;"
+    "score+=t.indexOf(w)>=0?10:1;return true;});if(ok)hits.push({e:e,s:score});});\n"
+    "hits.sort(function(a,b){return b.s-a.s;});\n"
+    "hits.slice(0,60).forEach(function(h){var li=document.createElement('li'),"
+    "a=document.createElement('a');a.href='#'+h.e.a;"
+    "a.textContent=h.e.g+(h.e.t&&h.e.t!==h.e.g?': '+h.e.t:'');li.appendChild(a);"
+    "var d=document.createElement('div');d.className='snip';d.textContent=snip(h.e.x,words[0]);"
+    "li.appendChild(d);out.appendChild(li);});\n"
+    "count.textContent=hits.length?hits.length+(hits.length===1?' result':' results'):"
+    "'Nothing found. Try fewer or shorter words.';}\n"
+    "document.getElementById('sform').addEventListener('submit',function(e){"
+    "e.preventDefault();run(box.value);if(location.hash==='#search')show('search');"
+    "else location.hash='search';});\n"
+    "box.addEventListener('input',function(){run(box.value);if(box.value)show('search');});\n"
+    "var q='';try{q=new URLSearchParams(location.search).get('q')||'';}catch(e){}\n"
+    "if(q){box.value=q;show('search');}run(box.value);\n"
+    "if(location.hash.length>1)show(decodeURIComponent(location.hash.slice(1)));\n"
+    "if(document.getElementById('search').classList.contains('current'))box.focus();\n"
+    "})();\n";
+
+/* One file of the guide with page current (a page name or "search"). */
+static void build_file(help_buf *h, const char *current, const help_doc *docs, const int *nav,
+                       int nnav, const help_buf *idx)
+{
+    const char *title = "Search";
+    for (int i = 0; i < nnav; i++)
+        if (strcmp(k_src[nav[i]].name, current) == 0) title = docs[i].title;
+    page_head(h, title, current, docs, nav, nnav);
+    for (int i = 0; i < nnav; i++) {
+        section_open(h, k_src[nav[i]].name, docs[i].title,
+                     strcmp(k_src[nav[i]].name, current) == 0);
+        help_buf_put(h, docs[i].html.s, docs[i].html.n);
+        help_buf_puts(h, "</section>\n");
+    }
+    section_open(h, "search", "Search", strcmp(current, "search") == 0);
+    help_buf_puts(h, "<h1 id=\"search-search\">Search</h1>\n<p id=\"count\"></p>\n"
+                     "<ol id=\"results\"></ol>\n<noscript><p>Searching needs JavaScript, which "
+                     "is turned off in this browser. Use the list of pages instead.</p>"
+                     "</noscript>\n</section>\n<script>\n");
+    help_buf_put(h, idx->s, idx->n);
+    help_buf_puts(h, k_js);
+    help_buf_puts(h, "</script>\n</main>\n</div>\n<footer>paint.c " APP_VERSION ". This guide is "
+                     "part of the program and was written for this computer; it needs no "
+                     "network connection.</footer>\n</body>\n</html>\n");
 }
 
 /* ---- the set of files ------------------------------------------------------------------ */
@@ -605,10 +659,12 @@ void app_help_set_free(app_help_set *s)
 bool app_help_build(app *a, app_help_set *out)
 {
     help_doc *docs;
+    help_buf idx;
     dctx ctx;
     bool ok = true;
     if (!a || !out) return false;
     memset(out, 0, sizeof *out);
+    memset(&idx, 0, sizeof idx);
     nav_init();
     if (g_nnav <= 0) return false;
     docs = (help_doc *)calloc((size_t)g_nnav, sizeof *docs);
@@ -616,28 +672,25 @@ bool app_help_build(app *a, app_help_set *out)
     ctx.a = a;
     for (int i = 0; i < g_nnav; i++) {
         const help_src *src = &k_src[g_nav[i]];
-        if (!help_md_render((const char *)src->data, *src->size, directive, &ctx, &docs[i]))
+        if (!help_md_render_page((const char *)src->data, *src->size, src->name, directive, &ctx,
+                                 &docs[i]))
             ok = false;
         if (!docs[i].title[0]) app_copy_str(docs[i].title, sizeof docs[i].title, src->name);
     }
-    for (int i = 0; i < g_nnav && ok; i++) {
+    build_index(&idx, docs, g_nav, g_nnav);
+    if (idx.failed) ok = false;
+    for (int i = 0; i <= g_nnav && ok; i++) {
+        const char *page = i < g_nnav ? k_src[g_nav[i]].name : "search";
         char name[96];
         help_buf *h;
-        snprintf(name, sizeof name, "%s.html", k_src[g_nav[i]].name);
+        snprintf(name, sizeof name, "%s.html", page);
         h = add_file(out, name);
         if (!h) {
             ok = false;
             break;
         }
-        page_begin(h, docs[i].title, k_src[g_nav[i]].name, docs, g_nav, g_nnav);
-        help_buf_put(h, docs[i].html.s, docs[i].html.n);
-        page_end(h);
+        build_file(h, page, docs, g_nav, g_nnav, &idx);
         if (h->failed) ok = false;
-    }
-    if (ok) {
-        help_buf *h = add_file(out, "search.html");
-        if (h) build_search(h, docs, g_nav, g_nnav);
-        ok = h && !h->failed;
     }
     if (ok) {
         static const struct {
@@ -655,6 +708,7 @@ bool app_help_build(app *a, app_help_set *out)
             ok = h && !h->failed;
         }
     }
+    help_buf_free(&idx);
     for (int i = 0; i < g_nnav; i++) help_doc_free(&docs[i]);
     free(docs);
     return ok;

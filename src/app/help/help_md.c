@@ -194,6 +194,7 @@ typedef struct conv {
     bool              list_blank;
     int               cur;         /* current section */
     int               ncols;       /* open table */
+    const char       *prefix;      /* page name for ids and anchors, or NULL */
     int               align[MAX_COLS];
 } conv;
 
@@ -332,7 +333,10 @@ static void put_code(conv *c, help_buf *html, const char *s, size_t n)
     put_text(c, html, s + run, n - run);
 }
 
-static void put_href(help_buf *html, const char *u, size_t n)
+/* A link target. With a page prefix (pages that share one document, see
+ * help_md_render_page) anchors carry the page name: "tools.md#tips" ->
+ * "tools.html#tools-tips", "#tips" -> "#<prefix>-tips". */
+static void put_href(help_buf *html, const char *u, size_t n, const char *prefix)
 {
     size_t k = 0, hash, path_end;
     bool scheme = false;
@@ -353,17 +357,34 @@ static void put_href(help_buf *html, const char *u, size_t n)
     for (hash = 0; hash < n && u[hash] != '#'; hash++) {}
     path_end = hash;
     if (!scheme && path_end >= 3u && memcmp(u + path_end - 3u, ".md", 3u) == 0) {
+        size_t base = path_end - 3u;
+        while (base > 0u && u[base - 1u] != '/') base--;
         help_buf_esc(html, u, path_end - 3u);
         help_buf_puts(html, ".html");
-        help_buf_esc(html, u + path_end, n - path_end);
+        if (prefix && hash + 1u < n) {
+            help_buf_putc(html, '#');
+            help_buf_esc(html, u + base, path_end - 3u - base);   /* the target page */
+            help_buf_putc(html, '-');
+            help_buf_esc(html, u + hash + 1u, n - hash - 1u);
+        } else {
+            help_buf_esc(html, u + path_end, n - path_end);
+        }
+        return;
+    }
+    if (!scheme && prefix && path_end == 0u && n > 1u) {
+        help_buf_putc(html, '#');
+        help_buf_escs(html, prefix);
+        help_buf_putc(html, '-');
+        help_buf_esc(html, u + 1, n - 1u);
         return;
     }
     help_buf_esc(html, u, n);
 }
 
 typedef struct tag_stack {
-    tag_ent t[MAX_TAGS];
-    int     n;
+    tag_ent     t[MAX_TAGS];
+    int         n;
+    const char *prefix;             /* page prefix of link targets, or NULL */
 } tag_stack;
 
 static void open_tag(help_buf *html, tag_stack *st, int kind, const char *url, size_t url_n)
@@ -379,7 +400,7 @@ static void open_tag(help_buf *html, tag_stack *st, int kind, const char *url, s
         help_buf_puts(html, "<em>");
     } else {
         help_buf_puts(html, "<a href=\"");
-        put_href(html, url, url_n);
+        put_href(html, url, url_n, st->prefix);
         help_buf_puts(html, "\">");
     }
 }
@@ -428,6 +449,7 @@ static void render_inline(conv *c, help_buf *html, const char *s, size_t n)
     bool no_close[CODE_RUN_MAX + 1u];
     memset(no_close, 0, sizeof no_close);
     st.n = 0;
+    st.prefix = c->prefix;
     while (i < n) {
         char ch = s[i];
         if (i == link_close) {
@@ -518,7 +540,7 @@ static void render_inline(conv *c, help_buf *html, const char *s, size_t n)
             while (k < n && s[k] != '>' && !is_space(s[k]) && s[k] != '<') k++;
             if (k < n && s[k] == '>') {
                 help_buf_puts(html, "<a href=\"");
-                put_href(html, s + i + 1u, k - i - 1u);
+                put_href(html, s + i + 1u, k - i - 1u, NULL);
                 help_buf_puts(html, "\">");
                 put_text(c, html, s + i + 1u, k - i - 1u);
                 help_buf_puts(html, "</a>");
@@ -801,7 +823,7 @@ static void heading(conv *c, int level, const char *text, size_t tn)
 {
     help_buf inner;
     help_section *s;
-    char slug[96], uniq[112], probe[128];
+    char slug[96], uniq[112], probe[128], full[200];
     memset(&inner, 0, sizeof inner);
     if (!new_section(c, "", "", 0u, level)) {
         c->doc->html.failed = true;
@@ -818,14 +840,16 @@ static void heading(conv *c, int level, const char *text, size_t tn)
         if (k > 40) break;                    /* hostile input: accept a repeat */
     }
     id_add(c, id_hash(uniq));
-    copy_utf8(s->anchor, sizeof s->anchor, uniq, strlen(uniq));
+    if (c->prefix) snprintf(full, sizeof full, "%s-%s", c->prefix, uniq);   /* "<page>-<id>" */
+    else copy_utf8(full, sizeof full, uniq, strlen(uniq));
+    copy_utf8(s->anchor, sizeof s->anchor, full, strlen(full));
     copy_utf8(s->title, sizeof s->title, s->text.s ? s->text.s : "", s->text.n);
     help_buf_free(&s->text);                  /* the section text follows the heading */
     if (level == 1 && !c->doc->title[0])
         copy_utf8(c->doc->title, sizeof c->doc->title, s->title, strlen(s->title));
     snprintf(probe, sizeof probe, "<h%d id=\"", level);
     help_buf_puts(&c->doc->html, probe);
-    help_buf_escs(&c->doc->html, uniq);
+    help_buf_escs(&c->doc->html, s->anchor);
     help_buf_puts(&c->doc->html, "\">");
     help_buf_put(&c->doc->html, inner.s, inner.n);
     snprintf(probe, sizeof probe, "</h%d>\n", level);
@@ -843,6 +867,12 @@ static bool directive_line(const char *l, size_t n, char *name, size_t cap)
 
 bool help_md_render(const char *md, size_t n, help_directive_fn fn, void *ud, help_doc *out)
 {
+    return help_md_render_page(md, n, NULL, fn, ud, out);
+}
+
+bool help_md_render_page(const char *md, size_t n, const char *page, help_directive_fn fn,
+                         void *ud, help_doc *out)
+{
     conv c;
     size_t p = 0;
     bool ok;
@@ -852,6 +882,7 @@ bool help_md_render(const char *md, size_t n, help_directive_fn fn, void *ud, he
     c.doc = out;
     c.fn = fn;
     c.ud = ud;
+    c.prefix = page && page[0] && strlen(page) < 40u ? page : NULL;
     if (!md) n = 0;
     if (n > HELP_MD_MAX_INPUT) n = HELP_MD_MAX_INPUT;
     if (n >= 3u && (unsigned char)md[0] == 0xEFu && (unsigned char)md[1] == 0xBBu &&
