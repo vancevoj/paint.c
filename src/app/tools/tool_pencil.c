@@ -1,95 +1,36 @@
-/* tool_pencil.c - Pencil (TOOLS.md 9.3): one-pixel aliased lines between
- * successive pointer positions, primary color with the left button and
- * secondary with the right, using the color's alpha and the tool blend
- * mode; width, hardness and antialiasing are ignored. One history step per
- * stroke. */
+/* tool_pencil.c - Pencil (TOOLS.md 9.3, lane B): one-pixel aliased lines
+ * between successive pointer positions through the brush engine's pencil
+ * tip (pc_brush.h: the 3.36 line rasterization, each pixel painted once
+ * per stroke), primary color with the left button and secondary with the
+ * right, using the color's alpha, the tool blend mode (Overwrite for pixel
+ * editing) and the selection clipping quality. Width, hardness,
+ * antialiasing, spacing, smoothing and pressure do not apply. One history
+ * step per stroke.
+ *
+ * Options bar: Blend mode, Selection clipping. */
+#include "paint_common.h"
 #include "stroke.h"
 #include "../app_internal.h"
-
-#include <math.h>
-#include <stdlib.h>
-#include <string.h>
 
 typedef struct pencil_state {
     app_stroke s;
 } pencil_state;
 
-/* Bresenham line from (x0, y0) to (x1, y1), both ends included, as a
- * coverage mask over its bounding box. */
-static pc_status line_mask(int32_t x0, int32_t y0, int32_t x1, int32_t y1, pc_mask *m)
+static pc_status start(app *a, app_stroke *s, pc_txn *t, const pc_brush_sample *smp, void *ud,
+                       pc_rect *dirty)
 {
-    int32_t minx = x0 < x1 ? x0 : x1, miny = y0 < y1 ? y0 : y1;
-    int32_t maxx = x0 > x1 ? x0 : x1, maxy = y0 > y1 ? y0 : y1;
-    int64_t dx = (int64_t)(x1 > x0 ? x1 - x0 : x0 - x1);
-    int64_t dy = -(int64_t)(y1 > y0 ? y1 - y0 : y0 - y1);
-    int32_t sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-    int64_t err = dx + dy;
-    pc_status st;
-    if ((int64_t)maxx - minx > 65536 || (int64_t)maxy - miny > 65536) return PC_ERR_LIMIT;
-    st = pc_mask_alloc(m, pc_rect_make(minx, miny, maxx - minx + 1, maxy - miny + 1));
-    if (st != PC_OK) return st;
-    for (;;) {
-        m->px[(size_t)(y0 - miny) * (size_t)m->stride + (size_t)(x0 - minx)] = 255u;
-        if (x0 == x1 && y0 == y1) break;
-        {
-            int64_t e2 = 2 * err;
-            if (e2 >= dy) { err += dy; x0 += sx; }
-            if (e2 <= dx) { err += dx; y0 += sy; }
-        }
-    }
-    return PC_OK;
-}
-
-static int32_t clamp_coord(double v)
-{
-    double f = floor(v);
-    if (f < -1e6) f = -1e6;
-    if (f > 1e6) f = 1e6;
-    return (int32_t)f;
-}
-
-static void segment(app *a, pencil_state *ps, int32_t x, int32_t y)
-{
-    pc_mask m;
-    if (line_mask(ps->s.lpx, ps->s.lpy, x, y, &m) == PC_OK) {
-        (void)app_stroke_add(a, &ps->s, &m);
-        pc_mask_free(&m);
-    }
-    ps->s.lpx = x;
-    ps->s.lpy = y;
+    pc_brush_params p = paint_brush_params(a, PC_BRUSH_TIP_PENCIL);
+    (void)ud;
+    pc_brush_paint_color(paint_button_color(a, s->button), paint_tool_blend(a), true, &s->src,
+                         &s->opts);
+    s->opts.clip_pixelated = paint_sel_pixelated(a);
+    return pc_brush_begin(s->brush, t, s->layer_id, &p, &s->src, &s->opts, &a->par, smp, 0u,
+                          dirty);
 }
 
 static void pencil_pointer(app *a, void *st, const app_pointer *ev)
 {
-    pencil_state *ps = (pencil_state *)st;
-    int32_t x = clamp_coord(ev->x), y = clamp_coord(ev->y);
-    switch (ev->kind) {
-    case APP_PTR_DOWN:
-        if (ps->s.active) break;          /* the other button does not start a stroke */
-        if (ev->button != APP_BTN_LEFT && ev->button != APP_BTN_RIGHT) break;
-        if (!app_stroke_begin(a, &ps->s, "Pencil",
-                              ev->button == APP_BTN_RIGHT ? app_secondary(a) : app_primary(a),
-                              ev->button))
-            break;
-        ps->s.lpx = x;
-        ps->s.lpy = y;
-        segment(a, ps, x, y);
-        break;
-    case APP_PTR_MOVE:
-        if (ps->s.active && (x != ps->s.lpx || y != ps->s.lpy)) segment(a, ps, x, y);
-        break;
-    case APP_PTR_UP:
-        if (ps->s.active && ev->button == ps->s.button) {
-            if (x != ps->s.lpx || y != ps->s.lpy) segment(a, ps, x, y);
-            app_stroke_end(a, &ps->s);
-        }
-        break;
-    case APP_PTR_CANCEL:
-        app_stroke_end(a, &ps->s);
-        break;
-    default:
-        break;
-    }
+    app_stroke_pointer(a, &((pencil_state *)st)->s, ev, "Pencil", start, NULL);
 }
 
 static bool pencil_live(app *a, void *st)
@@ -108,7 +49,7 @@ static bool pencil_commit(app *a, void *st)
 
 static void pencil_deactivate(app *a, void *st) { (void)pencil_commit(a, st); }
 
-static void pencil_fini(app *a, void *st) { app_stroke_cancel(a, &((pencil_state *)st)->s); }
+static void pencil_fini(app *a, void *st) { app_stroke_fini(a, &((pencil_state *)st)->s); }
 
 static void pencil_options(app *a, void *st)
 {

@@ -1,6 +1,7 @@
-/* stroke.c - stroke coverage accumulation and transaction handling for the
- * basic painting tools (see stroke.h). */
+/* stroke.c - brush engine strokes and coverage strokes with their
+ * transaction handling (see stroke.h). */
 #include "stroke.h"
+#include "paint_common.h"
 #include "../app_internal.h"
 
 #include <stdlib.h>
@@ -23,6 +24,159 @@ static void free_acc(app_stroke *s)
     s->tiles_x = s->tiles_y = 0;
 }
 
+/* Cancel a transaction s owns on any document (the active one may have
+ * changed under it). */
+static void drop_txn(app *a, app_stroke *s)
+{
+    for (int32_t i = 0; i < app_doc_count(a); i++) {
+        app_doc *o = app_doc_at(a, i);
+        if (o->txn_owner == s) app_doc_txn_cancel(a, o);
+    }
+}
+
+/* ---- brush engine strokes -------------------------------------------------------------- */
+pc_brush *app_stroke_brush(app_stroke *s)
+{
+    if (!s->brush) s->brush = pc_brush_create();
+    return s->brush;
+}
+
+static void engine_stop(app_stroke *s, bool end)
+{
+    if (!s->engine) return;
+    if (s->brush && pc_brush_is_active(s->brush)) {
+        if (end) {
+            pc_rect r;
+            (void)pc_brush_end(s->brush, &r);
+        } else {
+            pc_brush_abort(s->brush);
+        }
+    }
+    s->engine = false;
+    s->recolor = NULL;
+}
+
+static void start_stroke(app *a, app_stroke *s, const app_pointer *ev, const char *label,
+                         app_stroke_start_fn start, void *ud)
+{
+    app_doc *d = app_active_doc(a);
+    pc_layer *l = d ? app_doc_layer(d) : NULL;
+    pc_brush_sample smp = paint_sample(a, ev);
+    pc_rect dirty = pc_rect_make(0, 0, 0, 0);
+    pc_txn *t;
+    pc_status st;
+    if (!d || !l || d->txn || !app_stroke_brush(s)) return;
+    t = app_doc_txn_begin(a, d, s, label);
+    if (!t) return;
+    s->active = true;
+    s->engine = true;
+    s->recolor = NULL;
+    s->doc_id = d->id;
+    s->layer_id = l->id;
+    s->button = ev->button;
+    st = start(a, s, t, &smp, ud, &dirty);
+    if (st != PC_OK) {
+        if (pc_brush_is_active(s->brush)) pc_brush_abort(s->brush);
+        s->engine = false;
+        s->recolor = NULL;
+        s->active = false;
+        app_doc_txn_cancel(a, d);
+        if (st == PC_ERR_NOMEM) app_error(a, "Not enough memory to start the stroke.");
+        return;
+    }
+    s->last_dirty = dirty;
+    app_request_frame(a);
+}
+
+static void add_sample(app *a, app_stroke *s, const app_pointer *ev)
+{
+    pc_brush_sample smp = paint_sample(a, ev);
+    pc_rect dirty = pc_rect_make(0, 0, 0, 0);
+    pc_status st;
+    if (!s->engine || !s->brush || !pc_brush_is_active(s->brush)) return;
+    if (s->recolor) st = pc_recolor_add(s->recolor, s->brush, &smp, &dirty);
+    else st = pc_brush_add(s->brush, &smp, &dirty);
+    s->last_dirty = dirty;
+    if (st != PC_OK) {
+        /* the stroke is dead: keep what was painted */
+        app_stroke_end(a, s);
+        if (st == PC_ERR_NOMEM) app_error(a, "Not enough memory to continue the stroke.");
+        return;
+    }
+    if (!pc_rect_is_empty(dirty)) app_request_frame(a);
+}
+
+void app_stroke_pointer(app *a, app_stroke *s, const app_pointer *ev, const char *label,
+                        app_stroke_start_fn start, void *ud)
+{
+    paint_pen_note(a, ev);
+    if (ev->kind != APP_PTR_CANCEL) {
+        paint_doc_pos(a, ev, &s->hx, &s->hy);
+        s->hp = ev->pen ? (double)ev->pressure : 1.0;
+        s->hover = true;
+    }
+    switch (ev->kind) {
+    case APP_PTR_DOWN:
+        if (s->active) break;             /* the other button does not start a stroke */
+        if (ev->button != APP_BTN_LEFT && ev->button != APP_BTN_RIGHT) break;
+        start_stroke(a, s, ev, label, start, ud);
+        break;
+    case APP_PTR_MOVE:
+        if (s->active && app_stroke_doc(a, s)) add_sample(a, s, ev);
+        break;
+    case APP_PTR_UP:
+        if (s->active && ev->button == s->button) {
+            if (app_stroke_doc(a, s)) add_sample(a, s, ev);
+            app_stroke_end(a, s);
+        }
+        break;
+    case APP_PTR_CANCEL:
+        app_stroke_end(a, s);
+        break;
+    default:
+        break;
+    }
+}
+
+void app_stroke_outline(app *a, const app_stroke *s, app_overlay *o,
+                        const pc_brush_params *params)
+{
+    double p = params->pressure ? s->hp : 1.0;
+    if (!s->hover || !app_canvas_over(a)) return;
+    paint_ov_brush(o, s->hx, s->hy, pc_brush_diameter(params, p));
+}
+
+void app_stroke_fini(app *a, app_stroke *s)
+{
+    app_stroke_cancel(a, s);
+    pc_brush_destroy(s->brush);
+    s->brush = NULL;
+}
+
+/* ---- common ------------------------------------------------------------------------------- */
+void app_stroke_end(app *a, app_stroke *s)
+{
+    app_doc *d = app_stroke_doc(a, s);
+    engine_stop(s, true);
+    if (d) {
+        pc_status st = app_doc_txn_commit(a, d);
+        if (st != PC_OK) app_error(a, "Could not record the stroke: %s.", pc_status_str(st));
+    } else if (s->active) {
+        drop_txn(a, s);       /* the document changed under the stroke */
+    }
+    s->active = false;
+    free_acc(s);
+}
+
+void app_stroke_cancel(app *a, app_stroke *s)
+{
+    engine_stop(s, false);
+    drop_txn(a, s);
+    s->active = false;
+    free_acc(s);
+}
+
+/* ---- coverage strokes ------------------------------------------------------------------- */
 bool app_stroke_begin(app *a, app_stroke *s, const char *label, pc_px32 color, int button)
 {
     app_doc *d = app_active_doc(a);
@@ -43,12 +197,13 @@ bool app_stroke_begin(app *a, app_stroke *s, const char *label, pc_px32 color, i
     s->tiles_x = d->doc->tiles_x;
     s->tiles_y = d->doc->tiles_y;
     s->active = true;
+    s->engine = false;
     s->doc_id = d->id;
     s->layer_id = l->id;
     s->button = button;
     memset(&s->src, 0, sizeof s->src);
     s->src.solid = color;
-    app_tool_paint_opts(a, &s->opts);
+    paint_opts(a, &s->opts);
     s->dirty = pc_rect_make(0, 0, 0, 0);
     return true;
 }
@@ -59,7 +214,7 @@ pc_status app_stroke_add(app *a, app_stroke *s, const pc_mask *cov)
     pc_rect r, dr = pc_rect_make(0, 0, 0, 0);
     pc_mask m;
     pc_status st;
-    if (!d || !cov || !cov->px) return PC_ERR_STATE;
+    if (!d || !cov || !cov->px || !s->acc) return PC_ERR_STATE;
     r = pc_rect_intersect(pc_rect_make(cov->x, cov->y, cov->w, cov->h), pc_doc_rect(d->doc));
     if (pc_rect_is_empty(r)) return PC_OK;
     st = pc_mask_alloc(&m, r);
@@ -106,31 +261,4 @@ pc_status app_stroke_add(app *a, app_stroke *s, const pc_mask *cov)
         app_request_frame(a);
     }
     return st;
-}
-
-void app_stroke_end(app *a, app_stroke *s)
-{
-    app_doc *d = app_stroke_doc(a, s);
-    if (d) {
-        pc_status st = app_doc_txn_commit(a, d);
-        if (st != PC_OK) app_error(a, "Could not record the stroke: %s.", pc_status_str(st));
-    } else if (s->active) {
-        /* the document changed under the stroke: release a transaction we own */
-        for (int32_t i = 0; i < app_doc_count(a); i++) {
-            app_doc *o = app_doc_at(a, i);
-            if (o->txn_owner == s) app_doc_txn_cancel(a, o);
-        }
-    }
-    s->active = false;
-    free_acc(s);
-}
-
-void app_stroke_cancel(app *a, app_stroke *s)
-{
-    for (int32_t i = 0; i < app_doc_count(a); i++) {
-        app_doc *o = app_doc_at(a, i);
-        if (o->txn_owner == s) app_doc_txn_cancel(a, o);
-    }
-    s->active = false;
-    free_acc(s);
 }
