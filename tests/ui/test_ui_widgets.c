@@ -597,7 +597,7 @@ static void t_text_field(void)
     ut_click(&e, W.r[0]);
     ut_frame(&e, s_text, NULL);
     {
-        float x = (float)W.r[0].x + ui_px(e.ctx, 8.0f) +
+        float x = (float)W.r[0].x + (float)ui_px(e.ctx, 8.0f) +
                   ui_text_width(ui_font_regular(e.ctx), ui_font_px(e.ctx), "alpha be", 8);
         ut_click_at_btn(&e, SDL_BUTTON_LEFT, x, ut_cy(W.r[0]), 2);
         ut_frame(&e, s_text, NULL);
@@ -606,7 +606,7 @@ static void t_text_field(void)
     }
     /* mouse drag selection from the start to the end */
     {
-        float xs = (float)W.r[0].x + ui_px(e.ctx, 8.0f) + 1.0f;
+        float xs = (float)W.r[0].x + (float)ui_px(e.ctx, 8.0f) + 1.0f;
         float xe = (float)(W.r[0].x + W.r[0].w) - 4.0f, y = ut_cy(W.r[0]);
         ut_move(&e, xs, y);
         ut_button(&e, SDL_BUTTON_LEFT, true, xs, y, 1);

@@ -24,9 +24,25 @@
  * window; text fields then draw the composition string themselves and
  * place the candidate window with SDL_SetTextInputArea.
  *
+ * Keyboard: Tab and Shift+Tab move the focus (inside the top modal dialog
+ * when one is open), Enter and Space activate the focused widget, arrows
+ * drive lists, sliders, combos, tabs and menus, Escape closes popups,
+ * reverts text fields and cancels dialogs, F10 opens the menu bar. Every
+ * queued press is processed, so key repeat never gets lost at low frame
+ * rates. Keys no widget used (and chords such as Ctrl+Tab) stay available
+ * through ui_key_presses for the app's shortcuts.
+ *
+ * Pointer: mouse, touch and pen all arrive as mouse events (SDL's default
+ * hints); with SDL_HINT_PEN_MOUSE_EVENTS off, pen events are read directly.
+ * The hovered widget is resolved against the previous frame's layout at
+ * the current pointer position, so a press that arrives together with its
+ * motion (pen taps) still reaches the topmost widget.
+ *
  * Thread rules: every function in this header runs on the thread that owns
  * the renderer (the main thread), except where noted. Pointer arguments
- * are borrowed for the duration of the call unless stated otherwise.
+ * are borrowed for the duration of the call unless stated otherwise;
+ * textures handed to widgets (thumbnails) must stay alive until ui_render
+ * has run for the frame.
  */
 #ifndef UI_H
 #define UI_H
@@ -459,7 +475,7 @@ bool ui_tabs(ui_ctx *ctx, const char *id, int32_t *active, const char *const *la
 
 typedef struct ui_doc_tab {
     const char         *title;
-    struct SDL_Texture *thumb;     /* may be NULL */
+    struct SDL_Texture *thumb;     /* borrowed, may be NULL */
     int32_t             thumb_w, thumb_h;   /* image size for aspect fitting */
     bool                modified;
 } ui_doc_tab;

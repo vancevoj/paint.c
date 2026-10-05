@@ -261,7 +261,8 @@ static void t_clip_guard(void)
 static void t_degenerate(void)
 {
     ui_path p;
-    float nan_v = (float)NAN, inf_v = (float)INFINITY;
+    /* run-time values: MSVC warns about the constant NAN and INFINITY macros */
+    float inf_v = (float)strtod("inf", NULL), nan_v = (float)strtod("nan", NULL);
     ui_path_init(&p, 0.05f);
     /* empty paths, zero-area shapes, NaN and infinite points */
     clear();
