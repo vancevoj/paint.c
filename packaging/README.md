@@ -11,11 +11,15 @@ Lane I. How the packages are built and what they contain: docs/PACKAGING.md.
 | linux/org.paintc.paintc.xml | shared-mime-info type for .pdn (image/x-paintnet) |
 | linux/org.paintc.paintc.metainfo.xml | AppStream metadata |
 | linux/build-appimage.sh | AppImage from a build tree (pinned linuxdeploy) |
+| linux/build-appimage-docker.sh | release AppImage built in Ubuntu 20.04 (glibc 2.31 floor), with checks |
 | flatpak/org.paintc.paintc.yml | Flatpak manifest (offline build, dependency archives listed) |
 | windows/paintc.manifest | long paths, UTF-8 code page, per-monitor DPI |
 | windows/paintc.nsi | NSIS installer with file associations |
 | windows/README-portable.txt | README.txt of the portable zip |
+| windows/build-mingw-release.sh | portable zip and installer cross built with mingw-w64 |
 | macos/make-dmg.sh | ad-hoc signed paint.c.app in a .dmg |
+| RELEASE_NOTES_<version>.md | release notes; `@CHECKSUMS@` is filled in by release-dist.sh |
+| release-dist.sh | source archive, SHA256SUMS.txt and the rendered notes of a local release |
 
 The bundle metadata of paint.c.app is src/app/platform/Info.plist.in; the
 Windows icon and version resources are src/app/platform/paintc_version.rc.in.
