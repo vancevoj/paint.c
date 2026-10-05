@@ -29,3 +29,11 @@ if(TARGET paintc AND TARGET test_keys_cli)
   target_compile_definitions(test_keys_cli PRIVATE PC_PAINTC_EXE="$<TARGET_FILE:paintc>")
   add_dependencies(test_keys_cli paintc)
 endif()
+
+# lane UIB (wave 4 item 9): the --set forwarding test starts paintc itself
+# (a primary instance and later launches).
+if(TARGET paintc AND TARGET test_uib_cli)
+  target_compile_definitions(test_uib_cli PRIVATE PC_PAINTC_EXE="$<TARGET_FILE:paintc>")
+  add_dependencies(test_uib_cli paintc)
+endif()
+
