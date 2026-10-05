@@ -1,5 +1,13 @@
-/* mod_view.c - View menu commands (MENUS.md View, VIEW.md) and keyboard
- * scrolling (SHORTCUTS.md K-NAV-*). None of them finishes a live tool. */
+/* mod_view.c - View menu commands (MENUS.md View, VIEW.md, lane M) and
+ * keyboard scrolling (SHORTCUTS.md K-NAV-*): Zoom In / Out (presets, one
+ * step anchored at the view center, disabled at the limits), Zoom to
+ * Window (toggle that restores the previous view), Zoom to Selection
+ * (selection bounds fitted and centered; idempotent), Actual Size, Pixel
+ * Grid and Rulers (check items sharing the toolbar state; enabled with an
+ * image open) and the units radio group (Pixels, Inches, Centimeters,
+ * always enabled, persisted). None of them finishes a live tool.
+ *
+ * Thread rules: main thread. */
 #include "../app_internal.h"
 
 #include <string.h>
@@ -109,8 +117,8 @@ void mod_view(app *a)
     reg(a, "view.zoom_selection", "Zoom to Selection", UI_ICON_ZOOM_FIT, nd, cmd_zoom_selection,
         has_sel, NULL, 0);
     reg(a, "view.actual_size", "Actual Size", UI_ICON_ZOOM_ACTUAL, nd, cmd_actual, NULL, NULL, 0);
-    reg(a, "view.pixel_grid", "Pixel Grid", UI_ICON_GRID, 0, cmd_grid, NULL, grid_on, 0);
-    reg(a, "view.rulers", "Rulers", UI_ICON_RULERS, 0, cmd_rulers, NULL, rulers_on, 0);
+    reg(a, "view.pixel_grid", "Pixel Grid", UI_ICON_GRID, nd, cmd_grid, NULL, grid_on, 0);
+    reg(a, "view.rulers", "Rulers", UI_ICON_RULERS, nd, cmd_rulers, NULL, rulers_on, 0);
     reg(a, "view.units.px", "Pixels", UI_ICON_NONE, APP_CMD_RADIO, cmd_units, NULL, units_is,
         APP_UNITS_PX);
     reg(a, "view.units.in", "Inches", UI_ICON_NONE, APP_CMD_RADIO, cmd_units, NULL, units_is,
