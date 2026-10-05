@@ -79,3 +79,34 @@ foreach(_n test_uib_help test_m_help test_keys_menu)
     target_compile_definitions(${_n} PRIVATE PC_PROJECT_PUBLIC=$<BOOL:${PC_PROJECT_PUBLIC}>)
   endif()
 endforeach()
+
+# Align Object (ADR-024): the dialog test loads the optional plugin of
+# plugins/align_object through the real plugin loader. Without
+# PC_BUILD_PLUGINS the same source is built here, named like the plugin.
+if(TARGET test_align_dialog)
+  if(TARGET plg_align_object)
+    set(_align_plugin plg_align_object)
+  else()
+    set(_align_plugin align_object_test_plugin)
+    add_library(${_align_plugin} MODULE ${PROJECT_SOURCE_DIR}/plugins/align_object/fxm_align_object.c)
+    target_include_directories(${_align_plugin} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+    set_target_properties(${_align_plugin} PROPERTIES PREFIX "" OUTPUT_NAME align_object
+                          C_VISIBILITY_PRESET hidden
+                          LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/align_plugin$<0:>"
+                          RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/align_plugin$<0:>")
+    if(APPLE)
+      set_target_properties(${_align_plugin} PROPERTIES SUFFIX ".dylib")
+    elseif(WIN32)
+      set_target_properties(${_align_plugin} PROPERTIES SUFFIX ".dll")
+    else()
+      set_target_properties(${_align_plugin} PROPERTIES SUFFIX ".so")
+    endif()
+    if(NOT MSVC)
+      target_link_libraries(${_align_plugin} PRIVATE m)
+    endif()
+    pc_warnings(${_align_plugin})
+  endif()
+  add_dependencies(test_align_dialog ${_align_plugin})
+  target_compile_definitions(test_align_dialog PRIVATE
+                             ALIGN_PLUGIN_DIR="$<TARGET_FILE_DIR:${_align_plugin}>")
+endif()
