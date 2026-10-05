@@ -15,7 +15,7 @@ typedef struct e3_doc {
     uint32_t layer;
 } e3_doc;
 
-static pc_px32 e3_px(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+static inline pc_px32 e3_px(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 {
     pc_px32 p;
     p.r = r; p.g = g; p.b = b; p.a = a;
@@ -23,7 +23,7 @@ static pc_px32 e3_px(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 }
 
 /* Document with one layer filled with bg (bg.a == 0 leaves it empty). */
-static e3_doc e3_doc_make(uint32_t w, uint32_t h, pc_px32 bg)
+static inline e3_doc e3_doc_make(uint32_t w, uint32_t h, pc_px32 bg)
 {
     e3_doc e;
     pc_layer *l;
@@ -43,14 +43,14 @@ static e3_doc e3_doc_make(uint32_t w, uint32_t h, pc_px32 bg)
     return e;
 }
 
-static void e3_doc_free(e3_doc *e)
+static inline void e3_doc_free(e3_doc *e)
 {
     pc_hist_destroy(e->h);
     pc_doc_destroy(e->d);
 }
 
 /* The layer as seen through t (or the published grid when t is NULL). */
-static pc_surf e3_read(const e3_doc *e, const pc_txn *t)
+static inline pc_surf e3_read(const e3_doc *e, const pc_txn *t)
 {
     pc_surf s;
     memset(&s, 0, sizeof s);
@@ -64,7 +64,7 @@ static pc_surf e3_read(const e3_doc *e, const pc_txn *t)
     return s;
 }
 
-static bool e3_same(const pc_surf *a, const pc_surf *b)
+static inline bool e3_same(const pc_surf *a, const pc_surf *b)
 {
     if (!a->px || !b->px || a->w != b->w || a->h != b->h) return false;
     for (int32_t y = 0; y < a->h; y++)
@@ -72,18 +72,18 @@ static bool e3_same(const pc_surf *a, const pc_surf *b)
     return true;
 }
 
-static pc_px32 e3_at(const pc_surf *s, int32_t x, int32_t y)
+static inline pc_px32 e3_at(const pc_surf *s, int32_t x, int32_t y)
 {
     return pc_surf_row(s, y)[x];
 }
 
-static bool e3_eq(pc_px32 a, pc_px32 b)
+static inline bool e3_eq(pc_px32 a, pc_px32 b)
 {
     return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
 }
 
 /* Sum of a mask in units of fully covered pixels. */
-static double e3_mask_area(const pc_mask *m)
+static inline double e3_mask_area(const pc_mask *m)
 {
     double s = 0.0;
     for (int32_t y = 0; y < m->h; y++)
@@ -91,7 +91,7 @@ static double e3_mask_area(const pc_mask *m)
     return s / 255.0;
 }
 
-static size_t e3_mask_count(const pc_mask *m, uint8_t min)
+static inline size_t e3_mask_count(const pc_mask *m, uint8_t min)
 {
     size_t n = 0;
     for (int32_t y = 0; y < m->h; y++)
@@ -100,7 +100,7 @@ static size_t e3_mask_count(const pc_mask *m, uint8_t min)
     return n;
 }
 
-static pc_paint_src e3_solid(pc_px32 c)
+static inline pc_paint_src e3_solid(pc_px32 c)
 {
     pc_paint_src s;
     memset(&s, 0, sizeof s);
@@ -109,13 +109,14 @@ static pc_paint_src e3_solid(pc_px32 c)
 }
 
 /* Coverage of a set of layers over r (allocated, caller frees). */
-static pc_status e3_coverage(const pc_vlayer *l, size_t n, bool aa, pc_rect r, pc_mask *out)
+static inline pc_status e3_coverage(const pc_vlayer *l, size_t n, bool aa, pc_rect r,
+                                    pc_mask *out)
 {
     pc_status st = pc_mask_alloc(out, r);
     if (st == PC_OK) st = pc_vlayer_coverage(l, n, aa, out);
     return st;
 }
 
-static bool e3_near(double a, double b, double eps) { return fabs(a - b) <= eps; }
+static inline bool e3_near(double a, double b, double eps) { return fabs(a - b) <= eps; }
 
 #endif /* TEST_SHAPES_UTIL_H */
