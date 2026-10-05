@@ -7,11 +7,16 @@
  * center, so cells line up across separate selections. Mode lists, their
  * order and defaults (Multisample Bilinear down, Nearest Neighbor up) and the
  * Cell Size range 1..256 follow the Paint.NET 5 documentation; the filters
- * are this project's own:
+ * are this project's own. All filtering runs on premultiplied linear-light
+ * values (fx_srgb.h), as the Paint.NET 5.2 golden shows for the default
+ * modes (docs/fx/parity.md):
  *   Scale Down (the color of each cell, sampled around the cell center):
  *     Anisotropic            alpha-weighted mean of all pixels of the cell
  *     Bicubic (High Quality) Catmull-Rom filter stretched to the cell size
- *     Multisample Bilinear   mean of 4 bilinear samples at the cell quarters
+ *     Multisample Bilinear   mean of 4 bilinear samples on a rotated grid,
+ *                            at (-1/8, -3/8), (3/8, -1/8), (1/8, 3/8) and
+ *                            (-3/8, 1/8) cell sizes from the cell center
+ *                            (the pattern the 5.2 golden reproduces exactly)
  *     Bicubic                Catmull-Rom sample at the cell center
  *     Bilinear               bilinear sample at the cell center
  *     Nearest Neighbor       the pixel under the cell center
@@ -20,6 +25,7 @@
  * Cell colors are computed once in prepare(); Cell Size 1 is the identity.
  */
 #include "fx2_common.h"
+#include "fx_srgb.h"
 
 typedef struct pix_params {
     int32_t cell;            /* 1 .. 256 */
@@ -48,8 +54,8 @@ static const fx_prop k_props[] = {
 typedef struct pix_state {
     int32_t cell, up;
     int32_t gx0, gy0, gw, gh;    /* grid cells [gx0, gx0 + gw) x [gy0, gy0 + gh) */
-    fx_px  *grid;                /* straight cell colors */
-    fx_pxf *pm;                  /* premultiplied cell colors */
+    fx_px  *grid;                /* straight sRGB cell colors */
+    fx_pxf *pm;                  /* linear premultiplied cell colors */
 } pix_state;
 
 /* Catmull-Rom kernel (a = -0.5). */
@@ -61,6 +67,8 @@ static double cubic_k(double t)
     return 0.0;
 }
 
+/* Linear premultiplied to straight sRGB, after clamping the ringing of the
+ * cubic filters into the valid premultiplied range. */
 static fx_px resolve_pm(fx_pxf q)
 {
     if (q.a > 255.0f) q.a = 255.0f;
@@ -71,43 +79,54 @@ static fx_px resolve_pm(fx_pxf q)
     if (q.b < 0.0f) q.b = 0.0f;
     if (q.g < 0.0f) q.g = 0.0f;
     if (q.r < 0.0f) q.r = 0.0f;
-    return fx_unpremul(q);
+    return fxl_unpremul(q);
 }
 
-/* Alpha-weighted mean of the pixels of r (Paint.NET ColorBgra.Blend). */
-static fx_px box_mean(const fx_img *src, fx_rect r)
+static fx_pxf pxf_scale(fx_pxf q, double k)
 {
-    uint64_t sa = 0, sb = 0, sg = 0, sr = 0, n = (uint64_t)r.w * (uint64_t)r.h;
+    q.b = (float)((double)q.b * k);
+    q.g = (float)((double)q.g * k);
+    q.r = (float)((double)q.r * k);
+    q.a = (float)((double)q.a * k);
+    return q;
+}
+
+/* Alpha-weighted mean of the pixels of r (Paint.NET ColorBgra.Blend), in
+ * linear light. */
+static fx_pxf box_mean(const fx_img *src, fx_rect r)
+{
+    double acc[4] = { 0.0, 0.0, 0.0, 0.0 };
+    uint64_t n = (uint64_t)r.w * (uint64_t)r.h;
     int32_t x, y;
-    fx_px o = fx_px_make(0, 0, 0, 0);
+    fx_pxf o = fx2_pxf_zero();
     for (y = r.y; y < r.y + r.h; y++) {
         const fx_px *row = fx_row(src, y);
         for (x = r.x; x < r.x + r.w; x++) {
-            uint32_t a = row[x].a;
-            sa += a;
-            sb += (uint64_t)row[x].b * a;
-            sg += (uint64_t)row[x].g * a;
-            sr += (uint64_t)row[x].r * a;
+            fx_pxf v = fxl_premul(row[x]);
+            acc[0] += v.b;
+            acc[1] += v.g;
+            acc[2] += v.r;
+            acc[3] += v.a;
         }
     }
-    if (n == 0u || sa == 0u) return o;
-    o.a = (uint8_t)((sa + n / 2u) / n);
-    o.b = (uint8_t)((sb + sa / 2u) / sa);
-    o.g = (uint8_t)((sg + sa / 2u) / sa);
-    o.r = (uint8_t)((sr + sa / 2u) / sa);
+    if (n == 0u) return o;
+    o.b = (float)(acc[0] / (double)n);
+    o.g = (float)(acc[1] / (double)n);
+    o.r = (float)(acc[2] / (double)n);
+    o.a = (float)(acc[3] / (double)n);
     return o;
 }
 
 /* Separable cubic filter centered at (cx, cy) (continuous coordinates) whose
  * kernel is stretched by `scale` (1 = plain Catmull-Rom interpolation). Taps
- * beyond the image repeat the border pixels. */
-static fx_px cubic_filter(const fx_img *src, double cx, double cy, double scale)
+ * beyond the image repeat the border pixels. Linear premultiplied result. */
+static fx_pxf cubic_filter(const fx_img *src, double cx, double cy, double scale)
 {
     double wx[1040], wy[1040], sumx = 0.0, sumy = 0.0, reach = 2.0 * scale;
     int32_t ix0 = fx2_floor_i(cx - 0.5 - reach) + 1, iy0 = fx2_floor_i(cy - 0.5 - reach) + 1;
     int32_t nx = 0, ny = 0, i, j;
     double acc[4] = {0.0, 0.0, 0.0, 0.0};
-    fx_pxf q;
+    fx_pxf q = fx2_pxf_zero();
     for (i = 0; i < 1040 && (double)(ix0 + i) + 0.5 < cx + reach; i++, nx++) {
         wx[i] = cubic_k(((double)(ix0 + i) + 0.5 - cx) / scale);
         sumx += wx[i];
@@ -124,22 +143,27 @@ static fx_px cubic_filter(const fx_img *src, double cx, double cy, double scale)
             double w = wx[i] * wy[j];
             fx_pxf v;
             if (w == 0.0) continue;
-            v = fx_premul(row[fx_clampi(ix0 + i, src->r.x, src->r.x + src->r.w - 1)]);
+            v = fxl_premul(row[fx_clampi(ix0 + i, src->r.x, src->r.x + src->r.w - 1)]);
             acc[0] += w * (double)v.b;
             acc[1] += w * (double)v.g;
             acc[2] += w * (double)v.r;
             acc[3] += w * (double)v.a;
         }
     }
-    if (sumx * sumy == 0.0) return fx_px_make(0, 0, 0, 0);
+    if (sumx * sumy == 0.0) return q;
     q.b = (float)(acc[0] / (sumx * sumy));
     q.g = (float)(acc[1] / (sumx * sumy));
     q.r = (float)(acc[2] / (sumx * sumy));
     q.a = (float)(acc[3] / (sumx * sumy));
-    return resolve_pm(q);
+    return q;
 }
 
-static fx_px cell_color(const fx_img *src, int32_t gx, int32_t gy, int32_t cs, int mode)
+/* Rotated-grid offsets of Multisample Bilinear, in cell sizes. */
+static const double k_ms_off[4][2] = {
+    { -0.125, -0.375 }, { 0.375, -0.125 }, { 0.125, 0.375 }, { -0.375, 0.125 }
+};
+
+static fx_pxf cell_color(const fx_img *src, int32_t gx, int32_t gy, int32_t cs, int mode)
 {
     double cx = ((double)gx + 0.5) * (double)cs, cy = ((double)gy + 0.5) * (double)cs;
     fx_rect c;
@@ -150,20 +174,19 @@ static fx_px cell_color(const fx_img *src, int32_t gx, int32_t gy, int32_t cs, i
     case DOWN_HQ_CUBIC:
         return cubic_filter(src, cx, cy, (double)cs);
     case DOWN_MS_LINEAR: {
-        double d = 0.25 * (double)cs;
         fx_pxf acc = fx2_pxf_zero();
-        fx2_pxf_add(&acc, fx2_sample(src, cx - d, cy - d, FX2_EDGE_CLAMP));
-        fx2_pxf_add(&acc, fx2_sample(src, cx + d, cy - d, FX2_EDGE_CLAMP));
-        fx2_pxf_add(&acc, fx2_sample(src, cx - d, cy + d, FX2_EDGE_CLAMP));
-        fx2_pxf_add(&acc, fx2_sample(src, cx + d, cy + d, FX2_EDGE_CLAMP));
-        return fx2_average(acc, 4);
+        int k;
+        for (k = 0; k < 4; k++)
+            fx2_pxf_add(&acc, fx2_sample_lin(src, cx + k_ms_off[k][0] * (double)cs,
+                                             cy + k_ms_off[k][1] * (double)cs, FX2_EDGE_CLAMP));
+        return pxf_scale(acc, 0.25);
     }
     case DOWN_CUBIC:
         return cubic_filter(src, cx, cy, 1.0);
     case DOWN_LINEAR:
-        return fx2_average(fx2_sample(src, cx, cy, FX2_EDGE_CLAMP), 1);
+        return fx2_sample_lin(src, cx, cy, FX2_EDGE_CLAMP);
     default:
-        return fx_get_clamped(src, fx2_floor_i(cx), fx2_floor_i(cy));
+        return fxl_premul(fx_get_clamped(src, fx2_floor_i(cx), fx2_floor_i(cy)));
     }
 }
 
@@ -222,8 +245,8 @@ static int pix_prepare(const void *params, const fx_img *src, const fx_env *env,
             }
             for (gx = 0; gx < s->gw; gx++) {
                 size_t i = (size_t)gy * (size_t)s->gw + (size_t)gx;
-                s->grid[i] = cell_color(src, s->gx0 + gx, s->gy0 + gy, s->cell, down);
-                s->pm[i] = fx_premul(s->grid[i]);
+                s->pm[i] = cell_color(src, s->gx0 + gx, s->gy0 + gy, s->cell, down);
+                s->grid[i] = resolve_pm(s->pm[i]);
             }
         }
     }

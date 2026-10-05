@@ -5,7 +5,9 @@
  * from Rotation, are averaged (premultiplied); copies whose sample point
  * falls outside the image are left out. Change: offsets keep their
  * sub-pixel part and are sampled bilinearly (3.36 rounded them), which is
- * the "improved rendering quality" of Paint.NET 5.
+ * the "improved rendering quality" of Paint.NET 5. Ranges are those of the
+ * Paint.NET 5.2 dialog (Fragment Count 2..200, Distance 0..400; 3.36 had
+ * 2..50 and 0..100), see docs/fx/parity.md.
  *
  * Thread rules: prepare computes the offset table; render is reentrant.
  */
@@ -13,7 +15,7 @@
 
 #include <string.h>
 
-#define FRAG_MAX 50
+#define FRAG_MAX 200
 
 typedef struct frag_params {
     int32_t count;
@@ -28,9 +30,9 @@ typedef struct frag_state {
 
 static const fx_prop k_props[] = {
     { "fragment_count", "Fragment Count", FXP_INT, (uint32_t)offsetof(frag_params, count),
-      2.0, 50.0, 4.0, 1.0, NULL, NULL, 0, 0, NULL },
+      2.0, 200.0, 4.0, 1.0, NULL, NULL, 0, 0, NULL },
     { "distance", "Distance", FXP_INT, (uint32_t)offsetof(frag_params, distance),
-      0.0, 100.0, 8.0, 1.0, NULL, NULL, 0, 0, NULL },
+      0.0, 400.0, 8.0, 1.0, NULL, NULL, 0, 0, NULL },
     { "rotation", "Rotation", FXP_ANGLE, (uint32_t)offsetof(frag_params, rotation),
       0.0, 360.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
 };
@@ -46,7 +48,7 @@ static int frag_prepare(const void *params, const fx_img *src, const fx_env *env
     if (!st) return FX_ERROR;
     memset(st, 0, sizeof *st);
     st->n = fx1_pi(p->count, 2, FRAG_MAX);
-    d = (double)fx1_pi(p->distance, 0, 100);
+    d = (double)fx1_pi(p->distance, 0, 400);
     step = 2.0 * 3.14159265358979323846 / (double)st->n;
     rot = (fx1_pd(p->rotation, 0.0, 360.0) - 90.0) * 3.14159265358979323846 / 180.0;
     for (i = 0; i < st->n; i++) {

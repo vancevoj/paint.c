@@ -111,21 +111,34 @@ static void t_emboss(void)
     if (!fx) return;
     ctx_init(&c, T_RANDOM, t_rect(0, 0, DW, DH));
     p = t_params(fx, &c.env);
-    for (ang = -180.0; ang <= 180.0; ang += 67.5) {
+    for (ang = 0.0; ang <= 360.0; ang += 67.5) {          /* 5.x range 0..360 */
         t_set_d(fx, p, "angle", ang);
         t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
     }
-    /* output is opaque gray; a flat image is mid gray away from the borders */
+    /* output is gray with the source alpha (Paint.NET 5.2 golden; 3.36 wrote
+     * opaque gray); a flat opaque image is mid gray everywhere, borders
+     * included, since the border pixels repeat */
     CHECK(t_render(fx, p, &c.src, &c.out, &c.env) == FX_OK);
     for (y = 0; y < DH; y++)
         for (x = 0; x < DW; x++) {
             fx_px q = *t_at(&c.out, x, y);
-            CHECK(q.a == 255 && q.r == q.g && q.g == q.b);
+            CHECK(q.a == t_at(&c.src, x, y)->a && q.r == q.g && q.g == q.b);
         }
     fill(&c.src, fx_px_make(77, 99, 11, 255));
     CHECK(t_render(fx, p, &c.src, &c.out, &c.env) == FX_OK);
-    for (y = 1; y < DH - 1; y++)
-        for (x = 1; x < DW - 1; x++) CHECK(t_at(&c.out, x, y)->r == 128);
+    for (y = 0; y < DH; y++)
+        for (x = 0; x < DW; x++) CHECK(t_at(&c.out, x, y)->r == 128);
+    /* a fully transparent neighbor counts as black: an opaque flat block
+     * next to transparency is lit on one side and shaded on the other */
+    fill(&c.src, fx_px_make(0, 0, 0, 0));
+    for (y = 5; y < 15; y++)
+        for (x = 10; x < 30; x++) *t_at(&c.src, x, y) = fx_px_make(200, 200, 200, 255);
+    t_set_d(fx, p, "angle", 0.0);
+    CHECK(t_render(fx, p, &c.src, &c.out, &c.env) == FX_OK);
+    CHECK(t_at(&c.out, 10, 10)->r == 0);            /* left edge: shadow side */
+    CHECK(t_at(&c.out, 29, 10)->r == 255);          /* right edge: lit side */
+    CHECK(t_at(&c.out, 20, 10)->r == 128 && t_at(&c.out, 20, 10)->a == 255);
+    CHECK(t_at(&c.out, 5, 10)->a == 0);
     /* angle 0 on a dark-to-bright step: one side of the edge darker, one brighter */
     step(&c.src);
     t_set_d(fx, p, "angle", 0.0);

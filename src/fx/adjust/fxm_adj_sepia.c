@@ -1,34 +1,71 @@
 /* fxm_adj_sepia.c - Adjustments > Sepia (lane L5a).
- * Paint.NET 3.36 (MIT) SepiaEffect desaturates (BT.601 intensity) and then
- * applies a Level with gammas B 1.2, G 1.0, R 0.8. Paint.NET 5.0 added an
- * Intensity slider where 0 is grayscale, 50 equals the old result and 100
- * is much more saturated; here the gamma offsets scale linearly with it:
- * gamma_B = 1 + 0.2 k, gamma_R = 1 - 0.2 k, k = intensity / 50 (single
- * precision, so 50 reproduces 1.2f and 0.8f exactly). Alpha is kept.
- * See docs/notice/l5a.md and docs/fx/adjustments.md. */
+ * Paint.NET 3.36 (MIT) SepiaEffect desaturates (BT.601) and then applies a
+ * Level with gammas B 1.2, G 1.0, R 0.8. Paint.NET 5.0 added an Intensity
+ * slider where 0 is grayscale, 50 equals the old result and 100 is much more
+ * saturated; here the gamma offsets scale linearly with it:
+ * gamma_B = 1 + 0.2 k, gamma_R = 1 - 0.2 k, k = intensity / 50.
+ * Rounding follows the Paint.NET 5.2 goldens (ADR-016): with the continuous
+ * Rec.601 luma Y = (299 R + 587 G + 114 B) / 1000 and t = Y / 255,
+ *   R = round(255 t^gamma_R), G = round(Y), B = round(255 t^gamma_B),
+ * which matches 5.2 within 0.5 before rounding on every test pixel (3.36
+ * truncated an integer intensity and truncated the Level, up to 2 levels
+ * darker). Intensity 0 equals Black and White. Alpha is kept.
+ * Per pixel the work is a table lookup: prepare() finds, for every output
+ * byte v, the smallest luma sum s = 299 R + 587 G + 114 B whose result
+ * reaches v, so render() is a binary search over exact thresholds.
+ * See docs/notice/l5a.md, docs/fx/adjustments.md and docs/fx/parity.md. */
 #include "fxa_common.h"
+
+#include <math.h>
 
 int fxm_adj_sepia(const fx_host *host, int (*reg)(const fx_effect *fx));
 
 typedef struct sp_params { int32_t intensity; } sp_params;
 
-typedef struct sp_state { uint8_t b[256], g[256], r[256]; } sp_state;
+#define SP_SMAX 255000u            /* 299 + 587 + 114 = 1000, times 255 */
+
+/* t[v] = smallest luma sum whose channel value is >= v (t[0] = 0). */
+typedef struct sp_state { uint32_t r[256], b[256]; } sp_state;
+
+static uint8_t sp_curve(uint32_t s, double gamma)
+{
+    return fx_u8(255.0 * pow((double)s / (double)SP_SMAX, gamma));
+}
+
+static void sp_thresholds(double gamma, uint32_t t[256])
+{
+    t[0] = 0u;
+    for (int v = 1; v < 256; v++) {
+        double est = (double)SP_SMAX * pow(((double)v - 0.5) / 255.0, 1.0 / gamma);
+        uint32_t s = est <= 2.0 ? 0u : (est >= (double)SP_SMAX ? SP_SMAX : (uint32_t)est - 2u);
+        while (s > 0u && sp_curve(s - 1u, gamma) >= v) s--;
+        while (s < SP_SMAX && sp_curve(s, gamma) < v) s++;
+        t[v] = s;
+    }
+}
+
+static uint8_t sp_lookup(const uint32_t t[256], uint32_t s)
+{
+    int lo = 0, hi = 255;
+    while (lo < hi) {
+        int mid = (lo + hi + 1) >> 1;
+        if (t[mid] <= s) lo = mid;
+        else hi = mid - 1;
+    }
+    return (uint8_t)lo;
+}
 
 static int prepare(const void *params, const fx_img *src, const fx_env *env,
                    const fx_host *host, const void *job, void **state)
 {
     const sp_params *p = (const sp_params *)params;
-    float k = (float)p->intensity / 50.0f;
-    float gb = 1.0f + 0.2f * k, gr = 1.0f - 0.2f * k;
+    double k = (double)fx_clampi(p->intensity, 0, 100) / 50.0;
     sp_state *st;
     (void)src; (void)env; (void)job;
     st = (sp_state *)fxa_alloc(host, sizeof(sp_state));
     if (!st) return FX_ERROR;
-    for (int v = 0; v < 256; v++) {
-        st->b[v] = fxa_level_value(v, 0, 255, 0, 255, gb);
-        st->g[v] = fxa_level_value(v, 0, 255, 0, 255, 1.0f);
-        st->r[v] = fxa_level_value(v, 0, 255, 0, 255, gr);
-    }
+    sp_thresholds(1.0 - 0.2 * k, st->r);
+    sp_thresholds(1.0 + 0.2 * k, st->b);
     *state = st;
     return FX_OK;
 }
@@ -44,8 +81,9 @@ static int render(const void *params, const void *state, const fx_img *src, fx_i
         FX_CHECK_CANCEL(host, job);
         for (int32_t x = 0; x < roi.w; x++) {
             fx_px p = s[x];
-            uint8_t i = fxa_intensity(p.b, p.g, p.r);
-            d[x] = fx_px_make(st->r[i], st->g[i], st->b[i], p.a);
+            uint32_t sum = 299u * p.r + 587u * p.g + 114u * p.b;
+            d[x] = fx_px_make(sp_lookup(st->r, sum), (uint8_t)((sum + 500u) / 1000u),
+                              sp_lookup(st->b, sum), p.a);
         }
     }
     return FX_OK;

@@ -110,7 +110,7 @@ static void t_variant(const fx_effect *fx, void *p)
                                       t_set(fx, p, "threshold", 0.05); }
     else if (strstr(id, "soften")) { t_set(fx, p, "lighting", -7); t_set(fx, p, "warmth", 20); }
     else if (strstr(id, "straighten")) { t_set(fx, p, "angle", -13.0);
-                                         t_set(fx, p, "sampling", 1); }
+                                         t_set(fx, p, "sampling_mode", 1); }
     else if (strstr(id, "vignette")) { t_set2(fx, p, "center", 0.3, 0.2);
                                        t_set(fx, p, "strength", 0.6); }
     else if (strstr(id, "ink")) { t_set(fx, p, "ink_outline", 20); t_set(fx, p, "coloring", 90); }

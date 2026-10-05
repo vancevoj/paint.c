@@ -8,7 +8,8 @@
  * Gaussian with sigma = Distance / 2 from the pixel otherwise) and the Edge
  * Behavior choice (Clamp, Wrap, Mirror, Transparent) defines samples beyond
  * the image. Samples are spaced at most one pixel apart and read
- * bilinearly in premultiplied space.
+ * bilinearly in premultiplied space. Distance is a real 1..500 as the
+ * Paint.NET 5.2 dialog shows (3.36: integer 1..200).
  *
  * Thread rules: prepare builds the sample table; render is reentrant.
  */
@@ -18,7 +19,7 @@
 
 typedef struct motion_params {
     double  angle;
-    int32_t distance;
+    double  distance;
     int32_t centered;
     int32_t edge;
 } motion_params;
@@ -28,8 +29,8 @@ static const char *const k_edges[] = { "Clamp", "Wrap", "Mirror", "Transparent",
 static const fx_prop k_props[] = {
     { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(motion_params, angle),
       -180.0, 180.0, 25.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "distance", "Distance", FXP_INT, (uint32_t)offsetof(motion_params, distance),
-      1.0, 200.0, 10.0, 1.0, NULL, NULL, 0, 0, NULL },
+    { "distance", "Distance", FXP_REAL, (uint32_t)offsetof(motion_params, distance),
+      1.0, 500.0, 10.0, 0.01, NULL, NULL, 0, 0, NULL },
     { "centered", "Centered", FXP_BOOL, (uint32_t)offsetof(motion_params, centered),
       0.0, 1.0, 1.0, 0.0, NULL, NULL, 0, 0, NULL },
     { "edge_behavior", "Edge Behavior", FXP_CHOICE, (uint32_t)offsetof(motion_params, edge),
@@ -57,7 +58,7 @@ static int motion_prepare(const void *params, const fx_img *src, const fx_env *e
 {
     const motion_params *p = (const motion_params *)params;
     double theta = (fx1_pd(p->angle, -180.0, 180.0) + 180.0) * 3.14159265358979323846 / 180.0;
-    double dist = (double)fx1_pi(p->distance, 1, 200);
+    double dist = fx1_pd(p->distance, 1.0, 500.0);
     double ex = dist * cos(theta), ey = -dist * sin(theta);   /* trail end */
     double sx = 0.0, sy = 0.0, sigma, tc;
     int32_t centered = p->centered != 0, i;

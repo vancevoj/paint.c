@@ -1,33 +1,23 @@
 /* fxm_adj_black_white.c - Adjustments > Black and White (lane L5a).
  *
- * Every color channel becomes a weighted sum of R, G and B, alpha is kept,
+ * Every color channel becomes the Rec.601 luma of the stored (gamma-encoded)
+ * R, G, B, rounded: (299 R + 587 G + 114 B + 500) / 1000. Alpha is kept and
  * transparent pixels are converted too. No dialog.
  *
- * Weights: Paint.NET 3.36 (UnaryPixelOps.Desaturate) used the BT.601
- * intensity (7471 B + 38470 G + 19595 R) >> 16. The Paint.NET 5 output in
- * the official documentation (before/after pair of this adjustment) does
- * not match that: it matches the same weights with red and blue exchanged,
- * (19595 B + 38470 G + 7471 R) >> 16, within JPEG noise (mean error -0.5
- * on blue-dominant and red-dominant regions alike, against +6.7 and -8.0
- * for BT.601). Parity with 5.1 wins, so the observed weights are used; Sepia
- * and Hue / Saturation keep BT.601, which is what their documented outputs
- * show. Set FXA_BW_BT601 to 1 to get the 3.36 formula back.
- * See docs/fx/adjustments.md. */
+ * Source: the Paint.NET 5.2 beta goldens (ADR-016 priority 2; the 5.1 docs
+ * only say "desaturates"): the result equals round(0.299 R + 0.587 G +
+ * 0.114 B) on every non-tie pixel of three test images, with exact .5 ties
+ * the only 1 LSB differences (5.2 computes in float). 3.36 truncated the
+ * 16-bit form of the same weights; an earlier calibration on the JPEG
+ * documentation images had picked red and blue exchanged, which the goldens
+ * rule out (mean error 8 to 18 levels). See docs/fx/parity.md. */
 #include "fxa_common.h"
-
-#ifndef FXA_BW_BT601
-#  define FXA_BW_BT601 0
-#endif
 
 int fxm_adj_black_white(const fx_host *host, int (*reg)(const fx_effect *fx));
 
 static uint8_t bw_gray(fx_px p)
 {
-#if FXA_BW_BT601
-    return fxa_intensity(p.b, p.g, p.r);
-#else
-    return (uint8_t)((19595u * p.b + 38470u * p.g + 7471u * p.r) >> 16);
-#endif
+    return (uint8_t)((299u * p.r + 587u * p.g + 114u * p.b + 500u) / 1000u);
 }
 
 static int render(const void *params, const void *state, const fx_img *src, fx_img *dst,

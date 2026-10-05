@@ -17,30 +17,36 @@
  * that the 5.1 documentation still describes with this dropdown): Normal lets
  * the layer show through the transparent parts of the noise, Overwrite
  * replaces the layer with it.
+ * Ranges and list order as the Paint.NET 5.2 dialog shows: Period
+ * 0.10..1024.00 with two decimals; Noise lists Fractal Sum before
+ * Turbulence (default Turbulence). The preset key of the list is
+ * "noise_type" because its indices changed (it was "noise" with Turbulence
+ * first).
  */
 #include "fx2_noise.h"
 #include "../distort/fx2_common.h"
 
 typedef struct turb_params {
     int32_t octaves;         /* 1 .. 15 */
-    double  period;          /* 1 .. 1000 px */
+    double  period;          /* 0.1 .. 1024 px */
     int32_t size;            /* 1 .. 4096 px, stitch tile */
-    int32_t noise;           /* 0 Turbulence, 1 Fractal Sum */
+    int32_t noise;           /* 0 Fractal Sum, 1 Turbulence */
     int32_t seed;
     int32_t blend;           /* fx2_blend_choices index */
 } turb_params;
 
-static const char *const k_noise[] = { "Turbulence", "Fractal Sum", NULL };
+static const char *const k_noise[] = { "Fractal Sum", "Turbulence", NULL };
+enum { NOISE_FRACTAL_SUM = 0, NOISE_TURBULENCE = 1 };
 
 static const fx_prop k_props[] = {
     { "octaves", "Octaves", FXP_INT, (uint32_t)offsetof(turb_params, octaves),
       1.0, 15.0, 4.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "period", "Period", FXP_REAL, (uint32_t)offsetof(turb_params, period),
-      1.0, 1000.0, 100.0, 1.0, NULL, NULL, 0u, FXP_F_SLIDER_LOG, NULL },
+      0.1, 1024.0, 100.0, 0.01, NULL, NULL, 0u, FXP_F_SLIDER_LOG, NULL },
     { "size", "Size", FXP_INT, (uint32_t)offsetof(turb_params, size),
       1.0, 4096.0, 4096.0, 1.0, NULL, NULL, 0u, 0u, NULL },
-    { "noise", "Noise", FXP_CHOICE, (uint32_t)offsetof(turb_params, noise),
-      0.0, 1.0, 0.0, 0.0, k_noise, NULL, 0u, 0u, NULL },
+    { "noise_type", "Noise", FXP_CHOICE, (uint32_t)offsetof(turb_params, noise),
+      0.0, 1.0, (double)NOISE_TURBULENCE, 0.0, k_noise, NULL, 0u, 0u, NULL },
     { "seed", "Randomize", FXP_SEED, (uint32_t)offsetof(turb_params, seed),
       0.0, 2147483647.0, 0.0, 0.0, NULL, NULL, 0u, 0u, NULL },
     { "blend", "Blend Mode", FXP_CHOICE, (uint32_t)offsetof(turb_params, blend),
@@ -76,10 +82,10 @@ static int turb_render(const void *params, const void *state, const fx_img *src,
 {
     const turb_params *p = (const turb_params *)params;
     const turb_state *s = (const turb_state *)state;
-    int32_t octaves = fx2_int(p->octaves, 1, 15), fractal = fx2_int(p->noise, 0, 1) == 1;
+    int32_t octaves = fx2_int(p->octaves, 1, 15), fractal = fx2_int(p->noise, 0, 1) == NOISE_FRACTAL_SUM;
     int32_t blend = fx2_int(p->blend, 0, FX2_BLEND_CHOICES - 1);
     int32_t size = fx2_int(p->size, 1, 4096), cells, x, y;
-    double period = fx2_real(p->period, 1.0, 1000.0, 100.0), freq, dsize = (double)size;
+    double period = fx2_real(p->period, 0.1, 1024.0, 100.0), freq, dsize = (double)size;
     int c, o;
     if (s == NULL) return FX_ERROR;
     /* whole noise cells per tile at octave 0, then the matching frequency */

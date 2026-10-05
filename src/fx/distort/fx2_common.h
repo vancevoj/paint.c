@@ -111,6 +111,10 @@ enum {
  * premultiplied space; the result is premultiplied. Coordinates outside im->r
  * follow `edge`. Non-finite coordinates yield a transparent sample. */
 fx_pxf fx2_sample(const fx_img *im, double fx, double fy, int edge);
+/* Same in linear light: the taps are decoded from sRGB first (fx_srgb.h) and
+ * the result is linear premultiplied (b, g, r = linear * alpha, alpha on the
+ * 0..255 scale); fxl_unpremul turns it back into a straight sRGB pixel. */
+fx_pxf fx2_sample_lin(const fx_img *im, double fx, double fy, int edge);
 
 /* Rotated-grid supersampling offsets of Paint.NET 3.36 (Utility.GetRgssOffsets):
  * q * q offsets inside the unit pixel, centered on 0. q is clamped to [1, 8].
@@ -129,10 +133,14 @@ typedef struct fx2_warp {
     int            edge;        /* FX2_EDGE_* applied at the source image bounds */
     fx2_inverse_fn inverse;
     const void    *ctx;
+    int            linear;      /* nonzero: sample and average in linear light
+                                   (Paint.NET 5 resamples gamma-correctly; the
+                                   5.2 Twist golden matches it, gamma-encoded
+                                   sampling is up to 60 levels off) */
 } fx2_warp;
 
 /* Renders roi of dst: every output pixel averages quality^2 bilinear samples of
- * the inverse-mapped positions. Subsamples the map leaves in place (within
+ * the inverse-mapped positions (in linear light when w->linear is set). Subsamples the map leaves in place (within
  * 1e-7 px) take the source pixel exactly, so undistorted regions and neutral
  * parameters reproduce src bit for bit. Polls cancellation once per row.
  * Returns FX_OK or FX_CANCELLED. Thread-safe for disjoint ROIs. */

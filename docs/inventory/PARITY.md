@@ -1497,3 +1497,29 @@ source, I inferred. Display strings are paint.c's own (P-02); names here are fun
 | F-KEY-CLI-NOPLUGINS | `paintc --disable-plugins`: Skip plugin loading. | app-shell | TODO | SHORTCUTS K-CLI-NOPLUGINS |
 | F-KEY-CLI-DIAG | `paintc --diagnostics`: Print diagnostics even if the UI cannot start. | app-shell | TODO | SHORTCUTS K-CLI-DIAG |
 | F-KEY-CLI-SET | `paintc --set KEY=VALUE`: Override a setting (for example disable hardware acceleration). | app-shell | TODO | SHORTCUTS K-CLI-SET |
+
+## Notes: effects parity pass (W2-FXP, 2026-10-05)
+
+Appended by the effects parity lane; the checklist rows above are unchanged.
+Details, sources and every decision: docs/fx/parity.md.
+
+* F-FX-* parameter rows: every built-in 5.1 effect and adjustment schema now
+  follows ADR-016 (5.1 docs, then the 5.2 dialogs of OBSERVED.md). The full
+  expected schema is asserted by tests/fx/test_fx_parity.c. Kept against 5.2
+  on purpose: Oil Painting's Brush size and Coarseness (5.1 docs), Bulge's
+  "Mirror" label and Polar Inversion without Transparent (5.1 docs), the
+  14-mode render blend lists, the name "Quantize"; not added: Pixelate
+  Anchor and Tile Reflection Offset (not in the 5.1 docs, X-24).
+* Renamed preset keys (indices changed meaning): Polar Inversion
+  edge -> edge_behavior, Straighten sampling -> sampling_mode, Turbulence
+  noise -> noise_type.
+* F-FX-GAMMA-CORRECT: Gaussian, Bokeh and Square Blur blur in linear light
+  (Gamma Boost 0), Pixelate and the warp distortions resample in linear light;
+  Gaussian, Pixelate and Twist are confirmed by the 5.2 goldens.
+* Golden comparison (tests/golden/test_golden_pdn52.c): Invert Colors,
+  Brightness / Contrast 0 / 0 and Posterize are exact; Black and White,
+  Sepia and Emboss within 1 (Emboss next to soft alpha excluded, a Wine
+  artifact); Gaussian Blur, Pixelate and Twist within 1 to 2. Blend modes are
+  3.36 integer math (P-11): exact on opaque pixels for 10 of 14 modes, 1 LSB
+  for Color Burn, Color Dodge, Reflect and Glow, and 0.1 to 0.7 darker on
+  average under partially transparent top pixels (floor versus rounding).
