@@ -162,7 +162,8 @@ static void t_txn_rect_io(void)
             for (int32_t y = 0; y < got.h; y++)
                 for (int32_t x = 0; x < got.w; x++) {
                     int32_t X = x - 10, Y = y - 10;
-                    pc_px32 want = {0, 0, 0, 0}, g = got.px[(size_t)y * (size_t)got.stride + (size_t)x];
+                    pc_px32 want = {0, 0, 0, 0},
+                        g = got.px[(size_t)y * (size_t)got.stride + (size_t)x];
                     if (X >= 0 && Y >= 0 && X < (int32_t)W && Y < (int32_t)H)
                         want = model.px[(size_t)Y * (size_t)model.stride + (size_t)X];
                     if (memcmp(&want, &g, 4u) != 0) ok = false;
@@ -334,7 +335,8 @@ static void t_txn_restore_put(void)
         pc_txn_restore_tile(t, id, 1u);
         pc_tile_stats(&live1, NULL);
         CHECK(live1 <= live0);
-        CHECK(pc_txn_tile_version(t, id, 1u) > v0);
+        CHECK(pc_txn_tile_version(t, id, 1u) == pc_tile_serial(l->grid[1]));
+        CHECK(pc_txn_clock(t) > v0);
         p0 = pc_txn_peek(t, id, 1u);
         CHECK(p0 != NULL);
         if (l->grid[1]) CHECK(p0 == l->grid[1]->data);

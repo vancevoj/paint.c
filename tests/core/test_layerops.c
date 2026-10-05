@@ -116,7 +116,8 @@ static void t_add_duplicate(void)
         pc_layer_copy_name(nm, out);
         CHECK(strlen(out) <= 63u);
         CHECK(strlen(out) >= 5u && strcmp(out + strlen(out) - 5u, " copy") == 0);
-        CHECK(((unsigned char)out[strlen(out) - 6u] & 0xC0u) != 0xC0u);   /* no dangling lead byte */
+        /* no dangling lead byte */
+        CHECK(((unsigned char)out[strlen(out) - 6u] & 0xC0u) != 0xC0u);
         CHECK((strlen(out) - 5u) % 2u == 0u);
         pc_layer_copy_name("", out);
         CHECK(strcmp(out, " copy") == 0);
@@ -267,14 +268,17 @@ static void t_rotzoom(void)
      * toward the center) and the west side comes closer (grows) */
     rz.tilt = 60.0; rz.tilt_dir = 0.0;
     CHECK(pc_rotzoom_xform(&rz, pc_rect_make(0, 0, 200, 100), &f));
-    CHECK(pc_xform_apply(&f, 100.0, 50.0, &x, &y) && fabs(x - 100.0) < 1e-9 && fabs(y - 50.0) < 1e-9);
-    CHECK(pc_xform_apply(&f, 180.0, 50.0, &x, &y) && x > 100.0 && x < 140.0 && fabs(y - 50.0) < 1e-9);
+    CHECK(pc_xform_apply(&f, 100.0, 50.0, &x, &y));
+    CHECK(fabs(x - 100.0) < 1e-9 && fabs(y - 50.0) < 1e-9);
+    CHECK(pc_xform_apply(&f, 180.0, 50.0, &x, &y));
+    CHECK(x > 100.0 && x < 140.0 && fabs(y - 50.0) < 1e-9);
     CHECK(pc_xform_apply(&f, 20.0, 50.0, &x, &y) && x < 20.0);   /* west side grows */
     /* pan moves the center by half frame sizes; zoom scales about it */
     pc_rotzoom_default(&rz);
     rz.pan_x = 1.0; rz.pan_y = -0.5; rz.zoom = 2.0;
     CHECK(pc_rotzoom_xform(&rz, pc_rect_make(0, 0, 200, 100), &f));
-    CHECK(pc_xform_apply(&f, 100.0, 50.0, &x, &y) && fabs(x - 200.0) < 1e-9 && fabs(y - 25.0) < 1e-9);
+    CHECK(pc_xform_apply(&f, 100.0, 50.0, &x, &y));
+    CHECK(fabs(x - 200.0) < 1e-9 && fabs(y - 25.0) < 1e-9);
     CHECK(pc_xform_apply(&f, 110.0, 50.0, &x, &y) && fabs(x - 220.0) < 1e-9);
 
     for (int round = 0; round < (g_quick ? 6 : 24); round++) {
@@ -310,7 +314,8 @@ static void t_rotzoom(void)
         {
             pc_txn *t = pc_txn_begin(d, "preview");
             pc_comp_opts o = pc_comp_opts_default();
-            pc_px32 *a = (pc_px32 *)malloc((size_t)W * H * 4u), *b = (pc_px32 *)malloc((size_t)W * H * 4u);
+            pc_px32 *a = (pc_px32 *)malloc((size_t)W * H * 4u),
+                *b = (pc_px32 *)malloc((size_t)W * H * 4u);
             uint8_t *junk = pc_txn_tile_rw(t, l->id, 0u);       /* stale preview content */
             if (junk) memset(junk, 0x33, 64u * 4u * (W < 64u ? 0u : 1u));
             CHECK(pc_layerop_rotate_zoom_txn(t, l->id, &rz, &par) == PC_OK);
@@ -353,7 +358,8 @@ static void t_rotzoom(void)
             pc_px32 *got;
             pc_layer *b = d->stack[0];
             d->sel_active = false;
-            CHECK(pc_layerop_fill(h, b->id, pc_rect_make(0, 0, 0, 0), (pc_px32){1, 2, 3, 255}, false,
+            CHECK(pc_layerop_fill(h, b->id, pc_rect_make(0, 0, 0, 0),
+                                  (pc_px32){1, 2, 3, 255}, false,
                                   NULL, NULL) == PC_OK);
             pc_rotzoom_default(&z2);
             z2.angle = 33.0; z2.zoom = 0.3; z2.tiling = PC_WRAP_REPEAT; z2.quality = 2u;
@@ -457,7 +463,8 @@ static void t_layerops_property(void)
     h = pc_hist_create(d);
 #define REC() do { size_t sq = (size_t)h->cur->seq; \
         if (sq >= cap) { size_t nc = cap ? cap * 2u : 256u; while (nc <= sq) nc *= 2u; \
-            fps = (uint64_t *)realloc(fps, nc * 8u); memset(fps + cap, 0, (nc - cap) * 8u); cap = nc; } \
+            fps = (uint64_t *)realloc(fps, nc * 8u); \
+            memset(fps + cap, 0, (nc - cap) * 8u); cap = nc; } \
         fps[sq] = tu_fp(d); } while (0)
 #define CHK() CHECK((size_t)h->cur->seq < cap && fps[h->cur->seq] == tu_fp(d))
     REC();
@@ -467,8 +474,10 @@ static void t_layerops_property(void)
         uint32_t id = d->stack[rndu(d->n_layers)]->id;
         pc_status st;
         if (r < 7u) st = pc_layerop_move(h, id, rndu(d->n_layers), NULL);
-        else if (r < 12u) st = d->n_layers < 6u ? pc_layerop_duplicate(h, id, NULL, NULL) : PC_ERR_STATE;
-        else if (r < 16u) st = d->n_layers < 6u ? pc_layerop_add_new(h, id, NULL, NULL) : PC_ERR_STATE;
+        else if (r < 12u)
+            st = d->n_layers < 6u ? pc_layerop_duplicate(h, id, NULL, NULL) : PC_ERR_STATE;
+        else if (r < 16u)
+            st = d->n_layers < 6u ? pc_layerop_add_new(h, id, NULL, NULL) : PC_ERR_STATE;
         else if (r < 22u) st = pc_layerop_merge_down(h, id, pp, NULL);
         else if (r < 25u) st = pc_layerop_flatten(h, pp, NULL);
         else if (r < 30u) st = pc_layerop_flip(h, id, rndu(2u) != 0u, pp, NULL);
@@ -479,7 +488,8 @@ static void t_layerops_property(void)
             rz.angle = rndu(360u); rz.zoom = 0.5 + rndu(20u) / 10.0; rz.tiling = (pc_wrap)rndu(3u);
             st = pc_layerop_rotate_zoom(h, id, &rz, pp, NULL);
         } else if (r < 44u) {
-            st = pc_layerop_clear(h, id, pc_rect_make((int32_t)rndu(d->w), (int32_t)rndu(d->h), 30, 30),
+            st = pc_layerop_clear(h, id,
+                                  pc_rect_make((int32_t)rndu(d->w), (int32_t)rndu(d->h), 30, 30),
                                   rndu(2u) != 0u, pp, NULL);
         } else if (r < 50u) {
             st = pc_layerop_fill(h, id, pc_rect_make(0, 0, 0, 0), tu_rpx(), true, pp, NULL);
@@ -498,7 +508,8 @@ static void t_layerops_property(void)
         } else if (r < 61u) {
             st = pc_geom_crop_to_selection(h, pp, NULL);
         } else if (r < 63u) {
-            st = d->w * d->h < 40000u ? pc_geom_resize(h, d->w * 3u / 2u + 1u, d->h, PC_RESAMPLE_BILINEAR,
+            st = d->w * d->h < 40000u ? pc_geom_resize(h, d->w * 3u / 2u + 1u, d->h,
+                                                       PC_RESAMPLE_BILINEAR,
                                                        0u, pp, NULL)
                                       : pc_geom_resize(h, d->w / 2u + 1u, d->h / 2u + 1u,
                                                        PC_RESAMPLE_SUPERSAMPLING, 0u, pp, NULL);
@@ -516,7 +527,10 @@ static void t_layerops_property(void)
             continue;
         } else {
             size_t cnt = pc_hist_collect(h, NULL, 0u);
-            if (cnt > ncap) { nodes = (pc_hist_node **)realloc(nodes, cnt * sizeof *nodes); ncap = cnt; }
+            if (cnt > ncap) {
+                nodes = (pc_hist_node **)realloc(nodes, cnt * sizeof *nodes);
+                ncap = cnt;
+            }
             cnt = pc_hist_collect(h, nodes, ncap);
             CHECK(pc_hist_jump(h, nodes[rndu((uint32_t)cnt)]) == PC_OK);
             CHK();
@@ -530,7 +544,10 @@ static void t_layerops_property(void)
     }
     {
         size_t cnt = pc_hist_collect(h, NULL, 0u);
-        if (cnt > ncap) { nodes = (pc_hist_node **)realloc(nodes, cnt * sizeof *nodes); ncap = cnt; }
+        if (cnt > ncap) {
+            nodes = (pc_hist_node **)realloc(nodes, cnt * sizeof *nodes);
+            ncap = cnt;
+        }
         cnt = pc_hist_collect(h, nodes, ncap);
         for (size_t i = 0; i < cnt; i++) {
             CHECK(pc_hist_jump(h, nodes[i]) == PC_OK);
@@ -578,12 +595,17 @@ static void t_layerops_oom(void)
             case 5: st = pc_layerop_flip(h, id, true, NULL, NULL); break;
             case 6: st = pc_layerop_rotate180(h, id, NULL, NULL); break;
             case 7: st = pc_layerop_rotate_zoom(h, id, &rz, NULL, NULL); break;
-            case 8: st = pc_layerop_clear(h, id, pc_rect_make(10, 10, 100, 70), true, NULL, NULL); break;
-            default: st = pc_layerop_fill(h, id, pc_rect_make(0, 0, 0, 0), tu_rpx(), true, NULL, NULL); break;
+            case 8:
+                st = pc_layerop_clear(h, id, pc_rect_make(10, 10, 100, 70), true, NULL, NULL);
+                break;
+            default:
+                st = pc_layerop_fill(h, id, pc_rect_make(0, 0, 0, 0), tu_rpx(), true, NULL, NULL);
+                break;
             }
             pc_fault_set(-1);
             if (st == PC_ERR_NOMEM) {
-                CHECK(tu_fp(d) == fp0 && h->count == 1u && d->open_txns == 0u && tu_doc_consistent(d));
+                CHECK(tu_fp(d) == fp0 && h->count == 1u && d->open_txns == 0u
+                      && tu_doc_consistent(d));
                 fails++;
             } else {
                 CHECK(st == PC_OK);
@@ -623,7 +645,8 @@ static void t_layerops_errors(void)
     pc_txn_cancel(t);
     CHECK(pc_layerop_flip(h, 999u, true, NULL, NULL) == PC_ERR_ARG);
     CHECK(pc_layerop_merge_down(h, 999u, NULL, NULL) == PC_ERR_ARG);
-    CHECK(pc_layerop_fill(h, 999u, pc_rect_make(0, 0, 0, 0), tu_rpx(), false, NULL, NULL) == PC_ERR_ARG);
+    CHECK(pc_layerop_fill(h, 999u, pc_rect_make(0, 0, 0, 0), tu_rpx(), false, NULL,
+                          NULL) == PC_ERR_ARG);
     CHECK(pc_layerop_clear(h, id, pc_rect_make(100, 100, 5, 5), false, NULL, NULL) == PC_OK);
     CHECK(h->count == 1u);
     pc_hist_destroy(h);

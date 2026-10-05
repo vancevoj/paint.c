@@ -26,7 +26,8 @@ static void t_comp_vs_oracle(void)
         uint32_t W = 1u + rndu(330u), H = 1u + rndu(250u);
         pc_doc *d = tu_random_doc(W, H, 1u + rndu(6u));
         pc_rect r = pc_rect_make(-(int32_t)rndu(20u), -(int32_t)rndu(20u),
-                                 (int32_t)W + 40 - (int32_t)rndu(40u), (int32_t)H + 30 - (int32_t)rndu(30u));
+                                 (int32_t)W + 40 - (int32_t)rndu(40u),
+                                 (int32_t)H + 30 - (int32_t)rndu(30u));
         pc_surf a, b, c;
         fake_par fp;
         pc_par par = fake_par_make(&fp, 2u + rndu(14u), 1000u + (uint64_t)round);
@@ -61,7 +62,12 @@ static void t_comp_vs_oracle(void)
             CHECK(ok);
             CHECK(pc_comp_tile(d, d->tiles_x, 0u, tile, NULL) == PC_ERR_ARG);
         }
-        CHECK(fp.jobs_run > 0u || d->tiles_x * d->tiles_y == 1u);
+        {   /* pc_par_for only fans out when the rect spans 2+ tiles */
+            pc_rect cr = pc_rect_intersect(r, pc_doc_rect(d));
+            int32_t ntx = cr.w ? (cr.x + cr.w - 1) / 64 - cr.x / 64 + 1 : 0;
+            int32_t nty = cr.h ? (cr.y + cr.h - 1) / 64 - cr.y / 64 + 1 : 0;
+            CHECK(fp.jobs_run > 0u || ntx * nty <= 1);
+        }
         fake_par_free(&fp);
         pc_surf_free(&a); pc_surf_free(&b); pc_surf_free(&c);
         pc_doc_destroy(d);
@@ -170,7 +176,8 @@ static void t_comp_overlay(void)
                 uint8_t *p;
                 if (!ovl->grid[i]) continue;
                 p = pc_txn_tile_rw(t, anchor->id, i);
-                pc_composite_span((pc_px32 *)(void *)p, (const pc_px32 *)(const void *)ovl->grid[i]->data,
+                pc_composite_span((pc_px32 *)(void *)p,
+                                  (const pc_px32 *)(const void *)ovl->grid[i]->data,
                                   PC_TILE_PX, ov.mode, ov.opacity);
             }
             CHECK(pc_txn_commit(t, h) == PC_OK);
@@ -221,22 +228,26 @@ static void t_comp_vis_bg(void)
         }
         o.vis = vis;
         o.n_vis = 3u;
-        CHECK(pc_comp_rect_ex(d, pc_rect_make(0, 0, got.w, got.h), got.px, (size_t)got.stride, &o) == PC_OK);
+        CHECK(pc_comp_rect_ex(d, pc_rect_make(0, 0, got.w, got.h), got.px, (size_t)got.stride,
+                              &o) == PC_OK);
         for (int k = 0; k < 3; k++) {   /* first override for a layer wins */
             pc_layer *l = pc_doc_layer_by_id(d, vis[k].layer_id);
             bool first = true;
             for (int q = 0; q < k; q++) if (vis[q].layer_id == vis[k].layer_id) first = false;
             if (first) l->visible = vis[k].visible;
         }
-        CHECK(pc_comp_rect(d, pc_rect_make(0, 0, want.w, want.h), want.px, (size_t)want.stride, NULL) == PC_OK);
+        CHECK(pc_comp_rect(d, pc_rect_make(0, 0, want.w, want.h), want.px, (size_t)want.stride,
+                           NULL) == PC_OK);
         CHECK(memcmp(got.px, want.px, (size_t)want.w * H * 4u) == 0);
         for (uint32_t i = 0; i < d->n_layers; i++) d->stack[i]->visible = saved[i];
         /* background */
         o = pc_comp_opts_default();
         o.background = tu_rpx();
         o.background.a = (uint8_t)(1u + rndu(255u));
-        CHECK(pc_comp_rect_ex(d, pc_rect_make(0, 0, got.w, got.h), got.px, (size_t)got.stride, &o) == PC_OK);
-        CHECK(pc_comp_rect(d, pc_rect_make(0, 0, want.w, want.h), want.px, (size_t)want.stride, NULL) == PC_OK);
+        CHECK(pc_comp_rect_ex(d, pc_rect_make(0, 0, got.w, got.h), got.px, (size_t)got.stride,
+                              &o) == PC_OK);
+        CHECK(pc_comp_rect(d, pc_rect_make(0, 0, want.w, want.h), want.px, (size_t)want.stride,
+                           NULL) == PC_OK);
         {
             bool ok = true;
             for (int32_t y = 0; y < want.h; y++)
@@ -382,14 +393,16 @@ static void t_comp_sig(void)
         uint64_t v1, v2;
         l->visible = true;
         l->opacity = 255u;
-        for (uint32_t i = 0; i < n; i++) sig0[i] = pc_comp_tile_sig(d, i % d->tiles_x, i / d->tiles_x, &o);
+        for (uint32_t i = 0; i < n; i++)
+            sig0[i] = pc_comp_tile_sig(d, i % d->tiles_x, i / d->tiles_x, &o);
         t = pc_txn_begin(d, "one");
         CHECK(pc_txn_tile_rw(t, l->id, cell) != NULL);
         o.txn = t;
         v1 = pc_comp_tile_sig(d, cell % d->tiles_x, cell / d->tiles_x, &o);
         CHECK(v1 != sig0[cell]);
         for (uint32_t i = 0; i < n; i++)
-            if (i != cell) CHECK(pc_comp_tile_sig(d, i % d->tiles_x, i / d->tiles_x, &o) == sig0[i]);
+            if (i != cell)
+                CHECK(pc_comp_tile_sig(d, i % d->tiles_x, i / d->tiles_x, &o) == sig0[i]);
         CHECK(pc_txn_tile_rw(t, l->id, cell) != NULL);
         v2 = pc_comp_tile_sig(d, cell % d->tiles_x, cell / d->tiles_x, &o);
         CHECK(v2 != v1);
@@ -399,7 +412,8 @@ static void t_comp_sig(void)
         /* hidden layer edits do not matter */
         l = d->stack[d->n_layers - 1u];
         l->visible = false;
-        for (uint32_t i = 0; i < n; i++) sig0[i] = pc_comp_tile_sig(d, i % d->tiles_x, i / d->tiles_x, &o);
+        for (uint32_t i = 0; i < n; i++)
+            sig0[i] = pc_comp_tile_sig(d, i % d->tiles_x, i / d->tiles_x, &o);
         t = pc_txn_begin(d, "hidden");
         CHECK(pc_txn_tile_rw(t, l->id, cell) != NULL);
         o.txn = t;
@@ -419,7 +433,8 @@ static void t_comp_sig(void)
             ov.layer_id = d->stack[0]->id; ov.into = false; ov.mode = PC_BLEND_NORMAL;
             ov.opacity = 255u; ov.src = ovl; ov.version = 5u;
             o.overlay = &ov;
-            for (uint32_t i = 0; i < n; i++) sig0[i] = pc_comp_tile_sig(d, i % d->tiles_x, i / d->tiles_x, &o);
+            for (uint32_t i = 0; i < n; i++)
+                sig0[i] = pc_comp_tile_sig(d, i % d->tiles_x, i / d->tiles_x, &o);
             ov.version = 6u;
             for (uint32_t i = 0; i < n; i++) {
                 bool has = ovl->grid[i] != NULL;

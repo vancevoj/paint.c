@@ -147,7 +147,8 @@ static inline void tu_random_selection(pc_doc *d)
             if (!t) abort();
             for (uint32_t y = 0; y < PC_TILE_DIM; y++)
                 for (uint32_t x = 0; x < PC_TILE_DIM; x++) {
-                    int32_t X = (int32_t)(tx * PC_TILE_DIM + x), Y = (int32_t)(ty * PC_TILE_DIM + y);
+                    int32_t X = (int32_t)(tx * PC_TILE_DIM + x),
+                        Y = (int32_t)(ty * PC_TILE_DIM + y);
                     uint32_t v = 0;
                     double dx = X + 0.5 - cx, dy = Y + 0.5 - cy, dd;
                     if ((uint32_t)X >= d->w || (uint32_t)Y >= d->h) continue;

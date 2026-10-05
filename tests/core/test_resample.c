@@ -13,7 +13,8 @@
 static double ref_cubic(double x, double B, double C)
 {
     double ax = fabs(x), x2 = ax * ax, x3 = x2 * ax;
-    if (ax < 1.0) return ((12 - 9 * B - 6 * C) * x3 + (-18 + 12 * B + 6 * C) * x2 + (6 - 2 * B)) / 6;
+    if (ax < 1.0)
+        return ((12 - 9 * B - 6 * C) * x3 + (-18 + 12 * B + 6 * C) * x2 + (6 - 2 * B)) / 6;
     if (ax < 2.0) return ((-B - 6 * C) * x3 + (6 * B + 30 * C) * x2 + (-12 * B - 48 * C) * ax +
                           (8 * B + 24 * C)) / 6;
     return 0.0;
@@ -88,7 +89,8 @@ static void ref_weights(pc_resample m, uint32_t n_in, uint32_t n_out, uint32_t o
 /* Reference resize in double, premultiplied, then the same output rule. */
 static void ref_resize(const pc_surf *src, pc_surf *dst, pc_resample m)
 {
-    uint32_t sw = (uint32_t)src->w, sh = (uint32_t)src->h, dw = (uint32_t)dst->w, dh = (uint32_t)dst->h;
+    uint32_t sw = (uint32_t)src->w, sh = (uint32_t)src->h, dw = (uint32_t)dst->w,
+        dh = (uint32_t)dst->h;
     double *wx = (double *)malloc((size_t)dw * sw * sizeof(double));
     double *wy = (double *)malloc((size_t)dh * sh * sizeof(double));
     double *tmp = (double *)malloc((size_t)dw * sh * 4u * sizeof(double));
@@ -102,7 +104,8 @@ static void ref_resize(const pc_surf *src, pc_surf *dst, pc_resample m)
                 pc_px32 p = pc_surf_row(src, (int32_t)y)[x];
                 double w = wx[(size_t)ox * sw + x], a = p.a / 255.0;
                 if (w == 0.0) continue;
-                acc[0] += w * p.b * a; acc[1] += w * p.g * a; acc[2] += w * p.r * a; acc[3] += w * p.a;
+                acc[0] += w * p.b * a; acc[1] += w * p.g * a;
+                acc[2] += w * p.r * a; acc[3] += w * p.a;
             }
             memcpy(tmp + ((size_t)y * dw + ox) * 4u, acc, sizeof acc);
         }
@@ -113,7 +116,8 @@ static void ref_resize(const pc_surf *src, pc_surf *dst, pc_resample m)
             for (uint32_t y = 0; y < sh; y++) {
                 double w = wy[(size_t)oy * sh + y];
                 if (w == 0.0) continue;
-                for (int c = 0; c < 4; c++) acc[c] += w * tmp[((size_t)y * dw + ox) * 4u + (size_t)c];
+                for (int c = 0; c < 4; c++)
+                    acc[c] += w * tmp[((size_t)y * dw + ox) * 4u + (size_t)c];
             }
             if (acc[3] < 0.5) { memset(o, 0, 4u); continue; }
             if (acc[3] > 255.0) acc[3] = 255.0;
@@ -467,8 +471,10 @@ static void t_warp(void)
         /* integer shift with repeat = cyclic shift; with none = shift + clear */
         {
             int32_t sx = (int32_t)rndu((uint32_t)w), sy = (int32_t)rndu((uint32_t)h);
-            pc_warp wr = mkwarp(pc_xform_translate(sx, sy), PC_SAMPLE_BILINEAR, PC_WRAP_REPEAT, 1u, false);
-            pc_warp wn = mkwarp(pc_xform_translate(sx, sy), PC_SAMPLE_BICUBIC, PC_WRAP_NONE, 1u, false);
+            pc_warp wr = mkwarp(pc_xform_translate(sx, sy), PC_SAMPLE_BILINEAR, PC_WRAP_REPEAT, 1u,
+                                false);
+            pc_warp wn = mkwarp(pc_xform_translate(sx, sy), PC_SAMPLE_BICUBIC, PC_WRAP_NONE, 1u,
+                                false);
             bool ok = true, ok2 = true;
             CHECK(pc_warp_surf(&src, &wr, &dst, 0, 0, NULL) == PC_OK);
             CHECK(pc_warp_surf(&src, &wn, &dst2, 0, 0, NULL) == PC_OK);
@@ -485,7 +491,8 @@ static void t_warp(void)
         }
         /* mirror: a shift by exactly one period width reflects the image */
         {
-            pc_warp wm = mkwarp(pc_xform_translate(w, 0), PC_SAMPLE_NEAREST, PC_WRAP_MIRROR, 1u, false);
+            pc_warp wm = mkwarp(pc_xform_translate(w, 0), PC_SAMPLE_NEAREST, PC_WRAP_MIRROR, 1u,
+                                false);
             bool ok = true;
             CHECK(pc_warp_surf(&src, &wm, &dst, 0, 0, NULL) == PC_OK);
             for (int32_t y = 0; y < h; y++)
@@ -524,7 +531,8 @@ static void t_warp(void)
             pc_xform f = pc_xform_mul(pc_xform_translate(7.3, 5.1), pc_xform_scale(1.5, 1.5));
             pc_warp wa = mkwarp(f, PC_SAMPLE_BILINEAR, PC_WRAP_NONE, 1u, true);
             pc_warp wh = mkwarp(f, PC_SAMPLE_BILINEAR, PC_WRAP_NONE, 1u, false);
-            pc_warp wq = mkwarp(pc_xform_scale(0.37, 0.41), PC_SAMPLE_BICUBIC, PC_WRAP_REPEAT, 4u, false);
+            pc_warp wq = mkwarp(pc_xform_scale(0.37, 0.41), PC_SAMPLE_BICUBIC, PC_WRAP_REPEAT, 4u,
+                                false);
             int partial = 0, inner_ok = 1, hard_ok = 1, const_ok = 1;
             CHECK(pc_surf_alloc(&sq, 20, 20) == PC_OK);
             CHECK(pc_surf_alloc(&out, 50, 50) == PC_OK);
@@ -551,7 +559,8 @@ static void t_warp(void)
             pc_surf s2, o2;
             pc_tile **out = NULL;
             pc_warp wp = mkwarp(pc_xform_mul(pc_xform_translate(20.0, 3.0), pc_xform_rotate(17.0)),
-                                (pc_sample)rndu(3u), (pc_wrap)rndu(3u), 1u + rndu(3u), rndu(2u) != 0u);
+                                (pc_sample)rndu(3u), (pc_wrap)rndu(3u), 1u + rndu(3u),
+                                rndu(2u) != 0u);
             uint32_t DW = d->w + 30u, DH = d->h, dtx = (DW + 63u) / 64u, dty = (DH + 63u) / 64u;
             bool ok = true;
             CHECK(pc_surf_alloc(&s2, (int32_t)d->w, (int32_t)d->h) == PC_OK);

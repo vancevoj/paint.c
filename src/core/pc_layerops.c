@@ -59,7 +59,8 @@ static void move_swap(pc_doc *d, void *p)
     from = (uint32_t)cur;
     l = d->stack[from];
     if (m->other > from)
-        memmove(&d->stack[from], &d->stack[from + 1u], (size_t)(m->other - from) * sizeof *d->stack);
+        memmove(&d->stack[from], &d->stack[from + 1u],
+                (size_t)(m->other - from) * sizeof *d->stack);
     else if (m->other < from)
         memmove(&d->stack[m->other + 1u], &d->stack[m->other],
                 (size_t)(from - m->other) * sizeof *d->stack);
@@ -322,7 +323,8 @@ static void flat_swap(pc_doc *d, void *p)
     PC_ASSERT(b->id == f->bottom_id);
     if (!f->flat) {
         PC_ASSERT(d->n_layers == f->n_held + 1u);
-        for (uint32_t i = d->n_layers - 1u; i >= 1u; i--) f->held[i - 1u] = pc_doc_detach_layer(d, i);
+        for (uint32_t i = d->n_layers - 1u; i >= 1u; i--)
+            f->held[i - 1u] = pc_doc_detach_layer(d, i);
         f->flat = true;
     } else {
         for (uint32_t i = 0; i < f->n_held; i++) {

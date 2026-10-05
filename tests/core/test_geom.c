@@ -51,7 +51,8 @@ static bool check_mapped(const pc_doc *d, const snap *s, map_fn map, const void 
     if (!row) abort();
     for (uint32_t i = 0; i < d->n_layers && ok; i++)
         for (uint32_t y = 0; y < d->h && ok; y++) {
-            pc_layer_read_rect(d, d->stack[i], pc_rect_make(0, (int32_t)y, (int32_t)d->w, 1), row, d->w);
+            pc_layer_read_rect(d, d->stack[i], pc_rect_make(0, (int32_t)y, (int32_t)d->w, 1), row,
+                               d->w);
             for (uint32_t x = 0; x < d->w; x++) {
                 uint32_t sx, sy;
                 pc_px32 want = {0, 0, 0, 0};
@@ -84,11 +85,13 @@ static bool map_shift(const snap *s, uint32_t x, uint32_t y, uint32_t *sx, uint3
     return true;
 }
 
-static bool map_fliph(const snap *s, uint32_t x, uint32_t y, uint32_t *sx, uint32_t *sy, const void *a)
+static bool map_fliph(const snap *s, uint32_t x, uint32_t y, uint32_t *sx, uint32_t *sy,
+                      const void *a)
 {
     (void)a; *sx = s->w - 1u - x; *sy = y; return true;
 }
-static bool map_flipv(const snap *s, uint32_t x, uint32_t y, uint32_t *sx, uint32_t *sy, const void *a)
+static bool map_flipv(const snap *s, uint32_t x, uint32_t y, uint32_t *sx, uint32_t *sy,
+                      const void *a)
 {
     (void)a; *sx = x; *sy = s->h - 1u - y; return true;
 }
@@ -96,11 +99,13 @@ static bool map_cw(const snap *s, uint32_t x, uint32_t y, uint32_t *sx, uint32_t
 {
     (void)a; *sx = y; *sy = s->h - 1u - x; return true;
 }
-static bool map_ccw(const snap *s, uint32_t x, uint32_t y, uint32_t *sx, uint32_t *sy, const void *a)
+static bool map_ccw(const snap *s, uint32_t x, uint32_t y, uint32_t *sx, uint32_t *sy,
+                    const void *a)
 {
     (void)a; *sx = s->w - 1u - y; *sy = x; return true;
 }
-static bool map_180(const snap *s, uint32_t x, uint32_t y, uint32_t *sx, uint32_t *sy, const void *a)
+static bool map_180(const snap *s, uint32_t x, uint32_t y, uint32_t *sx, uint32_t *sy,
+                    const void *a)
 {
     (void)a; *sx = s->w - 1u - x; *sy = s->h - 1u - y; return true;
 }
@@ -206,7 +211,8 @@ static void t_geom_content(void)
                 row = (pc_px32 *)malloc((size_t)d->w * 4u);
                 for (uint32_t i = 0; i < d->n_layers; i++)
                     for (uint32_t y = 0; y < d->h; y++) {
-                        pc_layer_read_rect(d, d->stack[i], pc_rect_make(0, (int32_t)y, (int32_t)d->w, 1),
+                        pc_layer_read_rect(d, d->stack[i],
+                                           pc_rect_make(0, (int32_t)y, (int32_t)d->w, 1),
                                            row, d->w);
                         for (uint32_t x = 0; x < d->w; x++) {
                             size_t o = (size_t)(y + (uint32_t)b.y) * s.w + x + (uint32_t)b.x;
@@ -247,10 +253,12 @@ static void t_geom_content(void)
             CHECK(d->w == nw && d->h == nh && tu_doc_consistent(d));
             CHECK(pc_surf_alloc(&want, (int32_t)nw, (int32_t)nh) == PC_OK);
             for (uint32_t i = 0; i < d->n_layers; i++) {
-                src.px = s.px[i]; src.w = (int32_t)s.w; src.h = (int32_t)s.h; src.stride = (int32_t)s.w;
+                src.px = s.px[i];
+                src.w = (int32_t)s.w; src.h = (int32_t)s.h; src.stride = (int32_t)s.w;
                 CHECK(pc_resample_surf(&src, &want, m, fl, NULL) == PC_OK);
                 for (uint32_t y = 0; y < nh; y++) {
-                    pc_layer_read_rect(d, d->stack[i], pc_rect_make(0, (int32_t)y, (int32_t)nw, 1), row, nw);
+                    pc_layer_read_rect(d, d->stack[i], pc_rect_make(0, (int32_t)y, (int32_t)nw, 1),
+                                       row, nw);
                     if (memcmp(row, want.px + (size_t)y * nw, (size_t)nw * 4u)) ok = false;
                 }
             }
@@ -298,7 +306,8 @@ static void t_geom_sharing(void)
     CHECK(d->tiles_x == 4u && d->tiles_y == 3u);
     CHECK(l->grid[0] == orig[1 * 8 + 2] && l->grid[11] == orig[3 * 8 + 5]);
     /* enlarge by multiples of 64 with a fill: new interior tiles share one tile */
-    CHECK(pc_geom_canvas_size(h, 64u * 10u, 64u * 7u, PC_ANCHOR_CENTER, white, NULL, NULL) == PC_OK);
+    CHECK(pc_geom_canvas_size(h, 64u * 10u, 64u * 7u, PC_ANCHOR_CENTER, white, NULL,
+                              NULL) == PC_OK);
     CHECK(l->grid[0] != NULL && l->grid[0] == l->grid[1] && l->grid[0] == l->grid[9]);
     CHECK(l->grid[2 * 10 + 3] == orig[1 * 8 + 2]);   /* offset (192, 128) */
     /* a non-background layer stays sparse */
@@ -306,7 +315,8 @@ static void t_geom_sharing(void)
         pc_layer *l2 = pc_layer_create(d, "Layer 2");
         bool all_null = true;
         CHECK(pc_hist_add_layer(h, l2, 1u, "add") == PC_OK);
-        CHECK(pc_geom_canvas_size(h, 64u * 12u, 64u * 9u, PC_ANCHOR_TOP_LEFT, white, NULL, NULL) == PC_OK);
+        CHECK(pc_geom_canvas_size(h, 64u * 12u, 64u * 9u, PC_ANCHOR_TOP_LEFT, white, NULL,
+                                  NULL) == PC_OK);
         for (uint32_t i = 0; i < d->tiles_x * d->tiles_y; i++) if (l2->grid[i]) all_null = false;
         CHECK(all_null);
     }
@@ -336,7 +346,8 @@ static void t_geom_history_property(void)
     h = pc_hist_create(d);
 #define REC() do { size_t sq = (size_t)h->cur->seq; \
         if (sq >= cap) { size_t nc = cap ? cap * 2u : 256u; while (nc <= sq) nc *= 2u; \
-            fps = (uint64_t *)realloc(fps, nc * 8u); memset(fps + cap, 0, (nc - cap) * 8u); cap = nc; } \
+            fps = (uint64_t *)realloc(fps, nc * 8u); \
+            memset(fps + cap, 0, (nc - cap) * 8u); cap = nc; } \
         fps[sq] = tu_fp(d); } while (0)
 #define CHK() CHECK((size_t)h->cur->seq < cap && fps[h->cur->seq] == tu_fp(d))
     REC();
@@ -349,8 +360,10 @@ static void t_geom_history_property(void)
                                         (pc_resample)rndu(PC_RESAMPLE_COUNT), 0u, pp, NULL);
         else if (r < 12u) st = pc_geom_canvas_size(h, 1u + rndu(170u), 1u + rndu(130u),
                                                    (pc_anchor)rndu(9u), tu_rpx(), pp, NULL);
-        else if (r < 18u) st = pc_geom_crop(h, pc_rect_make((int32_t)rndu(d->w), (int32_t)rndu(d->h),
-                                                            1 + (int32_t)rndu(d->w), 1 + (int32_t)rndu(d->h)),
+        else if (r < 18u) st = pc_geom_crop(h, pc_rect_make((int32_t)rndu(d->w),
+                                                            (int32_t)rndu(d->h),
+                                                            1 + (int32_t)rndu(d->w),
+                                                            1 + (int32_t)rndu(d->h)),
                                             pp, NULL);
         else if (r < 22u) st = pc_geom_crop_to_selection(h, pp, NULL);
         else if (r < 30u) st = pc_geom_rotate(h, (pc_rotation)rndu(3u), pp, NULL);
@@ -386,7 +399,10 @@ static void t_geom_history_property(void)
             continue;
         } else {
             size_t cnt = pc_hist_collect(h, NULL, 0u);
-            if (cnt > ncap) { nodes = (pc_hist_node **)realloc(nodes, cnt * sizeof *nodes); ncap = cnt; }
+            if (cnt > ncap) {
+                nodes = (pc_hist_node **)realloc(nodes, cnt * sizeof *nodes);
+                ncap = cnt;
+            }
             cnt = pc_hist_collect(h, nodes, ncap);
             CHECK(pc_hist_jump(h, nodes[rndu((uint32_t)cnt)]) == PC_OK);
             CHK();
@@ -400,7 +416,10 @@ static void t_geom_history_property(void)
     }
     {
         size_t cnt = pc_hist_collect(h, NULL, 0u);
-        if (cnt > ncap) { nodes = (pc_hist_node **)realloc(nodes, cnt * sizeof *nodes); ncap = cnt; }
+        if (cnt > ncap) {
+            nodes = (pc_hist_node **)realloc(nodes, cnt * sizeof *nodes);
+            ncap = cnt;
+        }
         cnt = pc_hist_collect(h, nodes, ncap);
         for (size_t i = 0; i < cnt; i++) {
             CHECK(pc_hist_jump(h, nodes[i]) == PC_OK);
@@ -436,7 +455,9 @@ static void t_geom_oom(void)
             pc_fault_set(k);
             switch (op) {
             case 0: st = pc_geom_resize(h, 77u, 201u, PC_RESAMPLE_BICUBIC, 0u, NULL, NULL); break;
-            case 1: st = pc_geom_canvas_size(h, 300u, 50u, PC_ANCHOR_CENTER, tu_rpx(), NULL, NULL); break;
+            case 1:
+                st = pc_geom_canvas_size(h, 300u, 50u, PC_ANCHOR_CENTER, tu_rpx(), NULL, NULL);
+                break;
             case 2: st = pc_geom_crop(h, pc_rect_make(10, 20, 100, 70), NULL, NULL); break;
             case 3: st = pc_geom_crop_to_selection(h, NULL, NULL); break;
             case 4: st = pc_geom_rotate(h, PC_ROTATE_90_CW, NULL, NULL); break;
@@ -479,7 +500,8 @@ static void t_geom_errors(void)
     pc_txn_cancel(t);
     CHECK(pc_geom_canvas_size(h, 0u, 10u, PC_ANCHOR_CENTER, tu_rpx(), NULL, NULL) == PC_ERR_ARG);
     CHECK(pc_geom_canvas_size(h, 10u, 10u, (pc_anchor)9, tu_rpx(), NULL, NULL) == PC_ERR_ARG);
-    CHECK(pc_geom_canvas_size(h, PC_MAX_DIM + 1u, 10u, PC_ANCHOR_CENTER, tu_rpx(), NULL, NULL) == PC_ERR_ARG);
+    CHECK(pc_geom_canvas_size(h, PC_MAX_DIM + 1u, 10u, PC_ANCHOR_CENTER, tu_rpx(), NULL,
+                              NULL) == PC_ERR_ARG);
     CHECK(pc_geom_rotate(h, (pc_rotation)5, NULL, NULL) == PC_ERR_ARG);
     CHECK(pc_geom_flip(NULL, true, NULL, NULL) == PC_ERR_ARG);
     CHECK(h->count == 1u);

@@ -66,11 +66,14 @@ bool      pc_txn_lookup(const pc_txn *t, uint32_t layer_id, uint32_t tile_idx,
 /* Content version of a touched tile, 0 when untouched. Versions come from
  * the process-wide tile serial counter (pc_tile_next_serial), are redrawn
  * by every mutating access (tile_rw, write, blend, put, restore) and
- * therefore never repeat across tiles, transactions or documents. */
+ * therefore never repeat across tiles, transactions or documents. A tile
+ * touched but not yet modified reports its original's serial (0 when the
+ * original is NULL), which describes the same content. */
 uint64_t  pc_txn_tile_version(const pc_txn *t, uint32_t layer_id, uint32_t tile_idx);
 
-/* Largest version drawn by t so far (0 when nothing was touched). It
- * changes whenever any private tile may have changed. */
+/* Change counter of t (0 when nothing was modified): a fresh serial drawn
+ * by every mutating access, so it changes whenever any private tile may
+ * have changed. */
 uint64_t  pc_txn_clock(const pc_txn *t);
 
 /* The published tile the transaction started from for that slot (the
@@ -116,7 +119,8 @@ pc_status pc_txn_put_tile(pc_txn *t, uint32_t layer_id, uint32_t tile_idx,
 
 /* Put the original content back into a touched tile (no-op when
  * untouched). Never allocates and never fails. Tools that re-render a
- * whole preview on every mouse move call it before drawing again. */
+ * whole preview on every mouse move call it before drawing again. The
+ * tile's version becomes its original's serial (same content). */
 void      pc_txn_restore_tile(pc_txn *t, uint32_t layer_id, uint32_t tile_idx);
 
 /* Restore only the pixels inside r (clipped to the document). Tiles fully

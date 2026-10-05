@@ -99,8 +99,10 @@ static void t_mip_reference(void)
         ref_build(d, &o, lv);
         /* coarse levels first, so their children come from the walk */
         for (int k = (int)PC_MIP_LEVELS - 1; k >= 0; k--) {
-            uint32_t lw = pc_view_level_size(W, (uint32_t)k), lh = pc_view_level_size(H, (uint32_t)k);
-            CHECK(pc_view_cache_update(c, d, &o, (uint32_t)k, pc_rect_make(0, 0, (int32_t)lw, (int32_t)lh),
+            uint32_t lw = pc_view_level_size(W, (uint32_t)k);
+            uint32_t lh = pc_view_level_size(H, (uint32_t)k);
+            CHECK(pc_view_cache_update(c, d, &o, (uint32_t)k,
+                                       pc_rect_make(0, 0, (int32_t)lw, (int32_t)lh),
                                        (round & 2) ? &par : NULL) == PC_OK);
             if (!level_matches(c, &lv[k], (uint32_t)k, 0u, 0u, (lw - 1u) / 64u, (lh - 1u) / 64u))
                 ok = false;
@@ -158,7 +160,11 @@ static void t_mip_incremental(void)
         for (uint32_t k = 0; k <= L; k++)
             CHECK(pc_view_cache_get(c, k, tx >> k, ty >> k, &before[k]));
         pc_view_cache_stats(c, &s0);
-        if (p) for (int i = 0; i < 64; i++) { p[4 * (64 * 5 + i) + 2] = 200u; p[4 * (64 * 5 + i) + 3] = 255u; }
+        if (p)
+            for (int i = 0; i < 64; i++) {
+                p[4 * (64 * 5 + i) + 2] = 200u;
+                p[4 * (64 * 5 + i) + 3] = 255u;
+            }
         o.txn = t;                          /* live: through the open transaction */
         CHECK(pc_view_cache_update(c, d, &o, L, full, NULL) == PC_OK);
         pc_view_cache_stats(c, &s1);
@@ -168,7 +174,8 @@ static void t_mip_incremental(void)
         CHECK(n >= 1u && n <= L + 1u);
         memset(seen, 0, sizeof seen);
         for (uint32_t i = 0; i < n; i++) {
-            CHECK(ids[i].level <= L && ids[i].tx == tx >> ids[i].level && ids[i].ty == ty >> ids[i].level);
+            CHECK(ids[i].level <= L && ids[i].tx == tx >> ids[i].level
+                  && ids[i].ty == ty >> ids[i].level);
             if (ids[i].level <= L) seen[ids[i].level] = true;
         }
         CHECK(seen[0]);
@@ -210,7 +217,8 @@ static void t_mip_incremental(void)
         ref_build(d, &o, lv);
         for (uint32_t k = 0; k <= L; k++) {
             uint32_t lw = pc_view_level_size(W, k), lh = pc_view_level_size(H, k);
-            CHECK(pc_view_cache_update(c, d, &o, k, pc_rect_make(0, 0, (int32_t)lw, (int32_t)lh), NULL) == PC_OK);
+            CHECK(pc_view_cache_update(c, d, &o, k, pc_rect_make(0, 0, (int32_t)lw, (int32_t)lh),
+                                       NULL) == PC_OK);
             if (!level_matches(c, &lv[k], k, 0u, 0u, (lw - 1u) / 64u, (lh - 1u) / 64u)) ok = false;
         }
         CHECK(ok);
@@ -256,7 +264,8 @@ static void t_mip_lru(void)
     CHECK(peak <= budget + 64u * 16384u);
     for (uint32_t k = 6u; k >= 4u; k--) {
         uint32_t lw = pc_view_level_size(W, k), lh = pc_view_level_size(H, k);
-        CHECK(pc_view_cache_update(c, d, &o, k, pc_rect_make(0, 0, (int32_t)lw, (int32_t)lh), &par) == PC_OK);
+        CHECK(pc_view_cache_update(c, d, &o, k, pc_rect_make(0, 0, (int32_t)lw, (int32_t)lh),
+                                   &par) == PC_OK);
         pc_view_cache_stats(c, &s);
         CHECK(s.bytes <= budget + 64u * 16384u);
         CHECK(level_matches(c, &lv[k], k, 0u, 0u, (lw - 1u) / 64u, (lh - 1u) / 64u));
@@ -297,7 +306,8 @@ static void t_mip_threads_and_resize(void)
         for (uint32_t ty = 0; ty < pc_view_level_tiles(d->h, k); ty++)
             for (uint32_t tx = 0; tx < pc_view_level_tiles(d->w, k); tx++) {
                 pc_view_tile ta, tb;
-                if (!pc_view_cache_get(a, k, tx, ty, &ta) || !pc_view_cache_get(b, k, tx, ty, &tb)) {
+                if (!pc_view_cache_get(a, k, tx, ty, &ta) ||
+                    !pc_view_cache_get(b, k, tx, ty, &tb)) {
                     same = false;
                     continue;
                 }
@@ -321,7 +331,8 @@ static void t_mip_threads_and_resize(void)
         ref_free(lv);
     }
     CHECK(!pc_view_cache_get(b, 0u, 100u, 100u, NULL));
-    CHECK(pc_view_cache_update(b, d, NULL, PC_MIP_LEVELS, pc_rect_make(0, 0, 9, 9), NULL) == PC_ERR_ARG);
+    CHECK(pc_view_cache_update(b, d, NULL, PC_MIP_LEVELS, pc_rect_make(0, 0, 9, 9),
+                               NULL) == PC_ERR_ARG);
     {
         pc_comp_opts bad = pc_comp_opts_default();
         pc_comp_overlay ov;
@@ -362,7 +373,8 @@ static void t_mip_oom(void)
         st = pc_view_cache_update(c, d, &o, L, pc_rect_make(0, 0, (int32_t)lw, (int32_t)lh), NULL);
         pc_fault_set(-1);
         if (st != PC_OK) { CHECK(st == PC_ERR_NOMEM); fails++; }
-        CHECK(pc_view_cache_update(c, d, &o, L, pc_rect_make(0, 0, (int32_t)lw, (int32_t)lh), NULL) == PC_OK);
+        CHECK(pc_view_cache_update(c, d, &o, L, pc_rect_make(0, 0, (int32_t)lw, (int32_t)lh),
+                                   NULL) == PC_OK);
         CHECK(level_matches(c, &lv[L], L, 0u, 0u, (lw - 1u) / 64u, (lh - 1u) / 64u));
         pc_view_cache_destroy(c);
     }

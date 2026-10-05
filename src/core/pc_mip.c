@@ -255,10 +255,12 @@ static int lru_cmp(const void *a, const void *b)
     return x->idx < y->idx ? -1 : (x->idx > y->idx ? 1 : 0);
 }
 
+/* Over budget: evict least recently used unpinned tiles down to 3/4 of the
+ * budget, so streaming updates do not sort the table after every batch. */
 static void evict_to_budget(pc_view_cache *c)
 {
     lru_ref *cand;
-    size_t n = 0;
+    size_t n = 0, low = c->budget - c->budget / 4u;
     if (c->bytes <= c->budget) return;
     cand = (lru_ref *)malloc((c->count ? c->count : 1u) * sizeof *cand);
     if (!cand) return;
@@ -269,7 +271,7 @@ static void evict_to_budget(pc_view_cache *c)
             n++;
         }
     qsort(cand, n, sizeof *cand, lru_cmp);
-    for (size_t i = 0; i < n && c->bytes > c->budget; i++) evict(c, cand[i].idx);
+    for (size_t i = 0; i < n && c->bytes > low; i++) evict(c, cand[i].idx);
     free(cand);
 }
 
@@ -412,7 +414,8 @@ static uint64_t global_key(const pc_doc *d, const pc_comp_opts *o)
 }
 
 /* Signature tree of target (L, tx, ty) into c->sigs; offsets per level. */
-static bool sig_tree(pc_view_cache *c, uint32_t L, uint32_t tx, uint32_t ty, size_t off[PC_MIP_LEVELS])
+static bool sig_tree(pc_view_cache *c, uint32_t L, uint32_t tx, uint32_t ty,
+                     size_t off[PC_MIP_LEVELS])
 {
     size_t total = 0;
     uint32_t n0 = 1u << L;

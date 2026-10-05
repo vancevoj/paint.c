@@ -160,7 +160,9 @@ static txn_entry *get_entry(pc_txn *t, uint32_t layer_id, uint32_t idx)
     e->priv = e->orig;
     pc_tile_retain(e->orig);
     pc_tile_retain(e->priv);
-    e->version = 0u;
+    /* content still equals the original, so its serial is a valid version;
+     * renderers never see a version shared by different contents */
+    e->version = pc_tile_serial(e->orig);
     t->n++;
     slot_insert(t->slots, t->nslots, e, (uint32_t)t->n);
     return e;
@@ -538,7 +540,11 @@ void pc_txn_restore_tile(pc_txn *t, uint32_t layer_id, uint32_t tile_idx)
         e->priv = e->orig;
         pc_tile_retain(e->priv);
     }
-    bump(t, e);
+    /* same content as the original again: report its serial so caches that
+     * still hold the pre-edit composite see it as fresh; the clock moves so
+     * anything keyed on it re-checks */
+    e->version = pc_tile_serial(e->orig);
+    t->clock = pc_tile_next_serial();
 }
 
 pc_status pc_txn_restore_rect(pc_txn *t, uint32_t layer_id, pc_rect r)

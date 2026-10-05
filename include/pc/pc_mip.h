@@ -20,8 +20,9 @@
  * transaction clock, overlay, options) skips even the signature work when
  * nothing at all changed since a tile was last verified.
  *
- * Memory: tiles live in a hash table with LRU eviction down to the byte
- * budget after every update (and between work batches inside one, so a
+ * Memory: tiles live in a hash table; whenever the byte budget is exceeded
+ * the least recently used tiles are evicted down to 3/4 of it, after every
+ * update and between work batches inside one (so a
  * zoomed-out view of a huge image streams through a bounded working set).
  * The tiles of the requested rect are never evicted by the update that
  * produced them, so the budget can be exceeded by at most the visible set
