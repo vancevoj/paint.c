@@ -583,6 +583,26 @@ static void t_apply_banded(void)
     pc_px32 row[64];
     CHECK(pc_hist_add_layer(h, l, 0, "add") == PC_OK);
     po.mode = PC_PAINT_OVERWRITE;
+    /* a failure in a later band restores the bands already rendered */
+    {
+        pc_px32 *buf = (pc_px32 *)malloc((size_t)W * 64u * sizeof *buf);
+        bool clean = true;
+        pc_status st;
+        t = pc_txn_begin(d, "Gradient");
+        pc_fault_set(2000);                      /* about half of the 4100 tiles */
+        st = pc_gradient_apply(t, l->id, &g, &po, &par, &dirty);
+        pc_fault_set(-1);
+        CHECK(st == PC_ERR_NOMEM && buf != NULL);
+        for (uint32_t y = 0; buf && y < H && clean; y += 64u) {
+            uint32_t n = H - y < 64u ? H - y : 64u;
+            CHECK(pc_txn_read_rect(t, l->id, pc_rect_make(0, (int32_t)y, (int32_t)W, (int32_t)n),
+                                   buf, W) == PC_OK);
+            for (size_t i = 0; i < (size_t)W * n && clean; i++) clean = buf[i].a == 0u;
+        }
+        CHECK(clean);
+        pc_txn_cancel(t);
+        free(buf);
+    }
     t = pc_txn_begin(d, "Gradient");
     t0 = pc_test_now();
     CHECK(pc_gradient_apply(t, l->id, &g, &po, &par, &dirty) == PC_OK);

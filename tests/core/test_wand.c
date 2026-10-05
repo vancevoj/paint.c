@@ -840,6 +840,52 @@ static void t_oom(void)
     pc_doc_destroy(d);
 }
 
+/* Region computation under allocation failures: PC_ERR_NOMEM with nothing
+ * returned and nothing leaked, or a region equal to the fault-free one. */
+static void t_region_oom(void)
+{
+    pc_doc *d = pc_doc_create(300, 200);
+    pc_hist *h = pc_hist_create(d);
+    pc_surf s;
+    pc_layer *l;
+    pc_par par = e2_rev_par();
+    int fails = 0;
+    CHECK(pc_surf_alloc(&s, 300, 200) == PC_OK);
+    e2_blobby(&s, 3, 20);
+    l = add_layer(d, h, &s, 0);
+    for (int variant = 0; variant < 4; variant++) {
+        pc_wand_opts o = pc_wand_opts_default();
+        pc_region *ref = NULL;
+        o.flood = (variant & 1) ? PC_FLOOD_GLOBAL : PC_FLOOD_CONTIGUOUS;
+        o.sampling = (variant & 2) ? PC_SAMPLE_IMAGE : PC_SAMPLE_LAYER;
+        o.tolerance = 40.0;
+        CHECK(pc_region_compute(d, l->id, 150, 100, &o, &par, &ref) == PC_OK);
+        for (long n = 0; n < 80; n++) {
+            pc_region *r = (pc_region *)(uintptr_t)1;
+            pc_status st;
+            pc_fault_set(n);
+            st = pc_region_compute(d, l->id, 150, 100, &o, &par, &r);
+            pc_fault_set(-1);
+            CHECK(st == PC_OK || st == PC_ERR_NOMEM);
+            if (st != PC_OK) {
+                fails++;
+                CHECK(r == NULL);
+                continue;
+            }
+            CHECK(pc_region_count(r) == pc_region_count(ref));
+            for (int32_t y = 0; y < 200; y += 3)
+                for (int32_t x = 0; x < 300; x++)
+                    CHECK(pc_region_at(r, x, y) == pc_region_at(ref, x, y));
+            pc_region_free(r);
+        }
+        pc_region_free(ref);
+    }
+    CHECK(fails > 0);
+    pc_surf_free(&s);
+    pc_hist_destroy(h);
+    pc_doc_destroy(d);
+}
+
 static void t_nub(void)
 {
     CHECK(pc_wand_nub_hit(10, 20, 10.5, 20.5, 0.1));
@@ -865,6 +911,7 @@ int main(int argc, char **argv)
     RUN(t_bucket);
     RUN(t_bucket_selection);
     RUN(t_oom);
+    RUN(t_region_oom);
     RUN(t_nub);
     pc_tile_stats(&t1, &b1);
     CHECK(t0 == t1 && b0 == b1);

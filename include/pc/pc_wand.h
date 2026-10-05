@@ -2,7 +2,8 @@
  * (lane E2): tolerance metric, contiguous and global floods over layer or
  * image sampling, hard and antialiased coverage, and the bucket fill.
  *
- * Tolerance. Measured black-box on Paint.NET (see docs/core/fills.md):
+ * Tolerance. Measured black-box on Paint.NET (the 5.2 Wine build, see
+ * docs/core/fills.md; reproduced exactly on every probe image):
  *   Every channel is mapped to [-1, 1] (v = 2 c / 255 - 1, also alpha).
  *   Premultiplied mode (default) multiplies the three color components by
  *   the pixel's alpha a / 255, so every fully transparent pixel becomes
@@ -23,8 +24,8 @@
  * static tile), so even a ragged region over a whole 16K x 16K canvas
  * costs at most 32 MiB. Contiguous floods are iterative scanline floods
  * over 64-pixel words (P-07: no recursion; the explicit stack lives on the
- * heap); 4-connected by default (opts.diagonal adds the diagonal
- * neighbors). Global floods test every pixel, tile by tile, in parallel.
+ * heap); 4-connected like Paint.NET (measured; opts.diagonal adds the
+ * diagonal neighbors for other callers). Global floods test every pixel, tile by tile, in parallel.
  * The seed color is the sampled pixel under the click.
  *
  * Sampling. PC_SAMPLE_LAYER reads the published tiles of the given layer;

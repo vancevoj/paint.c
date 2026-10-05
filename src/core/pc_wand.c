@@ -49,6 +49,18 @@ static uint64_t low_mask(unsigned n) { return n >= 64u ? ALL1 : (((uint64_t)1 <<
 /* bits [lo, hi] set, 0 <= lo <= hi <= 63 */
 static uint64_t range_mask(unsigned lo, unsigned hi) { return low_mask(hi + 1u) & ~low_mask(lo); }
 
+/* Allocations honor the test fault hook (pc_fault_set), like the other
+ * guarded core allocators, so every failure path can be exercised. */
+static void *g_calloc(size_t n, size_t size)
+{
+    return pc_fault_check() ? NULL : calloc(n, size);
+}
+
+static void *g_realloc(void *p, size_t size)
+{
+    return pc_fault_check() ? NULL : realloc(p, size);
+}
+
 #define F4  ALL1, ALL1, ALL1, ALL1
 #define F16 F4, F4, F4, F4
 static const uint64_t k_full[WORDS] = { F16, F16, F16, F16 };
@@ -153,12 +165,12 @@ void pc_region_free(pc_region *r)
 
 static pc_region *region_new(const pc_doc *d)
 {
-    pc_region *r = (pc_region *)calloc(1, sizeof *r);
+    pc_region *r = (pc_region *)g_calloc(1, sizeof *r);
     size_t n;
     if (!r) return NULL;
     r->w = d->w; r->h = d->h; r->tiles_x = d->tiles_x; r->tiles_y = d->tiles_y;
     n = n_tiles(r);
-    r->tiles = (uint64_t **)calloc(n ? n : 1u, sizeof *r->tiles);
+    r->tiles = (uint64_t **)g_calloc(n ? n : 1u, sizeof *r->tiles);
     if (!r->tiles) { free(r); return NULL; }
     r->bytes = sizeof *r + n * sizeof *r->tiles;
     return r;
@@ -328,7 +340,7 @@ static pc_status run_batch(wctx *c, uint32_t n)
 {
     uint32_t ok = 0;
     for (uint32_t i = 0; i < n; i++) {
-        uint64_t *t = (uint64_t *)calloc(WORDS, sizeof *t);
+        uint64_t *t = (uint64_t *)g_calloc(WORDS, sizeof *t);
         if (!t) break;
         c->match[c->batch[i]] = t;
         ok++;
@@ -389,7 +401,7 @@ static bool push(wctx *c, int32_t x, int32_t y)
             c->err = PC_ERR_NOMEM;
             return false;
         }
-        p = (int32_t *)realloc(c->stk, bytes);
+        p = (int32_t *)g_realloc(c->stk, bytes);
         if (!p) { c->err = PC_ERR_NOMEM; return false; }
         c->stk = p;
         c->scap = cap;
@@ -410,7 +422,7 @@ static bool set_run(wctx *c, int32_t y, int32_t l, int32_t r)
         size_t i = (size_t)ty * c->d->tiles_x + tx;
         if (end > r) end = r;
         if (!c->reg->tiles[i]) {
-            c->reg->tiles[i] = (uint64_t *)calloc(WORDS, sizeof(uint64_t));
+            c->reg->tiles[i] = (uint64_t *)g_calloc(WORDS, sizeof(uint64_t));
             if (!c->reg->tiles[i]) { c->err = PC_ERR_NOMEM; return false; }
         }
         c->reg->tiles[i][row] |= range_mask((unsigned)x & 63u, (unsigned)end & 63u);
@@ -571,9 +583,9 @@ pc_status pc_region_compute(const pc_doc *d, uint32_t layer_id, int32_t sx, int3
     c.seed = reg->seed;
     nt = (size_t)d->tiles_x * d->tiles_y;
     batch_cap = opts->flood == PC_FLOOD_GLOBAL ? 1024u : 16u;
-    c.match = (uint64_t **)calloc(nt, sizeof *c.match);
-    c.done = (uint8_t *)calloc(nt, 1u);
-    c.batch = (uint32_t *)calloc(batch_cap, sizeof *c.batch);
+    c.match = (uint64_t **)g_calloc(nt, sizeof *c.match);
+    c.done = (uint8_t *)g_calloc(nt, 1u);
+    c.batch = (uint32_t *)g_calloc(batch_cap, sizeof *c.batch);
     if (!c.match || !c.done || !c.batch) st = PC_ERR_NOMEM;
     if (st == PC_OK)
         st = opts->flood == PC_FLOOD_GLOBAL ? flood_global(&c)

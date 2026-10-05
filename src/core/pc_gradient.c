@@ -503,7 +503,7 @@ static pc_status apply_alpha(pc_txn *t, uint32_t layer_id, const pc_gradient *g,
     j.opacity = opts->opacity;
     if (opts->opacity == 0u) { if (dirty) *dirty = out; return PC_OK; }
     if (!pc_mul_size((size_t)(tx1 - tx0 + 1), (size_t)(ty1 - ty0 + 1), &cap)) return PC_ERR_LIMIT;
-    j.tiles = (alpha_tile *)calloc(cap, sizeof *j.tiles);
+    j.tiles = pc_fault_check() ? NULL : (alpha_tile *)calloc(cap, sizeof *j.tiles);
     if (!j.tiles) return PC_ERR_NOMEM;
     for (int32_t ty = ty0; ty <= ty1; ty++)
         for (int32_t tx = tx0; tx <= tx1; tx++) {
