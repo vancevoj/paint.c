@@ -173,6 +173,13 @@ typedef struct ui_popup {
     int32_t  pref_w;                /* widest item this frame */
     int32_t  min_w;                 /* e.g. the combo box width */
     int32_t  kind;                  /* 0 menu, 1 combo, 2 custom */
+    /* lane KEYS: access keys and scrolling */
+    uint32_t item_mnem[UI_MAX_MENU_ITEMS];   /* last frame: access key (lower case), 0 none */
+    uint32_t cur_mnem[UI_MAX_MENU_ITEMS];
+    uint32_t item_first[UI_MAX_MENU_ITEMS];  /* last frame: first character (lower case) */
+    uint32_t cur_first[UI_MAX_MENU_ITEMS];
+    int32_t  scroll;                /* content pixels scrolled out at the top */
+    ui_rect  view;                  /* visible content when taller than the window, else empty */
 } ui_popup;
 
 /* ---- text editing -------------------------------------------------------- */
@@ -300,6 +307,17 @@ struct ui_ctx {
     ui_rect        mb_title_rects[32];
     int32_t        mb_n;
     int32_t        mb_switch;       /* -1 / +1 requested by Left/Right */
+    /* lane KEYS: menu keyboard (ui_menu_mnemonics and friends, ui.h) */
+    uint32_t       mb_mnem[32];     /* access key per title (lower case), 0 none */
+    bool           mnem_parse;      /* '&' marks access keys in menu labels */
+    bool           mnem_session;    /* keyboard menu session: access keys underlined */
+    bool           mb_focus;        /* menu bar has keyboard focus, no menu open */
+    int32_t        mb_focus_i;      /* the focused title */
+    bool           alt_armed;       /* Alt went down alone and nothing else happened yet */
+    int32_t        alt_taps;        /* lone Alt presses since the last frame (ui_event) */
+    bool           alt_tap;         /* a lone Alt press arrived for this frame */
+    char           open_req[64];    /* ui_open_request id, "" = none */
+    uint32_t       open_req_frame;
 
     char           tip[256];
     ui_vec2        tip_pos;

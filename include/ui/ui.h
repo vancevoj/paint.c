@@ -156,7 +156,19 @@ bool ui_key_take(ui_ctx *ctx, int32_t key, uint32_t mods);
 /* Same, any modifiers; *mods receives them (may be NULL). */
 bool ui_key_take_any(ui_ctx *ctx, int32_t key, uint32_t *mods);
 
-typedef struct ui_key_press { int32_t key; uint32_t mods; bool repeat; bool used; } ui_key_press;
+/* key: the SDL keycode (layout dependent, unshifted). sym (lane KEYS,
+ * K-OS-3): the character the press types with the active layout and its
+ * Shift / AltGr / Option state (an SDL keycode, i.e. a Unicode code point
+ * for printable keys), 0 when unknown (no scancode, non-printable keys);
+ * sym_mods: mods without the modifiers the layout used to produce sym. */
+typedef struct ui_key_press {
+    int32_t  key;
+    uint32_t mods;
+    bool     repeat;
+    bool     used;
+    int32_t  sym;
+    uint32_t sym_mods;
+} ui_key_press;
 /* After ui_end_frame: the frame's key presses; used marks those consumed by
  * widgets. The app runs its shortcuts on the unused ones. *n receives the
  * count; the array is valid until the next ui_begin_frame. */
@@ -512,6 +524,46 @@ bool ui_menu_check(ui_ctx *ctx, const char *label, const char *shortcut, bool *c
 bool ui_menu_radio(ui_ctx *ctx, const char *label, const char *shortcut, bool selected,
                    bool enabled);
 void ui_menu_separator(ui_ctx *ctx);
+
+/* ---- menu keyboard (lane KEYS: K-UI-MENU-ALT, K-UI-MENU-MNEMONIC, K-OS-2) ----
+ * Access keys: while ui_menu_mnemonics is on, a '&' in a menu title or item
+ * label marks the next character as its access key ("&&" shows one '&').
+ * The flag is off at the start of every frame, so labels from elsewhere
+ * (file names, plugin names) are never parsed. Access keys are underlined
+ * while Alt is held, while the menu bar has keyboard focus and in menus
+ * opened or used from the keyboard.
+ * Keys: Alt + a title's access key opens that menu (also while another
+ * menu bar menu is open); a lone Alt press (Windows and Linux) gives the
+ * menu bar keyboard focus (Left / Right move, Down / Up / Enter / Space or
+ * a title's access key open, Esc, F10, a click or another Alt press
+ * leave). In an open menu a letter or digit (Shift and Alt allowed)
+ * chooses the item with that access key, or cycles through the items that
+ * share it; without access keys the first character of the item labels is
+ * used the same way. Enabled submenus open, plain items are chosen.
+ * Unmatched characters are swallowed while a menu is open. Menus taller
+ * than the window scroll (wheel, arrow bands, keyboard navigation).
+ * Dropdown lists move to the next item starting with the typed
+ * character. */
+void ui_menu_mnemonics(ui_ctx *ctx, bool on);
+/* ui_menu_begin for a submenu row or title that may be disabled: drawn
+ * dimmed (submenus keep their arrow) and never opened. */
+bool ui_menu_begin_ex(ui_ctx *ctx, const char *label, bool enabled);
+/* True while the keyboard belongs to a menu: an open menu or dropdown list
+ * popup, or the menu bar with keyboard focus. Apps should not run their
+ * own shortcuts on unused presses then. */
+bool ui_menu_keyboard(const ui_ctx *ctx);
+/* The menu bar has keyboard focus (lone Alt) with no menu open. Unused
+ * presses in this state may open app menus outside the bar (Help). */
+bool ui_menubar_focused(const ui_ctx *ctx);
+void ui_menubar_unfocus(ui_ctx *ctx);
+/* Access keys are drawn underlined this frame. */
+bool ui_mnemonics_shown(const ui_ctx *ctx);
+/* Ask the popup (ui_popup_begin) or combo box (ui_combo) declared with
+ * this exact id string to open for keyboard navigation (first or current
+ * item highlighted) when it is next declared, within two frames. A popup
+ * opens below the widget declared just before ui_popup_begin. The id is
+ * copied (at most 63 bytes). */
+void ui_open_request(ui_ctx *ctx, const char *id);
 
 enum { UI_POPUP_BELOW = 0, UI_POPUP_RIGHT = 1, UI_POPUP_AT = 2, UI_POPUP_ABOVE = 3 };
 /* Open popup id anchored to r (or at the pointer when r is empty). Opening
