@@ -45,6 +45,14 @@ static void rsel_overlay(app *a, void *st, app_overlay *o)
     sel_marquee_overlay(a, &((rect_select_state *)st)->m, o);
 }
 
+/* lane TOOLA: the cursor shows the selection mode glyph (TOOLS.md 1) */
+static app_cursor rsel_cursor(app *a, void *st, double x, double y, uint32_t mods)
+{
+    (void)x;
+    (void)y;
+    return sel_marquee_cursor(a, &((rect_select_state *)st)->m, mods);
+}
+
 static void rsel_settings_changed(app *a, void *st)
 {
     (void)a;
@@ -59,7 +67,7 @@ const app_tool app_tool_rect_select = {
     .letter = 'S',
     .order = 1,
     .icon = UI_ICON_TOOL_RECT_SELECT,
-    .cursor = APP_CURSOR_CROSSHAIR,
+    .cursor = APP_CURSOR_SEL_REPLACE,
     .flags = 0u,
     .state_size = sizeof(rect_select_state),
     .init = rsel_init,
@@ -69,5 +77,6 @@ const app_tool app_tool_rect_select = {
     .key = rsel_key,
     .options = rsel_options,
     .overlay = rsel_overlay,
+    .cursor_at = rsel_cursor,
     .settings_changed = rsel_settings_changed,
 };

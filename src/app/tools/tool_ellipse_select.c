@@ -45,6 +45,14 @@ static void esel_overlay(app *a, void *st, app_overlay *o)
     sel_marquee_overlay(a, &((ellipse_select_state *)st)->m, o);
 }
 
+/* lane TOOLA: the cursor shows the selection mode glyph (TOOLS.md 1) */
+static app_cursor esel_cursor(app *a, void *st, double x, double y, uint32_t mods)
+{
+    (void)x;
+    (void)y;
+    return sel_marquee_cursor(a, &((ellipse_select_state *)st)->m, mods);
+}
+
 static void esel_settings_changed(app *a, void *st)
 {
     (void)a;
@@ -59,7 +67,7 @@ const app_tool app_tool_ellipse_select = {
     .letter = 'S',
     .order = 5,
     .icon = UI_ICON_TOOL_ELLIPSE_SELECT,
-    .cursor = APP_CURSOR_CROSSHAIR,
+    .cursor = APP_CURSOR_SEL_REPLACE,
     .flags = 0u,
     .state_size = sizeof(ellipse_select_state),
     .init = esel_init,
@@ -69,5 +77,6 @@ const app_tool app_tool_ellipse_select = {
     .key = esel_key,
     .options = esel_options,
     .overlay = esel_overlay,
+    .cursor_at = esel_cursor,
     .settings_changed = esel_settings_changed,
 };

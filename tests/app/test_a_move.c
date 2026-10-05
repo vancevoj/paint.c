@@ -94,10 +94,11 @@ static void t_translate(void)
     CHECK(eq(a_lpx(a, 85, 35), pat(55, 25)));
     CHECK(eq(a_lpx(a, 50, 30), pat(20, 20)));
     CHECK(eq(a_lpx(a, 10, 10), WHITE) && eq(a_lpx(a, 95, 35), WHITE));
-    /* Ctrl+Z finishes the session and undoes the last drag */
+    /* Ctrl+Z undoes the last drag; the pixels stay editable at the first
+     * drag (lane TOOLA, T-FW-HISTORY) */
     CHECK(app_cmd_exec(a, "edit.undo"));
     at_frames(a, 1);
-    CHECK(!app_tool_live(a));
+    CHECK(app_tool_live(a));
     CHECK(eq(a_lpx(a, 45, 35), pat(25, 25)));
     CHECK(a_sel_is_rect(a, pc_rect_make(0, 0, W, H), pc_rect_make(40, 30, 40, 30)));
     CHECK(app_cmd_exec(a, "edit.undo"));
@@ -294,9 +295,10 @@ static void t_esc_and_options(void)
     sel_move_pixels_quality(a, SEL_RS_NEAREST, true);
     at_frames(a, 1);
     CHECK(a_hist(a) == h + 2u);
-    /* Esc when not dragging finishes (K-UI-FINISH) */
+    /* Esc when not dragging finishes (K-UI-FINISH) with a Finish item
+     * (lane TOOLA, T-FW-HISTORY) */
     a_key(a, SDLK_ESCAPE, SDL_KMOD_NONE);
-    CHECK(!app_tool_live(a) && a_hist(a) == h + 2u);
+    CHECK(!app_tool_live(a) && a_hist(a) == h + 3u && strcmp(a_label(a), "Finish") == 0);
     app_destroy(a);
 }
 
@@ -434,12 +436,14 @@ static void t_move_selection(void)
           app_cmd_exec(a, "edit.undo"));
     at_frames(a, 1);
     CHECK(a_sel_is_rect(a, pc_rect_make(0, 0, W, H), pc_rect_make(35, 20, 30, 40)));
-    /* Finish adds nothing */
+    /* Finish adds a Finish item (lane TOOLA, T-FW-HISTORY); the drag starts
+     * off the rotation anchor in the middle of the box, so it moves */
     CHECK(app_tool_select(a, "move_selection"));
-    a_drag(a, 50, 40, 52, 40, SDL_BUTTON_LEFT, 0u);
+    a_drag(a, 40, 30, 42, 30, SDL_BUTTON_LEFT, 0u);
+    CHECK(a_sel_is_rect(a, pc_rect_make(0, 0, W, H), pc_rect_make(37, 20, 30, 40)));
     h = a_hist(a);
     a_key(a, SDLK_RETURN, SDL_KMOD_NONE);
-    CHECK(!app_tool_live(a) && a_hist(a) == h);
+    CHECK(!app_tool_live(a) && a_hist(a) == h + 1u && strcmp(a_label(a), "Finish") == 0);
     /* nothing selected: selects all, then moves */
     CHECK(app_cmd_exec(a, "edit.deselect"));
     at_frames(a, 1);

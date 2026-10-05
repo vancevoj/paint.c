@@ -445,6 +445,31 @@ void sel_float_sync(sel_float *f, const app_doc *d)
     f->sel_gen = d->doc->sel_gen;
 }
 
+void sel_float_restore(sel_float *f, const sel_box *box, const app_doc *d)
+{
+    sel_cov_map cm;
+    pc_rect dirty = pc_rect_make(0, 0, 0, 0), lifted = pc_rect_make(0, 0, 0, 0);
+    if (!f || !box || !d || f->txn_open) return;
+    f->box = *box;
+    if (sel_cov_map_init(&cm, &f->cov, &f->box.m, false, false, d->doc)) dirty = cm.dst_bounds;
+    if (!f->copy) lifted = pc_rect_intersect(f->cov.bounds, pc_doc_rect(d->doc));
+    /* sel_float_render leaves floating tiles (content may land) = 2,
+     * vacated-only tiles = 1 and every other touched tile back at the
+     * original = 0; touched only ever grows (a superset is fine) */
+    for (uint32_t ty = 0; ty < f->tiles_y; ty++)
+        for (uint32_t tx = 0; tx < f->tiles_x; tx++) {
+            size_t idx = (size_t)ty * f->tiles_x + tx;
+            pc_rect tr = pc_rect_make((int32_t)tx * TD, (int32_t)ty * TD, TD, TD);
+            bool in_d = !pc_rect_is_empty(pc_rect_intersect(tr, dirty));
+            bool in_l = !pc_rect_is_empty(pc_rect_intersect(tr, lifted));
+            f->ts[idx] = in_d ? 2u : (in_l ? 1u : 0u);
+            if (f->ts[idx])
+                f->touched = pc_rect_union(f->touched,
+                                           pc_rect_make((int32_t)tx, (int32_t)ty, 1, 1));
+        }
+    sel_float_sync(f, d);
+}
+
 pc_status sel_float_begin(app *a, sel_float *f, app_doc *d)
 {
     if (f->txn_open) return PC_OK;

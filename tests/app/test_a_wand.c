@@ -1,7 +1,8 @@
 /* test_a_wand.c - lane A: Magic Wand through the real input path
  * (TOOLS.md 5.5): contiguous and global floods, Shift for one global
  * click, tolerance, the combine modes from modifiers, live re-evaluation
- * against the selection from before the click (each one a History item),
+ * against the selection from before the click (each one a History item,
+ * Undo keeps the wand editable, Finish adds an item: lane TOOLA),
  * dragging the origin nub, layer and image sampling, tolerance alpha
  * modes, clicks outside the canvas, Finish, and undo while live. */
 #include "pc_test.h"
@@ -94,10 +95,11 @@ static void t_history(void)
     at_frames(a, 1);
     CHECK(a_hist(a) == h0 + 2u);                      /* each evaluation is an item */
     CHECK(cov_rects(a, &RA, 1));
-    /* Ctrl+Z finishes the live wand, then undoes the last evaluation */
+    /* Ctrl+Z undoes the last evaluation; the wand stays editable with the
+     * earlier tolerance back in the toolbar (lane TOOLA, T-FW-HISTORY) */
     CHECK(app_cmd_exec(a, "edit.undo"));
     at_frames(a, 1);
-    CHECK(!app_tool_live(a));
+    CHECK(app_tool_live(a) && a->ts.tolerance == 50);
     CHECK(cov_rects(a, ab, 2));
     CHECK(app_cmd_exec(a, "edit.undo"));
     at_frames(a, 1);
@@ -186,9 +188,10 @@ static void t_nub(void)
     CHECK(cov_rects(a, &RC, 1));
     CHECK(a_hist(a) == h + 1u);
     CHECK(app_tool_live(a));
-    /* Enter finishes: no further item, not live */
+    /* Enter finishes with a Finish item (lane TOOLA, T-FW-HISTORY) */
     a_key(a, SDLK_RETURN, SDL_KMOD_NONE);
-    CHECK(!app_tool_live(a) && a_hist(a) == h + 1u && cov_rects(a, &RC, 1));
+    CHECK(!app_tool_live(a) && a_hist(a) == h + 2u && cov_rects(a, &RC, 1));
+    CHECK(strcmp(a_label(a), "Finish") == 0);
     app_destroy(a);
 }
 

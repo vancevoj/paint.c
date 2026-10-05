@@ -276,16 +276,34 @@ static pc_fill_rule rule_of(const sel_marquee *m)
 }
 
 /* ---- preview ------------------------------------------------------------------------ */
+/* The selected area of the shape inside the image (status bar). */
+static double shape_area(const sel_marquee *m, const app_doc *d, bool ok, pc_rect r,
+                         const sel_ss *ss, bool have_ss)
+{
+    if (!ok) return 0.0;
+    if (m->shape == SEL_SHAPE_RECT) {
+        pc_rect c = pc_rect_intersect(r, pc_doc_rect(d->doc));
+        return pc_rect_is_empty(c) ? 0.0 : (double)c.w * (double)c.h;
+    }
+    return have_ss ? ss->area : -1.0;
+}
+
 static void preview(app *a, sel_marquee *m, app_doc *d)
 {
     double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0;
     pc_rect r;
     bool ok = build(a, m, d, &r, &x0, &y0, &x1, &y1);
     pc_status st = PC_OK;
+    sel_ss ss;
+    bool have_ss = false;
+    memset(&ss, 0, sizeof ss);
     pc_poly_clear(&m->preview);
     m->mods = ui_mods(a->ui);
     m->dirty = false;
-    if (m->n) sel_status_rect(a, d, x0, y0, x1 - x0, y1 - y0);
+    if (ok && m->shape != SEL_SHAPE_RECT)
+        have_ss = sel_ss_build(&ss, &m->poly, rule_of(m), d->doc) == PC_OK;
+    if (m->n)
+        sel_status_rect(a, d, x0, y0, x1 - x0, y1 - y0, shape_area(m, d, ok, r, &ss, have_ss));
     if (!ok) {
         /* an empty shape combines to nothing (Replace, Intersect) or to the
          * current selection (the other modes) */
@@ -311,16 +329,22 @@ static void preview(app *a, sel_marquee *m, app_doc *d)
             pc_sel_src_rect(&src, r);
             st = pc_sel_contour_preview_src(d->doc, &src, m->mode, 0.0, &m->preview);
         }
-    } else {
-        pc_sel_state ss;
+    } else if (a->ts.sel_clip_aa && have_ss) {
+        /* T-SEL-QUALITY: antialiased shapes are 4 x 4 supersampled */
         pc_sel_src src;
-        st = pc_sel_state_from_poly(d->doc, &m->poly, rule_of(m), a->ts.sel_clip_aa, &ss);
+        sel_ss_src(&src, &ss);
+        st = pc_sel_contour_preview_src(d->doc, &src, m->mode, 0.0, &m->preview);
+    } else {
+        pc_sel_state pst;
+        pc_sel_src src;
+        st = pc_sel_state_from_poly(d->doc, &m->poly, rule_of(m), a->ts.sel_clip_aa, &pst);
         if (st == PC_OK) {
-            pc_sel_src_state(&src, &ss);
+            pc_sel_src_state(&src, &pst);
             st = pc_sel_contour_preview_src(d->doc, &src, m->mode, 0.0, &m->preview);
-            pc_sel_state_free(&ss);
+            pc_sel_state_free(&pst);
         }
     }
+    sel_ss_free(&ss);
     if (st == PC_OK) (void)app_doc_ants_preview(d, &m->preview);
     else (void)app_doc_ants_preview(d, NULL);
 }
@@ -372,12 +396,26 @@ static void done(app *a, sel_marquee *m, app_doc *d, uint64_t t_ns)
         if (pc_sel_is_active(d->doc))
             report(a, d, pc_sel_deselect(d->hist, "Deselect"), "Deselect");
     } else if (what == EMIT) {
-        pc_status st;
-        if (m->shape == SEL_SHAPE_RECT)
+        pc_status st = PC_ERR_STATE;
+        sel_ss ss;
+        if (m->shape == SEL_SHAPE_RECT) {
             st = pc_sel_apply_rect(d->hist, r, m->mode, m->label);
-        else
-            st = pc_sel_apply_poly(d->hist, &m->poly, rule_of(m), a->ts.sel_clip_aa, m->mode,
-                                   m->label);
+        } else {
+            /* T-SEL-QUALITY: antialiased shapes are 4 x 4 supersampled; the
+             * analytic rasterizer covers pixelated shapes (and shapes too
+             * complex for the sample table) */
+            bool done_ss = false;
+            if (a->ts.sel_clip_aa && sel_ss_build(&ss, &m->poly, rule_of(m), d->doc) == PC_OK) {
+                pc_sel_src src;
+                sel_ss_src(&src, &ss);
+                st = pc_sel_apply_src(d->hist, &src, m->mode, m->label);
+                sel_ss_free(&ss);
+                done_ss = true;
+            }
+            if (!done_ss)
+                st = pc_sel_apply_poly(d->hist, &m->poly, rule_of(m), a->ts.sel_clip_aa, m->mode,
+                                       m->label);
+        }
         report(a, d, st, m->label);
     }
 }
@@ -470,7 +508,7 @@ void sel_marquee_pointer(app *a, sel_marquee *m, const app_pointer *ev)
 bool sel_marquee_key(app *a, sel_marquee *m, int32_t key, uint32_t mods)
 {
     double step = sel_mods_ctrl(mods) ? 10.0 : 1.0, dx = 0.0, dy = 0.0;
-    if (!m->tracking) return false;
+    if (!m->tracking) return app_tool_nudge_pointer(a, key, mods);   /* T-FW-ARROWS */
     switch (key) {
     case SDLK_LEFT: dx = -step; break;
     case SDLK_RIGHT: dx = step; break;
@@ -515,6 +553,14 @@ void sel_marquee_overlay(app *a, sel_marquee *m, app_overlay *o)
         }
     }
     sel_tint_draw(a, d, o);
+}
+
+/* ---- cursor (lane TOOLA) ------------------------------------------------------------- */
+app_cursor sel_marquee_cursor(app *a, const sel_marquee *m, uint32_t mods)
+{
+    app_cursor base = m->shape == SEL_SHAPE_LASSO ? APP_CURSOR_LASSO : APP_CURSOR_SEL_REPLACE;
+    int mode = m->tracking ? (int)m->mode : (int)sel_mode_for(a, APP_BTN_LEFT, mods);
+    return app_cursor_sel_mode(base, mode);
 }
 
 /* ---- options ------------------------------------------------------------------------ */

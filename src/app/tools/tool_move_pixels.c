@@ -13,13 +13,20 @@
  * from the options bar; every render is computed from the lifted
  * original (sel_float.c), so the live preview is the committed result.
  *
- * History (T-FW-HISTORY): every drag, nudge or option change is one item
- * "Move Selected Pixels" holding the pixels and the transformed
- * selection. Finish (button, Enter, Esc, Ctrl+D, tool switch, any
- * command) ends the floating session: the pixels are already in the layer,
- * so it adds no item, and content left outside the canvas is dropped. Esc
- * while a button is still held abandons that drag. Main thread. */
+ * History (T-FW-HISTORY, lane TOOLA): every drag, nudge or option change
+ * is one item "Move Selected Pixels" holding the pixels and the
+ * transformed selection. The floating pixels stay editable until Finish:
+ * Undo and Redo walk through the items and keep them editable with the
+ * earlier frame, resampling and gamma back in the toolbar (sel_live.h);
+ * Finish (Enter, Esc, the Finish button, a Ctrl drag that stamps a copy)
+ * adds a "Finish" item; a command or a tool switch finishes without one,
+ * so Undo returns to editing. The pixels are in the layer after every
+ * item; content left outside the canvas stays with the session until it
+ * is finished. Toggling a layer's visibility does not finish
+ * (APP_TOOL_KEEPS_LIVE, T-MOVEPX-FINISH, R 5.1). Esc while a button is
+ * still held abandons that drag. Main thread. */
 #include "sel_float.h"
+#include "sel_live.h"
 #include "app/app_float.h"
 #include "pc/pc_layerops.h"
 
@@ -27,8 +34,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* The state of one History item of the session. */
+typedef struct mp_params {
+    sel_box box;
+    int32_t rs;
+    bool    gamma;
+    bool    hard;
+} mp_params;
+
 typedef struct mp_state {
-    sel_float  *f;
+    sel_live    L;
+    sel_float  *f;               /* the session of the object (owned) */
     bool        dragging;
     int         button;
     sel_drag    drag;
@@ -69,8 +85,10 @@ static sel_quality quality(app *a, mp_state *ms)
     return q;
 }
 
-static void drop(app *a, mp_state *ms)
+/* ---- the object (sel_live) ------------------------------------------------------------ */
+static void mp_forget(app *a, void *tool)
 {
+    mp_state *ms = (mp_state *)tool;
     if (ms->f) {
         app_doc *d = sel_doc_by_id(a, sel_float_doc(ms->f));
         if (sel_float_drag_open(ms->f)) sel_float_cancel(a, ms->f, d);
@@ -82,14 +100,43 @@ static void drop(app *a, mp_state *ms)
     app_request_frame(a);
 }
 
-/* The session of the active document, or NULL (dropped when stale). */
+/* Undo or Redo reached one of the items: its frame and options. */
+static void mp_restore(app *a, void *tool, const void *params)
+{
+    mp_state *ms = (mp_state *)tool;
+    const mp_params *p = (const mp_params *)params;
+    app_doc *d = app_active_doc(a);
+    if (ms->f && d) sel_float_restore(ms->f, &p->box, d);
+    load_opts(a, ms);
+    ms->rs = p->rs;
+    ms->gamma = p->gamma;
+    ms->q_last.rs = (sel_rs)p->rs;
+    ms->q_last.gamma = p->gamma;
+    ms->q_last.hard = p->hard;
+    a->ts.sel_clip_aa = !p->hard;
+    app_settings_set_int(app_settings_of(a), "tool.move_pixels.sampling", ms->rs);
+    app_settings_set_bool(app_settings_of(a), "tool.move_pixels.gamma", ms->gamma);
+}
+
+static const sel_live_desc k_live = { sizeof(mp_params), NULL, NULL, mp_restore, mp_forget };
+
+/* The live session of the active document, or NULL (History followed). */
 static sel_float *session(app *a, mp_state *ms, app_doc **out)
 {
     app_doc *d = app_active_doc(a);
     *out = d;
     if (!ms->f) return NULL;
-    if (!d || !sel_float_valid(ms->f, d)) {
-        drop(a, ms);
+    if (ms->dragging) {
+        /* the drag holds the transaction; History cannot move under it */
+        if (d && sel_float_valid(ms->f, d)) return ms->f;
+        sel_live_forget(a, &ms->L);
+        return NULL;
+    }
+    if (!sel_live_sync(a, &ms->L) && !sel_live_pending(&ms->L, d)) return NULL;
+    if (!ms->f || !d) return NULL;
+    sel_float_sync(ms->f, d);
+    if (!sel_float_valid(ms->f, d)) {
+        sel_live_forget(a, &ms->L);
         return NULL;
     }
     return ms->f;
@@ -101,20 +148,39 @@ static void report(app *a, pc_status st)
         app_error(a, "Move Selected Pixels failed: %s.", pc_status_str(st));
 }
 
+static mp_params params_of(const mp_state *ms, const sel_quality *q)
+{
+    mp_params p;
+    memset(&p, 0, sizeof p);
+    p.box = *sel_float_box(ms->f);
+    p.rs = (int32_t)q->rs;
+    p.gamma = q->gamma;
+    p.hard = q->hard;
+    return p;
+}
+
+/* Render, commit as one History item and record it as a state. */
 static pc_status commit(app *a, mp_state *ms, app_doc *d, const char *label)
 {
     sel_quality q = quality(a, ms);
+    uint64_t before = d->hist->cur->seq;
     pc_status st = sel_float_commit(a, ms->f, d, &q, label, NULL);
     ms->q_last = q;
+    if (st == PC_OK) {
+        mp_params p = params_of(ms, &q);
+        if (!sel_live_record_edit(a, &ms->L, d, before, label, &p)) st = PC_ERR_NOMEM;
+        else if (ms->f) sel_float_sync(ms->f, d);
+    }
     return st;
 }
 
-/* Lift for a new drag or nudge. */
+/* Lift for a new drag or nudge (a new object unless the session is live). */
 static sel_float *ensure(app *a, mp_state *ms, app_doc *d, bool copy)
 {
     pc_status st;
-    if (ms->f) return ms->f;
+    if (ms->f && (ms->L.live || sel_live_pending(&ms->L, d))) return ms->f;
     if (d->txn || !app_doc_layer(d)) return NULL;
+    sel_live_forget(a, &ms->L);
     if (!pc_sel_is_active(d->doc)) {
         /* T-MOVEPX-NOSEL: no selection moves the whole layer (3.36 records a
          * Select All first) */
@@ -125,8 +191,13 @@ static sel_float *ensure(app *a, mp_state *ms, app_doc *d, bool copy)
         }
         app_doc_history_changed(a, d);
     }
+    sel_live_start(a, &ms->L, d);
     ms->f = sel_float_lift(a, d, copy, &st);
-    if (!ms->f) report(a, st);
+    if (!ms->f) {
+        report(a, st);
+        sel_live_forget(a, &ms->L);
+        return NULL;
+    }
     ms->q_last = quality(a, ms);
     return ms->f;
 }
@@ -183,9 +254,9 @@ static void mp_pointer(app *a, void *st, const app_pointer *ev)
         if (ms->dragging || (ev->button != APP_BTN_LEFT && ev->button != APP_BTN_RIGHT)) break;
         if (d->txn) break;
         if (f && copy) {
-            /* Ctrl on a later drag: the pixels stay where they are and a
-             * copy of them moves on */
-            drop(a, ms);
+            /* Ctrl on a later drag: the pixels stay where they are (a new
+             * object finishes the old one) and a copy of them moves on */
+            if (!sel_live_finish(a, &ms->L, true)) sel_live_forget(a, &ms->L);   /* pending */
             f = NULL;
         }
         f = ensure(a, ms, d, copy);
@@ -246,6 +317,12 @@ static bool mp_key(app *a, void *st, int32_t key, uint32_t mods, bool down)
             return true;
         }
         return key == SDLK_LEFT || key == SDLK_RIGHT || key == SDLK_UP || key == SDLK_DOWN;
+    }
+    /* K-UI-FINISH: Enter and Esc are the user's Finish (a History item) */
+    if ((key == SDLK_RETURN || key == SDLK_KP_ENTER || key == SDLK_ESCAPE) &&
+        (mods & (UI_MOD_CTRL | UI_MOD_ALT | UI_MOD_GUI)) == 0u && f) {
+        if (!sel_live_finish(a, &ms->L, true)) sel_live_forget(a, &ms->L);   /* pending */
+        return true;
     }
     if (a->cv.space_down) return false;            /* Space + arrows pan */
     switch (key) {
@@ -348,22 +425,48 @@ static bool mp_live(app *a, void *st)
     return session(a, ms, &d) != NULL || ms->dragging;
 }
 
+/* The framework's finish: explicit (Finish button, Esc) adds "Finish",
+ * implicit (commands, tool or image switches) leaves the session dormant
+ * so Undo returns to editing it. */
 static bool mp_commit(app *a, void *st)
 {
     mp_state *ms = (mp_state *)st;
     app_doc *d = ms->f ? sel_doc_by_id(a, sel_float_doc(ms->f)) : app_active_doc(a);
-    bool was = ms->f != NULL;
+    bool was = ms->L.live || ms->dragging;
     if (ms->dragging) finish_drag(a, ms, d);
-    drop(a, ms);
+    if (!sel_live_finish(a, &ms->L, app_tool_finishing(a) == APP_FINISH_EXPLICIT) && ms->f &&
+        ms->L.nrec == 0) {
+        was = true;
+        sel_live_forget(a, &ms->L);          /* a pending lift that changed nothing */
+    }
+    app_request_frame(a);
     return was;
 }
 
-static void mp_deactivate(app *a, void *st) { (void)mp_commit(a, st); }
+static void mp_deactivate(app *a, void *st)
+{
+    mp_state *ms = (mp_state *)st;
+    (void)mp_commit(a, st);
+    sel_live_forget(a, &ms->L);
+}
+
+static void doc_closing(app *a, app_doc *d, void *ud)
+{
+    mp_state *ms = (mp_state *)ud;
+    sel_live_doc_closing(a, &ms->L, d);
+}
+
+static void mp_init(app *a, void *st)
+{
+    mp_state *ms = (mp_state *)st;
+    sel_live_init(&ms->L, &k_live, ms);
+    (void)app_hook_add(a, APP_HOOK_DOC_CLOSING, doc_closing, ms);
+}
 
 static void mp_fini(app *a, void *st)
 {
     mp_state *ms = (mp_state *)st;
-    (void)a;
+    sel_live_forget(a, &ms->L);
     sel_float_free(ms->f);
     ms->f = NULL;
 }
@@ -411,11 +514,11 @@ static void mp_options(app *a, void *st)
     v = ms->rs;
     g = ms->gamma ? 0 : 1;
     app_opt_label(a, "Sampling:");
-    (void)app_opt_next(a, 150.0f);
+    (void)app_opt_next(a, 176.0f);                /* "Multisample Bilinear" fits */
     if (ui_combo(ui, "##movepx_rs", &v, modes, (int)SEL_RS_COUNT) && v != ms->rs)
         sel_move_pixels_quality(a, (sel_rs)v, ms->gamma);
     ui_tooltip(ui, "Resampling used when the pixels are rotated or resized");
-    (void)app_opt_next(a, 128.0f);
+    (void)app_opt_next(a, 150.0f);                /* "Gamma Corrected" fits */
     if (ui_combo(ui, "##movepx_gamma", &g, gammas, 2) && (g == 0) != ms->gamma)
         sel_move_pixels_quality(a, (sel_rs)ms->rs, g == 0);
     ui_tooltip(ui, "Gamma Corrected filters in linear light so brightness is kept; "
@@ -433,8 +536,9 @@ const app_tool app_tool_move_pixels = {
     .order = 2,
     .icon = UI_ICON_TOOL_MOVE_PIXELS,
     .cursor = APP_CURSOR_MOVE,
-    .flags = APP_TOOL_PAINTS,
+    .flags = APP_TOOL_PAINTS | APP_TOOL_KEEPS_LIVE,
     .state_size = sizeof(mp_state),
+    .init = mp_init,
     .fini = mp_fini,
     .deactivate = mp_deactivate,
     .pointer = mp_pointer,
@@ -474,7 +578,7 @@ pc_status app_float_paste(app *a, app_doc *d, const pc_surf *src, int32_t x, int
         return PC_ERR_STATE;
     ms = tool_state(a);
     if (!ms || app_active_doc(a) != d) return PC_ERR_STATE;
-    drop(a, ms);
+    sel_live_forget(a, &ms->L);
     if (d->txn || !app_doc_layer(d)) return PC_ERR_STATE;
     sel_hist_group_begin(d->hist, &g);
     if (new_layer) {
@@ -491,8 +595,12 @@ pc_status app_float_paste(app *a, app_doc *d, const pc_surf *src, int32_t x, int
     (void)sel_hist_group_end(d->hist, &g, label);
     app_doc_history_changed(a, d);
     if (f && st == PC_OK) {
+        mp_params p;
         sel_float_sync(f, d);
+        sel_live_start(a, &ms->L, d);
         ms->f = f;
+        p = params_of(ms, &q);
+        if (!sel_live_record(a, &ms->L, d, &p)) st = PC_ERR_NOMEM;
     } else {
         sel_float_free(f);
     }
@@ -519,6 +627,8 @@ bool app_float_active(app *a, const app_doc *d)
 {
     mp_state *ms = a ? tool_state(a) : NULL;
     const app_tool *t = a ? app_tool_current(a) : NULL;
+    app_doc *ad;
     if (!ms || !ms->f || !t || strcmp(t->id, "move_pixels") != 0) return false;
-    return sel_float_valid(ms->f, d);
+    if (session(a, ms, &ad) == NULL || ad != d) return false;
+    return true;
 }

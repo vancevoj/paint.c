@@ -8,7 +8,8 @@
  *  - while dragging, the outline previews the combined result (marching
  *    ants through app_doc_ants_preview) and the status bar shows offset and
  *    size; pressing the other button moves the whole shape while it is held
- *    (T-SEL-BOTH); arrow keys nudge it 1 px, Ctrl + arrows 10 px; Shift
+ *    (T-SEL-BOTH); arrow keys nudge it 1 px, Ctrl + arrows 10 px (and
+ *    the pointer while no drag is held, T-FW-ARROWS); Shift
  *    makes squares and circles; Esc abandons the drag;
  *  - releasing applies it as one History item named after the tool. A
  *    click without a drag (or a very quick tiny drag) in Replace mode
@@ -75,6 +76,10 @@ void sel_marquee_overlay(app *a, sel_marquee *m, app_overlay *o);
 void sel_marquee_abort(app *a, sel_marquee *m);
 /* Options bar (mode, rectangle draw mode for SEL_SHAPE_RECT, quality). */
 void sel_marquee_options(app *a, sel_marquee *m);
+/* lane TOOLA: the cursor with the selection mode glyph (TOOLS.md 1): the
+ * mode of the drag in progress, else the one a left press with mods would
+ * use (the toolbar mode, Ctrl adds, Alt subtracts). */
+app_cursor sel_marquee_cursor(app *a, const sel_marquee *m, uint32_t mods);
 
 /* The shape the current drag would apply, for tests: false when empty.
  * *r receives the pixel rectangle for SEL_SHAPE_RECT. */

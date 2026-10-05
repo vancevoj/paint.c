@@ -27,6 +27,8 @@
  *
  * Each drag, nudge or option change is one History item: the pixel
  * transaction and the new selection folded together (sel_hist_group).
+ * The tool keeps the session across Undo and Redo of its own items
+ * (sel_live.h, sel_float_restore).
  *
  * Thread rules: main thread; renders fan out tile jobs on the app's
  * pc_par (workers read retained tiles and write disjoint private tiles of
@@ -124,6 +126,12 @@ pc_status  sel_float_commit(app *a, sel_float *f, app_doc *d, const sel_quality 
 /* Take the current history position and selection as the session's own
  * (after an outer group ended). */
 void       sel_float_sync(sel_float *f, const app_doc *d);
+/* lane TOOLA: Undo or Redo returned the document to the render of box (an
+ * earlier History item of this session): take box as the current
+ * transform and rebuild the tile states it implies (after a render every
+ * tile is floating, vacated or original as a function of the box alone),
+ * then sel_float_sync. No transaction may be open. */
+void       sel_float_restore(sel_float *f, const sel_box *box, const app_doc *d);
 /* Drop the open transaction and restore the box of sel_float_begin. */
 void       sel_float_cancel(app *a, sel_float *f, app_doc *d);
 /* Marching ants = the lifted outline under the current box transform. */
