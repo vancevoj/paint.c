@@ -1,5 +1,6 @@
 /* pc_doc.c - documents and layers. */
 #include "pc/pc_doc.h"
+#include "pc/pc_sel.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -19,12 +20,16 @@ pc_doc *pc_doc_create(uint32_t w, uint32_t h)
     d->tiles_x = (w + PC_TILE_DIM - 1u) >> PC_TILE_SHIFT;
     d->tiles_y = (h + PC_TILE_DIM - 1u) >> PC_TILE_SHIFT;
     d->next_layer_id = 1u;
+    /* Selection (lane L1a): sel_grid stays NULL and sel_active false until
+     * the apply phase of the first selection edit allocates the grid
+     * (pc_sel.c); deselect hands the grid to history and leaves NULL. */
     return d;
 }
 
 void pc_doc_destroy(pc_doc *d)
 {
     if (!d) return;
+    pc_sel_doc_destroyed(d);      /* drop cached selection data keyed by d */
     for (uint32_t i = 0; i < d->n_layers; i++) pc_layer_destroy(d->stack[i]);
     if (d->sel_grid) {
         size_t n = (size_t)d->tiles_x * d->tiles_y;
@@ -213,11 +218,53 @@ uint64_t pc_doc_fingerprint(const pc_doc *d)
             }
         }
     }
+    /* Selection (lane L1a). Only hashed when something is selected or the
+     * grid holds tiles, so documents without a selection keep the
+     * fingerprint they always had. Coverage of in-bounds pixels only. */
+    if (d->sel_grid || d->sel_active) {
+        bool any = d->sel_active;
+        size_t n = (size_t)d->tiles_x * d->tiles_y;
+        for (size_t i = 0; i < n && !any && d->sel_grid; i++) any = d->sel_grid[i] != NULL;
+        if (any) {
+            static const uint8_t zero_a8[PC_TILE_DIM];
+            uint8_t act = d->sel_active ? 1u : 0u;
+            h = fnv(h, "selection", 9u);
+            h = fnv(h, &act, 1u);
+            for (uint32_t ty = 0; ty < d->tiles_y; ty++) {
+                for (uint32_t tx = 0; tx < d->tiles_x; tx++) {
+                    const pc_tile *t = d->sel_grid ? d->sel_grid[(size_t)ty * d->tiles_x + tx]
+                                                   : NULL;
+                    uint32_t x0 = tx * PC_TILE_DIM, y0 = ty * PC_TILE_DIM;
+                    uint32_t cw = d->w - x0 < PC_TILE_DIM ? d->w - x0 : PC_TILE_DIM;
+                    uint32_t ch = d->h - y0 < PC_TILE_DIM ? d->h - y0 : PC_TILE_DIM;
+                    for (uint32_t r = 0; r < ch; r++) {
+                        const uint8_t *row = t ? t->data + (size_t)r * PC_TILE_DIM : zero_a8;
+                        h = fnv(h, row, cw);
+                    }
+                }
+            }
+        }
+    }
     return h;
 }
 
 bool pc_doc_edge_padding_is_zero(const pc_doc *d)
 {
+    if (d->sel_grid) {          /* A8 selection tiles (lane L1a) */
+        for (uint32_t ty = 0; ty < d->tiles_y; ty++) {
+            for (uint32_t tx = 0; tx < d->tiles_x; tx++) {
+                const pc_tile *t = d->sel_grid[(size_t)ty * d->tiles_x + tx];
+                uint32_t x0 = tx * PC_TILE_DIM, y0 = ty * PC_TILE_DIM;
+                if (!t) continue;
+                if (t->bpp != 1u) return false;
+                for (uint32_t r = 0; r < PC_TILE_DIM; r++)
+                    for (uint32_t c = 0; c < PC_TILE_DIM; c++)
+                        if (((x0 + c) >= d->w || (y0 + r) >= d->h) &&
+                            t->data[(size_t)r * PC_TILE_DIM + c])
+                            return false;
+            }
+        }
+    }
     for (uint32_t i = 0; i < d->n_layers; i++) {
         const pc_layer *l = d->stack[i];
         for (uint32_t ty = 0; ty < l->tiles_y; ty++) {
