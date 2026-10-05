@@ -390,7 +390,7 @@ pc_status pc_raster_fill(pc_raster *r, const pc_mask *dst, pc_fill_rule rule, bo
     pc_status st;
     if (!dst || !dst->px || dst->w <= 0 || dst->h <= 0 || dst->stride < dst->w) return PC_ERR_ARG;
     if (!r->sorted) {
-        qsort(r->e, r->n, sizeof *r->e, cmp_edge);
+        if (r->n > 1u) qsort(r->e, r->n, sizeof *r->e, cmp_edge);
         r->sorted = true;
     }
     st = scratch(r, (size_t)dst->w);
