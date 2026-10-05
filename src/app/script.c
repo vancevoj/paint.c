@@ -283,8 +283,14 @@ static int run_line(app *a, char **tok, int n, int ln, char *err, size_t cap)
         app_event(a, &e);
         settle(a, 2);
     } else if (strcmp(c, "set") == 0 && n >= 3) {
-        /* lane C: tool options kept in the settings store */
-        if (!app_settings_set(a->settings, tok[1], tok[2])) return fail(err, cap, ln, "set");
+        /* lane C: tool options kept in the settings store (values may
+         * contain spaces: font names) */
+        buf[0] = '\0';
+        for (int i = 2; i < n; i++) {
+            if (i > 2) strncat(buf, " ", sizeof buf - strlen(buf) - 1u);
+            strncat(buf, tok[i], sizeof buf - strlen(buf) - 1u);
+        }
+        if (!app_settings_set(a->settings, tok[1], buf)) return fail(err, cap, ln, "set");
         app_tool_settings_changed(a);
         settle(a, 1);
     } else if (strcmp(c, "sleep") == 0 && n >= 2) {

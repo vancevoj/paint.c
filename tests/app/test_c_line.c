@@ -336,6 +336,44 @@ static void t_history_exact(void)
     app_destroy(a);
 }
 
+static void t_end_nub_snap_and_fill(void)
+{
+    app *a = line_app(240, 200);
+    const vec_obj *o;
+    CHECK(a != NULL);
+    if (!a) return;
+    at_drag(a, 40.5, 100.5, 160.5, 100.5, 6, SDL_BUTTON_LEFT);
+    /* Shift while dragging the end nub snaps it around the start nub */
+    modkey(a, SDLK_LSHIFT, SDL_KMOD_LSHIFT, true);
+    at_drag(a, 160.5, 100.5, 150.0, 30.0, 6, SDL_BUTTON_LEFT);
+    modkey(a, SDLK_LSHIFT, SDL_KMOD_LSHIFT, false);
+    o = vec_live_obj(lv_of(a));
+    CHECK(o != NULL);
+    if (o) {
+        double ang = atan2(-(o->line.nub[3].y - o->line.nub[0].y),
+                           o->line.nub[3].x - o->line.nub[0].x) * 180.0 / 3.14159265358979;
+        CHECK(fabs(ang / 15.0 - floor(ang / 15.0 + 0.5)) < 1e-6);
+    }
+    key(a, SDLK_RETURN, SDL_KMOD_NONE);
+    /* a fill pattern paints the line with both colors */
+    app_set_primary(a, app_px_make(255, 0, 0, 255));
+    app_set_secondary(a, app_px_make(0, 0, 255, 255));
+    a->ts.fill = PC_FILL_SMALL_CHECKER_BOARD;
+    a->ts.width = 12.0f;
+    app_tool_settings_changed(a);
+    at_drag(a, 20.0, 170.0, 220.0, 170.0, 6, SDL_BUTTON_LEFT);
+    {
+        int red = 0, blue = 0;
+        for (int x = 40; x < 200; x++) {
+            pc_px32 p = at_doc_px(a, x, 170);
+            red += px_eq(p, 255, 0, 0, 255);
+            blue += px_eq(p, 0, 0, 255, 255);
+        }
+        CHECK(red > 40 && blue > 40);
+    }
+    app_destroy(a);
+}
+
 int main(int argc, char **argv)
 {
     pc_test_init(argc, argv);
@@ -349,6 +387,7 @@ int main(int argc, char **argv)
     RUN(t_caps_dashes);
     RUN(t_move_rotate);
     RUN(t_history_exact);
+    RUN(t_end_nub_snap_and_fill);
     at_quit();
     return pc_test_finish();
 }

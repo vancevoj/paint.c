@@ -565,6 +565,71 @@ static void t_offcanvas_and_close(void)
     app_destroy(a);
 }
 
+static void t_pivot_corridor_flip(void)
+{
+    app *a = shapes_app(300, 240, PC_SHAPE_RECTANGLE, PC_SHAPE_DRAW_FILLED);
+    const vec_obj *o;
+    CHECK(a != NULL);
+    if (!a) return;
+    at_drag(a, 100.2, 100.2, 160.2, 140.2, 4, SDL_BUTTON_LEFT);   /* center (130, 120) */
+    /* drag the rotation point to the top-left corner, then rotate about it */
+    at_drag(a, 130.0, 120.0, 100.0, 100.0, 4, SDL_BUTTON_LEFT);
+    o = vec_live_obj(shapes_live(a));
+    CHECK(o && o->shape.pivot_custom && fabs(pc_shape_pivot(&o->shape).x - 100.0) < 1.0);
+    CHECK(strcmp(cur_label(a), "Edit Rectangle") == 0);
+    /* right drag from east of the pivot to south of it: 90 degrees clockwise */
+    at_drag(a, 180.0, 100.0, 100.0, 180.0, 8, SDL_BUTTON_RIGHT);
+    /* the box (100..160, 100..140) turned about (100, 100): x 60..100, y 100..160 */
+    CHECK(black(at_doc_px(a, 80, 150)));
+    CHECK(white(at_doc_px(a, 140, 120)));
+    key(a, SDLK_Z, SDL_KMOD_CTRL);
+    key(a, SDLK_Z, SDL_KMOD_CTRL);
+    CHECK(black(at_doc_px(a, 140, 120)));
+    /* a left drag in the corridor just outside rotates about the center */
+    at_drag(a, 168.0, 120.0, 130.0, 160.0, 8, SDL_BUTTON_LEFT);
+    o = vec_live_obj(shapes_live(a));
+    CHECK(o && fabs(fabs(pc_shape_angle(&o->shape)) - 3.14159265358979 / 2.0) < 0.05);
+    key(a, SDLK_Z, SDL_KMOD_CTRL);
+    /* dragging the right edge nub across the left one flips the box */
+    at_drag(a, 160.0, 120.0, 60.0, 120.0, 6, SDL_BUTTON_LEFT);
+    o = vec_live_obj(shapes_live(a));
+    CHECK(o && o->shape.box.x1 < o->shape.box.x0);
+    CHECK(black(at_doc_px(a, 80, 120)));
+    CHECK(white(at_doc_px(a, 130, 120)));
+    app_destroy(a);
+}
+
+/* History window jumps while a shape is live: the shape is finished first,
+ * then the jump restores pixels and the editable state of that step. */
+static void t_history_jump(void)
+{
+    app *a = shapes_app(200, 150, PC_SHAPE_ELLIPSE, PC_SHAPE_DRAW_FILLED);
+    app_doc *d;
+    pc_hist_node *nodes[16];
+    size_t n, cur = 0;
+    uint64_t f_draw;
+    CHECK(a != NULL);
+    if (!a) return;
+    d = app_active_doc(a);
+    at_drag(a, 20.2, 20.2, 80.2, 80.2, 4, SDL_BUTTON_LEFT);
+    f_draw = fp(a);
+    key(a, SDLK_RIGHT, SDL_KMOD_CTRL);
+    key(a, SDLK_RIGHT, SDL_KMOD_CTRL);
+    n = app_doc_history_list(d, nodes, 16, &cur);
+    CHECK(n == 4u && cur == 3u);
+    /* what the History window does on a click */
+    CHECK(app_tool_finish(a));
+    CHECK(app_doc_history_jump(a, d, nodes[1]) == PC_OK);
+    at_frames(a, 2);
+    CHECK(fp(a) == f_draw);
+    CHECK(app_tool_live(a));                         /* editable again at that step */
+    /* a new edit there drops the undone steps */
+    key(a, SDLK_DOWN, SDL_KMOD_NONE);
+    n = app_doc_history_list(d, NULL, 0, &cur);
+    CHECK(n == 3u && cur == 2u);
+    app_destroy(a);
+}
+
 int main(int argc, char **argv)
 {
     pc_test_init(argc, argv);
@@ -584,6 +649,8 @@ int main(int argc, char **argv)
     RUN(t_paint_options);
     RUN(t_patterns_dash_corner);
     RUN(t_offcanvas_and_close);
+    RUN(t_pivot_corridor_flip);
+    RUN(t_history_jump);
     at_quit();
     return pc_test_finish();
 }

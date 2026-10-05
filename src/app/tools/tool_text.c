@@ -517,7 +517,7 @@ static double size_step(double v, int dir)
 static bool opt_toggle(app *a, const char *id, ui_icon icon, bool *v, const char *tip)
 {
     ui_ctx *ui = app_ui(a);
-    (void)app_opt_next(a, 30.0f);
+    (void)app_opt_next(a, 28.0f);
     if (ui_tool_button(ui, id, icon, *v, tip)) {
         *v = !*v;
         return true;
@@ -566,7 +566,7 @@ static bool font_picker(app *a, text_state *s, text_fonts *tf)
 {
     ui_ctx *ui = app_ui(a);
     const ui_palette *p = ui_pal(ui);
-    ui_rect r = app_opt_next(a, 170.0f);
+    ui_rect r = app_opt_next(a, 144.0f);
     ui_interaction in = ui_interact(ui, ui_get_id(ui, "##text_font"), r,
                                     UI_INTERACT_KEEP_FOCUS | UI_INTERACT_PRESS);
     bool changed = false, open = ui_popup_is_open(ui, "##text_font_pop");
@@ -653,20 +653,19 @@ static void text_options(app *a, void *st)
     text_fonts *tf = text_fonts_get(a);
     bool ch = false;
     validate(a, s);
-    /* Font */
-    app_opt_label(a, "Font:");
+    /* Font (the button shows the family; no label, like the 5.x toolbar) */
     if (tf && font_picker(a, s, tf)) ch = true;
     /* Size, presets, - and + (R 5.1.8) */
     {
         double v = s->size;
-        (void)app_opt_next(a, 64.0f);
+        (void)app_opt_next(a, 58.0f);
         if (ui_number_double(ui, "##text_size", &v, TEXT_SIZE_MIN, TEXT_SIZE_MAX, 1.0, 1, 0) &&
             v != s->size) {
             s->size = v;
             ch = true;
         }
         ui_tooltip(ui, "Font size");
-        (void)app_opt_next(a, 22.0f);
+        (void)app_opt_next(a, 20.0f);
         if (ui_icon_button(ui, "##text_size_presets", UI_ICON_CHEVRON_DOWN, "Font sizes"))
             ui_popup_open(ui, "##text_size_pop", ui_last_rect(ui), UI_POPUP_BELOW);
         if (ui_popup_begin(ui, "##text_size_pop")) {
@@ -680,12 +679,12 @@ static void text_options(app *a, void *st)
             }
             ui_popup_end(ui);
         }
-        (void)app_opt_next(a, 26.0f);
+        (void)app_opt_next(a, 24.0f);
         if (ui_icon_button(ui, "##text_size_dec", UI_ICON_MINUS, "Smaller font size")) {
             s->size = size_step(s->size, -1);
             ch = true;
         }
-        (void)app_opt_next(a, 26.0f);
+        (void)app_opt_next(a, 24.0f);
         if (ui_icon_button(ui, "##text_size_inc", UI_ICON_PLUS, "Larger font size")) {
             s->size = size_step(s->size, 1);
             ch = true;
@@ -694,7 +693,7 @@ static void text_options(app *a, void *st)
     {
         static const char *const units[] = { "Points (image DPI)", "Fixed (96 DPI)" };
         int v = s->unit;
-        (void)app_opt_next(a, 140.0f);
+        (void)app_opt_next(a, 106.0f);
         if (ui_combo(ui, "##text_unit", &v, units, 2) && v != s->unit) {
             s->unit = v;
             ch = true;
@@ -715,7 +714,7 @@ static void text_options(app *a, void *st)
         for (int32_t i = 0; i < 3; i++) {
             char id[24];
             (void)snprintf(id, sizeof id, "##text_align%d", (int)i);
-            (void)app_opt_next(a, 30.0f);
+            (void)app_opt_next(a, 28.0f);
             if (ui_tool_button(ui, id, icons[i], s->align == i, tips[i]) && s->align != i) {
                 s->align = i;
                 ch = true;
@@ -725,7 +724,7 @@ static void text_options(app *a, void *st)
     {
         static const char *const modes[] = { "Smooth", "Sharp (Modern)", "Sharp (Classic)" };
         int v = s->mode;
-        (void)app_opt_next(a, 128.0f);
+        (void)app_opt_next(a, 106.0f);
         if (ui_combo(ui, "##text_mode", &v, modes, 3) && v != s->mode) {
             s->mode = v;
             ch = true;
