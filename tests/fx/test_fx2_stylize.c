@@ -216,6 +216,6 @@ int main(int argc, char **argv)
     RUN(t_emboss);
     RUN(t_relief);
     RUN(t_outline);
-    CHECK(g_t_live == 0);
+    CHECK(t_live() == 0);
     return pc_test_finish();
 }

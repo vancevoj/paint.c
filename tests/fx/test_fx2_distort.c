@@ -449,6 +449,6 @@ int main(int argc, char **argv)
     RUN(t_pixelate);
     RUN(t_crystalize);
     RUN(t_morphology);
-    CHECK(g_t_live == 0);
+    CHECK(t_live() == 0);
     return pc_test_finish();
 }

@@ -15,24 +15,28 @@
 #include "fx/fx_abi.h"
 #include "fx/fx_builtin.h"
 #include "fx/fx_util.h"
+#include "pc/pc_base.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 /* ---- host ------------------------------------------------------------------ */
-static long g_t_live = 0;                 /* outstanding host allocations */
+static pc_atomic_u32 g_t_live_count;      /* outstanding host allocations */
+
+/* Outstanding host allocations (any thread may allocate through the host). */
+static inline long t_live(void) { return (long)(int32_t)pc_atomic_load(&g_t_live_count); }
 
 typedef struct t_job { long polls; long cancel_after; } t_job;  /* < 0: never */
 
 static inline void *t_alloc(size_t n)
 {
     void *p = malloc(n);
-    if (p) g_t_live++;
+    if (p) (void)pc_atomic_inc(&g_t_live_count);
     return p;
 }
 static inline void t_free(void *p)
 {
-    if (p) g_t_live--;
+    if (p) (void)pc_atomic_dec(&g_t_live_count);
     free(p);
 }
 static inline int t_cancelled(const void *job)
@@ -245,7 +249,7 @@ static inline int t_run(const fx_effect *fx, const void *params, const fx_img *s
                         fx_img *dst, const fx_env *env, const fx_rect *rois, int n, t_job *job)
 {
     void *state = NULL;
-    long live0 = g_t_live;
+    long live0 = t_live();
     int rc = FX_OK, i;
     if (fx->prepare) rc = fx->prepare(params, src, env, &g_t_host, job, &state);
     if (rc == FX_OK) {
@@ -253,7 +257,7 @@ static inline int t_run(const fx_effect *fx, const void *params, const fx_img *s
             rc = fx->render(params, state, src, dst, rois[i], env, &g_t_host, job);
     }
     if (fx->release && (rc == FX_OK || state != NULL)) fx->release(state, &g_t_host);
-    CHECK(g_t_live == live0);
+    CHECK(t_live() == live0);
     return rc;
 }
 

@@ -113,6 +113,6 @@ int main(int argc, char **argv)
 {
     pc_test_init(argc, argv);
     RUN(t_quantize);
-    CHECK(g_t_live == 0);
+    CHECK(t_live() == 0);
     return pc_test_finish();
 }

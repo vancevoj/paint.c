@@ -174,6 +174,6 @@ int main(int argc, char **argv)
     RUN(t_drop_shadow);
     RUN(t_outline_object);
     RUN(t_feather_object);
-    CHECK(g_t_live == 0);
+    CHECK(t_live() == 0);
     return pc_test_finish();
 }

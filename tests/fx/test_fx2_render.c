@@ -5,6 +5,8 @@
 #include "fx2_util.h"
 #include "pc/pc_blend.h"
 
+#include <math.h>
+
 #define DW 47
 #define DH 38
 
@@ -207,6 +209,81 @@ static void t_mandelbrot(void)
     ctx_free(&c);
 }
 
+/* Paint.NET 3.36 Mandelbrot without any shortcut (reference for the interior
+ * and cycle-detection fast paths), same expressions as the effect. */
+static double ref_mandel(double r, double i, int32_t factor)
+{
+    int32_t c = 0;
+    double x = 0.0, y = 0.0;
+    while (c * factor < 1024 && x * x + y * y < 100000.0) {
+        double t = x;
+        x = x * x - y * y + r;
+        y = 2.0 * t * y + i;
+        c++;
+    }
+    return (double)c - log(y * y + x * x) * (1.0 / 11.512925464970229);
+}
+
+static uint8_t ref_trunc(double v)
+{
+    if (!(v > 0.0)) return 0;
+    if (v >= 255.0) return 255;
+    return (uint8_t)(int)v;
+}
+
+static void t_mandelbrot_reference(void)
+{
+    const fx_effect *fx = t_find("org.paintc.render.mandelbrot_fractal");
+    const int32_t factors[3] = {1, 3, 10};
+    const double zooms[3] = {10.0, 0.0, 2.5};
+    ctx c;
+    void *p;
+    int k;
+    long bad = 0, inside = 0;
+    CHECK(fx != NULL);
+    if (!fx) return;
+    ctx_init(&c, t_rect(0, 0, 40, 30));
+    p = t_params(fx, &c.env);
+    for (k = 0; k < 3; k++) {
+        int32_t quality = 1 + k, factor = factors[k], count = quality * quality + 1, x, y, i;
+        double zoom = 1.0 + 20.0 * zooms[k], inv_zoom = 1.0 / zoom, inv_h = 1.0 / 30.0;
+        double inv_q = 1.0 / (double)quality, inv_count = 1.0 / (double)count;
+        double theta0 = (k == 2 ? 25.0 : 0.0) * (3.14159265358979323846 / 180.0);
+        t_set_i(fx, p, "factor", factor);
+        t_set_d(fx, p, "zoom", zooms[k]);
+        t_set_i(fx, p, "quality", quality);
+        t_set_d(fx, p, "angle", k == 2 ? 25.0 : 0.0);
+        CHECK(t_render(fx, p, &c.zero, &c.out, &c.env) == FX_OK);
+        for (y = 0; y < 30; y++)
+            for (x = 0; x < 40; x++) {
+                int32_t r = 0, g = 0, b = 0, a = 0;
+                fx_px o, q = *t_at(&c.out, x, y);
+                for (i = 0; i < count; i++) {
+                    double fi = (double)i;
+                    double u = (2.0 * (double)x - 40.0 + fi * inv_count) * inv_h;
+                    double v = (2.0 * (double)y - 30.0 + fmod(fi * inv_q, 1.0)) * inv_h;
+                    double radius = sqrt(u * u + v * v), theta = atan2(v, u) + theta0;
+                    double up = radius * cos(theta), vp = radius * sin(theta);
+                    double m = ref_mandel(up * inv_zoom + -0.7, vp * inv_zoom + -0.29, factor);
+                    double cc = 64.0 + (double)factor * m;
+                    r += ref_trunc(cc - 768.0);
+                    g += ref_trunc(cc - 512.0);
+                    b += ref_trunc(cc - 256.0);
+                    a += ref_trunc(cc);
+                }
+                o = fx_px_make((uint8_t)(r / count), (uint8_t)(g / count), (uint8_t)(b / count),
+                               (uint8_t)(a / count));
+                if (o.a == 0) o = fx_px_make(0, 0, 0, 0);
+                if (!t_px_eq(o, q)) bad++;
+                if (t_px_eq(q, fx_px_make(255, 255, 255, 255))) inside++;
+            }
+    }
+    CHECK(bad == 0);
+    CHECK(inside > 100);              /* the fast paths were exercised */
+    free(p);
+    ctx_free(&c);
+}
+
 static void t_turbulence(void)
 {
     const fx_effect *fx = t_find("org.paintc.render.turbulence");
@@ -262,7 +339,8 @@ int main(int argc, char **argv)
     RUN(t_clouds);
     RUN(t_julia);
     RUN(t_mandelbrot);
+    RUN(t_mandelbrot_reference);
     RUN(t_turbulence);
-    CHECK(g_t_live == 0);
+    CHECK(t_live() == 0);
     return pc_test_finish();
 }

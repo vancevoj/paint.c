@@ -33,16 +33,40 @@ static const fx_prop k_props[] = {
       0.0, (double)(FX2_BLEND_COUNT - 1), 0.0, 0.0, fx2_blend_choices, NULL, 0u, 0u, NULL },
 };
 
+/* Points safely inside the main cardioid or the period-2 bulb never escape.
+ * Every orbit that does not escape within the iteration limit ends with
+ * |z|^2 < 100000, so 64 + factor * m >= 64 + 1024 - 10 and all four channels
+ * saturate. Such points may therefore skip the iteration (the 1e-3 margin
+ * keeps boundary points on the exact path). */
+static int surely_inside(double r, double i)
+{
+    double xq = r - 0.25, q = xq * xq + i * i;
+    if (q * (q + xq) < 0.25 * i * i - 1e-3) return 1;
+    return (r + 1.0) * (r + 1.0) + i * i < 0.0625 - 1e-3;
+}
+
+#define MANDEL_BOUNDED 2048.0      /* any value that saturates every channel */
+
 static double mandelbrot(double r, double i, int32_t factor)
 {
     const double inv_log_max = 1.0 / 11.512925464970229;   /* 1 / ln(100000) */
-    int32_t c = 0;
-    double x = 0.0, y = 0.0;
+    int32_t c = 0, lim = 1, lam = 0;
+    double x = 0.0, y = 0.0, sx = 0.0, sy = 0.0;
+    if (surely_inside(r, i)) return MANDEL_BOUNDED;
     while (c * factor < 1024 && x * x + y * y < 100000.0) {
         double t = x;
         x = x * x - y * y + r;
         y = 2.0 * t * y + i;
         c++;
+        /* Brent cycle check on exact values: a repeated z repeats forever, so
+         * the orbit cannot escape and the result is the saturated one */
+        if (x == sx && y == sy) return MANDEL_BOUNDED;
+        if (++lam == lim) {
+            sx = x;
+            sy = y;
+            lim *= 2;
+            lam = 0;
+        }
     }
     return (double)c - log(y * y + x * x) * inv_log_max;
 }

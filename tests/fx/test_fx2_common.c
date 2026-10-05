@@ -271,7 +271,7 @@ static void t_blur(void)
     CHECK(fx2_blur(g, 41, 41, 2.5, &g_t_host, &job) == FX_CANCELLED);
     job.polls = 0;
     CHECK(fx2_edt(g, 41, 41, &g_t_host, &job) == FX_CANCELLED);
-    CHECK(g_t_live == 0);
+    CHECK(t_live() == 0);
 }
 
 static void t_noise(void)
