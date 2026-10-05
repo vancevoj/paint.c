@@ -33,6 +33,7 @@
  */
 #include "lib_codec.h"
 #include "cmeta.h"
+#include "codec_prog.h"
 #include "quant.h"
 #include "pc/pc_icc.h"
 #include "spng.h"
@@ -689,15 +690,19 @@ static pc_status scan_source(png_scan *s, uint32_t w, uint32_t h, lc_rows_src sr
  * rows yield palette colors, so the encoder looks them up in m.pal; a
  * transparent entry, when present, is the palette's last entry. */
 static pc_status png_quantize(pc_buf *out, uint32_t w, uint32_t h, png_prep *prep,
-                              const png_params *prm, uint32_t bits, const lc_png_opts *base)
+                              const png_params *prm, uint32_t bits, const lc_png_opts *base,
+                              cp_prog *g, double lo, double hi)
 {
     pc_quant *q = NULL;
     pc_quant_rows m;
     lc_png_opts o = *base;
     pc_status st = pc_quant_create(&q);
     pc_quant_algo algo = prm->palette == 1 ? PC_QUANT_MEDIAN_CUT : PC_QUANT_OCTREE;
+    double mid = lo + (hi - lo) * 0.35;
+    if (st == PC_OK) st = cp_phase(g, lo, mid, h);
     if (st == PC_OK) st = pc_quant_add_rows(q, w, h, png_src_prep, prep);
     if (st == PC_OK) st = pc_quant_build(q, 1u << bits, algo);
+    if (st == PC_OK) st = cp_phase(g, lo + (hi - lo) * 0.45, hi, h);
     if (st == PC_OK) st = pc_quant_rows_begin(&m, q, w, h, prm->dither, png_src_prep, prep);
     if (st == PC_OK) {
         o.kind = LC_PNG_PALETTE;
@@ -813,8 +818,10 @@ static pc_status png_meta_build(png_meta *pm, const pc_image_meta *meta, uint32_
     return st;
 }
 
-static pc_status png_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
-                          const pc_par *par, pc_buf *out)
+/* W4-SAVECFG (ADR-023): every pass pulls its rows through prep.flat, which
+ * counts them toward the pass's phase and stops a cancelled encode. */
+static pc_status png_save_ex(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                             const pc_par *par, const pc_codec_progress *prog, pc_buf *out)
 {
     static const uint32_t k_bits[7] = { 0, 32, 24, 8, 4, 2, 1 };
     png_params prm;
@@ -825,7 +832,9 @@ static pc_status png_save(const pc_doc *d, const pc_image_meta *meta, const void
     pc_icc_embed icc;
     pc_status st;
     uint32_t bits;
+    cp_prog g;
     if (!d || !out) return PC_ERR_ARG;
+    cp_init(&g, prog);
     prm.bit_depth = PNG_DEPTH_AUTO;
     prm.dither = 7;
     prm.threshold = 128;
@@ -859,21 +868,25 @@ static pc_status png_save(const pc_doc *d, const pc_image_meta *meta, const void
     memset(&prep, 0, sizeof prep);
     prep.flat.d = d;
     prep.flat.par = par;
+    prep.flat.prog = prog ? &g : NULL;
     prep.threshold = -1;
     bits = k_bits[prm.bit_depth];
 
     if (bits == 32u) {
-        st = lc_png_encode(out, d->w, d->h, lc_src_flatten, &prep.flat, &base);
+        st = cp_phase(&g, 0.0, 1.0, d->h);
+        if (st == PC_OK) st = lc_png_encode(out, d->w, d->h, lc_src_flatten, &prep.flat, &base);
         goto done;
     }
     if (bits == 24u) {
         base.kind = LC_PNG_RGB;
-        st = lc_png_encode(out, d->w, d->h, png_src_prep, &prep, &base);
+        st = cp_phase(&g, 0.0, 1.0, d->h);
+        if (st == PC_OK) st = lc_png_encode(out, d->w, d->h, png_src_prep, &prep, &base);
         goto done;
     }
     scan = (png_scan *)malloc(sizeof *scan);
     if (!scan) { st = PC_ERR_NOMEM; goto done; }
-    st = scan_source(scan, d->w, d->h, lc_src_flatten, &prep.flat, true);
+    st = cp_phase(&g, 0.0, 0.1, d->h);
+    if (st == PC_OK) st = scan_source(scan, d->w, d->h, lc_src_flatten, &prep.flat, true);
     if (st != PC_OK) goto done;
 
     if (bits) {
@@ -881,12 +894,16 @@ static pc_status png_save(const pc_doc *d, const pc_image_meta *meta, const void
         uint32_t cap = 1u << bits;
         bool opaque_pal = (scan->all_opaque && scan->n_unique <= cap) || prm.threshold == 0;
         prep.threshold = opaque_pal ? -1 : prm.threshold;
-        st = scan_source(scan, d->w, d->h, png_src_prep, &prep, false);
+        st = cp_phase(&g, 0.1, 0.2, d->h);
+        if (st == PC_OK) st = scan_source(scan, d->w, d->h, png_src_prep, &prep, false);
         if (st != PC_OK) goto done;
-        if (scan->n_unique <= cap)
-            st = encode_palette(out, d->w, d->h, &prep, scan, bits, &base);
-        else
-            st = png_quantize(out, d->w, d->h, &prep, &prm, bits, &base);
+        if (scan->n_unique <= cap) {
+            st = cp_phase(&g, 0.2, 1.0, d->h);
+            if (st == PC_OK) st = encode_palette(out, d->w, d->h, &prep, scan, bits, &base);
+        } else {
+            st = png_quantize(out, d->w, d->h, &prep, &prm, bits, &base, prog ? &g : NULL,
+                              0.2, 1.0);
+        }
         goto done;
     }
 
@@ -900,12 +917,16 @@ static pc_status png_save(const pc_doc *d, const pc_image_meta *meta, const void
         memset(&trial, 0, sizeof trial);
         if ((opaque && uniq <= 256u) || (!opaque && all01 && uniq < 256u)) {
             prep.threshold = opaque ? -1 : 1;
-            st = scan_source(scan, d->w, d->h, png_src_prep, &prep, false);
+            st = cp_phase(&g, 0.1, 0.2, d->h);
+            if (st == PC_OK) st = scan_source(scan, d->w, d->h, png_src_prep, &prep, false);
             if (st == PC_OK && scan->n_unique <= 256u) {
                 uint32_t b = bits_for(scan->n_unique);
-                st = encode_palette(&best, d->w, d->h, &prep, scan, b, &base);
+                st = cp_phase(&g, 0.2, 0.4, d->h);
+                if (st == PC_OK) st = encode_palette(&best, d->w, d->h, &prep, scan, b, &base);
                 if (st == PC_OK && b < 8u) {
-                    st = encode_palette(&trial, d->w, d->h, &prep, scan, 8u, &base);
+                    st = cp_phase(&g, 0.4, 0.5, d->h);
+                    if (st == PC_OK)
+                        st = encode_palette(&trial, d->w, d->h, &prep, scan, 8u, &base);
                     if (st == PC_OK) keep_smaller(&best, &trial);
                 }
             }
@@ -915,11 +936,13 @@ static pc_status png_save(const pc_doc *d, const pc_image_meta *meta, const void
             lc_png_opts o = base;
             o.kind = LC_PNG_RGB;
             prep.threshold = -1;
-            st = lc_png_encode(&trial, d->w, d->h, png_src_prep, &prep, &o);
+            st = cp_phase(&g, 0.5, 0.75, d->h);
+            if (st == PC_OK) st = lc_png_encode(&trial, d->w, d->h, png_src_prep, &prep, &o);
             if (st != PC_OK) { pc_buf_free(&best); pc_buf_free(&trial); goto done; }
             keep_smaller(&best, &trial);
         }
-        st = lc_png_encode(&trial, d->w, d->h, lc_src_flatten, &prep.flat, &base);
+        st = cp_phase(&g, 0.75, 1.0, d->h);
+        if (st == PC_OK) st = lc_png_encode(&trial, d->w, d->h, lc_src_flatten, &prep.flat, &base);
         if (st != PC_OK) { pc_buf_free(&best); pc_buf_free(&trial); goto done; }
         keep_smaller(&best, &trial);
         st = pc_buf_append(out, best.p, best.n);
@@ -932,10 +955,16 @@ done:
     return st;
 }
 
+static pc_status png_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                          const pc_par *par, pc_buf *out)
+{
+    return png_save_ex(d, meta, params, par, NULL, out);
+}
+
 const pc_codec pc_codec_png = {
     "png", "PNG", "png", PC_CODEC_LOAD | PC_CODEC_SAVE,
     png_sniff, png_load,
     k_png_props, (uint32_t)(sizeof k_png_props / sizeof k_png_props[0]),
     (uint32_t)sizeof(png_params),
-    png_save
+    png_save, png_save_ex
 };

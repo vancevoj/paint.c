@@ -40,6 +40,7 @@
  */
 #include "lib_codec.h"
 #include "avifjxl_meta.h"
+#include "codec_prog.h"
 #include "pc/pc_icc.h"
 
 #include <math.h>
@@ -562,6 +563,27 @@ static JxlParallelRetCode jxl_par_runner(void *runner_opaque, void *jpegxl_opaqu
     return 0;
 }
 
+/* W4-SAVECFG (ADR-023): with an observer every parallel stage of libjxl
+ * passes through this runner, which advances an estimate (libjxl reports
+ * no progress: calls / (calls + 48) of the encode phase) and stops a
+ * cancelled encode (a non-zero return fails it). */
+typedef struct jxl_prog_runner {
+    const pc_par *par;
+    cp_prog      *g;
+    uint64_t      calls;
+} jxl_prog_runner;
+
+static JxlParallelRetCode jxl_prog_run(void *runner_opaque, void *jpegxl_opaque,
+                                       JxlParallelRunInit init, JxlParallelRunFunction func,
+                                       uint32_t start_range, uint32_t end_range)
+{
+    jxl_prog_runner *r = (jxl_prog_runner *)runner_opaque;
+    r->calls++;
+    if (cp_set(r->g, r->calls * 1000u / (r->calls + 48u)) != PC_OK) return -1;
+    return jxl_par_runner((void *)(uintptr_t)r->par, jpegxl_opaque, init, func, start_range,
+                          end_range);
+}
+
 /* Status for a failed encode (wave 4): not PC_ERR_STATE, which the app
  * shows as "Operation not allowed right now". */
 static pc_status enc_error(JxlEncoder *enc)
@@ -574,8 +596,8 @@ static pc_status enc_error(JxlEncoder *enc)
     }
 }
 
-static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
-                          const pc_par *par, pc_buf *out)
+static pc_status jxl_save_ex(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                             const pc_par *par, const pc_codec_progress *prog, pc_buf *out)
 {
     jxl_params prm;
     JxlEncoder *enc = NULL;
@@ -590,7 +612,13 @@ static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void
     pc_status st = PC_OK;
     lc_flat flat;
     pc_icc_embed icc;
+    cp_prog prg;
+    jxl_prog_runner pr;
     memset(&icc, 0, sizeof icc);
+    cp_init(&prg, prog);
+    pr.par = par;
+    pr.g = &prg;
+    pr.calls = 0;
     if (!d || !out) return PC_ERR_ARG;
     if (!d->w || !d->h) return PC_ERR_LIMIT;
     prm.quality = 90;
@@ -607,6 +635,8 @@ static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void
     flat.d = d;
     flat.par = par;
     flat.over_white = false;
+    flat.prog = &prg;
+    st = cp_phase(&prg, 0.0, 0.25, d->h);
     for (int32_t y0 = 0; y0 < (int32_t)d->h && st == PC_OK; y0 += LC_BAND) {
         int32_t nb = (int32_t)d->h - y0 < LC_BAND ? (int32_t)d->h - y0 : LC_BAND;
         size_t k = (size_t)d->w * (size_t)nb;
@@ -646,9 +676,16 @@ static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void
     nout = (size_t)d->w * d->h * ch;
     enc = JxlEncoderCreate(NULL);
     if (!enc) { st = PC_ERR_NOMEM; goto done; }
-    if (pc_par_threads(par) > 1u &&
-        JxlEncoderSetParallelRunner(enc, jxl_par_runner, (void *)(uintptr_t)par) !=
-            JXL_ENC_SUCCESS) {
+    st = cp_phase(&prg, 0.25, 0.98, 1000u);
+    if (st != PC_OK) goto done;
+    if (prog) {
+        if (JxlEncoderSetParallelRunner(enc, jxl_prog_run, &pr) != JXL_ENC_SUCCESS) {
+            st = PC_ERR_STATE;
+            goto done;
+        }
+    } else if (pc_par_threads(par) > 1u &&
+               JxlEncoderSetParallelRunner(enc, jxl_par_runner, (void *)(uintptr_t)par) !=
+                   JXL_ENC_SUCCESS) {
         st = PC_ERR_STATE;
         goto done;
     }
@@ -737,7 +774,10 @@ static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void
         es = JxlEncoderProcessOutput(enc, &next, &avail);
         out->n = (size_t)(next - out->p);
         if (es == JXL_ENC_SUCCESS) break;
-        if (es != JXL_ENC_NEED_MORE_OUTPUT) { st = enc_error(enc); break; }
+        if (es != JXL_ENC_NEED_MORE_OUTPUT) {
+            st = cp_cancelled(&prg) ? PC_ERR_CANCELLED : enc_error(enc);
+            break;
+        }
     }
 done:
     if (enc) JxlEncoderDestroy(enc);
@@ -749,9 +789,16 @@ done:
     return st;
 }
 
+static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                          const pc_par *par, pc_buf *out)
+{
+    return jxl_save_ex(d, meta, params, par, NULL, out);
+}
+
 #define JXL_FLAGS (PC_CODEC_LOAD | PC_CODEC_SAVE)
 #define JXL_LOAD_FN jxl_load
 #define JXL_SAVE_FN jxl_save
+#define JXL_SAVE_EX_FN jxl_save_ex
 
 #else /* !PC_HAVE_JXL ======================================================================== */
 
@@ -759,11 +806,12 @@ done:
 #define JXL_FLAGS 0u
 #define JXL_LOAD_FN NULL
 #define JXL_SAVE_FN NULL
+#define JXL_SAVE_EX_FN NULL
 #endif
 
 const pc_codec pc_codec_jxl = {
     "jxl", "JPEG XL", "jxl", JXL_FLAGS,
     jxl_sniff, JXL_LOAD_FN,
     k_jxl_props, N_JXL_PROPS, (uint32_t)sizeof(jxl_params),
-    JXL_SAVE_FN
+    JXL_SAVE_FN, JXL_SAVE_EX_FN
 };

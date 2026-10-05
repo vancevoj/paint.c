@@ -45,6 +45,7 @@
  */
 #include "lib_codec.h"
 #include "avifjxl_meta.h"
+#include "codec_prog.h"
 #include "pc/pc_icc.h"
 
 #include <stddef.h>
@@ -827,13 +828,15 @@ typedef struct avif_scan {
     bool alpha, gray;
 } avif_scan;
 
-static pc_status scan_doc(const pc_doc *d, const pc_par *par, pc_px32 *band, avif_scan *s)
+static pc_status scan_doc(const pc_doc *d, const pc_par *par, pc_px32 *band, avif_scan *s,
+                          cp_prog *g)
 {
     lc_flat flat;
     pc_status st = PC_OK;
     flat.d = d;
     flat.par = par;
     flat.over_white = false;
+    flat.prog = g;
     s->alpha = false;
     s->gray = true;
     for (int32_t y0 = 0; y0 < (int32_t)d->h && st == PC_OK; y0 += LC_BAND) {
@@ -860,8 +863,11 @@ static pc_status enc_status(avifResult r)
     }
 }
 
-static pc_status avif_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
-                           const pc_par *par, pc_buf *out)
+/* W4-SAVECFG (ADR-023): the scan and the RGB to YUV conversion report
+ * their rows; libavif has no progress or cancel hook, so the encode itself
+ * is one step (a cancel during it takes effect when it returns). */
+static pc_status avif_save_ex(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                              const pc_par *par, const pc_codec_progress *prog, pc_buf *out)
 {
     avif_params prm;
     avif_scan sc;
@@ -881,7 +887,9 @@ static pc_status avif_save(const pc_doc *d, const pc_image_meta *meta, const voi
     size_t exif_len = 0, xmp_len = 0;
     uint32_t threads;
     pc_icc_embed icc;
+    cp_prog g;
     memset(&icc, 0, sizeof icc);
+    cp_init(&g, prog);
     if (!d || !out) return PC_ERR_ARG;
     if (d->w > AVIF_MAX_SIDE || d->h > AVIF_MAX_SIDE || !d->w || !d->h) return PC_ERR_LIMIT;
     prm.quality = 85;
@@ -899,7 +907,8 @@ static pc_status avif_save(const pc_doc *d, const pc_image_meta *meta, const voi
     if (prm.lossless) { prm.lossless_alpha = 1; prm.premultiplied = 0; }
     band = (pc_px32 *)malloc((size_t)d->w * (size_t)LC_BAND * sizeof *band);
     if (!band) return PC_ERR_NOMEM;
-    st = scan_doc(d, par, band, &sc);
+    st = cp_phase(&g, 0.0, 0.1, d->h);
+    if (st == PC_OK) st = scan_doc(d, par, band, &sc, &g);
     if (st != PC_OK) goto done;
     /* FS-ICC: a usable RGB profile keeps the image RGB; a gray profile goes
      * with a gray image (4:0:0) as is and with a color image as its RGB
@@ -931,6 +940,8 @@ static pc_status avif_save(const pc_doc *d, const pc_image_meta *meta, const voi
     flat.d = d;
     flat.par = par;
     flat.over_white = false;
+    flat.prog = &g;
+    st = cp_phase(&g, 0.1, 0.25, d->h);
     for (int32_t y0 = 0; y0 < (int32_t)d->h && st == PC_OK; y0 += LC_BAND) {
         int32_t nb = (int32_t)d->h - y0 < LC_BAND ? (int32_t)d->h - y0 : LC_BAND;
         avifCropRect rect;
@@ -1019,6 +1030,8 @@ static pc_status avif_save(const pc_doc *d, const pc_image_meta *meta, const voi
         if (st != PC_OK) goto done;
     }
     /* encoder */
+    st = cp_phase(&g, 0.25, 1.0, 0u);
+    if (st != PC_OK) goto done;
     enc = avifEncoderCreate();
     if (!enc) { st = PC_ERR_NOMEM; goto done; }
     if (avifCodecName(AVIF_CODEC_CHOICE_AOM, AVIF_CODEC_FLAG_CAN_ENCODE))
@@ -1055,9 +1068,16 @@ done:
     return st;
 }
 
+static pc_status avif_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                           const pc_par *par, pc_buf *out)
+{
+    return avif_save_ex(d, meta, params, par, NULL, out);
+}
+
 #define AVIF_FLAGS (PC_CODEC_LOAD | PC_CODEC_SAVE)
 #define AVIF_LOAD_FN avif_load
 #define AVIF_SAVE_FN avif_save
+#define AVIF_SAVE_EX_FN avif_save_ex
 
 #else /* !PC_HAVE_AVIF ======================================================================= */
 
@@ -1065,11 +1085,12 @@ done:
 #define AVIF_FLAGS 0u
 #define AVIF_LOAD_FN NULL
 #define AVIF_SAVE_FN NULL
+#define AVIF_SAVE_EX_FN NULL
 #endif
 
 const pc_codec pc_codec_avif = {
     "avif", "AV1 (AVIF)", "avif", AVIF_FLAGS,
     avif_sniff, AVIF_LOAD_FN,
     k_avif_props, N_AVIF_PROPS, (uint32_t)sizeof(avif_params),
-    AVIF_SAVE_FN
+    AVIF_SAVE_FN, AVIF_SAVE_EX_FN
 };

@@ -29,6 +29,7 @@
  * atomic flag.
  */
 #include "lib_codec.h"
+#include "codec_prog.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -1045,13 +1046,30 @@ static void bc_row_job(void *ud, uint32_t index, uint32_t worker)
     }
 }
 
+/* W4-SAVECFG (ADR-023): block rows run in batches so progress is reported
+ * (and a cancel noticed) between them; each block row is independent, so
+ * the bytes do not depend on the batching. */
+typedef struct bc_batch {
+    const bc_job *j;
+    uint32_t      first;
+} bc_batch;
+
+static void bc_batch_job(void *ud, uint32_t index, uint32_t worker)
+{
+    const bc_batch *b = (const bc_batch *)ud;
+    bc_row_job((void *)(uintptr_t)b->j, b->first + index, worker);
+}
+
 /* Encode one level (w x h, contiguous BGRA) of a block format; block rows
  * run on par (may be NULL); the bytes do not depend on the thread count. */
 static pc_status enc_level_bc(pc_buf *out, const pc_px32 *px, int32_t w, int32_t h,
-                              const dds_out_fmt *of, const dds_params *prm, const pc_par *par)
+                              const dds_out_fmt *of, const dds_params *prm, const pc_par *par,
+                              cp_prog *g)
 {
     bc_job *j;
     size_t bh = ((size_t)h + 3u) / 4u, need;
+    uint32_t step;
+    pc_status st = PC_OK;
     j = (bc_job *)calloc(1u, sizeof *j);
     if (!j) return PC_ERR_NOMEM;
     j->px = px;
@@ -1074,10 +1092,20 @@ static pc_status enc_level_bc(pc_buf *out, const pc_px32 *px, int32_t w, int32_t
     if (of->kind == E_BC6H)
         for (int v = 0; v < 256; v++) j->half[v] = bc6h_float_to_half((float)v / 255.0f);
     j->dst = out->p + out->n;
-    pc_par_for(par, bc_row_job, j, (uint32_t)bh);
-    out->n += need;
+    /* about 64 batches per level, at least 4 block rows per thread */
+    step = (uint32_t)((bh + 63u) / 64u);
+    if (step < 4u * pc_par_threads(par)) step = 4u * pc_par_threads(par);
+    for (uint32_t b0 = 0; b0 < (uint32_t)bh && st == PC_OK; b0 += step) {
+        bc_batch b;
+        uint32_t n = (uint32_t)bh - b0 < step ? (uint32_t)bh - b0 : step;
+        b.j = j;
+        b.first = b0;
+        pc_par_for(par, bc_batch_job, &b, n);
+        st = cp_add(g, (uint64_t)n * 4u);
+    }
+    if (st == PC_OK) out->n += need;
     free(j);
-    return PC_OK;
+    return st;
 }
 
 static uint32_t pack_bits(int v, int bits)    /* 8-bit value to bits with rounding */
@@ -1089,7 +1117,7 @@ static uint32_t pack_bits(int v, int bits)    /* 8-bit value to bits with roundi
 /* Encode one level of an uncompressed format. Error diffusion (Floyd-
  * Steinberg) applies to the 16-bit layouts when requested. */
 static pc_status enc_level_plain(pc_buf *out, const pc_px32 *px, int32_t w, int32_t h,
-                                 const dds_out_fmt *of, bool dither)
+                                 const dds_out_fmt *of, bool dither, cp_prog *g)
 {
     size_t bpp, need;
     float *err = NULL;
@@ -1114,6 +1142,10 @@ static pc_status enc_level_plain(pc_buf *out, const pc_px32 *px, int32_t w, int3
     for (int32_t y = 0; y < h; y++) {
         float *cur = err ? err + (size_t)((y & 1) ? 0 : 1) * ((size_t)w + 2u) * 4u : NULL;
         float *nxt = err ? err + (size_t)((y & 1) ? 1 : 0) * ((size_t)w + 2u) * 4u : NULL;
+        if ((y & 15) == 0 && y > 0 && cp_add(g, 16u) != PC_OK) {     /* every 16 rows */
+            free(err);
+            return PC_ERR_CANCELLED;
+        }
         if (nxt) memset(nxt, 0, ((size_t)w + 2u) * 4u * sizeof *nxt);
         for (int32_t x = 0; x < w; x++) {
             pc_px32 p = px[(size_t)y * (size_t)w + (size_t)x];
@@ -1184,7 +1216,7 @@ static pc_status enc_level_plain(pc_buf *out, const pc_px32 *px, int32_t w, int3
         }
     }
     free(err);
-    return PC_OK;
+    return cp_add(g, (uint64_t)(h > 0 ? (h - 1) % 16 + 1 : 0));
 }
 
 /* ---- header writer ---------------------------------------------------------------------- */
@@ -1269,15 +1301,17 @@ static pc_status write_header(pc_buf *out, const dds_out_fmt *of, uint32_t w, ui
 }
 
 /* ---- save --------------------------------------------------------------------------------- */
-/* Encode cur and its mip chain (mips levels). Consumes *cur. */
+/* Encode cur and its mip chain (mips levels). Consumes *cur. Each level
+ * adds its height to g's phase (BC levels in steps of 4 rows). */
 static pc_status encode_chain(pc_buf *out, pc_surf *cur, uint32_t mips, const dds_out_fmt *of,
-                              const dds_params *prm, const pc_par *par)
+                              const dds_params *prm, const pc_par *par, cp_prog *g)
 {
     pc_surf next;
     pc_status st = PC_OK;
     for (uint32_t level = 0; level < mips && st == PC_OK; level++) {
-        if (enc_is_bc(of->kind)) st = enc_level_bc(out, cur->px, cur->w, cur->h, of, prm, par);
-        else st = enc_level_plain(out, cur->px, cur->w, cur->h, of, prm->dither != 0);
+        if (enc_is_bc(of->kind))
+            st = enc_level_bc(out, cur->px, cur->w, cur->h, of, prm, par, g);
+        else st = enc_level_plain(out, cur->px, cur->w, cur->h, of, prm->dither != 0, g);
         if (st != PC_OK || level + 1u == mips) break;
         {
             int32_t nw = cur->w > 1 ? cur->w / 2 : 1, nh = cur->h > 1 ? cur->h / 2 : 1;
@@ -1300,16 +1334,30 @@ static uint32_t mip_count(uint32_t w, uint32_t h)
     return n;
 }
 
-static pc_status dds_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
-                          const pc_par *par, pc_buf *out)
+/* Rows the encode of a chain of mips levels starting h rows high reports
+ * (BC levels count whole 4-row blocks). */
+static uint64_t chain_rows(uint32_t h, uint32_t mips, bool bc)
+{
+    uint64_t n = 0;
+    for (uint32_t level = 0; level < mips; level++) {
+        n += bc ? ((uint64_t)h + 3u) / 4u * 4u : h;
+        h = h > 1u ? h / 2u : 1u;
+    }
+    return n;
+}
+
+static pc_status dds_save_ex(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                             const pc_par *par, const pc_codec_progress *prog, pc_buf *out)
 {
     dds_params prm;
     const dds_out_fmt *of;
     pc_surf full;
     pc_status st;
     size_t n0;
+    cp_prog g;
     (void)meta;
     if (!d || !out) return PC_ERR_ARG;
+    cp_init(&g, prog);
     prm.format = 0; prm.dither = 1; prm.bc7_speed = 1; prm.metric = 0; prm.cube_map = 0;
     prm.mipmaps = 0; prm.mip_filter = 0; prm.gamma = 1;
     if (params) memcpy(&prm, params, sizeof prm);
@@ -1323,19 +1371,29 @@ static pc_status dds_save(const pc_doc *d, const pc_image_meta *meta, const void
         return PC_ERR_ARG;      /* not a 4:3 or 3:4 cross of square faces */
     st = pc_surf_alloc(&full, (int32_t)d->w, (int32_t)d->h);
     if (st != PC_OK) return st;
-    st = pc_comp_rect(d, pc_doc_rect(d), full.px, (size_t)full.stride, par);
+    /* the composite in tile-row bands (the same pixels as one call) */
+    st = cp_phase(&g, 0.0, 0.08, d->h);
+    for (uint32_t y0 = 0; y0 < d->h && st == PC_OK; y0 += PC_TILE_DIM) {
+        uint32_t rows = d->h - y0 < PC_TILE_DIM ? d->h - y0 : PC_TILE_DIM;
+        st = pc_comp_rect(d, pc_rect_make(0, (int32_t)y0, (int32_t)d->w, (int32_t)rows),
+                          pc_surf_row(&full, (int32_t)y0), (size_t)full.stride, par);
+        if (st == PC_OK) st = cp_add(&g, rows);
+    }
     if (st != PC_OK) { pc_surf_free(&full); return st; }
     n0 = out->n;
     if (!prm.cube_map) {
         uint32_t mips = prm.mipmaps ? mip_count(d->w, d->h) : 1u;
-        st = write_header(out, of, d->w, d->h, mips, false);
-        if (st == PC_OK) st = encode_chain(out, &full, mips, of, &prm, par);
+        st = cp_phase(&g, 0.08, 1.0, chain_rows(d->h, mips, enc_is_bc(of->kind)));
+        if (st == PC_OK) st = write_header(out, of, d->w, d->h, mips, false);
+        if (st == PC_OK) st = encode_chain(out, &full, mips, of, &prm, par, &g);
         else pc_surf_free(&full);
     } else {
         bool horizontal = d->w / 4u * 3u == d->h && d->w % 4u == 0u;
         int32_t fs = (int32_t)(horizontal ? d->w / 4u : d->w / 3u);
         uint32_t mips = prm.mipmaps ? mip_count((uint32_t)fs, (uint32_t)fs) : 1u;
-        st = write_header(out, of, (uint32_t)fs, (uint32_t)fs, mips, true);
+        st = cp_phase(&g, 0.08, 1.0,
+                      6u * chain_rows((uint32_t)fs, mips, enc_is_bc(of->kind)));
+        if (st == PC_OK) st = write_header(out, of, (uint32_t)fs, (uint32_t)fs, mips, true);
         for (int f = 0; f < 6 && st == PC_OK; f++) {
             const int32_t *pos = horizontal ? k_hcross[f] : k_vcross[f];
             pc_surf face;
@@ -1345,7 +1403,7 @@ static pc_status dds_save(const pc_doc *d, const pc_image_meta *meta, const void
                 memcpy(pc_surf_row(&face, y),
                        pc_surf_row(&full, pos[1] * fs + y) + (size_t)(pos[0] * fs),
                        (size_t)fs * sizeof(pc_px32));
-            st = encode_chain(out, &face, mips, of, &prm, par);
+            st = encode_chain(out, &face, mips, of, &prm, par, &g);
         }
         pc_surf_free(&full);
     }
@@ -1353,10 +1411,16 @@ static pc_status dds_save(const pc_doc *d, const pc_image_meta *meta, const void
     return st;
 }
 
+static pc_status dds_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                          const pc_par *par, pc_buf *out)
+{
+    return dds_save_ex(d, meta, params, par, NULL, out);
+}
+
 const pc_codec pc_codec_dds = {
     "dds", "Direct Draw Surface", "dds", PC_CODEC_LOAD | PC_CODEC_SAVE,
     dds_sniff, dds_load,
     k_dds_props, (uint32_t)(sizeof k_dds_props / sizeof k_dds_props[0]),
     (uint32_t)sizeof(dds_params),
-    dds_save
+    dds_save, dds_save_ex
 };

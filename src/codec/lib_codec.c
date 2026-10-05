@@ -2,6 +2,7 @@
  * document creation under limits, pixel swizzles, row sources and sinks,
  * and a streaming separable resampler. See lib_codec.h. */
 #include "lib_codec.h"
+#include "codec_prog.h"
 #include "quant.h"
 
 #include <math.h>
@@ -144,6 +145,7 @@ pc_status lc_src_flatten(void *ud, int32_t y0, int32_t n, pc_px32 *dst)
     pc_status st = pc_comp_rect(f->d, pc_rect_make(0, y0, (int32_t)f->d->w, n), dst,
                                 (size_t)f->d->w, f->par);
     if (st == PC_OK && f->over_white) lc_over_white(dst, (size_t)f->d->w * (size_t)n);
+    if (st == PC_OK) st = cp_add(f->prog, (uint64_t)n);
     return st;
 }
 

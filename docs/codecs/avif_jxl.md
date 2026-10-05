@@ -239,10 +239,11 @@ budgets, PC_ERR_NOMEM, PC_ERR_UNSUPPORTED for features the library lacks
   decode as their 8-bit or 12-bit base.
 - AVIF decoding runs on the calling thread only (the codec interface gives
   load() no pc_par).
-- The generic Save Configuration layout gives choice controls a fixed 176
-  pixel width after their label; with the label "Chroma subsampling" the
-  combo box overlaps the preview column by a few pixels (same as the JPEG
-  dialog). Fix belongs in src/app/propdlg.c (clamp the width to the row).
+- Encode progress (pc_codec_save_ex, ADR-023): libavif has no progress
+  or cancel hook, so an AVIF save reports its scan and RGB to YUV bands and
+  then the whole encode as one step (a cancel takes effect when it
+  returns). libjxl reports nothing either; its progress is an estimate
+  from the parallel runner calls, which do stop a cancelled encode.
 - HDR tone mapping is paint.c's own (see above).
 - JPEG XL CMYK images (a black extra channel with a CMYK profile) are not
   converted to RGB: the CMY channels are delivered as color with the

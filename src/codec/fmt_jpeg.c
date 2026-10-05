@@ -32,6 +32,7 @@
  */
 #include "lib_codec.h"
 #include "cmeta.h"
+#include "codec_prog.h"
 #include "pc/pc_icc.h"
 
 #include <limits.h>
@@ -468,16 +469,35 @@ static void jd_term(j_compress_ptr ci)
     if (st != PC_OK) j_fail((j_common_ptr)ci, st);
 }
 
+/* W4-SAVECFG (ADR-023): libjpeg's progress monitor, called per scanline
+ * batch and per iMCU row of the Huffman optimization and output passes. */
+typedef struct jprog {
+    struct jpeg_progress_mgr pub;
+    cp_prog                 *g;
+} jprog;
+
+static void j_save_progress(j_common_ptr ci)
+{
+    const jprog *p = (const jprog *)(const void *)ci->progress;
+    int total = p->pub.total_passes > 0 ? p->pub.total_passes : 1;
+    double pass = p->pub.pass_limit > 0
+                      ? (double)p->pub.pass_counter / (double)p->pub.pass_limit : 0.0;
+    double f = ((double)p->pub.completed_passes + (pass > 1.0 ? 1.0 : pass)) / (double)total;
+    if (cp_set(p->g, (uint64_t)(f * 1000.0)) != PC_OK) j_fail(ci, PC_ERR_CANCELLED);
+}
+
 typedef struct jenc {
     struct jpeg_compress_struct ci;
     jerr_mgr                    err;
     jdst                        dst;
+    jprog                       prog;
     bool                        created;
     pc_px32                    *band;
 } jenc;
 
 static pc_status jenc_run(jenc *j, const pc_doc *d, const pc_image_meta *meta,
-                          const pc_icc_embed *icc, const jpeg_params *prm, const pc_par *par)
+                          const pc_icc_embed *icc, const jpeg_params *prm, const pc_par *par,
+                          cp_prog *g)
 {
     struct jpeg_compress_struct *ci = &j->ci;
     lc_flat flat;
@@ -489,6 +509,12 @@ static pc_status jenc_run(jenc *j, const pc_doc *d, const pc_image_meta *meta,
     if (setjmp(jb)) return j->err.st;
     jpeg_create_compress(ci);
     j->created = true;
+    if (g && g->cb) {
+        j->prog.pub.progress_monitor = j_save_progress;
+        j->prog.g = g;
+        ci->progress = &j->prog.pub;
+        if (cp_phase(g, 0.0, 1.0, 1000u) != PC_OK) return PC_ERR_CANCELLED;
+    }
     ci->dest = &j->dst.pub;
     j->dst.pub.init_destination = jd_init;
     j->dst.pub.empty_output_buffer = jd_empty;
@@ -523,6 +549,7 @@ static pc_status jenc_run(jenc *j, const pc_doc *d, const pc_image_meta *meta,
     flat.d = d;
     flat.par = par;
     flat.over_white = true;
+    flat.prog = NULL;                   /* libjpeg reports the rows (j_save_progress) */
     for (int32_t y0 = 0; y0 < (int32_t)d->h; y0 += LC_BAND) {
         int32_t nb = (int32_t)d->h - y0 < LC_BAND ? (int32_t)d->h - y0 : LC_BAND;
         int32_t done = 0;
@@ -540,15 +567,17 @@ static pc_status jenc_run(jenc *j, const pc_doc *d, const pc_image_meta *meta,
     return PC_OK;
 }
 
-static pc_status jpeg_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
-                           const pc_par *par, pc_buf *out)
+static pc_status jpeg_save_ex(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                              const pc_par *par, const pc_codec_progress *prog, pc_buf *out)
 {
     jpeg_params prm;
     jenc *j;
     pc_icc_embed icc;
     pc_status st;
     size_t n0;
+    cp_prog g;
     if (!d || !out) return PC_ERR_ARG;
+    cp_init(&g, prog);
     if (d->w > 65500u || d->h > 65500u) return PC_ERR_LIMIT;   /* JPEG format limit */
     prm.quality = 95;
     prm.subsampling = JPEG_SUB_422;
@@ -564,7 +593,7 @@ static pc_status jpeg_save(const pc_doc *d, const pc_image_meta *meta, const voi
     j->err.st = PC_OK;
     j->dst.out = out;
     n0 = out->n;
-    st = jenc_run(j, d, meta, &icc, &prm, par);
+    st = jenc_run(j, d, meta, &icc, &prm, par, &g);
     if (j->created) jpeg_destroy_compress(&j->ci);
     free(j->band);
     free(j);
@@ -573,10 +602,16 @@ static pc_status jpeg_save(const pc_doc *d, const pc_image_meta *meta, const voi
     return st;
 }
 
+static pc_status jpeg_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                           const pc_par *par, pc_buf *out)
+{
+    return jpeg_save_ex(d, meta, params, par, NULL, out);
+}
+
 const pc_codec pc_codec_jpeg = {
     "jpeg", "JPEG", "jpg;jpeg;jpe;jfif;exif", PC_CODEC_LOAD | PC_CODEC_SAVE,
     jpeg_sniff, jpeg_load,
     k_jpeg_props, (uint32_t)(sizeof k_jpeg_props / sizeof k_jpeg_props[0]),
     (uint32_t)sizeof(jpeg_params),
-    jpeg_save
+    jpeg_save, jpeg_save_ex
 };

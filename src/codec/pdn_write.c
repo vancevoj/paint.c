@@ -12,6 +12,7 @@
 #include "nrbf.h"
 #include "pdn.h"
 #include "cmeta.h"
+#include "codec_prog.h"
 #include "pc/pc_icc.h"
 
 #include <math.h>
@@ -603,7 +604,7 @@ static void chunk_job(void *ud, uint32_t index, uint32_t worker)
 }
 
 static pc_status write_block(const pc_doc *d, const pc_layer *l, const pdn_save_opts *o,
-                             const pc_par *par, pc_buf *b)
+                             const pc_par *par, pc_buf *b, cp_prog *g)
 {
     uint64_t len = (uint64_t)d->w * d->h * 4u;
     uint32_t cs = o->chunk_size, threads = pc_par_threads(par), batch;
@@ -615,6 +616,7 @@ static pc_status write_block(const pc_doc *d, const pc_layer *l, const pdn_save_
     batch = (uint32_t)((32u << 20) / cs);
     if (batch < 1u) batch = 1u;
     if (batch > 64u) batch = 64u;
+    if (g && g->cb && batch > threads) batch = threads;   /* finer progress steps */
     if ((uint64_t)batch > count) batch = (uint32_t)count;
     if (count > 0xFFFFFFFFu) return PC_ERR_LIMIT;
     st = pc_buf_put_u8(b, o->level < 0 ? 1u : 0u);
@@ -647,6 +649,7 @@ static pc_status write_block(const pc_doc *d, const pc_layer *l, const pdn_save_
             if (st == PC_OK) st = pc_buf_append(b, outs[idx], lens[idx]);
         }
         for (uint32_t k = 0; k < nb; k++) { free(outs[k]); outs[k] = NULL; }
+        if (st == PC_OK) st = cp_add(g, nb);
         if (st != PC_OK) goto done;
     }
 done:
@@ -665,6 +668,7 @@ pc_status pdn_save_ex(const pc_doc *d, const pc_image_meta *meta, const pdn_save
     pc_buf hdr, png;
     char head[256];
     pc_status st;
+    cp_prog g;
     if (!d || !out || d->n_layers == 0u || d->w == 0u || d->h == 0u ||
         d->w > PC_MAX_DIM || d->h > PC_MAX_DIM)
         return PC_ERR_ARG;
@@ -678,8 +682,10 @@ pc_status pdn_save_ex(const pc_doc *d, const pc_image_meta *meta, const pdn_save
     memset(&kl, 0, sizeof kl);
     memset(&hdr, 0, sizeof hdr);
     memset(&png, 0, sizeof png);
+    cp_init(&g, o.progress);
 
-    st = build_items(meta, &o, d->w, d->h, &kl);
+    st = cp_phase(&g, 0.0, 0.05, 0u);
+    if (st == PC_OK) st = build_items(meta, &o, d->w, d->h, &kl);
     if (st != PC_OK) goto done;
     /* header XML */
     snprintf(head, sizeof head,
@@ -704,8 +710,12 @@ pc_status pdn_save_ex(const pc_doc *d, const pc_image_meta *meta, const pdn_save
     if (st == PC_OK) st = pc_buf_put_u8(out, 0x00u);
     if (st == PC_OK) st = pc_buf_put_u8(out, 0x01u);
     if (st == PC_OK) st = write_nrbf(d, &o, kl.it, kl.n, out);
+    if (st == PC_OK) {
+        uint64_t chunks = ((uint64_t)d->w * d->h * 4u + o.chunk_size - 1u) / o.chunk_size;
+        st = cp_phase(&g, 0.05, 1.0, chunks * d->n_layers);
+    }
     for (uint32_t i = 0; i < d->n_layers && st == PC_OK; i++)
-        st = write_block(d, d->stack[i], &o, par, out);
+        st = write_block(d, d->stack[i], &o, par, out, &g);
 done:
     items_free(kl.it, kl.n);
     pc_buf_free(&hdr);

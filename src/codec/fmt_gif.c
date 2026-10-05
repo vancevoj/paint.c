@@ -22,6 +22,7 @@
  */
 #include "quant.h"
 #include "cmeta.h"
+#include "codec_prog.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -477,8 +478,10 @@ static pc_status enc_finish(lzw_enc *e)
     return e->st;
 }
 
-static pc_status gif_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
-                          const pc_par *par, pc_buf *out)
+/* W4-SAVECFG (ADR-023): the palette pass and the LZW pass over fl are the
+ * progress phases; fl counts their rows. */
+static pc_status gif_save_ex(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                             const pc_par *par, const pc_codec_progress *prog, pc_buf *out)
 {
     gif_params prm;
     pc_flat fl;
@@ -492,6 +495,8 @@ static pc_status gif_save(const pc_doc *d, const pc_image_meta *meta, const void
     size_t base = out ? out->n : 0u;
     pc_status st;
     char *comment = NULL;
+    cp_prog g;
+    cp_init(&g, prog);
     if (!d || !out) return PC_ERR_ARG;
     if (params) memcpy(&prm, params, sizeof prm);
     else { prm.dither = 7; prm.threshold = 128; prm.palette = 0; }
@@ -501,11 +506,13 @@ static pc_status gif_save(const pc_doc *d, const pc_image_meta *meta, const void
     w = d->w; h = d->h;
     st = pc_flat_init(&fl, d, par);
     if (st != PC_OK) return st;
+    fl.prog = &g;
     tmp = (pc_px32 *)malloc((size_t)w * sizeof *tmp);
     idx = (uint8_t *)malloc(w);
     e = (lzw_enc *)malloc(sizeof *e);
     if (!tmp || !idx || !e) { st = PC_ERR_NOMEM; goto done; }
-    st = pc_quant_create(&q);
+    st = cp_phase(&g, 0.0, 0.4, h);
+    if (st == PC_OK) st = pc_quant_create(&q);
     for (uint32_t y = 0; y < h && st == PC_OK; y++) {
         const pc_px32 *r = pc_flat_row(&fl, y);
         if (!r) { st = fl.err; break; }
@@ -560,6 +567,7 @@ static pc_status gif_save(const pc_doc *d, const pc_image_meta *meta, const void
                              (uint8_t)(h >> 8), 0, (uint8_t)mcs };
         st = pc_buf_append(out, desc, sizeof desc);
     }
+    if (st == PC_OK) st = cp_phase(&g, 0.45, 1.0, h);
     if (st != PC_OK) goto done;
     enc_init(e, out, mcs);
     for (uint32_t y = 0; y < h && e->st == PC_OK; y++) {
@@ -583,9 +591,15 @@ done:
     return st;
 }
 
+static pc_status gif_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                          const pc_par *par, pc_buf *out)
+{
+    return gif_save_ex(d, meta, params, par, NULL, out);
+}
+
 const pc_codec pc_codec_gif = {
     "gif", "GIF", "gif", PC_CODEC_LOAD | PC_CODEC_SAVE,
     gif_sniff, gif_load,
     k_props, (uint32_t)(sizeof k_props / sizeof k_props[0]), (uint32_t)sizeof(gif_params),
-    gif_save
+    gif_save, gif_save_ex
 };
