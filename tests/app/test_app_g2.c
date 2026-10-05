@@ -51,17 +51,35 @@ static bool write_png(const char *path)
     return ok;
 }
 
-/* Independent Bresenham over the stroke's sampled points (the oracle). */
+/* Independent line rasterization over the stroke's sampled points (the
+ * oracle). Lane B (wave 2b): the Pencil now runs on pc_brush, whose lines
+ * follow the Paint.NET rule measured in docs/core/brush.md (3.36
+ * Utility.GetLinePoints: pixel i of the major axis has the minor offset
+ * floor((i + 1) * minor / major), equal steps are plain diagonals) instead
+ * of the symmetric Bresenham of wave 2a; the oracle follows it. */
 static void bres(uint8_t *mask, int32_t x0, int32_t y0, int32_t x1, int32_t y1)
 {
-    int32_t dx = x1 > x0 ? x1 - x0 : x0 - x1, dy = -(y1 > y0 ? y1 - y0 : y0 - y1);
-    int32_t sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx + dy;
-    for (;;) {
-        if (x0 >= 0 && y0 >= 0 && x0 < W && y0 < H) mask[y0 * W + x0] = 1;
-        if (x0 == x1 && y0 == y1) break;
-        int32_t e2 = 2 * err;
-        if (e2 >= dy) { err += dy; x0 += sx; }
-        if (e2 <= dx) { err += dx; y0 += sy; }
+    int32_t dx = x1 - x0, dy = y1 - y0;
+    int32_t adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    int32_t sx = dx < 0 ? -1 : (dx > 0 ? 1 : 0), sy = dy < 0 ? -1 : (dy > 0 ? 1 : 0);
+    int32_t n = adx > ady ? adx : ady, acc = 0, px = x0, py = y0;
+    for (int32_t i = 0; i <= n; i++) {
+        int32_t x, y;
+        if (adx > ady) {
+            acc += ady;
+            if (acc >= adx) { acc -= adx; py += sy; }
+            x = x0 + sx * i;
+            y = py;
+        } else if (adx == ady) {
+            x = x0 + sx * i;
+            y = y0 + sy * i;
+        } else {
+            acc += adx;
+            if (acc >= ady) { acc -= ady; px += sx; }
+            x = px;
+            y = y0 + sy * i;
+        }
+        if (x >= 0 && y >= 0 && x < W && y < H) mask[y * W + x] = 1;
     }
 }
 
