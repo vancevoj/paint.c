@@ -496,5 +496,8 @@ void app_options_bar(app *a, ui_rect bar)
         ui_tooltip(ui, "Choose a tool");
     }
     app_opt_separator(a);
+    /* lane KEYS: the dropdown may have switched tools this frame (click,
+     * wheel, keys); the options belong to the tool that is current now */
+    cur = app_tool_current(a);
     if (cur && cur->options) cur->options(a, a->tool_state[a->tool]);
 }

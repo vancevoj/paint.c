@@ -12,6 +12,7 @@
 #include "keys_util.h"
 
 #include "edit/m_ui.h"
+#include "tools/text_font.h"
 
 static const pc_px32 WHITE = { 255, 255, 255, 255 };
 
@@ -209,14 +210,16 @@ static void t_help_and_tools(void)
     at_frames(a, 3);
     CHECK(ui_popup_is_open(a->ui, "##help_menu"));
     k_tap(a, SDLK_ESCAPE, SDL_KMOD_NONE);
-    /* Alt+T: the tool dropdown; Z jumps to Zoom, Enter selects it */
-    CHECK(app_tool_select(a, "paintbrush"));
+    /* Alt+T: the tool dropdown; Z jumps to Zoom, Enter selects it (from
+     * Rectangle Select: the options bar of the frame that switches must
+     * use the new tool's state; caught by the sanitizer build) */
+    CHECK(app_tool_select(a, "rect_select"));
     at_frames(a, 2);
     k_alt(a, SDLK_T);
     at_frames(a, 3);
     CHECK(ui_menu_keyboard(a->ui));
     k_tap(a, SDLK_Z, SDL_KMOD_NONE);
-    CHECK(strcmp(k_tool(a), "paintbrush") == 0);
+    CHECK(strcmp(k_tool(a), "rect_select") == 0);
     k_tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     at_frames(a, 2);
     CHECK(strcmp(k_tool(a), "zoom") == 0 && !ui_menu_keyboard(a->ui));
@@ -260,6 +263,70 @@ static void t_toolbar_wheel(void)
     app_destroy(a);
 }
 
+/* The Text tool's font button (a custom dropdown) steps with the wheel
+ * too. Fonts are scanned only with a settings folder. */
+static void t_font_wheel(void)
+{
+    app_opts o;
+    app *a;
+    app_doc *d;
+    char cfg[1024];
+    bool found = false;
+    at_out_path(cfg, sizeof cfg, "test_keys_menu_cfg");
+    (void)pal_mkdirs(cfg);
+    app_opts_default(&o);
+    o.headless = true;
+    o.width = 1024;
+    o.height = 768;
+    o.workers = 3;
+    o.config_dir = cfg;
+    o.theme = APP_THEME_LIGHT;
+    o.no_default_doc = true;
+    a = app_create(&o);
+    CHECK(a != NULL);
+    if (!a) return;
+    d = app_doc_new_image(a, 120, 90, WHITE);
+    CHECK(d && app_add_doc(a, d));
+    at_frames(a, 2);
+    CHECK(app_tool_select(a, "text"));
+    for (int i = 0; i < 200 && text_fonts_scanning(text_fonts_get(a)); i++) {
+        SDL_Delay(10);
+        at_frames(a, 1);
+    }
+    if (!text_fonts_get(a) || text_fonts_family_count(text_fonts_get(a)) < 2) {
+        INFO("fewer than two font families installed; skipping the font button");
+    } else {
+        char f0[256];
+        const char *f;
+        at_frames(a, 2);
+        f = app_settings_get(app_settings_of(a), "tool.text.font");
+        app_copy_str(f0, sizeof f0, f ? f : "");
+        for (int x = a->opt_bar.x + 4; x < a->opt_bar.x + 600 && !found; x += 8) {
+            SDL_Event e;
+            float y = (float)(a->opt_bar.y + a->opt_bar.h / 2);
+            at_mouse(a, SDL_EVENT_MOUSE_MOTION, (float)x, y, 0);
+            at_frames(a, 1);
+            memset(&e, 0, sizeof e);
+            e.type = SDL_EVENT_MOUSE_WHEEL;
+            e.wheel.y = -1.0f;
+            e.wheel.mouse_x = (float)x;
+            e.wheel.mouse_y = y;
+            e.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+            app_event(a, &e);
+            at_frames(a, 2);
+            if (strcmp(k_tool(a), "text") != 0) {          /* that was the tool dropdown */
+                CHECK(app_tool_select(a, "text"));
+                at_frames(a, 2);
+                continue;
+            }
+            f = app_settings_get(app_settings_of(a), "tool.text.font");
+            found = f && strcmp(f, f0) != 0;
+        }
+        CHECK(found);
+    }
+    app_destroy(a);
+}
+
 int main(int argc, char **argv)
 {
     pc_test_init(argc, argv);
@@ -273,6 +340,7 @@ int main(int argc, char **argv)
     RUN(t_alt_alone);
     RUN(t_help_and_tools);
     RUN(t_toolbar_wheel);
+    RUN(t_font_wheel);
     at_quit();
     return pc_test_finish();
 }

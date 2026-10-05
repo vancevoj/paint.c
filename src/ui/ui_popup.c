@@ -1010,7 +1010,10 @@ bool ui_combo(ui_ctx *ctx, const char *id_str, int *index, const char *const *it
         bool scrolled = n > COMBO_MAX_ROWS;
         if (p) p->min_w = r.w;
         if (scrolled) {
-            ui_rect sr = ui_layout_next(ctx, wmax + 2 * padx, ctx->px.menu_item_h * COMBO_MAX_ROWS);
+            /* rows need their lead, right padding and the scroll bar (lane KEYS:
+             * long names were cut off) */
+            int32_t rw = wmax + ctx->px.icon + ui_px(ctx, 28.0f) + ctx->px.scrollbar;
+            ui_rect sr = ui_layout_next(ctx, rw, ctx->px.menu_item_h * COMBO_MAX_ROWS);
             ui_scroll_begin(ctx, "##rows", sr, UI_SCROLL_NO_BG);
         }
         for (int i = 0; i < n; i++) {
