@@ -314,6 +314,7 @@ void app_tool_paint_opts(const app *a, pc_paint_opts *o)
         o->blend = (pc_blend_mode)(a->ts.blend < 0 ? 0 : a->ts.blend);
     }
     o->clip_to_selection = true;
+    o->clip_pixelated = !a->ts.sel_clip_aa;      /* O-SELCLIP pixelated */
 }
 
 /* O-WIDTH-PRESETS: 1..15 by 1, 20..100 by 5, 125..500 by 25, then coarser
