@@ -309,11 +309,13 @@ static int work_inner(fx_job *j, uint32_t max_rois)
     while (count < max_rois) {
         uint32_t idx, slot;
         int r;
+        fx_img dst;
         if (pc_atomic_load(&j->cancel)) return FX_WORK_FINISHED;
         if (pc_atomic_load(&j->next) >= j->n_rois) return FX_WORK_FINISHED;
         idx = pc_atomic_inc(&j->next) - 1u;
         if (idx >= j->n_rois) return FX_WORK_FINISHED;
-        r = j->fx->render(j->params, j->state, &j->src, &j->dst, j->rois[idx], &j->env, host, j);
+        dst = j->dst;     /* per call: an effect touching the descriptor cannot race */
+        r = j->fx->render(j->params, j->state, &j->src, &dst, j->rois[idx], &j->env, host, j);
         if (r == FX_OK) {
             slot = pc_atomic_inc(&j->done_tail) - 1u;
             pc_atomic_store(&j->slots[slot], idx + 1u);

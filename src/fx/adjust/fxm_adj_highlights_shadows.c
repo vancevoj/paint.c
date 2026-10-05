@@ -237,8 +237,10 @@ static int render(const void *params, const void *state, const fx_img *src, fx_i
             double i = (double)((7471u * px.b + 38470u * px.g + 19595u * px.r + 128u) >> 8) /
                        HL_MASK_ONE;
             double cl = c * (i - m) * (1.0 - (2.0 * m - 1.0) * (2.0 * m - 1.0));
-            uint8_t ch[3];
-            const uint8_t in[3] = { px.b, px.g, px.r };
+            uint8_t ch[3], in[3];
+            in[0] = px.b;
+            in[1] = px.g;
+            in[2] = px.r;
             for (int k = 0; k < 3; k++) {
                 double lin = (double)st->dec[in[k]] * gain;
                 int idx = lin >= 1.0 ? HL_ENC_N - 1 : (int)(lin * 65535.0 + 0.5);

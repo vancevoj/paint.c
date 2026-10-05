@@ -723,6 +723,23 @@ static void t_job_basics(void)
     CHECK(((const all_params *)fx_job_params(job))->tint == 0xFF000000u);
     fx_job_destroy(job);
 
+    /* the area is clipped to region, selection, src and dst */
+    {
+        fx_img small = fxt_img_new(fxt_rect(20, 10, 30, 20), 4);
+        fx_rect a;
+        CHECK(fx_job_create(&k_all, NULL, &src, &small, &env, fxt_rect(-5, -5, 100, 100), 8,
+                            NULL, &job) == PC_OK);
+        a = fx_job_area(job);
+        CHECK(a.x == 20 && a.y == 10 && a.w == 30 && a.h == 20);
+        CHECK(fx_job_work(job, 0) == FX_WORK_FINISHED && fx_job_state(job) == FX_JOB_DONE);
+        fx_job_destroy(job);
+        CHECK(fx_job_create(&k_all, NULL, &src, &small, &env, fxt_rect(0, 0, 5, 5), 8, NULL,
+                            &job) == PC_OK);
+        CHECK(fx_job_roi_count(job) == 0u && fx_job_area(job).w == 0);
+        fx_job_destroy(job);
+        fxt_img_free(&small);
+    }
+
     /* ROI count cap on a huge (never rendered) area */
     {
         fx_img big = src, bigd = dst;
@@ -901,7 +918,9 @@ static void t_job_stress(void)
     CHECK(fxt_run(&k_all, &p, &src, &ref, &env, env.sel, 64, 1u, NULL) == FX_JOB_DONE);
     for (int i = 0; i < rounds; i++) {
         int32_t tile = (int32_t)rndu(40u) + 1;
-        int32_t prio[2] = { (int32_t)rndu(200u) - 7, (int32_t)rndu(150u) - 3 };
+        int32_t prio[2];
+        prio[0] = (int32_t)rndu(200u) - 7;
+        prio[1] = (int32_t)rndu(150u) - 3;
         fxt_fill_canary(&out);
         CHECK(fxt_run(&k_all, &p, &src, &out, &env, env.sel, tile, 2u + rndu(7u),
                       rndu(2u) ? prio : NULL) == FX_JOB_DONE);

@@ -194,7 +194,7 @@ static uint32_t clamp_all(const fx_effect *fx, void *params, bool write)
     if (!fx || !params) return 0;
     for (uint32_t i = 0; i < fx->n_props; i++) {
         const fx_prop *p = &fx->props[i];
-        int32_t v, w;
+        int32_t v = 0, w = 0;
         if (!prop_fits(fx, p)) continue;
         switch (p->kind) {
         case FXP_INT:

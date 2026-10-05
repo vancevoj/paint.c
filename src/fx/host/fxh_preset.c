@@ -197,7 +197,7 @@ static bool ieq(const char *s, size_t n, const char *lit)
 
 static bool parse_value(const fx_prop *p, void *params, const char *v, size_t n)
 {
-    double d;
+    double d = 0.0;
     uint32_t vs = fx_prop_value_size(p);
     switch (p->kind) {
     case FXP_BOOL:
