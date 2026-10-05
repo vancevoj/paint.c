@@ -111,10 +111,12 @@ The toolchain file (`cmake/toolchains/mingw-w64-x86_64.cmake`):
 - links libgcc and winpthread statically, so the `.exe` files need no extra
   DLLs;
 - sets `CMAKE_CROSSCOMPILING_EMULATOR` to
-  `env -u DISPLAY -u WAYLAND_DISPLAY WINEPREFIX=<prefix> WINEDEBUG=-all wine`,
+  `env -u DISPLAY -u WAYLAND_DISPLAY LC_ALL=C.UTF-8 WINEPREFIX=<prefix> WINEDEBUG=-all wine`,
   so plain `ctest` runs every test under Wine, headless. Without a display
   Wine keeps its clipboard private, so the clipboard tests can never touch
-  the desktop clipboard. The prefix is `PC_WINEPREFIX`, else `$WINEPREFIX`
+  the desktop clipboard. Wine stores Windows file names in the Unix
+  locale's charset, so under the C locale (a bare container) the UTF-8 file
+  name tests would fail; the emulator forces `C.UTF-8`. The prefix is `PC_WINEPREFIX`, else `$WINEPREFIX`
   at configure time, else `<build>/wineprefix`. Wine refuses to create a
   prefix inside a directory that another user owns (as root in a CI
   container over a runner-owned checkout), so CI keeps it in `/tmp`.

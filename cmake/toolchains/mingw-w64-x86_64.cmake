@@ -8,9 +8,9 @@
 #
 # CTest runs the .exe files under Wine through CMAKE_CROSSCOMPILING_EMULATOR,
 # headless (no DISPLAY / WAYLAND_DISPLAY, so tests can never touch the
-# desktop clipboard) and in a dedicated prefix: PC_WINEPREFIX, else the
-# WINEPREFIX environment variable at configure time, else
-# <build>/wineprefix. The user's default ~/.wine is never used.
+# desktop clipboard), in a UTF-8 locale and in a dedicated prefix:
+# PC_WINEPREFIX, else the WINEPREFIX environment variable at configure
+# time, else <build>/wineprefix. The user's default ~/.wine is never used.
 set(CMAKE_SYSTEM_NAME Windows)
 set(CMAKE_SYSTEM_PROCESSOR AMD64)
 
@@ -46,8 +46,11 @@ if(PC_WINE AND PC_ENV)
     endif()
   endif()
   set(PC_WINEPREFIX "${PC_WINEPREFIX}" CACHE PATH "Wine prefix for running cross-built tests")
+  # LC_ALL=C.UTF-8: Wine maps Windows file names to Unix names in the
+  # locale's charset. Under the C locale (CI containers) names outside ASCII
+  # cannot be created, and the UTF-8 file name tests in test_pal fail.
   set(CMAKE_CROSSCOMPILING_EMULATOR
-      ${PC_ENV} -u DISPLAY -u WAYLAND_DISPLAY
+      ${PC_ENV} -u DISPLAY -u WAYLAND_DISPLAY LC_ALL=C.UTF-8
       WINEPREFIX=${PC_WINEPREFIX} WINEDEBUG=-all WINEDLLOVERRIDES=mscoree,mshtml=
       ${PC_WINE})
 endif()
