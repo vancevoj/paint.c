@@ -6,9 +6,9 @@
  * the profile only (the pixels keep their values, so the appearance
  * changes); Convert transforms the pixels of every layer from the current
  * profile to the new one (appearance kept, colors outside the new gamut
- * clipped) and assigns it. Both are one history step. The canvas shows
- * the pixel values as sRGB (no display color management yet, VIEW.md
- * V-RENDER-CM gap).
+ * clipped) and assigns it. Both are one history step. The canvas and the
+ * Colors window show the pixels converted from this profile to sRGB or
+ * to the display's profile (lane SHELL, shell_cm.c, V-RENDER-CM).
  *
  * Thread rules: main thread; Convert transforms tiles with the worker
  * pool. Ownership: profile bytes are copied.

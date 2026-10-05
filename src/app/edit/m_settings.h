@@ -12,6 +12,9 @@
 
 /* Open the Settings dialog on page (0 User Interface ... 7 Diagnostics). */
 void   m_settings_open(app *a, int page);
+/* The page the open Settings dialog shows, -1 when it is closed (lane
+ * SHELL; Effects > Plugin Errors opens page 6). */
+int    m_settings_page(const app *a);
 
 /* Read the preferences from the settings store into the app (canvas
  * shadow, border color, checkerboard brightness, pen input, history

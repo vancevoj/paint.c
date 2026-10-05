@@ -55,6 +55,12 @@ typedef struct gfx_style {
     int32_t  checker_cell;           /* cell size in screen px, >= 1 */
     bool     grid;                   /* pixel grid enabled (shown at zoom >= 2) */
     gfx_rgba grid_color;
+    /* display color transform (V-RENDER-CM, lane SHELL): applied in place
+     * to a copy of every tile before it is uploaded (n premultiplied BGRA
+     * pixels); NULL = none. A different xf_key uploads every page again. */
+    void   (*xf)(void *ud, uint8_t *bgra, size_t n);
+    void    *xf_ud;
+    uint64_t xf_key;
 } gfx_style;
 
 typedef struct gfx_stats {
@@ -96,6 +102,11 @@ bool        gfx_view_ready(const gfx_view *v, const pc_view_cache *vc);
 void        gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
                             const gfx_style *st, gfx_stats *stats);
 void        gfx_canvas_stats(const gfx_canvas *c, gfx_stats *out);
+
+/* Settings > Diagnostics (lane SHELL): the renderer and, where the back end
+ * can tell, the graphics adapter, its driver and API version (gfx_info.c).
+ * r is borrowed; main thread. */
+void        gfx_renderer_describe(struct SDL_Renderer *r, char *out, size_t cap);
 
 /* Marching ants for the contours of p (document coordinates): a solid
  * white outline with black dashes of dash px, shifted by phase px along the

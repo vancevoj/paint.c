@@ -473,6 +473,7 @@ static void t_ants(void)
     CHECK(a != NULL);
     if (!a) return;
     d = app_active_doc(a);
+    app_panels_set_translucent(a, false);            /* no fading windows asking for frames */
     CHECK(app_canvas_ants_hz(a) == 60.0f);           /* headless: no display mode */
     app_canvas_force_power_saver(a, 0);
     CHECK(app_cmd_exec(a, "edit.select_all"));

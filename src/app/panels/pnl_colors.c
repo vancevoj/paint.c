@@ -22,6 +22,10 @@
  *   W-COL-PALMENU  palette files, Save Current Palette As..., Open Palettes
  *                  Folder (created if missing), Reset to Default Palette
  *
+ * W-COL-CM (lane SHELL): colors are values of the active image's working
+ * space; the window draws them through the same display transform as the
+ * canvas (shell_cm.c), so a swatch looks like the pixels it paints.
+ *
  * The color model follows the MIT 3.36 source (integer HSV, docs/notice/p.md);
  * the window keeps H, S and V beside the color so hue and saturation survive
  * gray and black while the sliders are dragged.
@@ -29,6 +33,7 @@
  * Thread rules: main thread. State lives in the app extension "pnl.colors"
  * (owned by the app; the wheel texture is destroyed with it). */
 #include "pnl.h"
+#include "../shell_ext.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -63,6 +68,7 @@ typedef struct colors_state {
     /* wheel */
     SDL_Texture *wheel_tex;
     int32_t      wheel_px;
+    uint64_t     wheel_cm;                 /* display transform the texture was made with */
     int          drag;                     /* -1, 0 left (active slot), 1 right (inactive) */
     pnl_hsv      drag_start;
     bool         rdown_prev;
@@ -245,12 +251,30 @@ static void set_active_hsv(app *a, colors_state *c, pnl_hsv h, uint8_t alpha)
     c->hsv_valid = true;
 }
 
+/* ---- display colors (W-COL-CM, lane SHELL) ------------------------------------------- */
+static uint64_t cm_key(app *a)
+{
+    app_doc *d = app_active_doc(a);
+    return d ? app_cm_view_key(a, d) : 0u;
+}
+
+static ui_color disp(app *a, ui_color c)
+{
+    app_doc *d = app_active_doc(a);
+    pc_px32 p;
+    if (!d || !app_cm_view_key(a, d)) return c;
+    p = app_px_make(c.r, c.g, c.b, 255);
+    app_cm_to_display(a, d, &p, 1u);
+    return ui_rgba(p.r, p.g, p.b, c.a);
+}
+
 /* ---- wheel ------------------------------------------------------------------------- */
 static SDL_Texture *wheel_texture(app *a, colors_state *c, int32_t px)
 {
     uint8_t *buf;
     float r = (float)px * 0.5f - 0.5f, cx = (float)px * 0.5f;
-    if (c->wheel_tex && c->wheel_px == px) return c->wheel_tex;
+    uint64_t key = cm_key(a);
+    if (c->wheel_tex && c->wheel_px == px && c->wheel_cm == key) return c->wheel_tex;
     if (c->wheel_tex) SDL_DestroyTexture(c->wheel_tex);
     c->wheel_tex = NULL;
     buf = (uint8_t *)malloc((size_t)px * (size_t)px * 4u);
@@ -283,7 +307,14 @@ static SDL_Texture *wheel_texture(app *a, colors_state *c, int32_t px)
             o[1] = (uint8_t)(cg * 255.0f + 0.5f);
             o[2] = (uint8_t)(cb * 255.0f + 0.5f);
             o[3] = (uint8_t)(cov * 255.0f + 0.5f);
+            if (key) {
+                ui_color dc = disp(a, ui_rgba(o[0], o[1], o[2], 255));
+                o[0] = dc.r;
+                o[1] = dc.g;
+                o[2] = dc.b;
+            }
         }
+    c->wheel_cm = key;
     c->wheel_tex =
         SDL_CreateTexture(a->ren, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, px, px);
     if (c->wheel_tex) {
@@ -366,7 +397,8 @@ static void wheel(app *a, colors_state *c, ui_rect wr)
         pc_px32 col = slot_color(a, app_color_slot(a));
         ui_draw_circle(ui, p, mr + 1.0f, ui_rgba(0, 0, 0, 110));
         ui_draw_circle(ui, p, mr, ui_rgba(255, 255, 255, 255));
-        ui_draw_circle(ui, p, mr - (float)ui_px(ui, 2.0f), ui_rgba(col.r, col.g, col.b, 255));
+        ui_draw_circle(ui, p, mr - (float)ui_px(ui, 2.0f),
+                       disp(a, ui_rgba(col.r, col.g, col.b, 255)));
     }
     ui_tooltip(ui, "Left click sets the active color, right click the other one");
 }
@@ -474,6 +506,8 @@ static void channel_row(app *a, colors_state *c, ui_rect r, int ch)
                 c0 = ui_rgba(col.r, col.g, col.b, 0);
                 c1 = ui_rgba(col.r, col.g, col.b, 255);
             }
+            c0 = disp(a, c0);
+            c1 = disp(a, c1);
             ui_draw_gradient(ui, ui_rect_make(x0, bar.y, x1 - x0, bar.h), c0, c1, c1, c0);
         }
     }
@@ -569,7 +603,7 @@ static void swatch(app *a, ui_rect r, ui_color col)
         int32_t cell = r.h / 2 > 1 ? r.h / 2 : 1;
         ui_draw_checker(a->ui, r, cell, p->checker_a, p->checker_b);
     }
-    ui_draw_rect(a->ui, r, col);
+    ui_draw_rect(a->ui, r, disp(a, col));
 }
 
 static void palette_grid(app *a, colors_state *c, ui_rect area, int n)
@@ -845,8 +879,8 @@ void pnl_colors_body(app *a, void *ud)
         int act;
         int32_t ic = ui_px(ui, 16.0f);
         ui_layout_set_next(ui, pr);
-        act = ui_color_pair(ui, "##pair", app_px_to_ui(app_primary(a)),
-                            app_px_to_ui(app_secondary(a)), app_color_slot(a));
+        act = ui_color_pair(ui, "##pair", disp(a, app_px_to_ui(app_primary(a))),
+                            disp(a, app_px_to_ui(app_secondary(a))), app_color_slot(a));
         if (act == UI_PAIR_SWAP) (void)app_cmd_exec(a, "colors.swap");
         if (act == UI_PAIR_RESET) (void)app_cmd_exec(a, "colors.reset");
         if (act == UI_PAIR_SELECT_PRIMARY) app_set_color_slot(a, 0);

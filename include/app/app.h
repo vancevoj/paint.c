@@ -46,7 +46,8 @@ typedef struct pal_pool pal_pool;
 typedef enum app_theme_pref {
     APP_THEME_AUTO = 0,      /* follow SDL_GetSystemTheme */
     APP_THEME_LIGHT = 1,
-    APP_THEME_DARK = 2
+    APP_THEME_DARK = 2,
+    APP_THEME_BLUE = 3       /* light with blue chrome (lane SHELL, WINDOWS 8.1) */
 } app_theme_pref;
 
 typedef struct app_opts {

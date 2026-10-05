@@ -46,7 +46,9 @@ static layers_state *lstate(app *a)
 static void toggle_visible(app *a, app_doc *d, uint32_t layer_id)
 {
     pc_layer *l;
-    (void)app_tool_finish(a);
+    /* lane SHELL: only live edits that hold a transaction finish first (a
+     * Move Selected Pixels session stays, MENUS.md R 5.1) */
+    if (d->txn) (void)app_tool_finish(a);
     l = pc_doc_layer_by_id(d->doc, layer_id);
     if (!l || d->txn) return;
     if (pc_hist_set_layer_props(d->hist, l->id, l->mode, l->opacity, !l->visible, l->name,

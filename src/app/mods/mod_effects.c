@@ -14,6 +14,7 @@
  * --disable-plugins skips both (K-CLI-NOPLUGINS). Main thread. */
 #include "../app_internal.h"
 #include "fx/afx.h"
+#include "../edit/m_settings.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,7 +48,9 @@ static bool has_plugin_errors(app *a, const app_cmd *c)
 static void cmd_plugin_errors(app *a, const app_cmd *c)
 {
     (void)c;
-    afx_plugin_errors_dialog(a);
+    /* lane SHELL: MENUS.md, Effects > Plugin Errors opens Settings > Plugin
+     * Errors (page 6) */
+    m_settings_open(a, 6);
 }
 
 void afx_register_commands(app *a)

@@ -35,6 +35,10 @@ struct gfx_canvas {
     /* grid scratch */
     SDL_FRect           *rects;
     size_t               nrects_cap;
+    /* display transform of this draw (lane SHELL) */
+    const gfx_style     *st;
+    uint64_t             xf_key;
+    uint8_t             *xbuf;               /* one tile, owned */
 };
 
 static const uint8_t k_zero_tile[PC_TILE_PX * 4u] = {0};
@@ -65,6 +69,7 @@ void gfx_canvas_destroy(gfx_canvas *c)
     drop_pages(c);
     if (c->checker) SDL_DestroyTexture(c->checker);
     free(c->rects);
+    free(c->xbuf);
     free(c);
 }
 
@@ -192,6 +197,14 @@ static gfx_page *get_page(gfx_canvas *c, uint32_t level, uint32_t px, uint32_t p
 static void upload(gfx_canvas *c, gfx_page *p, uint32_t slot, const uint8_t *px)
 {
     SDL_Rect r;
+    if (px && c->st && c->st->xf) {
+        if (!c->xbuf) c->xbuf = (uint8_t *)malloc(PC_TILE_PX * 4u);
+        if (c->xbuf) {
+            memcpy(c->xbuf, px, PC_TILE_PX * 4u);
+            c->st->xf(c->st->xf_ud, c->xbuf, PC_TILE_PX);
+            px = c->xbuf;
+        }
+    }
     r.x = (int)((slot % GFX_PAGE_TILES) * PC_TILE_DIM);
     r.y = (int)((slot / GFX_PAGE_TILES) * PC_TILE_DIM);
     r.w = (int)PC_TILE_DIM;
@@ -367,6 +380,11 @@ void gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
         vis = view;
     }
     if (vis.w <= 0 || vis.h <= 0 || v->dw == 0u || v->dh == 0u) goto done;
+    c->st = st;
+    if (st->xf_key != c->xf_key) {           /* the display transform changed */
+        for (uint32_t i = 0; i < c->npages; i++) c->pages[i].live = false;
+        c->xf_key = st->xf_key;
+    }
     if (vc) {
         pc_view_cache_stats(vc, &vs);
         if (vc != c->vc || vs.epoch != c->vc_epoch) {
@@ -460,5 +478,6 @@ void gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
 grid:
     if (st->grid && v->zoom >= 2.0 - 1e-9) draw_grid(c, v, st, &vis);
 done:
+    c->st = NULL;
     if (stats) gfx_canvas_stats(c, stats);
 }

@@ -112,6 +112,10 @@ static void cmd_visibility(app *a, const app_cmd *c)
     pc_layer *l = app_doc_layer(d);
     (void)c;
     if (!l) return;
+    /* lane SHELL (MENUS.md R 5.1): registered APP_CMD_NO_COMMIT, so a Move
+     * Selected Pixels session (no open transaction between drags) is not
+     * committed; live edits that hold a transaction still finish first */
+    if (d->txn) (void)app_tool_finish(a);
     /* hiding keeps the layer active (R 4.1) */
     after(a, d, pc_hist_set_layer_props(d->hist, l->id, l->mode, l->opacity, !l->visible, l->name,
                                         l->visible ? "Hide Layer" : "Show Layer"),
@@ -343,7 +347,7 @@ void mod_layers(app *a)
     reg(a, "layers.merge_down", "Merge Layer Down", UI_ICON_LAYER_MERGE, cmd_merge, not_bottom, 0,
         0, NULL);
     reg(a, "layers.toggle_visibility", "Toggle Layer Visibility", UI_ICON_EYE, cmd_visibility,
-        NULL, 0, 0, NULL);
+        NULL, 0, APP_CMD_NO_COMMIT, NULL);
     reg(a, "layers.import", "Import From File...", UI_ICON_OPEN, cmd_import, has_window, 0, 0,
         NULL);
     reg(a, "layers.flip_h", "Flip Layer Horizontal", UI_ICON_FLIP_H, cmd_layer_flip, NULL, 1, 0,

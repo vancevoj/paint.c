@@ -3,6 +3,7 @@
  * persistence of their rectangles plus the Colors window state (palette,
  * More / Less) in the settings (app_ui.h, lane P). Main thread. */
 #include "app_internal.h"
+#include "shell_ext.h"
 #include "panels/pnl.h"
 
 #include <stdio.h>
@@ -109,7 +110,10 @@ void app_panels_frame(app *a)
 {
     for (int32_t i = 0; i < a->npanels; i++) {
         app_panel *p = &a->panels[i];
+        ui_rect pr = ui_panel_rect(a->ui, p->title);    /* lane SHELL: as shown last frame */
         if (ui_panel_begin(a->ui, p->title, &p->st, p->def.flags)) {
+            /* lane SHELL: translucent utility windows */
+            ui_panel_set_alpha(a->ui, app_panel_alpha(a, i, pr, ui_panel_held(a->ui)));
             p->def.body(a, p->def.ud);
             ui_panel_end(a->ui);
         }

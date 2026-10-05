@@ -60,6 +60,7 @@ typedef struct shell_cv {
     double       p_d0, p_cx0, p_cy0;  /* start distance and centroid (normalized) */
     double       p_z0, p_docx, p_docy;/* zoom at the start, image point under the centroid */
     bool         native_pinch;        /* SDL >= 3.4 pinch events seen */
+    bool         pen_seen;            /* a pen event arrived (Settings > Diagnostics) */
     bool         touch_block;         /* ignore touch-synthesized mouse until fingers lift */
     bool         touch_press;         /* the last canvas press came from a touch screen */
     uint32_t     touch_doc;           /* image and history node at that press */
@@ -118,6 +119,12 @@ void app_canvas_set_first_budget(app *a, uint64_t ns)
 {
     shell_cv *s = scv(a);
     if (s) s->first_budget_ns = ns;
+}
+
+bool app_canvas_pen_seen(const app *a)
+{
+    shell_cv *s = scv(a);
+    return s && s->pen_seen;
 }
 
 bool app_canvas_first_shown(app *a)
@@ -653,6 +660,11 @@ void app_canvas_event(app *a, const SDL_Event *e)
         return;
     }
 #endif
+    if (e->type == SDL_EVENT_PEN_DOWN || e->type == SDL_EVENT_PEN_MOTION ||
+        e->type == SDL_EVENT_PEN_PROXIMITY_IN) {
+        shell_cv *s = scv(a);
+        if (s) s->pen_seen = true;
+    }
     if ((e->type == SDL_EVENT_MOUSE_MOTION && e->motion.which == SDL_TOUCH_MOUSEID) ||
         ((e->type == SDL_EVENT_MOUSE_BUTTON_DOWN || e->type == SDL_EVENT_MOUSE_BUTTON_UP) &&
          e->button.which == SDL_TOUCH_MOUSEID)) {
@@ -783,6 +795,10 @@ void app_canvas_event(app *a, const SDL_Event *e)
     case SDL_EVENT_WINDOW_FOCUS_LOST:
         c->space_down = false;
         if (c->captured) app_canvas_lost_capture(a);
+        break;
+    case SDL_EVENT_WINDOW_ICCPROF_CHANGED:      /* lane SHELL: display color management */
+    case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
+        app_cm_display_changed(a);
         break;
     default:
         break;
@@ -1268,6 +1284,7 @@ static void draw_cb(SDL_Renderer *r, ui_rect clip, void *ud)
     st.grid = a->grid;
     st.grid_color = a->dark ? gfx_rgba_make(255, 255, 255, 56) : gfx_rgba_make(0, 0, 0, 56);
     if (!d) return;
+    (void)app_cm_gfx_style(a, d, &st);     /* lane SHELL: V-RENDER-CM */
     gfx_canvas_draw(a->cv.gfx, &dc->v, d->vcache, &st, &a->cv.stats);
     {
         const pc_poly *ants = app_doc_ants(d);

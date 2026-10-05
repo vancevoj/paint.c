@@ -46,6 +46,9 @@ bool     app_canvas_ants_paused(app *a);
 /* Testing hook: force the battery saver state (-1 = measure, 0 off, 1 on). */
 void     app_canvas_force_power_saver(app *a, int state);
 
+/* A pen sent events in this session (Settings > Diagnostics). */
+bool     app_canvas_pen_seen(const app *a);
+
 /* V-NOFLICKER: true once the active image has been presented completely
  * at least once since it became active (until then neither the
  * checkerboard nor a partial image is shown). */
@@ -74,9 +77,12 @@ uint64_t app_cm_view_key(app *a, const app_doc *d);
 /* Convert n straight-alpha colors of d's working space for display (the
  * same transform the canvas uses). No-op when app_cm_view_key is 0. */
 void     app_cm_to_display(app *a, const app_doc *d, pc_px32 *px, size_t n);
-/* Inverse for picking colors on screen-space widgets (Colors window):
- * display color -> d's working space (nearest match, matrix profiles). */
-void     app_cm_from_display(app *a, const app_doc *d, pc_px32 *px, size_t n);
+/* Fill the display transform of st for d (canvas draw); false when the
+ * pixels are shown unchanged. The callback data stays valid until the
+ * next app_cm_* call. */
+bool     app_cm_gfx_style(app *a, const app_doc *d, gfx_style *st);
+/* The window's display or its profile changed (SDL window events). */
+void     app_cm_display_changed(app *a);
 /* One-line status for Settings > Color Management. */
 void     app_cm_status(app *a, char *out, size_t cap);
 
@@ -84,5 +90,10 @@ void     app_cm_status(app *a, char *out, size_t cap);
 /* Settings > User Interface "Translucent windows" (default on). */
 void     app_panels_set_translucent(app *a, bool on);
 bool     app_panels_translucent(const app *a);
+/* The opacity panel number index should have this frame (0.75 .. 1),
+ * animated toward its target (frames are requested while it moves). pr is
+ * the panel's rectangle as shown last frame, held whether one of its
+ * widgets holds the mouse (ui_panel_held). */
+float    app_panel_alpha(app *a, int32_t index, ui_rect pr, bool held);
 
 #endif /* SHELL_EXT_H */
