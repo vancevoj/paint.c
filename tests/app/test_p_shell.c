@@ -134,7 +134,7 @@ static void t_image_list_overflow(void)
     CHECK(!ui_rect_empty(pnl_rect(a, "imagelist.left")) &&
           !ui_rect_empty(pnl_rect(a, "imagelist.right")));
     CHECK(inside(pnl_rect(a, "imagelist.strip"), pnl_rect(a, "imagelist.active")));
-    for (int i = 0; i < 5; i++) pt_key(a, SDLK_TAB, SDL_KMOD_LCTRL);   /* wraps to the start */
+    for (int i = 0; i < 5; i++) pt_key(a, SDLK_TAB, AT_KMOD_PRIMARY);   /* wraps to the start */
     at_frames(a, 2);
     CHECK(app_doc_index(a, app_active_doc(a)) == 4);
     CHECK(inside(pnl_rect(a, "imagelist.strip"), pnl_rect(a, "imagelist.active")));
@@ -237,20 +237,20 @@ static void t_status_bar(void)
     CHECK(strcmp(pnl_status_field(a, PNL_SF_ZOOM), "100%") == 0);
     CHECK(pt_click_rect(a, "status.zoom_box", SDL_BUTTON_LEFT));
     at_frames(a, 2);
-    pt_key(a, SDLK_A, SDL_KMOD_LCTRL);
+    pt_key(a, SDLK_A, AT_KMOD_PRIMARY);
     pt_text(a, "250");
     pt_key(a, SDLK_RETURN, SDL_KMOD_NONE);
     CHECK(fabs(d->view.zoom - 2.5) < 1e-9);
     CHECK(strcmp(pnl_status_field(a, PNL_SF_ZOOM), "250%") == 0);
     CHECK(pt_click_rect(a, "status.zoom_box", SDL_BUTTON_LEFT));
     at_frames(a, 2);
-    pt_key(a, SDLK_A, SDL_KMOD_LCTRL);
+    pt_key(a, SDLK_A, AT_KMOD_PRIMARY);
     pt_text(a, "99999");
     pt_key(a, SDLK_RETURN, SDL_KMOD_NONE);
     CHECK(fabs(d->view.zoom - 100.0) < 1e-9);
     CHECK(pt_click_rect(a, "status.zoom_box", SDL_BUTTON_LEFT));
     at_frames(a, 2);
-    pt_key(a, SDLK_A, SDL_KMOD_LCTRL);
+    pt_key(a, SDLK_A, AT_KMOD_PRIMARY);
     pt_text(a, "37");
     pt_key(a, SDLK_ESCAPE, SDL_KMOD_NONE);
     CHECK(fabs(d->view.zoom - 100.0) < 1e-9);
@@ -323,7 +323,7 @@ static void t_toolbar_windows(void)
         st->x = 300.0f;
         st->w = 400.0f;
     }
-    pt_mod(a, SDLK_LCTRL, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT, true);
+    pt_mod(a, AT_KEY_PRIMARY, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT, true);
     {
         ui_rect b = pnl_rect(a, "top.window3");
         pt_button(a, SDL_EVENT_MOUSE_BUTTON_DOWN, pt_cx(b), pt_cy(b), SDL_BUTTON_LEFT, 1);
@@ -332,13 +332,13 @@ static void t_toolbar_windows(void)
         pt_button(a, SDL_EVENT_MOUSE_BUTTON_UP, pt_cx(b), pt_cy(b), SDL_BUTTON_LEFT, 1);
         at_frames(a, 2);
     }
-    pt_mod(a, SDLK_LCTRL, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT, false);
+    pt_mod(a, AT_KEY_PRIMARY, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT, false);
     CHECK(st && st->x == 8.0f && st->w == 270.0f && st->open);
     /* Ctrl+Shift+F8 resets the Colors window, keeping its mode's size */
     pnl_colors_set_expanded(a, true);
     st = app_panel_state(a, "colors");
     if (st) st->x = 200.0f;
-    pt_key(a, SDLK_F8, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    pt_key(a, SDLK_F8, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     CHECK(st && st->x == 8.0f && st->w == 508.0f);
     /* Reset Window Layout: all four, open */
     app_panel_toggle(a, "tools");

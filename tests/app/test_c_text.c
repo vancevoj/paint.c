@@ -201,7 +201,7 @@ static void t_backend(void)
         pc_path_init(&p);
         CHECK(f->outline(f->ud, ga, 100.0, PC_TEXT_SMOOTH, &p) == PC_OK);
         {
-            pc_pt mn, mx;
+            pc_pt mn = {0.0, 0.0}, mx = {0.0, 0.0};
             CHECK(p.n_verbs > 3u && pc_path_bounds(&p, &mn, &mx));
             /* y down: the glyph sits above the baseline */
             CHECK(mx.y <= 1.0 && mn.y < -50.0 && mn.x >= -2.0 && mx.x < 90.0);
@@ -362,9 +362,9 @@ static void t_typing(void)
     CHECK(app_tool_live(a));
     type(a, "two words");
     CHECK(text_is(a, "Xelo\ntwo words"));
-    key(a, SDLK_BACKSPACE, SDL_KMOD_CTRL);
+    key(a, SDLK_BACKSPACE, AT_KMOD_PRIMARY);
     CHECK(text_is(a, "Xelo\ntwo "));
-    key(a, SDLK_LEFT, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    key(a, SDLK_LEFT, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     CHECK(pc_text_has_selection(text_tool_editing(a)));
     type(a, "2");                             /* typing replaces the selection */
     CHECK(text_is(a, "Xelo\n2"));
@@ -422,13 +422,13 @@ static void t_mouse_clipboard(void)
         t = text_tool_editing(a);
         CHECK(t && pc_text_has_selection(t));
     }
-    key(a, SDLK_X, SDL_KMOD_CTRL);
+    key(a, SDLK_X, AT_KMOD_PRIMARY);
     CHECK(text_is(a, "aef"));
     key(a, SDLK_END, SDL_KMOD_NONE);
-    key(a, SDLK_V, SDL_KMOD_CTRL);
+    key(a, SDLK_V, AT_KMOD_PRIMARY);
     CHECK(text_is(a, "aefbcd"));
-    key(a, SDLK_A, SDL_KMOD_CTRL);
-    key(a, SDLK_C, SDL_KMOD_CTRL);
+    key(a, SDLK_A, AT_KMOD_PRIMARY);
+    key(a, SDLK_C, AT_KMOD_PRIMARY);
     {
         char *c = pal_clip_get_text();
         CHECK(c && strcmp(c, "aefbcd") == 0);
@@ -577,7 +577,7 @@ static void t_move_commit(void)
     CHECK(app_tool_select(a, "text"));
     click(a, 50.0, 200.0);
     type(a, "undo me");
-    key(a, SDLK_Z, SDL_KMOD_CTRL);
+    key(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(!app_tool_live(a));
     CHECK(hist_len(a) == h0 + 3u);           /* the undone step stays redoable */
     CHECK(ink_in(a, 40, 180, 120, 40).n == 0);

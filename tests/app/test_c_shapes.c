@@ -152,18 +152,18 @@ static void t_draw_rect(void)
     CHECK(strcmp(cur_label(a), "Shape: Finish") == 0);
     CHECK(black(at_doc_px(a, 20, 35)));
     /* undo Finish: editable again */
-    key(a, SDLK_Z, SDL_KMOD_CTRL);
+    key(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(app_tool_live(a));
     CHECK(black(at_doc_px(a, 20, 35)));
     /* undo the creation: gone */
-    key(a, SDLK_Z, SDL_KMOD_CTRL);
+    key(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(!app_tool_live(a));
     CHECK(white(at_doc_px(a, 20, 35)));
     /* redo twice: drawn and finished */
-    key(a, SDLK_Y, SDL_KMOD_CTRL);
+    key(a, SDLK_Y, AT_KMOD_PRIMARY);
     CHECK(app_tool_live(a));
     CHECK(black(at_doc_px(a, 20, 35)));
-    key(a, SDLK_Y, SDL_KMOD_CTRL);
+    key(a, SDLK_Y, AT_KMOD_PRIMARY);
     CHECK(!app_tool_live(a));
     CHECK(black(at_doc_px(a, 20, 35)));
     /* a click without a drag draws nothing and records nothing */
@@ -266,12 +266,12 @@ static void t_edit_drags(void)
     CHECK(black(at_doc_px(a, 90, 105)));
     CHECK(white(at_doc_px(a, 125, 70)));
     /* every edit is a step: undo walks back to the creation */
-    key(a, SDLK_Z, SDL_KMOD_CTRL);
+    key(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(black(at_doc_px(a, 125, 70)));
-    key(a, SDLK_Z, SDL_KMOD_CTRL);
+    key(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(black(at_doc_px(a, 30, 30)));
     CHECK(white(at_doc_px(a, 125, 95)));
-    key(a, SDLK_Z, SDL_KMOD_CTRL);
+    key(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(white(at_doc_px(a, 95, 75)));
     CHECK(app_tool_live(a));
     app_destroy(a);
@@ -291,7 +291,7 @@ static void t_keys(void)
     CHECK(strcmp(cur_label(a), "Shape: Move") == 0);
     CHECK(black(at_doc_px(a, 60, 35)));
     CHECK(white(at_doc_px(a, 20, 35)));
-    key(a, SDLK_DOWN, SDL_KMOD_CTRL);
+    key(a, SDLK_DOWN, AT_KMOD_PRIMARY);
     CHECK(hist_len(a) == h0 + 2u);
     CHECK(black(at_doc_px(a, 40, 59)));
     CHECK(white(at_doc_px(a, 40, 25)));
@@ -339,7 +339,7 @@ static void t_live_options(void)
         CHECK(o && o->shape.style.draw == PC_SHAPE_DRAW_FILLED && o->shape.style.width == 10.0);
     }
     /* undo the coalesced options step: back to the first rendering */
-    key(a, SDLK_Z, SDL_KMOD_CTRL);
+    key(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(fp(a) == f1);
     {
         const vec_obj *o = vec_live_obj(shapes_live(a));
@@ -367,7 +367,7 @@ static void t_history_exact(void)
     f[n++] = fp(a);
     at_drag(a, 200.0, 90.0, 150.0, 170.0, 6, SDL_BUTTON_RIGHT);    /* rotate */
     f[n++] = fp(a);
-    key(a, SDLK_LEFT, SDL_KMOD_CTRL);
+    key(a, SDLK_LEFT, AT_KMOD_PRIMARY);
     f[n++] = fp(a);
     /* the final pixels equal one fresh rendering of the final object */
     {
@@ -376,12 +376,12 @@ static void t_history_exact(void)
         if (o) CHECK(fresh_fp(a, o) == f[n - 1]);
     }
     for (int i = n - 1; i > 0; i--) {
-        key(a, SDLK_Z, SDL_KMOD_CTRL);
+        key(a, SDLK_Z, AT_KMOD_PRIMARY);
         CHECK(fp(a) == f[i - 1]);
     }
     CHECK(!app_tool_live(a));
     for (int i = 1; i < n; i++) {
-        key(a, SDLK_Y, SDL_KMOD_CTRL);
+        key(a, SDLK_Y, AT_KMOD_PRIMARY);
         CHECK(fp(a) == f[i]);
         CHECK(app_tool_live(a));
     }
@@ -415,7 +415,7 @@ static void t_finish_ways(void)
     CHECK(app_tool_select(a, "pencil"));
     CHECK(strcmp(cur_label(a), "Shape: Finish") == 0);
     /* undo the Finish while another tool is active: Shapes comes back live */
-    key(a, SDLK_Z, SDL_KMOD_CTRL);
+    key(a, SDLK_Z, AT_KMOD_PRIMARY);
     at_frames(a, 2);
     CHECK(strcmp(app_tool_current(a)->id, "shapes") == 0);
     CHECK(app_tool_live(a));
@@ -442,7 +442,7 @@ static void t_all_shapes(void)
               k == PC_SHAPE_GEAR || k == PC_SHAPE_MULTIPLY || k == PC_SHAPE_CHECK_MARK);
         seen[k] = fp(a);
         for (int j = 0; j < k; j++) CHECK(seen[j] != seen[k]);
-        key(a, SDLK_Z, SDL_KMOD_CTRL);                 /* remove it again */
+        key(a, SDLK_Z, AT_KMOD_PRIMARY);                 /* remove it again */
         CHECK(!app_tool_live(a));
     }
     app_destroy(a);
@@ -553,12 +553,12 @@ static void t_offcanvas_and_close(void)
     f0 = fp(a);
     h0 = hist_len(a);
     /* move the shape completely off the canvas: a state-only step */
-    for (int i = 0; i < 12; i++) key(a, SDLK_LEFT, SDL_KMOD_CTRL);
+    for (int i = 0; i < 12; i++) key(a, SDLK_LEFT, AT_KMOD_PRIMARY);
     CHECK(hist_len(a) == h0 + 12u);
     CHECK(white(at_doc_px(a, 30, 30)));
-    for (int i = 0; i < 12; i++) key(a, SDLK_RIGHT, SDL_KMOD_CTRL);
+    for (int i = 0; i < 12; i++) key(a, SDLK_RIGHT, AT_KMOD_PRIMARY);
     CHECK(fp(a) == f0);
-    for (int i = 0; i < 24; i++) key(a, SDLK_Z, SDL_KMOD_CTRL);
+    for (int i = 0; i < 24; i++) key(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(fp(a) == f0);
     CHECK(app_tool_live(a));
     /* closing the image while editing */
@@ -586,14 +586,14 @@ static void t_pivot_corridor_flip(void)
     /* the box (100..160, 100..140) turned about (100, 100): x 60..100, y 100..160 */
     CHECK(black(at_doc_px(a, 80, 150)));
     CHECK(white(at_doc_px(a, 140, 120)));
-    key(a, SDLK_Z, SDL_KMOD_CTRL);
-    key(a, SDLK_Z, SDL_KMOD_CTRL);
+    key(a, SDLK_Z, AT_KMOD_PRIMARY);
+    key(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(black(at_doc_px(a, 140, 120)));
     /* a left drag in the corridor just outside rotates about the center */
     at_drag(a, 168.0, 120.0, 130.0, 160.0, 8, SDL_BUTTON_LEFT);
     o = vec_live_obj(shapes_live(a));
     CHECK(o && fabs(fabs(pc_shape_angle(&o->shape)) - 3.14159265358979 / 2.0) < 0.05);
-    key(a, SDLK_Z, SDL_KMOD_CTRL);
+    key(a, SDLK_Z, AT_KMOD_PRIMARY);
     /* dragging the right edge nub across the left one flips the box */
     at_drag(a, 160.0, 120.0, 60.0, 120.0, 6, SDL_BUTTON_LEFT);
     o = vec_live_obj(shapes_live(a));
@@ -617,8 +617,8 @@ static void t_history_jump(void)
     d = app_active_doc(a);
     at_drag(a, 20.2, 20.2, 80.2, 80.2, 4, SDL_BUTTON_LEFT);
     f_draw = fp(a);
-    key(a, SDLK_RIGHT, SDL_KMOD_CTRL);
-    key(a, SDLK_RIGHT, SDL_KMOD_CTRL);
+    key(a, SDLK_RIGHT, AT_KMOD_PRIMARY);
+    key(a, SDLK_RIGHT, AT_KMOD_PRIMARY);
     n = app_doc_history_list(d, nodes, 16, &cur);
     CHECK(n == 4u && cur == 3u);
     /* what the History window does on a click */

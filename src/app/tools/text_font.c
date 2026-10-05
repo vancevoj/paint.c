@@ -160,11 +160,53 @@ static uint32_t cb_glyph(void *ud, uint32_t cp)
     return t->sfnt_only ? text_sfnt_cmap(&t->cs, cp) : ui_font_cmap(t->f, cp);
 }
 
+/* Characters whose glyph may legitimately be blank: spaces, controls,
+ * format and other default-ignorable characters (ZWJ, variation
+ * selectors, tags). */
+static bool cp_blank_ok(uint32_t cp)
+{
+    return cp <= 0x20u || (cp >= 0x7Fu && cp <= 0xA0u) || cp == 0xADu || cp == 0x34Fu ||
+           cp == 0x61Cu || (cp >= 0x115Fu && cp <= 0x1160u) || cp == 0x1680u ||
+           (cp >= 0x17B4u && cp <= 0x17B5u) || (cp >= 0x180Bu && cp <= 0x180Fu) ||
+           (cp >= 0x2000u && cp <= 0x200Fu) || (cp >= 0x2028u && cp <= 0x202Fu) ||
+           (cp >= 0x205Fu && cp <= 0x206Fu) || cp == 0x3000u || cp == 0x3164u ||
+           (cp >= 0xFE00u && cp <= 0xFE0Fu) || cp == 0xFEFFu || cp == 0xFFA0u ||
+           (cp >= 0xE0000u && cp <= 0xE0FFFu);
+}
+
+/* Whether glyph gid of f draws character cp with its outline: the outline
+ * passed validation and, for a visible character, has contours. A cmap
+ * entry alone is not enough: bitmap-only TrueType files (EBDT strikes
+ * over empty glyf outlines, such as the Courier, MS Sans Serif, Small
+ * Fonts and System faces Wine installs on Windows) map every character to
+ * an empty outline, and glyphs failing validation draw nothing. */
+static bool outline_draws(const ui_font *f, uint32_t gid, uint32_t cp)
+{
+    if (!gid || !ui_font_glyph_ok(f, gid)) return false;
+    return cp_blank_ok(cp) || !stbtt_IsGlyphEmpty(&f->info, (int)gid);
+}
+
+/* The face has color layers or a bitmap for gid (lane TOOLB). */
+static bool color_draws(const tf_face *t, uint32_t gid)
+{
+    text_sfnt_image im;
+    if (!t->has_cs) return false;
+    return text_sfnt_colr_layers(&t->cs, gid, NULL, 0u) > 0u ||
+           text_sfnt_image_of(&t->cs, gid, 32.0, &im);
+}
+
+/* pc_text asks every face in order, so a character this face cannot draw
+ * goes to the next one and finally to the built-in Inter, which every set
+ * contains: the Text tool always draws with a usable face. */
 static bool cb_has(void *ud, uint32_t cp)
 {
     tf_face *t = (tf_face *)ud;
+    uint32_t g;
     if (!ensure(t)) return false;
-    return t->sfnt_only ? text_sfnt_cmap(&t->cs, cp) != 0u : ui_font_has_glyph(t->f, cp);
+    if (t->sfnt_only) return text_sfnt_cmap(&t->cs, cp) != 0u;
+    g = ui_font_cmap(t->f, cp);
+    if (!g) return false;
+    return outline_draws(t->f, g, cp) || color_draws(t, g);
 }
 
 static void cb_metrics(void *ud, double em, pc_font_metrics *o)
@@ -588,7 +630,8 @@ static bool shows_own_name(const ui_font *f, const char *name)
     size_t n = strlen(name), i = 0;
     while (i < n) {
         uint32_t cp = ui_utf8_decode(name, n, &i);
-        if (cp > 0x20u && !ui_font_has_glyph(f, cp)) return false;   /* symbol fonts */
+        /* symbol fonts, and bitmap-only faces whose outlines are empty */
+        if (cp > 0x20u && !outline_draws(f, ui_font_cmap(f, cp), cp)) return false;
     }
     return true;
 }

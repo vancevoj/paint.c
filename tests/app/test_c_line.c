@@ -268,7 +268,7 @@ static void t_move_rotate(void)
     /* arrows move 1 px, Ctrl 10 px */
     key(a, SDLK_DOWN, SDL_KMOD_NONE);
     CHECK(black(at_doc_px(a, 80, 91)));
-    key(a, SDLK_UP, SDL_KMOD_CTRL);
+    key(a, SDLK_UP, AT_KMOD_PRIMARY);
     CHECK(black(at_doc_px(a, 80, 81)));
     /* right drag (away from the nubs) rotates about the center (100.5, 81.5) */
     at_drag(a, 100.5, 61.5, 120.5, 81.5, 8, SDL_BUTTON_RIGHT);
@@ -310,7 +310,7 @@ static void t_history_exact(void)
     f[n++] = fp(a);
     at_drag(a, 90.0, 120.0, 70.0, 40.0, 6, SDL_BUTTON_LEFT);
     f[n++] = fp(a);
-    key(a, SDLK_RIGHT, SDL_KMOD_CTRL);
+    key(a, SDLK_RIGHT, AT_KMOD_PRIMARY);
     f[n++] = fp(a);
     a->ts.width = 9.0f;
     app_tool_settings_changed(a);
@@ -324,11 +324,11 @@ static void t_history_exact(void)
         if (o) CHECK(fresh_fp(a, o) == f[n - 1]);
     }
     for (int i = n - 1; i > 0; i--) {
-        key(a, SDLK_Z, SDL_KMOD_CTRL);
+        key(a, SDLK_Z, AT_KMOD_PRIMARY);
         CHECK(fp(a) == f[i - 1]);
     }
     for (int i = 1; i < n; i++) {
-        key(a, SDLK_Y, SDL_KMOD_CTRL);
+        key(a, SDLK_Y, AT_KMOD_PRIMARY);
         CHECK(fp(a) == f[i]);
     }
     /* the toolbar followed the object back to width 9 */

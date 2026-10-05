@@ -311,7 +311,10 @@ void    app_opt_finish(app *a);     /* Finish button, enabled while live */
  * The tool chooser at the start of the bar shows the tool icon and name
  * and lists every tool with its icon and a "Name (S, 4 times)" tooltip
  * (TOOLS.md 1); Alt+T opens it (K-UI-TOOLDROP, app_tool_menu_open, command
- * tool.choose). Its popup id is "##tool_choice". */
+ * tool.choose) for the keyboard: the first tool is highlighted and the
+ * toolkit's menu keys apply (src/ui/README.md). The wheel over the closed
+ * button steps through the tools (K-TB-WHEEL). Its popup id is
+ * "##tool_choice". */
 void    app_tool_menu_open(app *a);
 /* Tests and diagnostics, all about the last frame: the index of the first
  * option slot that overflowed (-1: everything fit), the number of slots

@@ -219,19 +219,28 @@ static void t_help_and_tools(void)
     at_frames(a, 3);
     CHECK(ui_popup_is_open(a->ui, "##help_menu"));
     k_tap(a, SDLK_ESCAPE, SDL_KMOD_NONE);
-    /* Alt+T: the tool dropdown; Z jumps to Zoom, Enter selects it (from
+    /* Alt+T: the tool chooser (lane TOOLA: a menu of tools with icons,
+     * TOOLS.md 1 and 3). Menu keyboard rules apply: the first tool is
+     * highlighted, Down and Enter choose, and a letter that starts exactly
+     * one name ("Zoom") chooses it at once (src/ui/README.md). From
      * Rectangle Select: the options bar of the frame that switches must
-     * use the new tool's state; caught by the sanitizer build) */
+     * use the new tool's state; caught by the sanitizer build. */
     CHECK(app_tool_select(a, "rect_select"));
     at_frames(a, 2);
     k_alt(a, SDLK_T);
     at_frames(a, 3);
-    CHECK(ui_menu_keyboard(a->ui));
+    CHECK(ui_popup_is_open(a->ui, "##tool_choice") && ui_menu_keyboard(a->ui));
     k_tap(a, SDLK_Z, SDL_KMOD_NONE);
-    CHECK(strcmp(k_tool(a), "rect_select") == 0);
-    k_tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     at_frames(a, 2);
     CHECK(strcmp(k_tool(a), "zoom") == 0 && !ui_menu_keyboard(a->ui));
+    CHECK(!ui_popup_is_open(a->ui, "##tool_choice"));
+    /* Down, Down, Enter: the second tool of the list */
+    k_alt(a, SDLK_T);
+    at_frames(a, 3);
+    k_tap(a, SDLK_DOWN, SDL_KMOD_NONE);
+    k_tap(a, SDLK_RETURN, SDL_KMOD_NONE);
+    at_frames(a, 2);
+    CHECK(app_tool_current(a) == app_tool_at(a, 1) && !ui_menu_keyboard(a->ui));
     app_destroy(a);
 }
 

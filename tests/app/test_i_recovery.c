@@ -121,6 +121,7 @@ static void t_interval(void)
 {
     char root[1024], rec[1100], sess[1200];
     app *a;
+    uint64_t t0;
     at_out_path(root, sizeof root, "i_autosave_interval");
     rm_tree(root);
     a = make_app(root, 0.4, true);
@@ -128,11 +129,16 @@ static void t_interval(void)
     if (!a) return;
     pal_path_join(rec, sizeof rec, root, "recovery");
     CHECK(app_autosave_root(a) && strcmp(app_autosave_root(a), rec) == 0);
+    t0 = SDL_GetTicks();                              /* before the first change */
     CHECK(script(a, "new 64 48\ntool pencil\nprimary #FF2040C0\nstroke 4 4 40 30 6 left\n"
                     "expect dirty 1\n") == 0);
     at_frames(a, 2);
-    CHECK(app_autosave_saved_count(a) == 0);          /* not before the interval */
-    CHECK(app_autosave_session_dir(a) == NULL);
+    /* not before the interval; a slow runner (sanitizers) may already be
+     * past those 400 ms here, and then nothing is left to check */
+    if (SDL_GetTicks() - t0 < 400u) {
+        CHECK(app_autosave_saved_count(a) == 0);
+        CHECK(app_autosave_session_dir(a) == NULL);
+    }
     run_for(a, 900);
     CHECK(app_autosave_saved_count(a) == 1);
     CHECK(app_autosave_session_dir(a) != NULL);

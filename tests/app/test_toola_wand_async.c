@@ -97,17 +97,27 @@ static void t_busy_and_identical(void)
     pc_wand_opts o = pc_wand_opts_default();
     float sx, sy;
     size_t h;
+    uint64_t t_click;
     CHECK(a != NULL);
     if (!a) return;
     h = a_hist(a);
     sel_wand_test_hold(a, true);
+    t_click = SDL_GetTicks();                           /* <= the job's start time */
     raw_click(a, 20.5, 20.5);
     CHECK(sel_wand_busy(a) && app_tool_live(a));
     CHECK(!a_active(a) && a_hist(a) == h);                /* nothing applied yet */
     /* the UI keeps running; after the delay the spinner turns at the click */
     (void)at_screen(a, 20.5, 20.5, &sx, &sy);
     raw_frames(a, 2);
-    CHECK(darkest_ring(a, sx, sy, 7.0f, 12.0f) > 70);    /* not yet: pure red around */
+    /* not yet: pure red around. Only meaningful while less than the 120 ms
+     * delay has passed since the click: a slow runner (ASan on two shared
+     * cores took longer for the click and two frames) has legitimately
+     * reached the spinner already (wall clock, ADR-017). */
+    if (SDL_GetTicks() - t_click < 120u)
+        CHECK(darkest_ring(a, sx, sy, 7.0f, 12.0f) > 70);
+    else
+        printf("  info: %u ms passed before the first check; spinner delay not observable\n",
+               (unsigned)(SDL_GetTicks() - t_click));
     {
         uint64_t end = SDL_GetTicks() + 200u;
         while (SDL_GetTicks() < end) {

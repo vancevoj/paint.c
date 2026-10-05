@@ -2,13 +2,20 @@
  * Settings > Diagnostics "Open Crash Log Folder".
  *   t_prune    only the newest PAL_CRASH_KEEP logs stay
  *   t_handler  (POSIX) a crashing child process writes one log with the
- *              app information and the signal, and still dies of it */
+ *              app information and the signal, and still dies of it
+ * The parent waits for the child at most CHILD_WAIT_MS and reports how long
+ * the crash took (integration: on the macOS runners the child never
+ * finished, which held the whole job until it was cancelled). */
+#if !defined(_WIN32) && (defined(__linux__) || defined(__GNU__))
+#  define _GNU_SOURCE 1     /* kill() under -std=c17 with glibc */
+#endif
 #include "pc_test.h"
 #include "app_test_util.h"
 #include "pal/pal_crash.h"
 
 #if !defined(_WIN32)
 #  include <signal.h>
+#  include <sys/resource.h>
 #  include <sys/types.h>
 #  include <sys/wait.h>
 #  include <unistd.h>
@@ -54,6 +61,8 @@ static void t_prune(void)
     CHECK(!pal_crash_install(NULL, "x") && !pal_crash_install("", "x"));
 }
 
+#define CHILD_WAIT_MS 60000u
+
 static void t_handler(void)
 {
 #if !defined(_WIN32)
@@ -66,13 +75,31 @@ static void t_handler(void)
     pid = fork();
     CHECK(pid >= 0);
     if (pid == 0) {
-        /* the child installs the handler and crashes */
+        /* the child installs the handler and crashes; no core file (a macOS
+         * core of a whole process is gigabytes and takes minutes) */
+        struct rlimit no_core;
+        no_core.rlim_cur = 0;
+        no_core.rlim_max = 0;
+        (void)setrlimit(RLIMIT_CORE, &no_core);
         if (!pal_crash_install(dir, "paint.c unit test\nPlatform: test")) _exit(3);
         (void)raise(SIGILL);
         _exit(4);                                   /* not reached */
     }
     if (pid > 0) {
-        CHECK(waitpid(pid, &status, 0) == pid);
+        uint64_t t0 = SDL_GetTicks();
+        pid_t w;
+        while ((w = waitpid(pid, &status, WNOHANG)) == 0 && SDL_GetTicks() - t0 < CHILD_WAIT_MS)
+            SDL_Delay(10);
+        if (w == 0) {
+            printf("  info: the crashing child is still running after %u ms (crash log %s)\n",
+                   (unsigned)CHILD_WAIT_MS, pal_crash_count(dir) > 0 ? "written" : "missing");
+            (void)kill(pid, SIGKILL);
+            (void)waitpid(pid, &status, 0);
+        } else {
+            printf("  info: the crashing child ended after %u ms\n",
+                   (unsigned)(SDL_GetTicks() - t0));
+        }
+        CHECK(w == pid);
         CHECK(WIFSIGNALED(status) && WTERMSIG(status) == SIGILL);
         CHECK(pal_crash_count(dir) == 1);
         {

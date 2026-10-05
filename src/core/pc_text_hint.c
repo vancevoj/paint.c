@@ -353,7 +353,7 @@ static bool fit_axis(hctx *h, int axis, const double *zones, size_t nz)
     if (!pair_stems(h)) return false;
     for (size_t i = 0; i < h->n_e; i++) {
         hedge *e = &h->e[i];
-        double z;
+        double z = 0.0;            /* MSVC C4701: set when zone_fit returns true */
         if (e->done) continue;
         if (e->pair < 0) {
             bool zone = axis && zone_fit(h, e, zones, nz, &z);

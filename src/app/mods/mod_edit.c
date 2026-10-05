@@ -350,7 +350,10 @@ static bool clip_seltext(app *a, const app_cmd *c)
 {
     seltext_cache *k;
     (void)c;
-    if (!video_ok() || !SDL_HasClipboardText()) return false;
+    /* no SDL_HasClipboardText() gate: pal_clip_get_text checks for text in
+     * the clipboard pal writes (Win32 on Windows, unseen by SDL's dummy
+     * video driver); the text is cached for a second below */
+    if (!video_ok()) return false;
     k = (seltext_cache *)app_ext_get(a, "lane_m.seltext");
     if (!k) {
         k = (seltext_cache *)calloc(1u, sizeof *k);

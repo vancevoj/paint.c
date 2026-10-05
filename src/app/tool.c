@@ -82,7 +82,7 @@ typedef struct tool_fw {
     int32_t    last_first, last_n;
     ui_rect    chevron, tool_btn;
     bool       chevron_vis;
-    bool       menu_req;        /* Alt+T: open the tool chooser next frame */
+    float      wheel_acc;       /* chooser wheel: fractions of a notch (K-TB-WHEEL) */
     /* pointer nudges (3.36 keyboard acceleration) */
     uint64_t   nudge_t;
     int32_t    nudge_key, nudge_repeats, nudge_speed;
@@ -788,11 +788,12 @@ static void tool_tip(const app *a, const app_tool *t, char *out, size_t cap)
         snprintf(out, cap, "%s (%c)", t->name, t->letter);
 }
 
+/* The same toolkit open request as the Alt+T key (cmd.c menu_keys): the
+ * list opens for the keyboard, with the first tool highlighted and letters
+ * choosing tools (src/ui/README.md, menu keyboard). */
 void app_tool_menu_open(app *a)
 {
-    tool_fw *f = fw(a);
-    if (!f) return;
-    f->menu_req = true;
+    ui_open_request(a->ui, TOOL_POPUP);
     app_request_frame(a);
 }
 
@@ -830,11 +831,21 @@ static void tool_chooser(app *a, tool_fw *f, const app_tool *cur)
     }
     ui_draw_icon(ui, UI_ICON_CHEVRON_DOWN, ar, ui_px(ui, 10.0f), p->text_dim, p->text_dim);
     ui_tooltip(ui, "Choose a tool (Alt+T)");
-    /* a press toggles the list (a press outside it closed it this frame) */
-    if ((in.pressed && !(f && f->tool_open_prev)) || (f && f->menu_req)) {
-        ui_popup_open(ui, TOOL_POPUP, r, UI_POPUP_BELOW);
-        if (f) f->menu_req = false;
+    /* K-TB-WHEEL: the wheel over the closed chooser steps through the
+     * tools in list order (down = next, up = previous), fractions of a
+     * notch add up; the same rule as the toolkit's closed dropdowns */
+    if (!open_now) {
+        ui_vec2 wh = ui_wheel_take(ui, r);
+        if (wh.y != 0.0f && a->ntools > 0) {
+            float acc = wh.y + (f ? f->wheel_acc : 0.0f);
+            int32_t steps = (int32_t)acc, ni = a->tool - steps;
+            if (f) f->wheel_acc = acc - (float)steps;
+            ni = ni < 0 ? 0 : (ni > a->ntools - 1 ? a->ntools - 1 : ni);
+            if (ni != a->tool) select_index(a, ni);
+        }
     }
+    /* a press toggles the list (a press outside it closed it this frame) */
+    if (in.pressed && !(f && f->tool_open_prev)) ui_popup_open(ui, TOOL_POPUP, r, UI_POPUP_BELOW);
     if (ui_popup_begin(ui, TOOL_POPUP)) {
         for (int32_t i = 0; i < a->ntools; i++) {
             const app_tool *t = a->tools[i];

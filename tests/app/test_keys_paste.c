@@ -45,11 +45,17 @@ static void t_paste_floats(void)
     /* a second move still restores the layer under the old place */
     k_tap(a, SDLK_LEFT, SDL_KMOD_NONE);
     CHECK(k_px_is(k_lpx(a, 0, 89, 59), BLUE) && k_px_is(k_lpx(a, 0, 49, 30), RED));
-    /* Enter finishes: no History item, nothing live */
+    /* Enter is the user's Finish: nothing live, and a final "Finish"
+     * History item (T-FW-HISTORY, lane TOOLA) whose Undo makes the pasted
+     * pixels editable again */
     {
         size_t h1 = k_hist(a);
         k_tap(a, SDLK_RETURN, SDL_KMOD_NONE);
-        CHECK(!app_tool_live(a) && k_hist(a) == h1);
+        CHECK(!app_tool_live(a) && k_hist(a) == h1 + 1u && strcmp(k_label(a), "Finish") == 0);
+        CHECK(k_px_is(k_lpx(a, 0, 49, 30), RED) && k_px_is(k_lpx(a, 0, 89, 59), BLUE));
+        CHECK(app_cmd_exec(a, "edit.undo"));
+        at_frames(a, 1);
+        CHECK(app_tool_live(a) && k_hist(a) == h1 && app_float_active(a, d));
     }
     /* undo the nudge, the move and the paste */
     CHECK(app_cmd_exec(a, "edit.undo") && app_cmd_exec(a, "edit.undo"));

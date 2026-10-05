@@ -12,7 +12,7 @@ Attribution: docs/notice/avifjxl.md.
 
 | Option | Values | Meaning |
 |---|---|---|
-| PC_WITH_AVIF, PC_WITH_JXL | AUTO (default) | System library when found (pkg-config, else libavif's CMake config, else a plain header + library search for libjxl). Not found: the codec is compiled without the library. |
+| PC_WITH_AVIF, PC_WITH_JXL | AUTO (default) | System library when found and usable (pkg-config, else libavif's CMake config, else a plain header + library search for libjxl). Not found: the codec is compiled without the library and configure reports it disabled, with the reason. |
 | | ON | System library, else the BUNDLED build; a configure error when neither is possible. |
 | | BUNDLED | Always the pinned static build below. |
 | | OFF | Never. |
@@ -25,6 +25,21 @@ interface target pc_avifjxl (linked PUBLIC into pc_codec) carries
 PC_HAVE_AVIF=1 / PC_HAVE_JXL=1, PC_JXL_HAVE_CMS=1 (libjxl_cms, libjxl 0.9
 and later), the include directories and the libraries; tests use the
 defines to build their fixtures with the libraries and to skip otherwise.
+
+A system library is used only when a small C program of the target
+compiles and links against it (avifVersion, JxlDecoderVersion), so a
+library of another architecture or an unusable header set is never
+picked up. While cross compiling, pkg-config describes the build machine
+and is used only when it is pointed at the target (PKG_CONFIG_LIBDIR or
+PKG_CONFIG_SYSROOT_DIR in the environment, or a target-prefixed
+pkg-config such as x86_64-w64-mingw32-pkg-config). Before this rule a
+mingw-w64 cross build with AUTO on a Debian host that has libavif-dev and
+libjxl-dev took the host's libraries and put -isystem /usr/include on
+pc_codec, which broke every file (glibc headers). Without a usable
+library the configure line reads, for example, `AVIF (PC_WITH_AVIF=AUTO):
+disabled: no usable system library; the build machine's pkg-config is not
+used while cross compiling; PC_WITH_AVIF=BUNDLED builds the pinned
+version`.
 
 Minimum system versions: libavif 1.0.0 and libjxl 0.7.0. Verified with
 libavif 1.0.4 + libjxl 0.7.0 (Ubuntu 24.04, built from the release
@@ -47,15 +62,35 @@ toolchain file and pass the dependency locations explicitly. Each sub-build
 carries its pin in its arguments, so a version bump rebuilds it. Time on
 6 cores: about 2 minutes (Linux GCC), 3 minutes (mingw-w64).
 
-CI (.github/workflows/ci.yml): linux-gcc (and its AppImage / tar.gz),
-mingw-w64 + Wine, Windows MSVC and clang-cl (NASM from Chocolatey) and both
-macOS jobs build BUNDLED; linux-clang and the ASan/UBSan job use Ubuntu
-24.04's libavif-dev and libjxl-dev (the oldest supported versions); the
-headless step of linux-gcc builds with both OFF (the "no library" path).
-Verified locally: Linux GCC and Clang (system and bundled), mingw-w64 under
-Wine (bundled), ASan/UBSan with the system libraries. Not verified locally:
-MSVC and clang-cl (no Windows machine); libaom, libavif, Brotli, Highway
-and libjxl 0.11 all build with MSVC upstream (vcpkg).
+clang-cl: the bundled libavif cannot be built (libavif 1.4.2 merges its
+static library with an ar MRI script whenever the compiler id is Clang,
+and llvm-lib does not run it; seen on the windows-clang-cl runner), so
+PC_WITH_AVIF=BUNDLED (or ON without a system libavif) stops at configure
+with that explanation. The bundled libjxl builds with clang-cl.
+
+### Status per platform (CI, ci/fix4)
+
+| Platform (CI job) | AVIF | JPEG XL | How |
+|---|---|---|---|
+| Linux GCC (linux-gcc, AppImage, tar.gz) | built | built | BUNDLED |
+| Linux Clang (linux-clang) | built | built | system: Ubuntu 24.04 libavif-dev 1.0.4, libjxl-dev 0.7.0 (ON) |
+| Linux ASan/UBSan (linux-asan-ubsan) | built | built | system, as linux-clang |
+| Linux headless step (linux-gcc) | disabled | disabled | OFF |
+| Windows mingw-w64 + Wine | built | built | BUNDLED; plus a cross AUTO configure with the host's libavif-dev/libjxl-dev installed, which must report both disabled and still build pc_codec |
+| Windows MSVC (windows-cl, zip, installer) | built | built | BUNDLED (NASM from Chocolatey) |
+| Windows clang-cl (windows-clang-cl) | disabled | disabled | AUTO, no system libraries on the runner |
+| macOS 14 arm64 (macos-14) | built | built | system: Homebrew bottles libavif 1.4.2 + jpeg-xl (libjxl 0.12.0), AUTO; BUNDLED on tags |
+| macOS 15 x86_64 (macos-15-intel) | built | disabled | AUTO: the image's preinstalled libavif 1.4.2, no libjxl; BUNDLED on tags |
+
+Run 37331223253 (ef118ee) configured and built both macOS jobs this way
+(their tests were stopped by a hanging test_shell_crash, fixed after
+that run; see docs/STATUS.md). Release packages (tags) are all BUNDLED, so
+every package can load and save both formats; macOS runs its bundled
+build only on tags because its runners bill ten times Linux; that path
+has not run on a macOS runner yet. Verified locally (Debian 13): Linux GCC and
+Clang with the system libraries, ASan/UBSan, mingw-w64 under Wine with
+BUNDLED (157/157 tests) and with OFF, and the cross AUTO detection with
+the host libraries installed (both reported disabled, pc_codec builds).
 
 ## Metadata items (pc_image_meta)
 

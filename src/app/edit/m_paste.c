@@ -220,7 +220,9 @@ static char *clip_text_any(void)
             if (s) return s;
         }
     }
-    return SDL_HasClipboardText() ? pal_clip_get_text() : NULL;
+    /* pal checks for text itself: on Windows it reads the Win32 clipboard,
+     * which SDL_HasClipboardText does not see under the dummy video driver */
+    return pal_clip_get_text();
 }
 
 static clip_cache *cache_of(app *a)
@@ -257,10 +259,6 @@ bool m_paste_available(app *a)
     c->any_valid = true;
     c->any = true;
     if (pal_clip_has_image()) return true;
-    if (!SDL_HasClipboardText() && !SDL_HasClipboardData("text/uri-list")) {
-        c->any = false;
-        return false;
-    }
     if (!c->valid || now - c->at > 1000u || now < c->at) {
         char *text = clip_text_any();
         char path[1024];
@@ -426,7 +424,7 @@ static void place_new_image(app *a, paste_job *j)
     pc_doc *img = j->img;
     app_doc *d;
     if (img->n_layers != 1u) {
-        pc_surf s;
+        pc_surf s = {0};
         pc_doc *flat = pc_doc_create(img->w, img->h);
         pc_layer *l = flat ? pc_layer_create(flat, "Background") : NULL;
         pc_status st = l ? flatten(a, img, &s) : PC_ERR_NOMEM;

@@ -405,7 +405,7 @@ pc_status vec_custom_parse(const char *xaml, size_t n, const char *fallback_name
     const char *p = xaml, *e = xaml + n;
     pc_path raw;
     pc_poly flat;
-    pc_pt mn, mx;
+    pc_pt mn = {0.0, 0.0}, mx = {0.0, 0.0};   /* MSVC C4701: set by pc_poly_bounds */
     pc_status st = PC_OK;
     if (!xaml || !s) return PC_ERR_ARG;
     memset(s, 0, sizeof *s);

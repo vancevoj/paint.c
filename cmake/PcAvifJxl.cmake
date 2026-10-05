@@ -53,21 +53,73 @@ set(PC_JXL_SOURCE "none")
 
 # ---- system libraries ----------------------------------------------------------------
 find_package(PkgConfig QUIET)
+include(CheckCSourceCompiles)
+
+# pkg-config describes the build machine. While cross compiling (mingw-w64
+# on Linux, for example) its answer is used only when it is pointed at the
+# target: PKG_CONFIG_LIBDIR or PKG_CONFIG_SYSROOT_DIR in the environment, or
+# a target-prefixed pkg-config (x86_64-w64-mingw32-pkg-config). Otherwise
+# the host's .pc files would add /usr/include to the cross compiler's
+# search path, where glibc's headers break every C file of pc_codec.
+set(_pc_axj_pkg_ok FALSE)
+set(_pc_axj_pkg_note "")
+if(PKG_CONFIG_FOUND)
+  get_filename_component(_pc_axj_pkg_name "${PKG_CONFIG_EXECUTABLE}" NAME)
+  if(NOT CMAKE_CROSSCOMPILING)
+    set(_pc_axj_pkg_ok TRUE)
+  elseif(NOT "$ENV{PKG_CONFIG_LIBDIR}" STREQUAL "" OR NOT "$ENV{PKG_CONFIG_SYSROOT_DIR}" STREQUAL "")
+    set(_pc_axj_pkg_ok TRUE)
+  elseif(_pc_axj_pkg_name MATCHES "^.+-pkg-?conf(ig)?(\\.exe)?$")
+    set(_pc_axj_pkg_ok TRUE)
+  else()
+    set(_pc_axj_pkg_note "; the build machine's pkg-config is not used while cross compiling")
+  endif()
+endif()
+
+# A system library is used only when a C program of this target compiles
+# and links against it (header found, library of the target's
+# architecture). out: TRUE or FALSE.
+#   _pc_axj_usable(<out> <name> <header> <expression> LIBS <libs...>
+#                  [INCLUDES <dirs...>])
+function(_pc_axj_usable out name header call)
+  cmake_parse_arguments(_u "" "" "LIBS;INCLUDES" ${ARGN})
+  set(_var PC_AXJ_USABLE_${name})
+  unset(${_var} CACHE)
+  set(CMAKE_REQUIRED_QUIET ON)
+  set(CMAKE_REQUIRED_LIBRARIES ${_u_LIBS})
+  set(CMAKE_REQUIRED_INCLUDES ${_u_INCLUDES})
+  set(CMAKE_REQUIRED_DEFINITIONS "")
+  set(CMAKE_REQUIRED_FLAGS "")
+  check_c_source_compiles("#include <${header}>
+int main(void) { return (int)((unsigned)(${call}) & 1u); }" ${_var})
+  if(${_var})
+    set(${out} TRUE PARENT_SCOPE)
+  else()
+    set(${out} FALSE PARENT_SCOPE)
+  endif()
+endfunction()
 
 function(_pc_avif_system out)
   set(${out} "" PARENT_SCOPE)
-  if(PKG_CONFIG_FOUND)
+  if(_pc_axj_pkg_ok)
     pkg_check_modules(PC_AVIF_PKG QUIET IMPORTED_TARGET GLOBAL libavif>=1.0.0)
     if(PC_AVIF_PKG_FOUND)
-      target_link_libraries(pc_avifjxl INTERFACE PkgConfig::PC_AVIF_PKG)
-      set(${out} "system libavif ${PC_AVIF_PKG_VERSION} (pkg-config)" PARENT_SCOPE)
-      return()
+      _pc_axj_usable(_ok avif_pkg avif/avif.h "avifVersion()[0]" LIBS PkgConfig::PC_AVIF_PKG)
+      if(_ok)
+        target_link_libraries(pc_avifjxl INTERFACE PkgConfig::PC_AVIF_PKG)
+        set(${out} "system libavif ${PC_AVIF_PKG_VERSION} (pkg-config)" PARENT_SCOPE)
+        return()
+      endif()
+      message(STATUS "paint.c: libavif ${PC_AVIF_PKG_VERSION} from pkg-config does not link for this target, ignored")
     endif()
   endif()
   find_package(libavif 1.0 CONFIG QUIET)
   if(libavif_FOUND AND TARGET avif)
-    target_link_libraries(pc_avifjxl INTERFACE avif)
-    set(${out} "system libavif ${libavif_VERSION} (CMake config)" PARENT_SCOPE)
+    _pc_axj_usable(_ok avif_cfg avif/avif.h "avifVersion()[0]" LIBS avif)
+    if(_ok)
+      target_link_libraries(pc_avifjxl INTERFACE avif)
+      set(${out} "system libavif ${libavif_VERSION} (CMake config)" PARENT_SCOPE)
+    endif()
   endif()
 endfunction()
 
@@ -88,9 +140,15 @@ endfunction()
 
 function(_pc_jxl_system out)
   set(${out} "" PARENT_SCOPE)
-  if(PKG_CONFIG_FOUND)
+  if(_pc_axj_pkg_ok)
     pkg_check_modules(PC_JXL_PKG QUIET IMPORTED_TARGET GLOBAL libjxl>=0.7.0)
     if(PC_JXL_PKG_FOUND)
+      _pc_axj_usable(_ok jxl_pkg jxl/decode.h "JxlDecoderVersion()" LIBS PkgConfig::PC_JXL_PKG)
+      if(NOT _ok)
+        message(STATUS "paint.c: libjxl ${PC_JXL_PKG_VERSION} from pkg-config does not link for this target, ignored")
+      endif()
+    endif()
+    if(PC_JXL_PKG_FOUND AND _ok)
       target_link_libraries(pc_avifjxl INTERFACE PkgConfig::PC_JXL_PKG)
       if(PC_JXL_PKG_VERSION VERSION_GREATER_EQUAL 0.9.0)
         pkg_check_modules(PC_JXLCMS_PKG QUIET IMPORTED_TARGET GLOBAL libjxl_cms)
@@ -109,6 +167,11 @@ function(_pc_jxl_system out)
   if(PC_JXL_INCLUDE_DIR AND PC_JXL_LIBRARY)
     _pc_jxl_header_version("${PC_JXL_INCLUDE_DIR}" _ver)
     if(_ver VERSION_LESS 0.7.0)
+      return()
+    endif()
+    _pc_axj_usable(_ok jxl_find jxl/decode.h "JxlDecoderVersion()" LIBS "${PC_JXL_LIBRARY}"
+                   INCLUDES "${PC_JXL_INCLUDE_DIR}")
+    if(NOT _ok)
       return()
     endif()
     target_include_directories(pc_avifjxl SYSTEM INTERFACE "${PC_JXL_INCLUDE_DIR}")
@@ -300,6 +363,15 @@ function(_pc_axj_import tgt lib)
 endfunction()
 
 function(pc_avifjxl_bundle_avif out)
+  # libavif 1.4.2 merges its static library with an ar MRI script whenever
+  # the compiler id is Clang, which clang-cl's llvm-lib cannot run (seen on
+  # the windows-clang-cl CI job): say so at configure time instead of
+  # failing in its install step.
+  if(MSVC AND CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    message(FATAL_ERROR "paint.c: the bundled libavif cannot be built with clang-cl "
+      "(libavif merges its static library with an ar script that llvm-lib does not run). "
+      "Use PC_WITH_AVIF=AUTO or OFF, a libavif from vcpkg, or build with cl.")
+  endif()
   include(ExternalProject)
   set(_aom_sha 44bf90dbd23e734d50e70a8c41c285193922938bd0d3bc2ee56764d181d55ef5)
   set(_avif_sha 2b645287340ba5a631d268b551dc2d72bd73ac33335962dd36dcdb6d8366921d)
@@ -417,6 +489,17 @@ endif()
 if(NOT PC_JXL_SOURCE STREQUAL "none")
   target_compile_definitions(pc_avifjxl INTERFACE PC_HAVE_JXL=1)
 endif()
+# "none": the codec is registered without load and save (a clean disabled
+# state, never a build error); say why and how to get it.
+foreach(_f AVIF JXL)
+  if(PC_${_f}_SOURCE STREQUAL "none")
+    if(_pc_PC_WITH_${_f} STREQUAL "OFF")
+      set(PC_${_f}_SOURCE "disabled (OFF)")
+    else()
+      set(PC_${_f}_SOURCE "disabled: no usable system library${_pc_axj_pkg_note}; PC_WITH_${_f}=BUNDLED builds the pinned version")
+    endif()
+  endif()
+endforeach()
 message(STATUS "paint.c: AVIF (PC_WITH_AVIF=${PC_WITH_AVIF}): ${PC_AVIF_SOURCE}")
 message(STATUS "paint.c: JPEG XL (PC_WITH_JXL=${PC_WITH_JXL}): ${PC_JXL_SOURCE}")
 

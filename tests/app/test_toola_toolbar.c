@@ -150,10 +150,12 @@ static void t_chooser(void)
                                  20u);
         CHECK((float)r.w > tw + 24.0f);
     }
-    /* Alt+T opens the list; the keyboard picks the 8th tool (Pan) */
+    /* Alt+T opens the list for the keyboard with the first tool
+     * highlighted (lane KEYS menu rule, src/ui/README.md); seven Downs
+     * pick the 8th tool (Pan) */
     a_key(a, SDLK_T, SDL_KMOD_LALT);
     at_frames(a, 2);
-    for (int i = 0; i < 8; i++) a_key(a, SDLK_DOWN, SDL_KMOD_NONE);
+    for (int i = 0; i < 7; i++) a_key(a, SDLK_DOWN, SDL_KMOD_NONE);
     a_key(a, SDLK_RETURN, SDL_KMOD_NONE);
     at_frames(a, 2);
     CHECK(app_tool_current(a) && strcmp(app_tool_current(a)->id, "pan") == 0);
@@ -163,8 +165,16 @@ static void t_chooser(void)
     wclick(a, r);
     a_key(a, SDLK_ESCAPE, SDL_KMOD_NONE);
     CHECK(strcmp(app_tool_current(a)->id, "pan") == 0);
-    /* the command is registered with its shortcut */
+    /* the command is registered with its shortcut and opens the list the
+     * same way as Alt+T (keyboard: Down, Enter pick the 2nd tool) */
     CHECK(app_cmd_find(a, "tool.choose") != NULL);
+    CHECK(app_cmd_exec(a, "tool.choose"));
+    at_frames(a, 2);
+    CHECK(ui_popup_is_open(a->ui, "##tool_choice") && ui_menu_keyboard(a->ui));
+    a_key(a, SDLK_DOWN, SDL_KMOD_NONE);
+    a_key(a, SDLK_RETURN, SDL_KMOD_NONE);
+    at_frames(a, 2);
+    CHECK(app_tool_current(a) == app_tool_at(a, 1) && !ui_popup_is_open(a->ui, "##tool_choice"));
     app_destroy(a);
 }
 

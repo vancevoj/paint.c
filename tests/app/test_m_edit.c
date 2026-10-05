@@ -192,10 +192,10 @@ static void t_erase_cut_fill(void)
     /* Invert, Select All, Deselect */
     CHECK(app_cmd_exec(a, "edit.invert_selection"));
     CHECK(pc_sel_coverage(d->doc, 15, 15) == 0u && pc_sel_coverage(d->doc, 2, 2) == 255u);
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     CHECK(pc_sel_coverage(d->doc, 15, 15) == 255u &&
           strcmp(d->hist->cur->label, "Select All") == 0);
-    tap(a, SDLK_D, SDL_KMOD_LCTRL);
+    tap(a, SDLK_D, AT_KMOD_PRIMARY);
     CHECK(!pc_sel_is_active(d->doc) && strcmp(d->hist->cur->label, "Deselect") == 0);
     /* Delete without a selection does nothing (disabled) */
     n0 = hist_len(d);
