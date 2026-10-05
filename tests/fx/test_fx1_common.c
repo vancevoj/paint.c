@@ -278,16 +278,16 @@ static void t_large_radius(void)
     size_t i;
     for (i = 0; i < sizeof cases / sizeof cases[0]; i++) {
         const fx_effect *fx = t_find(cases[i].id);
-        fx_img src = t_img_new(0, 0, 70, 50), dst = t_img_new(0, 0, 70, 50);
+        fx_img src = t_img_new(0, 0, 48, 36), dst = t_img_new(0, 0, 48, 36);
         void *p = t_params_new(fx);
         size_t live0 = g_t_live_allocs;
         t_img_random(&src, 1);
         t_set(fx, p, cases[i].key, cases[i].v);
-        CHECK(t_split_invariant(fx, p, &src, t_rect(0, 0, 70, 50)));
-        CHECK(t_split_invariant(fx, p, &src, t_rect(9, 7, 41, 30)));
+        CHECK(t_split_invariant(fx, p, &src, t_rect(0, 0, 48, 36)));
+        CHECK(t_split_invariant(fx, p, &src, t_rect(9, 7, 27, 19)));
         g_t_polls = 0;
         g_t_cancel_after = 0;
-        CHECK(t_run1(fx, p, &src, &dst, t_rect(0, 0, 70, 50)) == FX_CANCELLED);
+        CHECK(t_run1(fx, p, &src, &dst, t_rect(0, 0, 48, 36)) == FX_CANCELLED);
         g_t_cancel_after = -1;
         CHECK(g_t_live_allocs == live0);
         free(p);

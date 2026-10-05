@@ -286,6 +286,12 @@ from the Paint.NET 5.1 documentation screenshots, "own" = chosen here.
   large-radius blurs use the prepared cache.
 * The seed of Add Noise is an ordinary `FXP_SEED`; the host's Randomize button
   writes a new value.
+* Dialog behaviors that belong to the host widgets: Straighten's angle snaps
+  to 15 degree steps while Shift is held; Radial Blur, Zoom Blur and Vignette
+  show the image under their Center control; Red Eye Removal shows a hint to
+  select the eyes first.
+* Unfocus no longer exists in Paint.NET 5; Bokeh Blur replaces it (same as the
+  5.1 menu).
 * Memory: the separable engine allocates per render call about
   `min(roi.h, 128) x (min(roi.w, 512) + 2 reach) x 20` bytes plus two column
   buffers of `(min(roi.h, 128) + 2 reach) x 320` bytes; Bokeh about
