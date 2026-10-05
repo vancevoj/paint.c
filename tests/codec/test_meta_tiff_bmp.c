@@ -13,6 +13,7 @@
 
 #include <stdio.h>
 #include "lcms2.h"
+#include "cmyk_ref.h"
 
 static const pc_codec *codec(const char *id) { return pc_codec_by_id(id); }
 
@@ -278,9 +279,9 @@ static uint8_t cmyk_sample(uint32_t i, uint32_t c)
 }
 
 /* Separated CMYK, 8 and 16 bits, with and without an embedded profile. The
- * managed result, seen through its Adobe RGB (1998) tag, must match Little-
- * CMS converting the same samples straight to sRGB; the naive decode is
- * the profile-less fallback. */
+ * managed result must match Little-CMS converting the same samples to
+ * Adobe RGB (1998); without a profile the default CMYK profile (SWOP)
+ * converts, exactly as cmyk_ref.h does (wave 4). */
 static void t_tiff_cmyk(void)
 {
     const uint32_t W = 16, H = 8;
@@ -355,7 +356,9 @@ static void t_tiff_cmyk(void)
             CHECK(mm.icc && pc_icc_inspect(mm.icc, mm.icc_len, &info) == PC_OK &&
                   strcmp(info.desc, "Adobe RGB (1998)") == 0);
             CHECK(strstr(mm.note, "Adobe RGB") != NULL);
-            CHECK(mn.icc == NULL && strstr(mn.note, "without") != NULL);
+            /* without a profile: the default CMYK profile, tagged Adobe RGB
+             * (1998) as well (wave 4, FL-CMYK) */
+            CHECK(cmyk_ref_is_adobe(&mn) && strstr(mn.note, "default CMYK profile") != NULL);
             md = 0;
             for (uint32_t i = 0; i < W * H; i++) {
                 int dr = abs((int)a[i].r * 257 - ref[3 * i]);
@@ -367,12 +370,13 @@ static void t_tiff_cmyk(void)
             INFO("%d-bit CMYK TIFF: max difference to the exact Adobe RGB values %.2f codes",
                  bits, md / 257.0);
             CHECK(md <= 257);              /* one rounding to 8 bits */
-            for (uint32_t i = 0; i < W * H; i++) {   /* the naive formula, exactly */
-                uint32_t c = cmyk_sample(i, 0), mg = cmyk_sample(i, 1), y = cmyk_sample(i, 2);
-                uint32_t k = cmyk_sample(i, 3);
-                CHECK(b[i].r == (uint8_t)pc_mul255(255u - c, 255u - k) &&
-                      b[i].g == (uint8_t)pc_mul255(255u - mg, 255u - k) &&
-                      b[i].b == (uint8_t)pc_mul255(255u - y, 255u - k) && b[i].a == 255u);
+            for (uint32_t i = 0; i < W * H; i++) {   /* the default profile, exactly */
+                uint8_t c4[4];
+                pc_px32 want = { 0, 0, 0, 0 };
+                for (uint32_t c = 0; c < 4; c++) c4[c] = cmyk_sample(i, c);
+                CHECK(cmyk_ref(c4, 1u, false, &want));
+                CHECK(b[i].r == want.r && b[i].g == want.g && b[i].b == want.b &&
+                      b[i].a == 255u);
             }
             free(a);
             free(b);

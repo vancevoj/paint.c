@@ -2,6 +2,7 @@
  * writer options, metadata, real samples, unknown versions, targeted
  * corruptions and a mutation loop. Fixed seeds. */
 #include "pdn_util.h"
+#include "icc_test_util.h"
 
 #include <math.h>
 
@@ -307,19 +308,26 @@ static void t_metadata(void)
         pc_image_meta in, out;
         pc_buf b;
         pc_doc *e = NULL;
-        uint8_t icc[300];
+        char name[32];
+        size_t icc_n = 0;
+        uint8_t *icc;
         memset(&in, 0, sizeof in);
         memset(&b, 0, sizeof b);
-        for (size_t k = 0; k < sizeof icc; k++) icc[k] = (uint8_t)(k * 7u + i);
+        /* a usable profile (FS-ICC: junk is never embedded), different per
+         * round */
+        snprintf(name, sizeof name, "pdn dpi %u", (unsigned)i);
+        icc = itu_rgb(name, 0u, &icc_n);
+        CHECK(icc != NULL);
         in.dpi_x = dpis[i];
         in.dpi_y = dpis[(i + 1u) % (sizeof dpis / sizeof dpis[0])];
-        if (i & 1u) { in.icc = icc; in.icc_len = sizeof icc - i; }
+        if ((i & 1u) && icc) { in.icc = icc; in.icc_len = icc_n; }
         CHECK(pdn_save_ex(d, &in, NULL, NULL, &b) == PC_OK);
         CHECK(pc_codec_pdn.load(b.p, b.n, NULL, &e, &out) == PC_OK);
         CHECK(fabs(out.dpi_x - in.dpi_x) < 1e-9 * in.dpi_x);
         CHECK(fabs(out.dpi_y - in.dpi_y) < 1e-9 * in.dpi_y);
         if (i & 1u) CHECK(out.icc_len == in.icc_len && memcmp(out.icc, icc, in.icc_len) == 0);
         else CHECK(out.icc == NULL && out.icc_len == 0u);
+        free(icc);
         pc_meta_free(&out);
         pc_doc_destroy(e);
         pc_buf_free(&b);

@@ -3,6 +3,7 @@
  * first frame, fixtures from libwebp's simple API, limits, fuzzing. */
 #include "pc_test.h"
 #include "lib_test_util.h"
+#include "icc_test_util.h"
 
 #include "webp/decode.h"
 #include "webp/encode.h"
@@ -113,15 +114,16 @@ static void t_icc_and_limits(void)
     pc_image_meta meta, m;
     pc_buf out;
     pc_codec_limits lim;
-    uint8_t icc[777];
-    for (size_t i = 0; i < sizeof icc; i++) icc[i] = (uint8_t)(i ^ 0x5A);
+    size_t icc_n = 0;
+    uint8_t *icc = itu_rgb("webp ICCP", 120u, &icc_n);    /* usable (FS-ICC) */
+    CHECK(icc != NULL);
     memset(&meta, 0, sizeof meta);
     meta.icc = icc;
-    meta.icc_len = sizeof icc;
+    meta.icc_len = icc_n;
     memset(&out, 0, sizeof out);
     CHECK(wp()->save(d, &meta, NULL, NULL, &out) == PC_OK);
     r = load_ok(out.p, out.n, &m);
-    CHECK(m.icc_len == sizeof icc && m.icc && memcmp(m.icc, icc, sizeof icc) == 0);
+    CHECK(icc && m.icc_len == icc_n && m.icc && memcmp(m.icc, icc, icc_n) == 0);
     pc_doc_destroy(r);
     pc_meta_free(&m);
     pc_codec_limits_default(&lim);
@@ -135,8 +137,21 @@ static void t_icc_and_limits(void)
         CHECK(wp()->save(big, NULL, NULL, NULL, &out) == PC_ERR_LIMIT);
         pc_doc_destroy(big);
     }
+    {   /* bytes that are not a usable profile never become an ICCP chunk */
+        uint8_t *junk = itu_junk(777u, 5u);
+        meta.icc = junk;
+        meta.icc_len = 777u;
+        CHECK(wp()->save(d, &meta, NULL, NULL, &out) == PC_OK);
+        r = load_ok(out.p, out.n, &m);
+        CHECK(r && m.icc == NULL);
+        pc_doc_destroy(r);
+        pc_meta_free(&m);
+        pc_buf_free(&out);
+        free(junk);
+    }
     pc_doc_destroy(d);
     free(a);
+    free(icc);
 }
 
 static void t_fixtures(void)

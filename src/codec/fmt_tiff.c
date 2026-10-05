@@ -6,9 +6,10 @@
  * Modified Huffman (2, 32771), T.4 Group 3 1D/2D (3) and T.6 Group 4 (4)
  * for 1-bit images; horizontal predictor 2 for 8/16/32/64-bit samples and the
  * floating point predictor 3; fill order 2; photometric min-is-white,
- * min-is-black, RGB, palette and separated CMYK (converted through an
- * embedded CMYK profile to Adobe RGB (1998), which then becomes the image
- * profile, FL-CMYK; without a profile with the naive formula);
+ * min-is-black, RGB, palette and separated CMYK (converted to Adobe RGB
+ * (1998), which then becomes the image profile, through the embedded CMYK
+ * profile, or the default CMYK profile when there is no usable one,
+ * FL-CMYK; the naive formula only when Little-CMS fails);
  * 1/2/4/8/16/32-bit unsigned samples and 16/32/64-bit
  * IEEE float (0.0 to 1.0), reduced to 8 bits with rounding; extra samples
  * (associated alpha is converted to straight alpha, unassociated alpha is
@@ -28,9 +29,11 @@
  * Writer: Auto-detect, 32-bit RGBA (unassociated alpha), 24-bit RGB, 8, 4,
  * 2 and 1-bit palette (quant.h, flattened onto white), compression LZW
  * (default) or Deflate with the horizontal predictor for 24/32-bit, or
- * none. Little-endian, strips of about 64 KiB. The ICC profile (34675),
- * the EXIF item (IFD0 tags plus Exif and GPS sub-IFDs), XMP (700) and IPTC
- * (33723) are written back.
+ * none. Little-endian, strips of about 64 KiB. The ICC profile (34675;
+ * pc_icc_embed_for: the RGB and palette data take an RGB profile as is and
+ * a gray one as its RGB form, never an unusable or CMYK one), the EXIF item
+ * (IFD0 tags plus Exif and GPS sub-IFDs), XMP (700) and IPTC (33723) are
+ * written back.
  *
  * Threading: load and save are reentrant (no global state).
  */
@@ -1311,6 +1314,7 @@ static pc_status tiff_load(const uint8_t *p, size_t n, const pc_codec_limits *li
     size_t first, adobe_n = 0;
     uint32_t pages;
     bool trunc = false;
+    const char *cmyk_note = LC_NOTE_CMYK_NAIVE;
     pc_status st;
     if (!p || !out || !meta) return PC_ERR_ARG;
     *out = NULL;
@@ -1334,10 +1338,19 @@ static pc_status tiff_load(const uint8_t *p, size_t n, const pc_codec_limits *li
         t->cc_tab = cct;
         if (!cct) st = PC_ERR_NOMEM;
     }
-    if (st == PC_OK && t->photo == 5u && t->icc.ok && t->icc.count > 0u) {
+    if (st == PC_OK && t->photo == 5u) {
+        /* FL-CMYK: the embedded profile, else (none, or not usable) the
+         * default CMYK profile (wave 4); the naive formula only when
+         * Little-CMS fails */
+        bool emb = t->icc.ok && t->icc.count > 0u;
         st = pc_icc_adobe_rgb_profile(&adobe, &adobe_n);
-        if (st == PC_OK)
+        if (st == PC_OK && emb)
             t->cmyk_xf = lc_cmyk_open(p + t->icc.pos, t->icc.count, false, adobe, adobe_n);
+        if (t->cmyk_xf) cmyk_note = LC_NOTE_CMYK_EMBEDDED;
+        if (st == PC_OK && !t->cmyk_xf) {
+            t->cmyk_xf = lc_cmyk_open_default(false, adobe, adobe_n);
+            if (t->cmyk_xf) cmyk_note = emb ? LC_NOTE_CMYK_BAD : LC_NOTE_CMYK_DEFAULT;
+        }
     }
     if (st == PC_OK) st = pc_rowsink_init(&rs, lim, t->w, t->h, t->orient);
     if (st != PC_OK) {
@@ -1383,10 +1396,7 @@ static pc_status tiff_load(const uint8_t *p, size_t n, const pc_codec_limits *li
         else if (trunc)
             snprintf(meta->note, sizeof meta->note, "The TIFF data is incomplete.");
         else if (t->photo == 5u)
-            snprintf(meta->note, sizeof meta->note, "%s",
-                     t->cmyk_xf ? "CMYK converted to Adobe RGB (1998) with the embedded color "
-                                  "profile"
-                                : "CMYK converted to RGB without a color profile");
+            snprintf(meta->note, sizeof meta->note, "%s", cmyk_note);
         st = tiff_meta(t, meta);
         if (st != PC_OK) {
             pc_doc_destroy(*out);
@@ -1608,8 +1618,10 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
     pc_status st;
     ifd_ent *ent = NULL;
     tiff_md md;
+    pc_icc_embed icc;
     uint32_t ne = 0;
     memset(&md, 0, sizeof md);
+    memset(&icc, 0, sizeof icc);
     cm_exif_init(&md.e);
     if (!d || !out) return PC_ERR_ARG;
     if (params) memcpy(&prm, params, sizeof prm);
@@ -1626,6 +1638,7 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
     lz = (tlzw *)malloc(sizeof *lz);
     if (!tmp || !idx || !lz) { st = PC_ERR_NOMEM; goto done; }
     st = tiff_md_get(&md, meta, w, h);
+    if (st == PC_OK) st = pc_icc_embed_for(meta, PC_ICC_SPACE_RGB, &icc);   /* FS-ICC */
     if (st != PC_OK) goto done;
     ent = (ifd_ent *)calloc(32u + cm_exif_count(&md.e, CM_IFD0), sizeof *ent);
     if (!ent) { st = PC_ERR_NOMEM; goto done; }
@@ -1796,9 +1809,8 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
                     (uint32_t)md.xmp_n);
         if (md.iptc && md.iptc_n <= 0x7FFFFFFFu)
             add_raw(ent, &ne, T_IPTC, 7, (uint32_t)md.iptc_n, md.iptc, (uint32_t)md.iptc_n);
-        if (meta && meta->icc && meta->icc_len && meta->icc_len <= 0x7FFFFFFFu)
-            add_raw(ent, &ne, T_ICC, 7, (uint32_t)meta->icc_len, meta->icc,
-                    (uint32_t)meta->icc_len);
+        if (icc.icc && icc.len && icc.len <= 0x7FFFFFFFu)
+            add_raw(ent, &ne, T_ICC, 7, (uint32_t)icc.len, icc.icc, (uint32_t)icc.len);
         for (uint32_t i = 0; i < ne && st == PC_OK; i++) {
             if (!ent[i].data || ent[i].len <= 4u) continue;
             if ((out->n - base) & 1u) st = pc_buf_put_u8(out, 0);
@@ -1833,6 +1845,7 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
 done:
     if (st != PC_OK) out->n = base;
     tiff_md_free(&md);
+    pc_icc_embed_free(&icc);
     free(ent);
     pc_quant_destroy(q);
     free(lz);

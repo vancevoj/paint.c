@@ -10,6 +10,7 @@
 #define APP_IO_H
 
 #include "app.h"
+#include "pc/pc_codec.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -111,6 +112,54 @@ void  app_wake_poll(app *a, uint32_t ms);
 uint8_t *app_icon_rgba(int32_t size);
 /* Set the window icon (no-op headless). */
 bool  app_set_window_icon(app *a);
+
+/* ---- loading image files (src/app/io/load.c, lane CODEC wave 4) -------------------------- */
+/* Every user-facing load (File > Open, crash recovery, drop as layers,
+ * Layers > Import From File, paste of a file, the Save Configuration
+ * preview) uses these limits (FL-BIG): any size up to PC_MAX_DIM per side
+ * (ADR-014), up to 1024 layers, and one memory budget for the file bytes
+ * held while decoding plus the decoded pixels: three quarters of the
+ * physical RAM, never less than the codec default of 4 GiB. Any thread. */
+void      app_load_limits(pc_codec_limits *lim);
+/* The same for a computer with ram bytes of memory (tests, sizing). */
+void      app_load_limits_ram(uint64_t ram, pc_codec_limits *lim);
+/* Take held bytes (the file being decoded) out of lim->max_mem. false (lim
+ * unchanged) when they alone exceed the budget. */
+bool      app_load_limits_after(pc_codec_limits *lim, uint64_t held);
+/* Tests: replace the budget with bytes (0 = automatic again). Main thread,
+ * while no load runs. */
+void      app_load_test_budget(uint64_t bytes);
+
+/* What a load found besides its status, for the error text. */
+typedef struct app_load_info {
+    uint64_t file_bytes;       /* size of the file (input bytes), 0 = unknown */
+    uint64_t max_file_bytes;   /* the largest file that can be read (the budget) */
+    uint64_t max_mem;          /* memory the decoder could use for the pixels */
+    bool     file_too_big;     /* PC_ERR_LIMIT: the file itself is over the budget */
+    bool     missing;          /* the file does not exist */
+} app_load_info;
+
+/* Read path (UTF-8, borrowed) and decode it within app_load_limits: the
+ * file is refused before reading when it exceeds the budget, the decoder
+ * gets the budget minus the file size. only (may be NULL) forces one codec
+ * (recovery: .pdn), else content sniffing with the extension as fallback.
+ * On success *doc (caller owns) and *meta (caller frees with pc_meta_free)
+ * are set, and *used (may be NULL) names the codec; on failure *doc is NULL
+ * and meta is empty. info (may be NULL) receives the details. Any thread. */
+pc_status app_load_file(const char *path, const pc_codec *only, pc_doc **doc,
+                        pc_image_meta *meta, const pc_codec **used, app_load_info *info);
+/* The same for bytes already in memory (p/n borrowed; clipboard data, an
+ * encoded preview); path_hint (may be NULL) only helps choose the codec. */
+pc_status app_load_bytes(const uint8_t *p, size_t n, const char *path_hint, const pc_codec *only,
+                         pc_doc **doc, pc_image_meta *meta, const pc_codec **used,
+                         app_load_info *info);
+/* "Could not <verb> "<name>": <reason>." for a failed load (out gets at most
+ * cap bytes, NUL-terminated): a missing file, a file larger than the
+ * budget (its size and the budget), an image over the decode limits (the
+ * pixel, layer and memory limits that applied), else pc_status_str. info
+ * may be NULL. Any thread. */
+void      app_load_error_text(char *out, size_t cap, const char *verb, const char *name,
+                              pc_status st, const app_load_info *info);
 
 #ifdef __cplusplus
 }

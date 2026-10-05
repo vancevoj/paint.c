@@ -5,6 +5,7 @@
  * geometry with tiny data), round trips for every save option, mutation
  * fuzzing. Also a standalone fuzz driver. */
 #include "test_own_common.h"
+#include "cmyk_ref.h"
 
 extern const pc_codec pc_codec_tiff;
 #define C (&pc_codec_tiff)
@@ -327,10 +328,13 @@ static pc_px32 expect_px(const gcase *g, const uint32_t *s, const pc_px32 *pal)
     case 1: p = mkpx(c[0], c[0], c[0], 255); break;
     case 2: p = mkpx(c[0], c[1], c[2], 255); break;
     case 3: p = pal[s[0]]; break;
-    default:
-        p = mkpx(pc_mul255(255u - c[0], 255u - c[3]), pc_mul255(255u - c[1], 255u - c[3]),
-                 pc_mul255(255u - c[2], 255u - c[3]), 255);
+    default: {
+        /* FL-CMYK (wave 4): no embedded profile, so the default CMYK
+         * profile to Adobe RGB (1998) */
+        uint8_t c4[4] = { (uint8_t)c[0], (uint8_t)c[1], (uint8_t)c[2], (uint8_t)c[3] };
+        if (!cmyk_ref(c4, 1u, false, &p)) p = mkpx(0, 0, 0, 0);
         break;
+    }
     }
     if (g->photo == 0u && g->bps == 16u) {     /* inversion happens before rounding */
         uint32_t v = (65535u - s[0]) * 255u + 32767u;
@@ -839,7 +843,14 @@ static void t_orientation_and_meta(void)
         tb_seg(&t, cmyk, 4);
         tb_build(&b, &t);
         got = load_px(&b, 1, 1, &m, NULL);
-        CHECK(got && px_same(got[0], mkpx(255, 0, 255, 255)) && m.icc == NULL);
+        {   /* the broken profile is dropped; the default CMYK profile converts
+             * and the result carries Adobe RGB (1998) (wave 4) */
+            pc_px32 want = mkpx(0, 0, 0, 0);
+            CHECK(cmyk_ref(cmyk, 1u, false, &want));
+            CHECK(got && px_same(got[0], want) && cmyk_ref_is_adobe(&m));
+            CHECK(got && strstr(m.note, "default CMYK profile") != NULL &&
+                  strstr(m.note, "unusable") != NULL);
+        }
         if (got) pc_meta_free(&m);
         free(got);
         pc_buf_free(&b);

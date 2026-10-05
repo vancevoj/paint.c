@@ -149,7 +149,9 @@ Save options (Save Configuration, FS-CONFIG):
 - Color: without a profile the file is tagged BT.709 primaries, sRGB
   transfer, BT.601 matrix, full range; with meta.icc the profile is
   embedded (CICP primaries and transfer "unspecified"). A gray profile is
-  only kept for a gray image, other profile spaces are dropped.
+  kept as is for a gray image and goes in as its RGB form
+  (pc_icc_gray_as_rgb) for a color image; CMYK, other spaces and profiles
+  Little-CMS cannot convert with are dropped (pc_icc_embed_for, wave 4).
 - Image grid: images with even width and height are split into a grid of
   equal tiles for Fast (at most 512 pixels per side), Medium (1280) and Slow
   (1920); per side, the fewest tiles (2 to 250) whose even size divides the
@@ -200,7 +202,11 @@ Save options:
 
 - Gray images are written with one color channel, opaque images without
   alpha; 8 bits per sample. The profile in meta.icc is embedded (a gray
-  profile only for a gray image), else the file is tagged sRGB. Exif goes
+  profile as is for a gray image and as its RGB form for a color image;
+  unusable profiles never reach the encoder, so libjxl's color transform
+  cannot fail on them, wave 4), else the file is tagged sRGB. An encoder
+  failure maps through JxlEncoderGetError to PC_ERR_UNSUPPORTED (or
+  PC_ERR_NOMEM, PC_ERR_ARG), not PC_ERR_STATE. Exif goes
   into an 'Exif' box (offset 0, Orientation 1) and XMP into an 'xml ' box,
   both uncompressed, before the codestream.
 - Threads: libjxl runs its parallel work through a JxlParallelRunner over

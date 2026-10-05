@@ -24,15 +24,17 @@
  * nothing (Paint.NET 5.1 documentation), including 1, 2 and 4-bit palettes
  * when the colors fit; the lossless analysis follows Paint.NET 3.36
  * InternalFileType (see docs/notice/l6b.md). Metadata is written back:
- * iCCP, pHYs, an iTXt XMP packet, tEXt (iTXt when the text is not Latin-1)
- * chunks for the mapped EXIF text tags and the png.text items, and eXIf for
- * the remaining EXIF tags.
+ * iCCP (pc_icc_embed_for: RGB profiles as is, gray ones as their RGB form,
+ * never an unusable or CMYK profile), pHYs, an iTXt XMP packet, tEXt (iTXt
+ * when the text is not Latin-1) chunks for the mapped EXIF text tags and
+ * the png.text items, and eXIf for the remaining EXIF tags.
  *
  * Threads: load and save are reentrant (one spng context per call).
  */
 #include "lib_codec.h"
 #include "cmeta.h"
 #include "quant.h"
+#include "pc/pc_icc.h"
 #include "spng.h"
 
 #include <stddef.h>
@@ -820,6 +822,7 @@ static pc_status png_save(const pc_doc *d, const pc_image_meta *meta, const void
     png_scan *scan = NULL;
     png_prep prep;
     png_meta pm;
+    pc_icc_embed icc;
     pc_status st;
     uint32_t bits;
     if (!d || !out) return PC_ERR_ARG;
@@ -835,6 +838,10 @@ static pc_status png_save(const pc_doc *d, const pc_image_meta *meta, const void
     if (prm.dither < 0) prm.dither = 0;
     if (prm.dither > 8) prm.dither = 8;
     st = png_meta_build(&pm, meta, d->w, d->h);
+    /* FS-ICC: color types 2, 3 and 6 take an RGB profile only (a gray one
+     * goes in as its RGB form, unusable and CMYK ones are left out) */
+    if (st == PC_OK) st = pc_icc_embed_for(meta, PC_ICC_SPACE_RGB, &icc);
+    else memset(&icc, 0, sizeof icc);
     if (st != PC_OK) { png_meta_free(&pm); return st; }
     memset(&base, 0, sizeof base);
     base.kind = LC_PNG_RGBA;
@@ -842,7 +849,8 @@ static pc_status png_save(const pc_doc *d, const pc_image_meta *meta, const void
     base.interlace = prm.interlace != 0;
     base.dpi_x = meta && meta->dpi_x > 0.0 ? meta->dpi_x : PNG_DEFAULT_DPI;
     base.dpi_y = meta && meta->dpi_y > 0.0 ? meta->dpi_y : PNG_DEFAULT_DPI;
-    if (meta && meta->icc && meta->icc_len) { base.icc = meta->icc; base.icc_len = meta->icc_len; }
+    base.icc = icc.icc;
+    base.icc_len = icc.len;
     base.text = pm.text;
     base.n_text = pm.n_text;
     base.exif = pm.exif;
@@ -920,6 +928,7 @@ static pc_status png_save(const pc_doc *d, const pc_image_meta *meta, const void
 done:
     free(scan);
     png_meta_free(&pm);
+    pc_icc_embed_free(&icc);
     return st;
 }
 

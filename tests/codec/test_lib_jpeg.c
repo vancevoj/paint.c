@@ -5,6 +5,8 @@
  * mutation fuzzing. */
 #include "pc_test.h"
 #include "lib_test_util.h"
+#include "icc_test_util.h"
+#include "cmyk_ref.h"
 
 #include <stdio.h>
 #include "jpeglib.h"
@@ -67,6 +69,34 @@ static uint8_t *jfx_encode(const jfx *f, const uint8_t *pixels, uint32_t w, uint
     jpeg_finish_compress(&ci);
     jpeg_destroy_compress(&ci);
     return buf;
+}
+
+/* The CMYK samples libjpeg decodes from a CMYK or YCCK file (w * h * 4
+ * bytes, malloc'ed), or NULL. */
+static uint8_t *jpeg_cmyk_samples(const uint8_t *p, size_t n, uint32_t w, uint32_t h)
+{
+    struct jpeg_decompress_struct ci;
+    struct jpeg_error_mgr em;
+    uint8_t *out = (uint8_t *)malloc((size_t)w * h * 4u);
+    if (!out) return NULL;
+    ci.err = jpeg_std_error(&em);
+    jpeg_create_decompress(&ci);
+    jpeg_mem_src(&ci, p, (unsigned long)n);
+    jpeg_read_header(&ci, TRUE);
+    ci.out_color_space = JCS_CMYK;
+    jpeg_start_decompress(&ci);
+    if (ci.output_width != w || ci.output_height != h || ci.output_components != 4) {
+        jpeg_destroy_decompress(&ci);
+        free(out);
+        return NULL;
+    }
+    while (ci.output_scanline < h) {
+        JSAMPROW row = out + (size_t)ci.output_scanline * w * 4u;
+        jpeg_read_scanlines(&ci, &row, 1);
+    }
+    jpeg_finish_decompress(&ci);
+    jpeg_destroy_decompress(&ci);
+    return out;
 }
 
 static pc_doc *load_ok(const uint8_t *p, size_t n, pc_image_meta *meta)
@@ -179,9 +209,11 @@ static void t_alpha_white_dpi_icc(void)
     pc_image_meta meta, m;
     jpeg_params_t p;
     pc_buf out;
-    size_t icc_n = 150000;    /* needs three APP2 chunks */
-    uint8_t *icc = (uint8_t *)malloc(icc_n);
-    for (size_t i = 0; i < icc_n; i++) icc[i] = (uint8_t)(i * 31u + 7u);
+    size_t icc_n = 0;
+    /* a real profile (FS-ICC embeds only usable ones) of about 150 KB, so it
+     * needs three APP2 chunks */
+    uint8_t *icc = itu_rgb("three chunks", 25000u, &icc_n);
+    CHECK(icc && icc_n > 2u * 65519u);
     for (size_t i = 0; i < (size_t)W * H; i++) {
         pc_px32 w = tu_px(255, 255, 255, 255);
         pc_composite_span(&w, &expect[i], 1, PC_BLEND_NORMAL, 255);
@@ -205,6 +237,18 @@ static void t_alpha_white_dpi_icc(void)
         pc_meta_free(&m);
     }
     pc_buf_free(&out);
+    {   /* bytes that are not a usable profile are never embedded (FS-ICC) */
+        uint8_t *junk = itu_junk(5000u, 3u);
+        meta.icc = junk;
+        meta.icc_len = 5000u;
+        CHECK(jpg()->save(d, &meta, &p, NULL, &out) == PC_OK);
+        r = load_ok(out.p, out.n, &m);
+        CHECK(r && m.icc == NULL && m.icc_len == 0u);
+        pc_doc_destroy(r);
+        pc_meta_free(&m);
+        pc_buf_free(&out);
+        free(junk);
+    }
     /* oversize document */
     {
         pc_doc *big = pc_doc_create(65501, 1);
@@ -292,19 +336,21 @@ static void t_colorspaces(void)
         file = jfx_encode(&f, px4, W, H, &n);
         r = load_ok(file, n, &m);
         if (r) {
+            /* no profile: the decoded samples through the default CMYK profile
+             * to Adobe RGB (1998), exactly (FL-CMYK, wave 4) */
             pc_px32 *px = tu_layer_px(r, r->stack[0]);
+            pc_px32 *want = (pc_px32 *)malloc((size_t)W * H * sizeof *want);
+            uint8_t *samples = jpeg_cmyk_samples(file, n, W, H);
             int bad = 0;
-            for (size_t i = 0; i < (size_t)W * H; i++) {
-                const uint8_t *s = px4 + 4 * i;
-                uint32_t c = s[0], mm = s[1], y = s[2], kk = s[3];
-                if (!inverted) { c = 255u - c; mm = 255u - mm; y = 255u - y; kk = 255u - kk; }
-                if (abs((int)px[i].r - (int)pc_mul255(c, kk)) > 6 ||
-                    abs((int)px[i].g - (int)pc_mul255(mm, kk)) > 6 ||
-                    abs((int)px[i].b - (int)pc_mul255(y, kk)) > 6 || px[i].a != 255) bad++;
-            }
+            CHECK(samples && want && cmyk_ref(samples, (size_t)W * H, inverted, want));
+            for (size_t i = 0; samples && want && i < (size_t)W * H; i++)
+                if (px[i].r != want[i].r || px[i].g != want[i].g || px[i].b != want[i].b ||
+                    px[i].a != 255) bad++;
             CHECK(bad == 0);
             if (bad) INFO("cmyk variant %d: %d bad", k, bad);
-            CHECK(m.note[0] != '\0');
+            CHECK(cmyk_ref_is_adobe(&m) && strstr(m.note, "default CMYK profile") != NULL);
+            free(samples);
+            free(want);
             free(px);
             pc_doc_destroy(r);
             pc_meta_free(&m);

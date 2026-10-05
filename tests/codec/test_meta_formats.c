@@ -9,6 +9,7 @@
 #include "lib_test_util.h"
 #include "meta_test_util.h"
 #include "../../src/codec/cmeta.h"
+#include "icc_test_util.h"
 
 #include <stdio.h>
 #include "jpeglib.h"
@@ -627,12 +628,13 @@ static void t_pdn(void)
     pc_image_meta m, m2;
     pc_doc *d = gradient_doc(10, 7), *r;
     pc_buf out;
-    uint8_t icc[200];
+    size_t icc_n = 0;
+    uint8_t *icc = itu_rgb("pdn metadata", 0u, &icc_n);   /* a usable profile (FS-ICC) */
     rich_meta(&m, 33);
-    for (size_t i = 0; i < sizeof icc; i++) icc[i] = (uint8_t)i;
-    m.icc = (uint8_t *)malloc(sizeof icc);
-    memcpy(m.icc, icc, sizeof icc);
-    m.icc_len = sizeof icc;
+    CHECK(icc != NULL);
+    m.icc = (uint8_t *)malloc(icc_n);
+    if (m.icc && icc) memcpy(m.icc, icc, icc_n);
+    m.icc_len = m.icc && icc ? icc_n : 0u;
     CHECK(save("pdn", d, &m, &out) == PC_OK);
     {   /* the file uses Paint.NET's sections */
         const char *keys[] = { "$xmp.packet0", "$user.Palette", "$paintc.png.text.Title" };
@@ -653,7 +655,7 @@ static void t_pdn(void)
         CHECK(strcmp(cm_meta_xmp(&m2, NULL), cm_meta_xmp(&m, NULL)) == 0);
         CHECK(strcmp(pc_meta_get(&m2, "pdn.user.Palette"), "#FF0000") == 0);
         CHECK(strcmp(pc_meta_get(&m2, "png.text.Title"), "Sunset \xC3\xA0 Nice") == 0);
-        CHECK(m2.icc_len == sizeof icc && memcmp(m2.icc, icc, sizeof icc) == 0);
+        CHECK(icc && m2.icc_len == icc_n && memcmp(m2.icc, icc, icc_n) == 0);
         CHECK(m2.dpi_x > 299.9 && m2.dpi_x < 300.1);
         CHECK(m2.n_items == m.n_items);
         {   /* and once more: stable */
@@ -685,6 +687,7 @@ static void t_pdn(void)
     }
     pc_doc_destroy(d);
     pc_meta_free(&m);
+    free(icc);
 }
 
 /* ---- conversions between the formats ------------------------------------------------------ */

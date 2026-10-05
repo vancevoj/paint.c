@@ -562,6 +562,18 @@ static JxlParallelRetCode jxl_par_runner(void *runner_opaque, void *jpegxl_opaqu
     return 0;
 }
 
+/* Status for a failed encode (wave 4): not PC_ERR_STATE, which the app
+ * shows as "Operation not allowed right now". */
+static pc_status enc_error(JxlEncoder *enc)
+{
+    switch (JxlEncoderGetError(enc)) {
+    case JXL_ENC_ERR_OOM:           return PC_ERR_NOMEM;
+    case JXL_ENC_ERR_BAD_INPUT:     return PC_ERR_ARG;
+    case JXL_ENC_ERR_NOT_SUPPORTED: return PC_ERR_UNSUPPORTED;
+    default:                        return PC_ERR_UNSUPPORTED;   /* generic, color transform */
+    }
+}
+
 static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
                           const pc_par *par, pc_buf *out)
 {
@@ -577,6 +589,8 @@ static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void
     uint32_t nc, ch;
     pc_status st = PC_OK;
     lc_flat flat;
+    pc_icc_embed icc;
+    memset(&icc, 0, sizeof icc);
     if (!d || !out) return PC_ERR_ARG;
     if (!d->w || !d->h) return PC_ERR_LIMIT;
     prm.quality = 90;
@@ -607,13 +621,15 @@ static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void
     free(band);
     band = NULL;
     if (st != PC_OK) goto done;
-    if (meta && meta->icc && meta->icc_len) {
-        pc_icc_info info;
-        if (pc_icc_inspect(meta->icc, meta->icc_len, &info) == PC_OK) {
-            if (info.space == PC_ICC_SPACE_RGB) { use_icc = true; gray = false; }
-            else if (info.space == PC_ICC_SPACE_GRAY && gray) use_icc = true;
-        }
-    }
+    /* FS-ICC: a usable RGB profile keeps the image RGB; a gray profile goes
+     * with a gray image as is and with a color image as its RGB form;
+     * unusable and CMYK profiles are left out (pc_icc_embed_for), so the
+     * encoder never gets a profile Little-CMS cannot convert with */
+    if (meta && meta->icc && pc_icc_usable_space(meta->icc, meta->icc_len) == PC_ICC_SPACE_RGB)
+        gray = false;
+    st = pc_icc_embed_for(meta, gray ? PC_ICC_SPACE_GRAY : PC_ICC_SPACE_RGB, &icc);
+    if (st != PC_OK) goto done;
+    use_icc = icc.icc != NULL;
     /* compact in place to the channels actually written */
     nc = gray ? 1u : 3u;
     ch = nc + (alpha ? 1u : 0u);
@@ -658,7 +674,7 @@ static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void
     bi.orientation = JXL_ORIENT_IDENTITY;
     if (JxlEncoderSetBasicInfo(enc, &bi) != JXL_ENC_SUCCESS) { st = PC_ERR_ARG; goto done; }
     if (use_icc) {
-        if (JxlEncoderSetICCProfile(enc, meta->icc, meta->icc_len) != JXL_ENC_SUCCESS)
+        if (JxlEncoderSetICCProfile(enc, icc.icc, icc.len) != JXL_ENC_SUCCESS)
             use_icc = false;
     }
     if (!use_icc) {
@@ -721,7 +737,7 @@ static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void
         es = JxlEncoderProcessOutput(enc, &next, &avail);
         out->n = (size_t)(next - out->p);
         if (es == JXL_ENC_SUCCESS) break;
-        if (es != JXL_ENC_NEED_MORE_OUTPUT) { st = PC_ERR_STATE; break; }
+        if (es != JXL_ENC_NEED_MORE_OUTPUT) { st = enc_error(enc); break; }
     }
 done:
     if (enc) JxlEncoderDestroy(enc);
@@ -729,6 +745,7 @@ done:
     free(xmp);
     free(band);
     free(px);
+    pc_icc_embed_free(&icc);
     return st;
 }
 

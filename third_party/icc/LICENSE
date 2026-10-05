@@ -1,0 +1,34 @@
+SWOP_TR003_coated_3.icc
+=======================
+
+Origin: colord 1.4.7, data/profiles (https://github.com/hughsie/colord),
+as installed by the Debian package colord-data 1.4.7-3 at
+/usr/share/color/icc/colord/SWOP_TR003_coated_3.icc.
+SHA-256: 92eaa9cb3517288968ca88e897252b9f4f51fecece1de0d18bd512aafe244e91
+Profile description "SWOP TR003 Coated", copyright tag "This profile is
+free of known copyright restrictions". Made with ArgyllCMS by Richard
+Hughes from the characterization data of the ANSI CGATS/SWOP technical
+report below.
+
+License of the profile (colord debian/copyright, Files: data/profiles/*):
+
+  Copyright: (c) 2012 Richard Hughes <richard@hughsie.com>
+  License: CC0-1.0 (public domain dedication,
+  https://creativecommons.org/publicdomain/zero/1.0/legalcode)
+
+License of the characterization data it was made from (colord
+debian/copyright, Files: data/profiles/SWOP*.iccprofile.xml):
+
+  Copyright: (c) 2007 NPES The Association for Suppliers of Printing,
+  Publishing and Converting Technologies
+  License: NPES
+  Profiles, or other derivative work, based on these data may be
+  distributed with no further permissions from CGATS. However, this
+  Technical Report must be identified as the source of the
+  characterization data.
+
+Source of the characterization data: ANSI CGATS/SWOP TR 003-2007,
+"Color Characterization Data for SWOP proofing on Grade 3 coated paper".
+
+paint.c embeds the file unchanged (cmake/PcCodecDeps.cmake, PcEmbed) as
+the default CMYK source profile (pc_icc_cmyk_default_profile).

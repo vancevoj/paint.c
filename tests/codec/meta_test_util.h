@@ -115,8 +115,8 @@ static inline void tx_build(pc_buf *b, bool be, const tx_ent *i0, size_t n0, con
                             size_t nx, const tx_ent *gp, size_t ng, const tx_ent *i1, size_t n1)
 {
     uint8_t hdr[8];
-    uint16_t pt[2];
-    uint32_t pv[2], o0 = 8u, ox, og, o1;
+    uint16_t pt[2] = { 0, 0 };
+    uint32_t pv[2] = { 0, 0 }, o0 = 8u, ox, og, o1;
     size_t np = 0;
     size_t base = b->n;
     if (nx) pt[np++] = 34665u;

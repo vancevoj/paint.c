@@ -1,7 +1,8 @@
 /* test_lib_icc.c - pc_icc.h: sRGB profile, inspection, RGB and gray
  * conversion checked against independent matrix math, documents (edge
  * padding, thread-count independence), the import step, malformed and
- * fuzzed profiles, and CMYK JPEGs with an embedded CMYK profile. */
+ * fuzzed profiles, and CMYK JPEGs with an embedded CMYK profile and
+ * without one (the default CMYK profile, wave 4). */
 #include "pc_test.h"
 #include "lib_test_util.h"
 #include "pc/pc_icc.h"
@@ -9,6 +10,7 @@
 #include <stdio.h>
 #include "lcms2.h"
 #include "jpeglib.h"
+#include "cmyk_ref.h"
 
 static uint8_t *save_profile(cmsHPROFILE h, size_t *len)
 {
@@ -323,6 +325,34 @@ static uint8_t *cmyk_jpeg(const uint8_t *cmyk, uint32_t w, uint32_t h, const uin
     return buf;
 }
 
+/* The CMYK samples libjpeg decodes from a CMYK or YCCK file (w * h * 4
+ * bytes as stored, malloc'ed), or NULL. */
+static uint8_t *jpeg_samples(const uint8_t *p, size_t n, uint32_t w, uint32_t h)
+{
+    struct jpeg_decompress_struct ci;
+    struct jpeg_error_mgr em;
+    uint8_t *out = (uint8_t *)malloc((size_t)w * h * 4u);
+    if (!out) return NULL;
+    ci.err = jpeg_std_error(&em);
+    jpeg_create_decompress(&ci);
+    jpeg_mem_src(&ci, p, (unsigned long)n);
+    jpeg_read_header(&ci, TRUE);
+    ci.out_color_space = JCS_CMYK;
+    jpeg_start_decompress(&ci);
+    if (ci.output_width != w || ci.output_height != h || ci.output_components != 4) {
+        jpeg_destroy_decompress(&ci);
+        free(out);
+        return NULL;
+    }
+    while (ci.output_scanline < h) {
+        JSAMPROW row = out + (size_t)ci.output_scanline * w * 4u;
+        jpeg_read_scanlines(&ci, &row, 1);
+    }
+    jpeg_finish_decompress(&ci);
+    jpeg_destroy_decompress(&ci);
+    return out;
+}
+
 static void t_cmyk_jpeg(void)
 {
     const uint32_t W = 32, H = 32;
@@ -350,8 +380,12 @@ static void t_cmyk_jpeg(void)
         CHECK(jpg->load(without, n2, NULL, &b, &mb) == PC_OK);
         if (a && b) {
             /* FL-CMYK: the managed decode is Adobe RGB (1998) and tagged with
-             * it; seen through that profile it matches the naive decode */
+             * it; seen through that profile it matches the naive formula the
+             * embedded profile encodes */
             pc_px32 *pa = tu_layer_px(a, a->stack[0]), *pb = tu_layer_px(b, b->stack[0]);
+            pc_px32 *naive = (pc_px32 *)malloc((size_t)W * H * sizeof *naive);
+            pc_px32 *want = (pc_px32 *)malloc((size_t)W * H * sizeof *want);
+            uint8_t *sa = jpeg_samples(with, n1, W, H), *sb = jpeg_samples(without, n2, W, H);
             int md;
             CHECK(ma.icc != NULL && strstr(ma.note, "Adobe RGB") != NULL);
             CHECK(ma.icc && pc_icc_inspect(ma.icc, ma.icc_len, &info) == PC_OK &&
@@ -359,10 +393,22 @@ static void t_cmyk_jpeg(void)
             if (ma.icc)
                 CHECK(pc_icc_to_srgb_px(ma.icc, ma.icc_len, pa, (int32_t)W, (int32_t)H, W) ==
                       PC_OK);
-            md = tu_max_abs_diff(pa, pb, (size_t)W * H);
+            CHECK(sa && sb && naive && want);
+            for (size_t i = 0; sa && naive && i < (size_t)W * H; i++) {
+                const uint8_t *q = sa + 4u * i;           /* Adobe: 255 = no ink */
+                naive[i].r = (uint8_t)pc_mul255(q[0], q[3]);
+                naive[i].g = (uint8_t)pc_mul255(q[1], q[3]);
+                naive[i].b = (uint8_t)pc_mul255(q[2], q[3]);
+                naive[i].a = 255u;
+            }
+            md = sa && naive ? tu_max_abs_diff(pa, naive, (size_t)W * H) : 999;
             CHECK(md <= 8);
-            INFO("managed (via Adobe RGB) vs naive CMYK decode: max difference %d", md);
-            CHECK(mb.icc == NULL && strstr(mb.note, "without") != NULL);
+            INFO("managed (via Adobe RGB) vs naive CMYK formula: max difference %d", md);
+            /* no profile: the default CMYK profile, exactly (wave 4) */
+            CHECK(cmyk_ref_is_adobe(&mb) && strstr(mb.note, "default CMYK profile") != NULL);
+            CHECK(sb && want && cmyk_ref(sb, (size_t)W * H, true, want));
+            if (sb && want) CHECK(tu_max_abs_diff(pb, want, (size_t)W * H) == 0);
+            free(sa); free(sb); free(naive); free(want);
             free(pa); free(pb);
         }
         pc_doc_destroy(a); pc_doc_destroy(b);

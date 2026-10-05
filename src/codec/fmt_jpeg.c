@@ -6,9 +6,11 @@
  * scans (progressive DoS). Scanlines are read in bands of LC_BAND rows and
  * stored into the layer. Gray, YCbCr and RGB decode straight to BGRA;
  * CMYK and YCCK (Adobe inverted samples when an Adobe marker is present)
- * convert through the embedded CMYK profile with Little-CMS when there is
- * one (the result is Adobe RGB (1998) and the image is tagged with that
- * profile, FL-CMYK), else with the naive formula. The EXIF orientation is
+ * convert with Little-CMS through the embedded CMYK profile, or through the
+ * default CMYK profile (SWOP, pc_icc_cmyk_default_profile) when there is
+ * no usable one; the result is Adobe RGB (1998) and the image is tagged
+ * with that profile (FL-CMYK). The naive formula remains only for a failing
+ * Little-CMS. The EXIF orientation is
  * applied and reset to 1; EXIF (APP1 "Exif"), XMP (APP1, standard packet)
  * and IPTC (APP13 Photoshop 3.0 resource 0x0404) become pc_image_meta
  * items (cmeta.h key scheme, the EXIF thumbnail is dropped); the ICC
@@ -18,10 +20,11 @@
  *
  * Save: quality 0..100 (default 95, Paint.NET 3.36 JpegFileType), chroma
  * subsampling 4:2:0, 4:2:2 (default, FILES.md) or 4:4:4, optimized Huffman
- * tables, JFIF density from meta.dpi (96 when unknown), ICC embedding, and
- * the EXIF, XMP and IPTC items written back (APP1, APP1, APP13; a block
- * that does not fit one marker segment is left out). The image is
- * flattened onto white first (3.36 behavior).
+ * tables, JFIF density from meta.dpi (96 when unknown), ICC embedding
+ * (pc_icc_embed_for: an RGB profile as is, a gray one as its RGB form,
+ * unusable and CMYK ones never), and the EXIF, XMP and IPTC items written
+ * back (APP1, APP1, APP13; a block that does not fit one marker segment is
+ * left out). The image is flattened onto white first (3.36 behavior).
  *
  * Threads: reentrant. Error recovery uses setjmp/longjmp confined to the
  * *_run functions; everything they allocate lives in a heap context that
@@ -291,29 +294,31 @@ static pc_status jdec_run(jdec *j, const uint8_t *p, size_t n, const pc_codec_li
         return PC_ERR_UNSUPPORTED;
     }
     if (cmyk) {
+        /* FL-CMYK: through the embedded CMYK profile, else (none, or not
+         * usable) through the default CMYK profile (wave 4); the pixels
+         * become Adobe RGB (1998) and carry that profile */
         bool inverted = ci->saw_Adobe_marker != 0;
+        const char *note = LC_NOTE_CMYK_EMBEDDED;
         uint8_t *adobe = NULL;
         size_t adobe_n = 0;
-        if (meta->icc) {
-            st = pc_icc_adobe_rgb_profile(&adobe, &adobe_n);
-            if (st != PC_OK) return st;
-            j->xf = lc_cmyk_open(meta->icc, meta->icc_len, inverted, adobe, adobe_n);
+        st = pc_icc_adobe_rgb_profile(&adobe, &adobe_n);
+        if (st != PC_OK) return st;
+        if (meta->icc) j->xf = lc_cmyk_open(meta->icc, meta->icc_len, inverted, adobe, adobe_n);
+        if (!j->xf) {
+            note = meta->icc ? LC_NOTE_CMYK_BAD : LC_NOTE_CMYK_DEFAULT;
+            j->xf = lc_cmyk_open_default(inverted, adobe, adobe_n);
         }
+        free(meta->icc);
+        meta->icc = NULL;
+        meta->icc_len = 0;
         if (j->xf) {
-            /* pixels become Adobe RGB (1998) and carry that profile (FL-CMYK) */
-            free(meta->icc);
             meta->icc = adobe;
             meta->icc_len = adobe_n;
-            lc_note(meta, "CMYK converted to Adobe RGB (1998) with the embedded color profile");
         } else {
             free(adobe);
-            if (meta->icc) {
-                free(meta->icc);
-                meta->icc = NULL;
-                meta->icc_len = 0;
-            }
-            lc_note(meta, "CMYK converted to RGB without a color profile");
+            note = LC_NOTE_CMYK_NAIVE;           /* only when Little-CMS failed */
         }
+        lc_note(meta, note);
     }
 
     jpeg_start_decompress(ci);
@@ -472,7 +477,7 @@ typedef struct jenc {
 } jenc;
 
 static pc_status jenc_run(jenc *j, const pc_doc *d, const pc_image_meta *meta,
-                          const jpeg_params *prm, const pc_par *par)
+                          const pc_icc_embed *icc, const jpeg_params *prm, const pc_par *par)
 {
     struct jpeg_compress_struct *ci = &j->ci;
     lc_flat flat;
@@ -509,9 +514,9 @@ static pc_status jenc_run(jenc *j, const pc_doc *d, const pc_image_meta *meta,
     ci->Y_density = (UINT16)(dpi_y >= 65535.0 ? 65535 : (dpi_y < 1.0 ? 1 : (int)(dpi_y + 0.5)));
     jpeg_start_compress(ci, TRUE);
     write_meta(ci, meta, d->w, d->h);
-    if (meta && meta->icc && meta->icc_len) {
-        if (meta->icc_len > 65519u * 255u) return PC_ERR_LIMIT;
-        jpeg_write_icc_profile(ci, meta->icc, (unsigned int)meta->icc_len);
+    if (icc->icc && icc->len) {
+        if (icc->len > 65519u * 255u) return PC_ERR_LIMIT;
+        jpeg_write_icc_profile(ci, icc->icc, (unsigned int)icc->len);
     }
     j->band = (pc_px32 *)malloc((size_t)d->w * (size_t)LC_BAND * sizeof *j->band);
     if (!j->band) return PC_ERR_NOMEM;
@@ -540,6 +545,7 @@ static pc_status jpeg_save(const pc_doc *d, const pc_image_meta *meta, const voi
 {
     jpeg_params prm;
     jenc *j;
+    pc_icc_embed icc;
     pc_status st;
     size_t n0;
     if (!d || !out) return PC_ERR_ARG;
@@ -547,18 +553,22 @@ static pc_status jpeg_save(const pc_doc *d, const pc_image_meta *meta, const voi
     prm.quality = 95;
     prm.subsampling = JPEG_SUB_422;
     if (params) memcpy(&prm, params, sizeof prm);
+    /* FS-ICC: the profile must describe the 3-component YCbCr (RGB) data */
+    st = pc_icc_embed_for(meta, PC_ICC_SPACE_RGB, &icc);
+    if (st != PC_OK) return st;
     j = (jenc *)calloc(1u, sizeof *j);
-    if (!j) return PC_ERR_NOMEM;
+    if (!j) { pc_icc_embed_free(&icc); return PC_ERR_NOMEM; }
     j->ci.err = jpeg_std_error(&j->err.pub);
     j->err.pub.error_exit = j_error_exit;
     j->err.pub.output_message = j_output_message;
     j->err.st = PC_OK;
     j->dst.out = out;
     n0 = out->n;
-    st = jenc_run(j, d, meta, &prm, par);
+    st = jenc_run(j, d, meta, &icc, &prm, par);
     if (j->created) jpeg_destroy_compress(&j->ci);
     free(j->band);
     free(j);
+    pc_icc_embed_free(&icc);
     if (st != PC_OK) out->n = n0;     /* drop partial output */
     return st;
 }

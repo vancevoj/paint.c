@@ -2,6 +2,7 @@
 #include "m_import.h"
 
 #include "../app_internal.h"
+#include "app/app_io.h"
 #include "m_hist.h"
 #include "pc/pc_geom.h"
 #include "pc/pc_icc.h"
@@ -15,6 +16,7 @@ typedef struct import_file {
     pc_doc        *doc;       /* decoded (owned) */
     pc_image_meta  meta;
     pc_status      st;
+    app_load_info  info;      /* lane CODEC: what the load found */
 } import_file;
 
 typedef struct import_job {
@@ -49,15 +51,9 @@ static void import_work(void *ud)
     import_job *j = (import_job *)ud;
     for (int i = 0; i < j->n; i++) {
         import_file *f = &j->f[i];
-        uint8_t *data = NULL;
-        size_t len = 0;
-        pc_codec_limits lim;
         if (f->st != PC_OK) continue;
-        f->st = pal_read_file(f->path, (uint64_t)3u << 30, &data, &len);
-        if (f->st != PC_OK) continue;
-        pc_codec_limits_default(&lim);
-        f->st = pc_codec_load_any(data, len, f->path, &lim, &f->doc, &f->meta, NULL);
-        free(data);
+        /* lane CODEC (wave 4): the limits of File > Open */
+        f->st = app_load_file(f->path, NULL, &f->doc, &f->meta, NULL, &f->info);
         if (f->st == PC_OK && (!f->doc || f->doc->n_layers == 0u)) f->st = PC_ERR_FORMAT;
         if (f->st == PC_OK && j->to_srgb && f->meta.icc)
             (void)pc_icc_import(f->doc, &f->meta, NULL);
@@ -113,9 +109,12 @@ static void import_done(app *a, void *ud)
     bool grown = false, any = false;
     pc_status st = PC_OK;
     for (int i = 0; i < j->n; i++)
-        if (j->f[i].st != PC_OK)
-            app_error(a, "Could not import \"%s\": %s.", j->f[i].path ? j->f[i].path : "?",
-                      pc_status_str(j->f[i].st));
+        if (j->f[i].st != PC_OK) {
+            char msg[1400];
+            app_load_error_text(msg, sizeof msg, "import", j->f[i].path ? j->f[i].path : "?",
+                                j->f[i].st, &j->f[i].info);
+            app_error(a, "%s", msg);
+        }
     if (!d) {
         import_free(j);
         return;
