@@ -6,7 +6,8 @@
  * composited over the source with the chosen layer blend mode. Noise and
  * coloring from the MIT-licensed Paint.NET 3.36 CloudsEffect (see
  * docs/notice/l5c.md); positions are relative to the selection center. The
- * blend math is the pc_composite_span oracle (copied in fx2_composite).
+ * blend math is the pc_composite_span oracle (copied in fx2_composite);
+ * Overwrite writes the clouds as they are.
  * Paint.NET 5.1 shows the colors on a separate Colors tab; they default to the
  * palette's primary and secondary colors.
  */
@@ -24,11 +25,11 @@ typedef struct clouds_params {
 
 static const fx_prop k_props[] = {
     { "scale", "Scale", FXP_INT, (uint32_t)offsetof(clouds_params, scale),
-      2.0, 1000.0, 250.0, 1.0, NULL, NULL, 0u, FXP_F_SLIDER_LOG, NULL },
+      2.0, 1000.0, 250.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "roughness", "Roughness", FXP_REAL, (uint32_t)offsetof(clouds_params, roughness),
       0.0, 1.0, 0.5, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "blend", "Blend Mode", FXP_CHOICE, (uint32_t)offsetof(clouds_params, blend),
-      0.0, (double)(FX2_BLEND_COUNT - 1), 0.0, 0.0, fx2_blend_choices, NULL, 0u, 0u, NULL },
+      0.0, (double)(FX2_BLEND_CHOICES - 1), 0.0, 0.0, fx2_blend_choices, NULL, 0u, 0u, NULL },
     { "seed", "Randomize", FXP_SEED, (uint32_t)offsetof(clouds_params, seed),
       0.0, 2147483647.0, 0.0, 0.0, NULL, NULL, 0u, 0u, NULL },
     { "color1", "Color 1", FXP_COLOR, (uint32_t)offsetof(clouds_params, color1),
@@ -71,7 +72,8 @@ static int clouds_render(const void *params, const void *state, const fx_img *sr
 {
     const clouds_params *p = (const clouds_params *)params;
     const clouds_state *s = (const clouds_state *)state;
-    int32_t scale = fx2_int(p->scale, 2, 1000), blend = fx2_int(p->blend, 0, FX2_BLEND_COUNT - 1);
+    int32_t scale = fx2_int(p->scale, 2, 1000);
+    int32_t blend = fx2_int(p->blend, 0, FX2_BLEND_CHOICES - 1);
     double power = fx2_real(p->roughness, 0.0, 1.0, 0.5);
     fx_px c1 = fx_px_from_argb(p->color1), c2 = fx_px_from_argb(p->color2);
     int32_t x, y;

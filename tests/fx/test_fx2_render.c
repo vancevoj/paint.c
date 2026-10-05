@@ -59,6 +59,9 @@ static void check_blend_modes(const fx_effect *fx, void *p, ctx *c, const char *
             }
     }
     CHECK(bad == 0);
+    t_set_i(fx, p, key, 14);                           /* Overwrite: the raw layer */
+    CHECK(t_render(fx, p, &c->src, &c->out, &c->env) == FX_OK);
+    CHECK(t_diff(&c->out, &c->raw, c->env.sel) == 0);
     t_set_i(fx, p, key, 0);
 }
 
@@ -149,11 +152,12 @@ static void t_julia(void)
     if (!fx) return;
     ctx_init(&c, t_rect(3, 2, 39, 31));
     p = t_params(fx, &c.env);
+    CHECK(*(int32_t *)((uint8_t *)p + t_prop(fx, "blend")->offset) == 14);   /* Overwrite */
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
     t_set_d(fx, p, "factor", 9.0);
     t_set_d(fx, p, "zoom", 3.0);
     t_set_d(fx, p, "angle", 40.0);
-    t_set_i(fx, p, "quality", 3);
+    t_set_i(fx, p, "quality", 8);
     t_set_i(fx, p, "blend", 12);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
     /* it draws something, and it is not uniform */
@@ -181,14 +185,14 @@ static void t_mandelbrot(void)
     ctx_init(&c, t_rect(2, 3, 41, 29));
     p = t_params(fx, &c.env);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
-    t_set_i(fx, p, "factor", 4);
+    t_set_d(fx, p, "factor", 4.5);
     t_set_d(fx, p, "zoom", 40.0);
     t_set_d(fx, p, "angle", -75.0);
     t_set_i(fx, p, "blend", 4);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
     /* Invert Colors inverts the color channels of the fractal */
     t_set_i(fx, p, "blend", 0);
-    t_set_i(fx, p, "factor", 3);
+    t_set_d(fx, p, "factor", 3.0);
     t_set_d(fx, p, "zoom", 2.0);
     CHECK(t_render(fx, p, &c.zero, &c.ref, &c.env) == FX_OK);
     t_set_i(fx, p, "invert", 1);
@@ -211,11 +215,11 @@ static void t_mandelbrot(void)
 
 /* Paint.NET 3.36 Mandelbrot without any shortcut (reference for the interior
  * and cycle-detection fast paths), same expressions as the effect. */
-static double ref_mandel(double r, double i, int32_t factor)
+static double ref_mandel(double r, double i, double factor)
 {
     int32_t c = 0;
     double x = 0.0, y = 0.0;
-    while (c * factor < 1024 && x * x + y * y < 100000.0) {
+    while ((double)c * factor < 1024.0 && x * x + y * y < 100000.0) {
         double t = x;
         x = x * x - y * y + r;
         y = 2.0 * t * y + i;
@@ -234,7 +238,7 @@ static uint8_t ref_trunc(double v)
 static void t_mandelbrot_reference(void)
 {
     const fx_effect *fx = t_find("org.paintc.render.mandelbrot_fractal");
-    const int32_t factors[3] = {1, 3, 10};
+    const double factors[3] = {1.0, 3.5, 10.0};
     const double zooms[3] = {10.0, 0.0, 2.5};
     ctx c;
     void *p;
@@ -245,11 +249,12 @@ static void t_mandelbrot_reference(void)
     ctx_init(&c, t_rect(0, 0, 40, 30));
     p = t_params(fx, &c.env);
     for (k = 0; k < 3; k++) {
-        int32_t quality = 1 + k, factor = factors[k], count = quality * quality + 1, x, y, i;
+        int32_t quality = 1 + 3 * k, count = quality * quality, x, y, i;
+        double factor = factors[k];
         double zoom = 1.0 + 20.0 * zooms[k], inv_zoom = 1.0 / zoom, inv_h = 1.0 / 30.0;
         double inv_q = 1.0 / (double)quality, inv_count = 1.0 / (double)count;
         double theta0 = (k == 2 ? 25.0 : 0.0) * (3.14159265358979323846 / 180.0);
-        t_set_i(fx, p, "factor", factor);
+        t_set_d(fx, p, "factor", factor);
         t_set_d(fx, p, "zoom", zooms[k]);
         t_set_i(fx, p, "quality", quality);
         t_set_d(fx, p, "angle", k == 2 ? 25.0 : 0.0);
@@ -302,19 +307,22 @@ static void t_turbulence(void)
     t_set_i(fx, p, "octaves", 7);
     t_set_i(fx, p, "blend", 8);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
-    /* Normal overwrites with opaque, colorful noise */
-    t_set_i(fx, p, "blend", 0);
+    /* Overwrite writes colorful noise with a noisy alpha channel */
+    t_set_i(fx, p, "blend", 14);
     t_set_i(fx, p, "seed", 21);
     CHECK(t_render(fx, p, &c.src, &a, &c.env) == FX_OK);
     {
-        long colorful = 0;
+        long colorful = 0, alphas = 0;
         for (y = c.env.sel.y; y < c.env.sel.y + c.env.sel.h; y++)
             for (x = c.env.sel.x; x < c.env.sel.x + c.env.sel.w; x++) {
                 fx_px q = *t_at(&a, x, y);
-                CHECK(q.a == 255);
                 if (q.r != q.g || q.g != q.b) colorful++;
+                if (q.a != 255 && q.a != t_at(&a, c.env.sel.x, c.env.sel.y)->a) alphas++;
             }
-        CHECK(colorful > 1000);
+        INFO("turbulence: %ld colored, %ld varying alpha of %ld", colorful, alphas,
+             (long)c.env.sel.w * c.env.sel.h);
+        CHECK(colorful > 400);
+        CHECK(alphas > 1000);
     }
     CHECK(t_render(fx, p, &c.src, &c.out, &c.env) == FX_OK);       /* same seed */
     CHECK(t_diff(&c.out, &a, c.env.sel) == 0);
@@ -325,6 +333,25 @@ static void t_turbulence(void)
     t_set_i(fx, p, "octaves", 1);
     CHECK(t_render(fx, p, &c.src, &c.out, &c.env) == FX_OK);
     CHECK(t_diff(&c.out, &a, c.env.sel) > 1000);
+    /* Size stitches the noise: the pattern repeats every Size pixels */
+    t_set_i(fx, p, "octaves", 5);
+    t_set_i(fx, p, "size", 16);
+    t_set_d(fx, p, "period", 7.0);
+    CHECK(t_render(fx, p, &c.src, &c.out, &c.env) == FX_OK);
+    {
+        long bad = 0, varied = 0;
+        for (y = c.env.sel.y; y + 16 < c.env.sel.y + c.env.sel.h; y++)
+            for (x = c.env.sel.x; x + 16 < c.env.sel.x + c.env.sel.w; x++) {
+                if (!t_px_eq(*t_at(&c.out, x, y), *t_at(&c.out, x + 16, y))) bad++;
+                if (!t_px_eq(*t_at(&c.out, x, y), *t_at(&c.out, x, y + 16))) bad++;
+                if (!t_px_eq(*t_at(&c.out, x, y), *t_at(&c.out, x + 1, y))) varied++;
+            }
+        CHECK(bad == 0);
+        CHECK(varied > 100);
+    }
+    t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
+    t_set_i(fx, p, "size", 4096);
+    t_set_d(fx, p, "period", 13.0);
     check_blend_modes(fx, p, &c, "blend");
     check_sel_relative(fx, p, &c);
     t_check_cancel(fx, p, &c.src, &c.env);

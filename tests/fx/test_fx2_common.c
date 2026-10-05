@@ -125,7 +125,15 @@ static void t_blend_exhaustive(void)
             for (b = 0; b < 256u; b++)
                 if (fx2_blend_channel(m, a, b) != pc_blend_channel((pc_blend_mode)m, a, b)) bad++;
     CHECK(bad == 0);
-    CHECK(strcmp(fx2_blend_choices[0], "Normal") == 0 && fx2_blend_choices[14] == NULL);
+    CHECK(strcmp(fx2_blend_choices[0], "Normal") == 0);
+    CHECK(strcmp(fx2_blend_choices[FX2_BLEND_OVERWRITE], "Overwrite") == 0);
+    CHECK(fx2_blend_choices[FX2_BLEND_CHOICES] == NULL);
+    {
+        fx_px bg = fx_px_make(1, 2, 3, 4), top = fx_px_make(9, 8, 7, 6);
+        CHECK(t_px_eq(fx2_composite(bg, top, FX2_BLEND_OVERWRITE), top));
+        top.a = 0;
+        CHECK(t_px_eq(fx2_composite(bg, top, FX2_BLEND_OVERWRITE), fx_px_make(0, 0, 0, 0)));
+    }
 }
 
 static void t_composite_oracle(void)

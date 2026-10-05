@@ -6,8 +6,9 @@
  * (see docs/notice/l5c.md): 3.36 Roughness is called Detail and Tension is
  * called Turbulence, as in Paint.NET 5.1. The Angle parameter of Paint.NET 5
  * rotates the noise field and its displacements rigidly. Edges reflect, as in
- * 3.36. Randomness comes from the Randomize seed only (3.36 also mixed in the
- * clock, which made results unrepeatable).
+ * 3.36. Quality is 1..8 (q^2 subsamples) as for every Paint.NET 5 distortion.
+ * Randomness comes from the Randomize seed only (3.36 also mixed in the clock,
+ * which made results unrepeatable).
  */
 #include "fx2_common.h"
 #include "../render/fx2_noise.h"
@@ -18,23 +19,23 @@ typedef struct dents_params {
     double  detail;          /* 0 .. 100 (3.36 Roughness) */
     double  turbulence;      /* 0 .. 100 (3.36 Tension) */
     double  angle;           /* degrees */
-    int32_t quality;         /* 1 .. 5 */
+    int32_t quality;         /* 1 .. 8 */
     int32_t seed;
 } dents_params;
 
 static const fx_prop k_props[] = {
     { "scale", "Scale", FXP_REAL, (uint32_t)offsetof(dents_params, scale),
-      1.0, 200.0, 25.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      1.0, 200.0, 25.0, 1.0, NULL, NULL, 0u, FXP_F_SLIDER_LOG, NULL },
     { "refraction", "Refraction", FXP_REAL, (uint32_t)offsetof(dents_params, refraction),
-      0.0, 200.0, 50.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      0.0, 200.0, 50.0, 1.0, NULL, NULL, 0u, FXP_F_SLIDER_LOG, NULL },
     { "detail", "Detail", FXP_REAL, (uint32_t)offsetof(dents_params, detail),
       0.0, 100.0, 10.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "turbulence", "Turbulence", FXP_REAL, (uint32_t)offsetof(dents_params, turbulence),
-      0.0, 100.0, 10.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      0.0, 100.0, 10.0, 1.0, NULL, NULL, 0u, FXP_F_SLIDER_LOG, NULL },
     { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(dents_params, angle),
       -180.0, 180.0, 0.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "quality", "Quality", FXP_INT, (uint32_t)offsetof(dents_params, quality),
-      1.0, 5.0, 2.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      1.0, 8.0, 2.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "seed", "Randomize", FXP_SEED, (uint32_t)offsetof(dents_params, seed),
       0.0, 2147483647.0, 0.0, 0.0, NULL, NULL, 0u, 0u, NULL },
 };
@@ -108,7 +109,7 @@ static int dents_render(const void *params, const void *state, const fx_img *src
     c.sn = sin(ang);
     c.cs = cos(ang);
     fx2_sel_point(env, center, &w.cx, &w.cy);
-    w.quality = fx2_int(p->quality, 1, 5);
+    w.quality = fx2_int(p->quality, 1, 8);
     w.edge = FX2_EDGE_REFLECT;
     w.inverse = dents_inverse;
     w.ctx = &c;

@@ -1,13 +1,13 @@
 /* fxm_julia.c - Effects > Render > Julia Fractal.
  *
  * Renders the Julia set of c = 0.3125 + 0.03i with smooth escape-time
- * coloring, supersampled with Quality^2 + 1 samples per pixel, positioned on
- * the selection (center, height-normalized), rotated by Angle and scaled by
- * Zoom, then composited over the source with the chosen blend mode.
- * Algorithm, constants and ranges from the MIT-licensed Paint.NET 3.36
- * JuliaFractalEffect (see docs/notice/l5c.md). The Blend Mode option is the
- * Paint.NET 5 addition; Normal composites the (partly transparent) fractal
- * over the original pixels.
+ * coloring, positioned on the selection (center, height-normalized), rotated
+ * by Angle and scaled by Zoom, then written over the source with the chosen
+ * blend mode (default Overwrite, as in Paint.NET 5).
+ * Iteration, coloring, constants and the sub-sample pattern come from the
+ * MIT-licensed Paint.NET 3.36 JuliaFractalEffect (see docs/notice/l5c.md);
+ * as documented for Paint.NET 5, Quality q (1..8) takes q^2 samples per pixel
+ * (3.36 took q^2 + 1 with q in 1..5).
  */
 #include "../distort/fx2_common.h"
 
@@ -15,21 +15,22 @@ typedef struct julia_params {
     double  factor;          /* 1 .. 10 */
     double  zoom;            /* 0.1 .. 50 */
     double  angle;           /* degrees */
-    int32_t quality;         /* 1 .. 5 */
-    int32_t blend;           /* FX2_BLEND_* */
+    int32_t quality;         /* 1 .. 8 */
+    int32_t blend;           /* fx2_blend_choices index */
 } julia_params;
 
 static const fx_prop k_props[] = {
     { "factor", "Factor", FXP_REAL, (uint32_t)offsetof(julia_params, factor),
       1.0, 10.0, 4.0, 0.1, NULL, NULL, 0u, 0u, NULL },
     { "zoom", "Zoom", FXP_REAL, (uint32_t)offsetof(julia_params, zoom),
-      0.1, 50.0, 1.0, 0.1, NULL, NULL, 0u, FXP_F_SLIDER_LOG, NULL },
+      0.1, 50.0, 1.0, 0.1, NULL, NULL, 0u, 0u, NULL },
     { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(julia_params, angle),
       -180.0, 180.0, 0.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "quality", "Quality", FXP_INT, (uint32_t)offsetof(julia_params, quality),
-      1.0, 5.0, 2.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      1.0, 8.0, 2.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "blend", "Blend Mode", FXP_CHOICE, (uint32_t)offsetof(julia_params, blend),
-      0.0, (double)(FX2_BLEND_COUNT - 1), 0.0, 0.0, fx2_blend_choices, NULL, 0u, 0u, NULL },
+      0.0, (double)(FX2_BLEND_CHOICES - 1), (double)FX2_BLEND_OVERWRITE, 0.0,
+      fx2_blend_choices, NULL, 0u, 0u, NULL },
 };
 
 static double julia(double x, double y, double r, double i)
@@ -55,8 +56,9 @@ static int julia_render(const void *params, const void *state, const fx_img *src
     double factor = fx2_real(p->factor, 1.0, 10.0, 4.0);
     double inv_zoom = 1.0 / fx2_real(p->zoom, 0.1, 50.0, 1.0);
     double theta0 = fx2_deg2rad(fx2_real(p->angle, -180.0, 180.0, 0.0));
-    int32_t quality = fx2_int(p->quality, 1, 5), blend = fx2_int(p->blend, 0, 13);
-    int32_t w = env->sel.w, h = env->sel.h, count = quality * quality + 1, x, y, i;
+    int32_t quality = fx2_int(p->quality, 1, 8);
+    int32_t blend = fx2_int(p->blend, 0, FX2_BLEND_CHOICES - 1);
+    int32_t w = env->sel.w, h = env->sel.h, count = quality * quality, x, y, i;
     double inv_h = 1.0 / (double)(h > 0 ? h : 1), inv_q = 1.0 / (double)quality;
     double aspect = (double)h / (double)(w > 0 ? w : 1), inv_count = 1.0 / (double)count;
     (void)state;

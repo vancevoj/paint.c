@@ -30,6 +30,11 @@ double fx2_noise_cell(const fx2_perm *perm, int32_t ix, int32_t iy, double fx, d
  * beyond +-2^30 wrap like the lattice does. */
 double fx2_noise(const fx2_perm *perm, double x, double y, uint8_t off);
 
+/* Gradient noise whose lattice repeats every pw x ph cells (pw, ph >= 1), so
+ * the noise is periodic with that period: the seamless "stitched" variant. */
+double fx2_noise_wrap(const fx2_perm *perm, double x, double y, int32_t pw, int32_t ph,
+                      uint8_t off);
+
 /* Fractal sum in the form of Paint.NET 3.36 PerlinNoise2D.Noise: ceil(detail)
  * octaves (the last one weighted by the fractional part), each rotated by
  * 137.2 degrees and offset by prime numbers, amplitude multiplied by roughness

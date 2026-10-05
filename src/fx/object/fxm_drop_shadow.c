@@ -1,35 +1,38 @@
 /* fxm_drop_shadow.c - Effects > Object > Drop Shadow.
  *
- * Own design from the Paint.NET 5.1 documentation (the effect is new in 5.0).
- * The shadow is the layer's alpha channel moved Distance pixels in the
- * direction Angle (counter-clockwise from the +x axis, so -45 casts it down and
- * to the right), blurred with a Gaussian whose standard deviation is a third
- * of Shadow Radius, tinted with Color and scaled by Opacity. The object is
- * then composited over its shadow (Normal blend), or removed when Only Draw
- * Shadow is checked. The shadow field of the whole selection is built once in
- * prepare(); fractional offsets are sampled bilinearly.
+ * Own design from the Paint.NET 5.1 documentation (the effect is new in 5.0);
+ * ranges and defaults follow the Paint.NET 5 API documentation of its drop
+ * shadow (blur radius 0..300, default 10; distance 10; angle -45; black at
+ * 75% opacity). The shadow is the layer's alpha channel moved Distance pixels
+ * in the direction Angle (counter-clockwise from the +x axis, so -45 casts it
+ * down and to the right), blurred with a Gaussian whose standard deviation is
+ * a third of Shadow Radius, tinted with Color (its alpha also scales the
+ * shadow) and scaled by Opacity. The object is then composited over its
+ * shadow (Normal blend), or removed when Only Draw Shadow is checked. The
+ * shadow field of the whole selection is built once in prepare(); fractional
+ * offsets are sampled bilinearly.
  */
 #include "fx2_field.h"
 #include "../distort/fx2_common.h"
 
 typedef struct shadow_params {
-    double   radius;         /* 0 .. 100 */
+    double   radius;         /* 0 .. 300 */
     double   distance;       /* 0 .. 100 */
     double   angle;          /* degrees */
-    int32_t  opacity;        /* 0 .. 100 percent */
+    double   opacity;        /* 0 .. 1 */
     uint32_t color;          /* 0xAARRGGBB */
     int32_t  only_shadow;    /* bool */
 } shadow_params;
 
 static const fx_prop k_props[] = {
     { "radius", "Shadow Radius", FXP_REAL, (uint32_t)offsetof(shadow_params, radius),
-      0.0, 100.0, 10.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      0.0, 300.0, 10.0, 0.1, NULL, NULL, 0u, FXP_F_SLIDER_LOG, NULL },
     { "distance", "Distance", FXP_REAL, (uint32_t)offsetof(shadow_params, distance),
-      0.0, 100.0, 5.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      0.0, 100.0, 10.0, 0.1, NULL, NULL, 0u, 0u, NULL },
     { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(shadow_params, angle),
       -180.0, 180.0, -45.0, 1.0, NULL, NULL, 0u, 0u, NULL },
-    { "opacity", "Opacity", FXP_INT, (uint32_t)offsetof(shadow_params, opacity),
-      0.0, 100.0, 50.0, 1.0, NULL, NULL, 0u, FXP_F_PERCENT, NULL },
+    { "opacity", "Opacity", FXP_REAL, (uint32_t)offsetof(shadow_params, opacity),
+      0.0, 1.0, 0.75, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "color", "Color", FXP_COLOR, (uint32_t)offsetof(shadow_params, color),
       0.0, 0.0, (double)0xFF000000u, 0.0, NULL, NULL, 0u, 0u, NULL },
     { "only_shadow", "Only Draw Shadow", FXP_BOOL, (uint32_t)offsetof(shadow_params, only_shadow),
@@ -59,8 +62,8 @@ static int shadow_prepare(const void *params, const fx_img *src, const fx_env *e
                           const fx_host *host, const void *job, void **state)
 {
     const shadow_params *p = (const shadow_params *)params;
-    double radius = fx2_real(p->radius, 0.0, 100.0, 10.0), sigma = radius / 3.0;
-    double dist = fx2_real(p->distance, 0.0, 100.0, 5.0);
+    double radius = fx2_real(p->radius, 0.0, 300.0, 10.0), sigma = radius / 3.0;
+    double dist = fx2_real(p->distance, 0.0, 100.0, 10.0);
     double ang = fx2_deg2rad(fx2_real(p->angle, -180.0, 180.0, -45.0));
     double offx = dist * cos(ang), offy = -dist * sin(ang);
     int32_t m = fx2_blur_extent(sigma) + 1, x, y, gw, gh;
@@ -118,7 +121,7 @@ static int shadow_render(const void *params, const void *state, const fx_img *sr
     const shadow_params *p = (const shadow_params *)params;
     const shadow_state *s = (const shadow_state *)state;
     fx_px col = fx_px_from_argb(p->color);
-    double k = (double)col.a * (double)fx2_int(p->opacity, 0, 100) / 100.0;
+    double k = (double)col.a * fx2_real(p->opacity, 0.0, 1.0, 0.75);
     int only = p->only_shadow != 0;
     int32_t x, y;
     (void)env;

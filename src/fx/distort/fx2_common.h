@@ -151,17 +151,22 @@ static inline void fx2_sel_point(const fx_env *env, const double off[2], double 
 }
 
 /* ---- layer blend modes ------------------------------------------------------ */
-/* Same order and values as pc_blend_mode (include/pc/pc_blend.h). */
-#define FX2_BLEND_NORMAL 0
-#define FX2_BLEND_COUNT  14
-extern const char *const fx2_blend_choices[FX2_BLEND_COUNT + 1];   /* NULL-terminated */
+/* Indices 0..13 are pc_blend_mode (include/pc/pc_blend.h) in the same order;
+ * index 14 is Overwrite (the rendered pixel replaces the source as is), which
+ * Paint.NET 5 offers in the blend list of its render effects. */
+#define FX2_BLEND_NORMAL    0
+#define FX2_BLEND_COUNT     14
+#define FX2_BLEND_OVERWRITE 14
+#define FX2_BLEND_CHOICES   15
+extern const char *const fx2_blend_choices[FX2_BLEND_CHOICES + 1];  /* NULL-terminated */
 
 /* F(cb, cs) of pc_blend_channel, copied formula for formula (fx code may not
  * link pc_core). cb = backdrop, cs = source. */
 uint32_t fx2_blend_channel(int mode, uint32_t cb, uint32_t cs);
 /* One pixel of pc_composite_span(&backdrop, &top, 1, mode, 255): top is
  * composited over backdrop with the Paint.NET 3.36 integer math. Matches the
- * core oracle bit for bit (tested). Invalid modes act as Normal. */
+ * core oracle bit for bit (tested). FX2_BLEND_OVERWRITE returns top (fully
+ * transparent results as 0,0,0,0); other invalid modes act as Normal. */
 fx_px fx2_composite(fx_px backdrop, fx_px top, int mode);
 
 #endif /* FX2_COMMON_H */

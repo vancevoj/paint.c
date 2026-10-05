@@ -17,20 +17,26 @@ the full MIT permission text for the blend math, which covers the files below).
 | paint.c file | Paint.NET 3.36 source | What was derived |
 |---|---|---|
 | src/fx/distort/fx2_common.c | Core/Utility.cs (GetRgssOffsets), Core/ColorBgra.cs (Blend), Effects/WarpEffectBase.cs, Effects/WarpEdgeBehavior.cs | Rotated-grid supersampling offsets, alpha-weighted sample averaging, structure of the inverse-warp driver and the edge-behavior idea (clamp, wrap, reflect, transparent). The composite and blend functions are a copy of this project's own src/core/pc_blend.c, itself re-implemented from 3.36 UserBlendOps (see NOTICE). |
-| src/fx/distort/fxm_bulge.c | Effects/BulgeEffect.cs | Bulge transform, parameter range and default (-200..100, 45), center offset. |
-| src/fx/distort/fxm_polar_inversion.c | Effects/PolarInversionEffect.cs | Inversion transform (lerp of 1 and R^2 / r^2), ranges, defaults, edge-behavior list. |
-| src/fx/distort/fxm_tile_reflection.c | Effects/TileEffect.cs | Tangent tile transform, rotation, curvature intensity rule, ranges, defaults, quality rule. |
+| src/fx/distort/fxm_bulge.c | Effects/BulgeEffect.cs | Bulge transform and center offset. |
+| src/fx/distort/fxm_polar_inversion.c | Effects/PolarInversionEffect.cs | Inversion transform (lerp of 1 and R^2 / r^2), default, edge-behavior list. |
+| src/fx/distort/fxm_tile_reflection.c | Effects/TileEffect.cs | Tangent tile transform, rotation, curvature intensity rule, defaults. |
 | src/fx/distort/fxm_twist.c | Effects/TwistEffect.cs | Cubic falloff twist transform, sign convention, ranges, defaults. |
 | src/fx/distort/fxm_dents.c | Effects/DentsEffect.cs, Effects/PerlinNoise2D.cs | Displacement from fractal gradient noise, scale / refraction / detail constants, Nyquist limit on octaves, reflect edges. |
-| src/fx/distort/fxm_frosted_glass.c | Effects/FrostedGlassEffect.cs | Scatter sampling between minimum and maximum radius, sample-count range, rejection of samples off the image. |
-| src/fx/distort/fxm_pixelate.c | Effects/PixelateEffect.cs | Cell grid concept and Cell Size range (the scale modes are paint.c's own). |
+| src/fx/distort/fxm_frosted_glass.c | Effects/FrostedGlassEffect.cs | Scatter sampling between minimum and maximum radius, rejection of samples off the image. |
+| src/fx/distort/fxm_pixelate.c | Effects/PixelateEffect.cs | Cell grid anchored at the image origin (the scale filters are paint.c's own). |
 | src/fx/render/fx2_noise.c | Effects/CloudsEffect.cs, Effects/PerlinNoise2D.cs | Fade and gradient functions, 2-D lattice hashing, octave rotation by 137.2 degrees with prime offsets. (Both are 2-D reductions of Ken Perlin's public improved-noise reference.) |
 | src/fx/render/fxm_clouds.c | Effects/CloudsEffect.cs | Octave loop (cell size halving, Roughness power, 12 octaves, 0.03 cutoff), color lerp, ranges, defaults. |
-| src/fx/render/fxm_julia.c | Effects/JuliaFractalEffect.cs | Iteration, smooth coloring formula, constants, supersampling pattern, ranges, defaults. |
-| src/fx/render/fxm_mandelbrot.c | Effects/MandelbrotFractalEffect.cs | Iteration, smooth coloring formula, constants, zoom rule, invert, ranges, defaults. |
+| src/fx/render/fxm_julia.c | Effects/JuliaFractalEffect.cs | Iteration, smooth coloring formula, constants, sub-sample pattern, defaults. |
+| src/fx/render/fxm_mandelbrot.c | Effects/MandelbrotFractalEffect.cs | Iteration, smooth coloring formula, constants, zoom rule, invert, defaults. |
 | src/fx/stylize/fxm_emboss.c | Effects/EmbossEffect.cs, Effects/ReliefEffect.cs, Effects/ColorDifferenceEffect.cs | Directional 3x3 kernels, border rule, 128 offset of Emboss, defaults. |
-| src/fx/stylize/fxm_outline.c | Effects/OutlineEffect.cs, Effects/LocalHistogramEffect.cs | Disc histogram percentile spread, disc cutoff, ranges, defaults. |
+| src/fx/stylize/fxm_outline.c | Effects/OutlineEffect.cs, Effects/LocalHistogramEffect.cs | Disc histogram percentile spread, disc cutoff, defaults. |
 | src/fx/color/fxm_quantize.c | Data/Quantize/Quantizer.cs | Dithering level 0..8 as error weight / 8 and the serpentine Floyd-Steinberg scan. The octree and median-cut builders are paint.c's own implementations of the classic published algorithms. |
+
+Parameter names, ranges and defaults of the Paint.NET 5.x effects were taken
+from documentation only: the Paint.NET 5.1 user documentation and its dialog
+screenshots, the public Paint.NET plugin API reference (property descriptions
+of the built-in GPU effects) and Microsoft's Direct2D effect documentation.
+No code from those versions was seen or used.
 
 Files under `src/fx/distort/fxm_crystalize.c`, `fxm_morphology.c`,
 `src/fx/render/fxm_turbulence.c`, `src/fx/stylize/fxm_edge_detect.c`,

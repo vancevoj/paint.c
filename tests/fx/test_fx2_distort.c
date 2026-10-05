@@ -59,11 +59,11 @@ static void t_bulge(void)
     p = t_params(fx, &c.env);
     for (e = 0; e < 4; e++) {                           /* all edge behaviors */
         t_set_i(fx, p, "edge", e);
-        t_set_i(fx, p, "amount", e == 3 ? -150 : 45);
+        t_set_d(fx, p, "amount", e == 3 ? -1.5 : 0.45);
         t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
     }
     t_set_i(fx, p, "edge", 0);
-    t_set_i(fx, p, "amount", 80);
+    t_set_d(fx, p, "amount", 0.8);
     t_set_pt(fx, p, "center", 0.3, -0.2);
     CHECK(changed(fx, p, &c) > 100);
     /* outside the bulge disc the source is untouched */
@@ -74,12 +74,12 @@ static void t_bulge(void)
             if (sqrt(dx * dx + dy * dy) > 14.5 + 1.0)
                 CHECK(t_px_eq(*t_at(&c.out, x, y), *t_at(&c.src, x, y)));
         }
-    t_set_i(fx, p, "amount", 0);                        /* neutral at every quality */
-    for (q = 1; q <= 5; q++) {
+    t_set_d(fx, p, "amount", 0.0);                      /* neutral at every quality */
+    for (q = 1; q <= 8; q++) {
         t_set_i(fx, p, "quality", q);
         check_identity(fx, p, &c);
     }
-    t_set_i(fx, p, "amount", -200);
+    t_set_d(fx, p, "amount", -3.0);
     t_set_i(fx, p, "edge", 3);
     t_check_cancel(fx, p, &c.src, &c.env);
     free(p);
@@ -87,7 +87,7 @@ static void t_bulge(void)
     /* full-image selection exercises the borders */
     ctx_init(&c, T_SMOOTH, 3u, sel_full());
     p = t_params(fx, &c.env);
-    t_set_i(fx, p, "amount", -120);
+    t_set_d(fx, p, "amount", -1.2);
     for (e = 0; e < 4; e++) {
         t_set_i(fx, p, "edge", e);
         t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
@@ -110,7 +110,7 @@ static void t_polar(void)
         t_set_i(fx, p, "edge", e);
         t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
     }
-    t_set_d(fx, p, "amount", -2.5);
+    t_set_d(fx, p, "amount", -6.5);
     t_set_pt(fx, p, "offset", 0.5, 1.5);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
     CHECK(changed(fx, p, &c) > 100);
@@ -161,9 +161,9 @@ static void t_twist(void)
     ctx_init(&c, T_SMOOTH, 9u, sel_inner());
     p = t_params(fx, &c.env);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
-    t_set_d(fx, p, "amount", -150.0);
+    t_set_i(fx, p, "amount", -150);
     t_set_pt(fx, p, "center", -0.4, 0.6);
-    t_set_i(fx, p, "quality", 5);
+    t_set_i(fx, p, "quality", 8);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
     t_set_d(fx, p, "size", 0.3);
     t_set_pt(fx, p, "center", 0.0, 0.0);
@@ -175,7 +175,7 @@ static void t_twist(void)
             if (sqrt(dx * dx + dy * dy) > 0.3 * 14.5 + 1.0)
                 CHECK(t_px_eq(*t_at(&c.out, x, y), *t_at(&c.src, x, y)));
         }
-    t_set_d(fx, p, "amount", 0.0);
+    t_set_i(fx, p, "amount", 0);
     t_set_d(fx, p, "size", 2.0);
     check_identity(fx, p, &c);
     t_check_cancel(fx, p, &c.src, &c.env);
@@ -220,28 +220,33 @@ static void t_frosted(void)
     ctx c;
     void *p;
     fx_img a;
-    long n50;
+    long near_lo, near_hi;
     CHECK(fx != NULL);
     if (!fx) return;
-    ctx_init(&c, T_RANDOM, 17u, sel_inner());
+    ctx_init(&c, T_SMOOTH, 17u, sel_inner());
     a = t_img_new(0, 0, DW, DH);
     p = t_params(fx, &c.env);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
     t_set_d(fx, p, "max_radius", 12.0);
     t_set_d(fx, p, "min_radius", 4.0);
-    t_set_i(fx, p, "smoothness", 5);
+    t_set_i(fx, p, "smoothness", 8);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
     CHECK(changed(fx, p, &c) > 900);
     t_img_copy(&a, &c.out);
     t_set_i(fx, p, "seed", 99);
     CHECK(changed(fx, p, &c) > 900 && t_diff(&a, &c.out, c.env.sel) > 500);
-    t_set_i(fx, p, "diffusion", 50);                   /* about half the pixels move */
+    /* Diffusion is an exponent on the scatter distance: a high value pushes the
+     * samples out to the maximum radius, a low one keeps them near the minimum.
+     * With one sample per pixel, the low setting stays closer to the source. */
+    t_set_i(fx, p, "smoothness", 1);
+    t_set_d(fx, p, "min_radius", 0.0);
+    t_set_d(fx, p, "diffusion", 3.0);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
-    n50 = changed(fx, p, &c);
-    CHECK(n50 > 300 && n50 < 800);
-    t_set_i(fx, p, "diffusion", 0);
-    check_identity(fx, p, &c);
-    t_set_i(fx, p, "diffusion", 100);
+    near_hi = changed(fx, p, &c);
+    t_set_d(fx, p, "diffusion", 0.01);
+    near_lo = changed(fx, p, &c);
+    CHECK(near_lo < near_hi);
+    t_set_d(fx, p, "diffusion", 1.0);
     t_set_d(fx, p, "max_radius", 0.0);
     t_set_d(fx, p, "min_radius", 0.0);
     check_identity(fx, p, &c);
@@ -263,7 +268,7 @@ static void t_pixelate(void)
     if (!fx) return;
     ctx_init(&c, T_RANDOM, 19u, sel_inner());
     p = t_params(fx, &c.env);
-    for (d = 0; d < 3; d++)
+    for (d = 0; d < 6; d++)
         for (u = 0; u < 3; u++) {
             t_set_i(fx, p, "scale_down", d);
             t_set_i(fx, p, "scale_up", u);
@@ -272,23 +277,34 @@ static void t_pixelate(void)
             t_set_i(fx, p, "cell", 6);
             t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
         }
-    /* nearest scale-up: every cell is one flat color */
-    t_set_i(fx, p, "scale_down", 2);
-    t_set_i(fx, p, "scale_up", 0);
+    /* nearest scale-up: every cell (anchored at the image origin) is flat */
+    t_set_i(fx, p, "scale_down", 0);
+    t_set_i(fx, p, "scale_up", 2);
     t_set_i(fx, p, "cell", 6);
     CHECK(changed(fx, p, &c) > 500);
     for (y = c.env.sel.y; y < c.env.sel.y + c.env.sel.h; y++)
         for (x = c.env.sel.x; x < c.env.sel.x + c.env.sel.w; x++) {
-            int32_t cx = c.env.sel.x + (x - c.env.sel.x) / 6 * 6;
-            int32_t cy = c.env.sel.y + (y - c.env.sel.y) / 6 * 6;
+            int32_t cx = x / 6 * 6, cy = y / 6 * 6;
+            if (cx < c.env.sel.x) cx = c.env.sel.x;
+            if (cy < c.env.sel.y) cy = c.env.sel.y;
             CHECK(t_px_eq(*t_at(&c.out, x, y), *t_at(&c.out, cx, cy)));
         }
-    /* nearest scale-down picks a source pixel of the cell */
-    t_set_i(fx, p, "scale_down", 0);
+    /* nearest scale-down picks the source pixel under the cell center */
+    t_set_i(fx, p, "scale_down", 5);
     CHECK(changed(fx, p, &c) > 500);
-    CHECK(t_px_eq(*t_at(&c.out, 5, 4), *t_at(&c.src, 5 + 2, 4 + 2)));
-    t_set_i(fx, p, "cell", 100);
-    t_set_i(fx, p, "scale_up", 2);
+    CHECK(t_px_eq(*t_at(&c.out, 5, 4), *t_at(&c.src, 3, 3)));
+    CHECK(t_px_eq(*t_at(&c.out, 13, 20), *t_at(&c.src, 15, 21)));
+    /* a flat opaque image stays flat with every scale-down filter */
+    for (y = 0; y < DH; y++)
+        for (x = 0; x < DW; x++) *t_at(&c.src, x, y) = fx_px_make(40, 90, 200, 255);
+    for (d = 0; d < 6; d++) {
+        t_set_i(fx, p, "scale_down", d);
+        check_identity(fx, p, &c);
+    }
+    t_img_pattern(&c.src, T_RANDOM, 19u);
+    t_set_i(fx, p, "cell", 256);
+    t_set_i(fx, p, "scale_down", 1);
+    t_set_i(fx, p, "scale_up", 0);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
     t_check_cancel(fx, p, &c.src, &c.env);
     free(p);

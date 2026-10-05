@@ -46,11 +46,17 @@ static void t_drop_shadow(void)
     if (!fx) return;
     ctx_init(&c, 10, 8, 12, t_rect(0, 0, DW, DH));
     p = t_params(fx, &c.env);
+    /* defaults: black at 75 %, 10 px down-right, blur 10 */
+    CHECK(t_render(fx, p, &c.src, &c.out, &c.env) == FX_OK);
+    CHECK(t_px_eq(*t_at(&c.out, 12, 10), k_obj));
+    CHECK(t_at(&c.out, 25, 23)->a > 100 && t_at(&c.out, 25, 23)->a < 191);
+    CHECK(t_at(&c.out, 25, 23)->r == 0 && t_at(&c.out, 25, 23)->b == 0);
+    CHECK(t_at(&c.out, 2, 30)->a == 0);
     /* hard shadow, 5 px to the right, full opacity, red */
     t_set_d(fx, p, "radius", 0.0);
     t_set_d(fx, p, "distance", 5.0);
     t_set_d(fx, p, "angle", 0.0);
-    t_set_i(fx, p, "opacity", 100);
+    t_set_d(fx, p, "opacity", 1.0);
     t_set_u(fx, p, "color", 0xFFFF0000u);
     CHECK(t_render(fx, p, &c.src, &c.out, &c.env) == FX_OK);
     for (y = 0; y < DH; y++)
@@ -68,7 +74,7 @@ static void t_drop_shadow(void)
     /* down (-90 degrees), half opacity, only the shadow */
     t_set_d(fx, p, "angle", -90.0);
     t_set_d(fx, p, "distance", 4.0);
-    t_set_i(fx, p, "opacity", 50);
+    t_set_d(fx, p, "opacity", 0.5);
     t_set_i(fx, p, "only_shadow", 1);
     t_set_u(fx, p, "color", 0xFF000000u);
     CHECK(t_render(fx, p, &c.src, &c.out, &c.env) == FX_OK);
@@ -88,7 +94,7 @@ static void t_drop_shadow(void)
     t_set_d(fx, p, "radius", 9.0);
     t_set_d(fx, p, "angle", -45.0);
     t_set_d(fx, p, "distance", 6.0);
-    t_set_i(fx, p, "opacity", 100);
+    t_set_d(fx, p, "opacity", 1.0);
     CHECK(t_render(fx, p, &c.src, &c.out, &c.env) == FX_OK);
     CHECK(t_px_eq(*t_at(&c.out, 15, 13), k_obj));
     CHECK(t_at(&c.out, 26, 23)->a > t_at(&c.out, 30, 27)->a);

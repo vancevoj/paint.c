@@ -2,11 +2,13 @@
  *
  * Reduces the colors of the selection to a palette of at most Colors entries
  * built by Median Cut or Octree, with Floyd-Steinberg error diffusion scaled
- * by Dithering / 8 (nine levels, 0 = none) along a serpentine scan.
- * Only pixels with alpha > 0 count; alpha is kept and fully transparent pixels
- * are left untouched. The palette and the dithered result of the whole
- * selection are computed once in prepare() (error diffusion is sequential);
- * render() copies its ROI, so the output is independent of tiling.
+ * by Dithering level / 8 (nine levels, 0 = none) along a serpentine scan.
+ * Transparency threshold (Paint.NET 5.1 dialog, default 128): pixels with an
+ * alpha below it become fully transparent (0, 0, 0, 0), all others become
+ * opaque; only the opaque ones take part in the palette and the dithering.
+ * The palette and the dithered result of the whole selection are computed
+ * once in prepare() (error diffusion is sequential); render() copies its ROI,
+ * so the output is independent of tiling.
  * Own implementation; the dithering levels and the serpentine Floyd-Steinberg
  * scheme follow the MIT-licensed Paint.NET 3.36 Quantizer, the octree is the
  * classic Gervautz-Purgathofer reduction (see docs/notice/l5c.md).
@@ -20,6 +22,7 @@ typedef struct quant_params {
     int32_t algorithm;       /* 0 Median Cut, 1 Octree */
     int32_t colors;          /* 2 .. 256 */
     int32_t dither;          /* 0 .. 8 */
+    int32_t threshold;       /* 0 .. 255 */
 } quant_params;
 
 static const char *const k_algo[] = { "Median Cut", "Octree", NULL };
@@ -29,8 +32,11 @@ static const fx_prop k_props[] = {
       0.0, 1.0, 1.0, 0.0, k_algo, NULL, 0u, 0u, NULL },
     { "colors", "Colors", FXP_INT, (uint32_t)offsetof(quant_params, colors),
       2.0, 256.0, 256.0, 1.0, NULL, NULL, 0u, 0u, NULL },
-    { "dither", "Dithering", FXP_INT, (uint32_t)offsetof(quant_params, dither),
+    { "dither", "Dithering level", FXP_INT, (uint32_t)offsetof(quant_params, dither),
       0.0, 8.0, 7.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+    { "threshold", "Transparency threshold", FXP_INT,
+      (uint32_t)offsetof(quant_params, threshold), 0.0, 255.0, 128.0, 1.0, NULL, NULL, 0u, 0u,
+      NULL },
 };
 
 typedef struct pal_t { int32_t n; uint8_t r[256], g[256], b[256]; } pal_t;
@@ -173,8 +179,8 @@ static int oct_add(octree *t, uint8_t r, uint8_t g, uint8_t b)
     }
 }
 
-static int build_octree(const fx_img *src, fx_rect sel, int32_t ncol, pal_t *pal,
-                        const fx_host *host, const void *job)
+static int build_octree(const fx_img *src, fx_rect sel, int32_t ncol, uint32_t thr,
+                        pal_t *pal, const fx_host *host, const void *job)
 {
     octree t;
     int32_t x, y, i;
@@ -192,7 +198,7 @@ static int build_octree(const fx_img *src, fx_rect sel, int32_t ncol, pal_t *pal
             return FX_CANCELLED;
         }
         for (x = sel.x; x < sel.x + sel.w; x++) {
-            if (row[x].a == 0) continue;
+            if (row[x].a < thr) continue;
             while (OCT_MAX_NODES - t.top + t.nfree < 9 && oct_reduce(&t, 0)) {}
             if (!oct_add(&t, row[x].r, row[x].g, row[x].b)) {
                 fx2_free(host, t.n);
@@ -252,8 +258,8 @@ static void mc_fit(const mc_hist *h, mc_box *bx)
     }
 }
 
-static int build_median_cut(const fx_img *src, fx_rect sel, int32_t ncol, pal_t *pal,
-                            const fx_host *host, const void *job)
+static int build_median_cut(const fx_img *src, fx_rect sel, int32_t ncol, uint32_t thr,
+                            pal_t *pal, const fx_host *host, const void *job)
 {
     mc_hist *h = (mc_hist *)fx2_calloc(host, 1u, sizeof(mc_hist));
     mc_box boxes[256];
@@ -268,7 +274,7 @@ static int build_median_cut(const fx_img *src, fx_rect sel, int32_t ncol, pal_t 
         for (x = sel.x; x < sel.x + sel.w; x++) {
             fx_px c = row[x];
             size_t k;
-            if (c.a == 0) continue;
+            if (c.a < thr) continue;
             k = mc_idx(c.r >> (8 - MC_BITS), c.g >> (8 - MC_BITS), c.b >> (8 - MC_BITS));
             h->cnt[k]++;
             h->sr[k] += c.r;
@@ -386,6 +392,7 @@ static int quant_prepare(const void *params, const fx_img *src, const fx_env *en
 {
     const quant_params *p = (const quant_params *)params;
     int32_t ncol = fx2_int(p->colors, 2, 256), weight = fx2_int(p->dither, 0, 8);
+    uint32_t thr = (uint32_t)fx2_int(p->threshold, 0, 255);
     int32_t y, w;
     quant_state *s;
     pal_t pal;
@@ -403,16 +410,14 @@ static int quant_prepare(const void *params, const fx_img *src, const fx_env *en
         *state = s;
         return FX_OK;
     }
-    rc = fx2_int(p->algorithm, 0, 1) == 1 ? build_octree(src, s->r, ncol, &pal, host, job)
-                                          : build_median_cut(src, s->r, ncol, &pal, host, job);
-    if (rc != FX_OK || pal.n == 0) {
-        if (rc != FX_OK) {
-            quant_release(s, host);
-            return rc;
-        }
-        *state = s;                                  /* nothing opaque: identity */
-        return FX_OK;
+    rc = fx2_int(p->algorithm, 0, 1) == 1
+             ? build_octree(src, s->r, ncol, thr, &pal, host, job)
+             : build_median_cut(src, s->r, ncol, thr, &pal, host, job);
+    if (rc != FX_OK) {
+        quant_release(s, host);
+        return rc;
     }
+    /* pal.n == 0 means every pixel is below the threshold: all transparent */
     if (!fx2_mul_size((size_t)w, (size_t)s->r.h, &n) ||
         (s->px = (fx_px *)fx2_alloc(host, n, sizeof(fx_px))) == NULL ||
         (cache = (qcache *)fx2_calloc(host, 1u, sizeof *cache)) == NULL ||
@@ -439,15 +444,15 @@ static int quant_prepare(const void *params, const fx_img *src, const fx_env *en
             int32_t e = (xx + 1) * 3;                 /* error slot, padded by one */
             fx_px c = row[s->r.x + xx];
             int32_t tr, tg, tb, k, er, eg, eb, c7r, c7g, c7b, c5r, c5g, c5b, c3r, c3g, c3b;
-            if (c.a == 0) {
-                out[xx] = c;
+            if (c.a < thr) {
+                out[xx] = fx_px_make(0, 0, 0, 0);
                 continue;
             }
             tr = fx_clampi(c.r - cur[e + 0] * weight / 8, 0, 255);
             tg = fx_clampi(c.g - cur[e + 1] * weight / 8, 0, 255);
             tb = fx_clampi(c.b - cur[e + 2] * weight / 8, 0, 255);
             k = nearest(&pal, cache, tr, tg, tb);
-            out[xx] = fx_px_make(pal.r[k], pal.g[k], pal.b[k], c.a);
+            out[xx] = fx_px_make(pal.r[k], pal.g[k], pal.b[k], 255);
             if (weight == 0) continue;
             er = pal.r[k] - tr;
             eg = pal.g[k] - tg;

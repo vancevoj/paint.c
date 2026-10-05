@@ -230,9 +230,10 @@ void fx2_copy_roi(const fx_img *src, fx_img *dst, fx_rect roi)
 }
 
 /* ---- blending (copy of src/core/pc_blend.c, opacity fixed at 255) ------------ */
-const char *const fx2_blend_choices[FX2_BLEND_COUNT + 1] = {
+const char *const fx2_blend_choices[FX2_BLEND_CHOICES + 1] = {
     "Normal", "Multiply", "Additive", "Color Burn", "Color Dodge", "Reflect", "Glow",
-    "Overlay", "Difference", "Negation", "Lighten", "Darken", "Screen", "Xor", NULL
+    "Overlay", "Difference", "Negation", "Lighten", "Darken", "Screen", "Xor", "Overwrite",
+    NULL
 };
 
 static uint32_t reflect_ch(uint32_t a, uint32_t b)
@@ -279,6 +280,7 @@ fx_px fx2_composite(fx_px d, fx_px s, int mode)
 {
     uint32_t ab = d.a, as = s.a, y, x, z, total;
     fx_px o;
+    if (mode == FX2_BLEND_OVERWRITE) return s.a == 0 ? fx_px_make(0, 0, 0, 0) : s;
     if (mode < 0 || mode >= FX2_BLEND_COUNT) mode = FX2_BLEND_NORMAL;
     if (as == 0u) return ab == 0u ? fx_px_make(0, 0, 0, 0) : d;
     if (as == 255u && mode == FX2_BLEND_NORMAL) {

@@ -2,17 +2,19 @@
  *
  * Inverts positions through a circle of radius R (half the smaller selection
  * side) around a movable center: p' = p * lerp(1, R^2 / |p|^2, Scale).
- * Transform and parameter ranges from the MIT-licensed Paint.NET 3.36
- * PolarInversionEffect (see docs/notice/l5c.md). The exact center maps to
- * infinity and samples as transparent, as in 3.36.
+ * Transform from the MIT-licensed Paint.NET 3.36 PolarInversionEffect (see
+ * docs/notice/l5c.md). Ranges follow the Paint.NET 5 API documentation
+ * (Scale usually [-8, 8], default 1; Quality 1..8 with q^2 subsamples); the
+ * documentation screenshot shows Reflect as the edge behavior. The exact
+ * center maps to infinity and samples as transparent, as in 3.36.
  */
 #include "fx2_common.h"
 
 typedef struct polar_params {
-    double  amount;          /* Scale, -4 .. 4 */
+    double  amount;          /* Scale, -8 .. 8 */
     double  offset[2];       /* FXP_POINT, -2 .. 2 */
     int32_t edge;            /* 0 Clamp, 1 Reflect, 2 Wrap */
-    int32_t quality;         /* 1 .. 5 */
+    int32_t quality;         /* 1 .. 8 */
 } polar_params;
 
 static const char *const k_edge[] = { "Clamp", "Reflect", "Wrap", NULL };
@@ -20,13 +22,13 @@ static const int k_edge_mode[] = { FX2_EDGE_CLAMP, FX2_EDGE_REFLECT, FX2_EDGE_WR
 
 static const fx_prop k_props[] = {
     { "amount", "Scale", FXP_REAL, (uint32_t)offsetof(polar_params, amount),
-      -4.0, 4.0, 1.0, 0.01, NULL, NULL, 0u, 0u, NULL },
+      -8.0, 8.0, 1.0, 0.01, NULL, NULL, 0u, FXP_F_SLIDER_LOG, NULL },
     { "offset", "Offset", FXP_POINT, (uint32_t)offsetof(polar_params, offset),
       -2.0, 2.0, 0.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "edge", "Edge Behavior", FXP_CHOICE, (uint32_t)offsetof(polar_params, edge),
-      0.0, 2.0, 2.0, 0.0, k_edge, NULL, 0u, 0u, NULL },
+      0.0, 2.0, 1.0, 0.0, k_edge, NULL, 0u, 0u, NULL },
     { "quality", "Quality", FXP_INT, (uint32_t)offsetof(polar_params, quality),
-      1.0, 5.0, 2.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      1.0, 8.0, 2.0, 1.0, NULL, NULL, 0u, 0u, NULL },
 };
 
 typedef struct polar_ctx { double amount, r2; } polar_ctx;
@@ -56,11 +58,11 @@ static int polar_render(const void *params, const void *state, const fx_img *src
     (void)state;
     off[0] = fx2_real(p->offset[0], -2.0, 2.0, 0.0);
     off[1] = fx2_real(p->offset[1], -2.0, 2.0, 0.0);
-    c.amount = fx2_real(p->amount, -4.0, 4.0, 1.0);
+    c.amount = fx2_real(p->amount, -8.0, 8.0, 1.0);
     rad = 0.5 * (double)(env->sel.w < env->sel.h ? env->sel.w : env->sel.h);
     c.r2 = rad * rad;
     fx2_sel_point(env, off, &w.cx, &w.cy);
-    w.quality = fx2_int(p->quality, 1, 5);
+    w.quality = fx2_int(p->quality, 1, 8);
     w.edge = k_edge_mode[fx2_int(p->edge, 0, 2)];
     w.inverse = polar_inverse;
     w.ctx = &c;

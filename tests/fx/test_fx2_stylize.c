@@ -178,10 +178,20 @@ static void t_outline(void)
     if (!fx) return;
     ctx_init(&c, T_RANDOM, t_rect(2, 3, 40, 30));
     p = t_params(fx, &c.env);
-    for (q = 1; q <= 5; q += 2) {
+    for (q = 1; q <= 9; q += 4) {
         t_set_i(fx, p, "quality", q);
         t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
     }
+    /* Quality is the precision in bits: 8 and 9 are exact, fewer bits differ */
+    t_set_i(fx, p, "quality", 8);
+    CHECK(t_render(fx, p, &c.src, &c.ref, &c.env) == FX_OK);
+    t_set_i(fx, p, "quality", 9);
+    CHECK(t_render(fx, p, &c.src, &c.out, &c.env) == FX_OK);
+    CHECK(t_diff(&c.out, &c.ref, c.env.sel) == 0);
+    t_set_i(fx, p, "quality", 2);
+    CHECK(t_render(fx, p, &c.src, &c.out, &c.env) == FX_OK);
+    CHECK(t_diff(&c.out, &c.ref, c.env.sel) > 100);
+    t_set_i(fx, p, "quality", 8);
     t_set_i(fx, p, "thickness", 11);
     t_set_i(fx, p, "intensity", 90);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
@@ -195,7 +205,7 @@ static void t_outline(void)
     step(&c.src);
     t_set_i(fx, p, "thickness", 3);
     t_set_i(fx, p, "intensity", 50);
-    t_set_i(fx, p, "quality", 1);
+    t_set_i(fx, p, "quality", 8);
     CHECK(t_render(fx, p, &c.src, &c.out, &c.env) == FX_OK);
     for (y = c.env.sel.y + 4; y < c.env.sel.y + c.env.sel.h - 4; y++)
         for (x = c.env.sel.x; x < c.env.sel.x + c.env.sel.w; x++) {

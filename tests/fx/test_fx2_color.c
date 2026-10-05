@@ -1,7 +1,7 @@
 /* test_fx2_color.c - Effects > Color > Quantize: at most N colors for both
- * algorithms and all dithering levels, alpha kept, transparent pixels
- * untouched, exact reproduction of images that already fit the palette,
- * tiling invariance, cancellation. */
+ * algorithms and all dithering levels, transparency threshold (below: fully
+ * transparent, otherwise opaque), exact reproduction of images that already
+ * fit the palette, tiling invariance, cancellation. */
 #include "fx2_util.h"
 
 #define DW 61
@@ -57,8 +57,8 @@ static void t_quantize(void)
                 for (y = env.sel.y; y < env.sel.y + env.sel.h; y++)
                     for (x = env.sel.x; x < env.sel.x + env.sel.w; x++) {
                         fx_px a = *t_at(&src, x, y), b = *t_at(&out, x, y);
-                        CHECK(a.a == b.a);
-                        if (a.a == 0) CHECK(t_px_eq(a, b));
+                        if (a.a < 128) CHECK(t_px_eq(b, fx_px_make(0, 0, 0, 0)));
+                        else CHECK(b.a == 255);
                     }
                 if (k == 2 || k == 5) t_check_tiling(fx, p, &src, &env, &ref);
             }
@@ -78,6 +78,20 @@ static void t_quantize(void)
             CHECK(t_render(fx, p, &src, &out, &env) == FX_OK);
             CHECK(t_diff(&out, &src, env.sel) == 0);
         }
+    /* the threshold moves the transparent / opaque cut */
+    t_img_pattern(&src, T_RANDOM, 62u);
+    t_set_i(fx, p, "colors", 16);
+    t_set_i(fx, p, "threshold", 1);
+    CHECK(t_render(fx, p, &src, &out, &env) == FX_OK);
+    for (y = env.sel.y; y < env.sel.y + env.sel.h; y++)
+        for (x = env.sel.x; x < env.sel.x + env.sel.w; x++)
+            CHECK(t_at(&out, x, y)->a == (t_at(&src, x, y)->a >= 1 ? 255 : 0));
+    t_set_i(fx, p, "threshold", 255);
+    CHECK(t_render(fx, p, &src, &out, &env) == FX_OK);
+    for (y = env.sel.y; y < env.sel.y + env.sel.h; y++)
+        for (x = env.sel.x; x < env.sel.x + env.sel.w; x++)
+            CHECK(t_at(&out, x, y)->a == (t_at(&src, x, y)->a == 255 ? 255 : 0));
+    t_set_i(fx, p, "threshold", 128);
     /* fully transparent selection: nothing to do */
     t_img_fill(&src, 0);
     CHECK(t_render(fx, p, &src, &out, &env) == FX_OK);

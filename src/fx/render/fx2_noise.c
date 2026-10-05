@@ -65,6 +65,36 @@ double fx2_noise(const fx2_perm *perm, double x, double y, uint8_t off)
     return fx2_noise_cell(perm, (int32_t)xf, (int32_t)yf, x - xf, y - yf, off);
 }
 
+double fx2_noise_wrap(const fx2_perm *perm, double x, double y, int32_t pw, int32_t ph,
+                      uint8_t off)
+{
+    const uint8_t *p = perm->p;
+    double xf, yf, fx, fy, u, v, e1, e2;
+    int32_t x0, y0, x1, y1;
+    int a0, a1;
+    if (!isfinite(x) || !isfinite(y) || pw < 1 || ph < 1) return 0.0;
+    x = fmod(x, (double)pw);
+    y = fmod(y, (double)ph);
+    if (x < 0.0) x += (double)pw;
+    if (y < 0.0) y += (double)ph;
+    xf = floor(x);
+    yf = floor(y);
+    fx = x - xf;
+    fy = y - yf;
+    x0 = (int32_t)xf % pw;
+    y0 = (int32_t)yf % ph;
+    x1 = (x0 + 1) % pw;
+    y1 = (y0 + 1) % ph;
+    u = fade(fx);
+    v = fade(fy);
+    a0 = (int)p[((x0 & 255) + off) & 511];
+    a1 = (int)p[((x1 & 255) + off) & 511];
+    e1 = lerp(grad(p[a0 + (y0 & 255)], fx, fy), grad(p[a1 + (y0 & 255)], fx - 1.0, fy), u);
+    e2 = lerp(grad(p[a0 + (y1 & 255)], fx, fy - 1.0),
+              grad(p[a1 + (y1 & 255)], fx - 1.0, fy - 1.0), u);
+    return lerp(e1, e2, v);
+}
+
 double fx2_noise_fractal(const fx2_perm *perm, double x, double y, double detail,
                          double roughness)
 {

@@ -1,6 +1,9 @@
 /* fxm_morphology.c - Effects > Distort > Morphology.
  *
- * Own design from the Paint.NET 5.1 documentation (no 3.36 counterpart):
+ * Own design from the Paint.NET 5.1 documentation and the documented
+ * Direct2D morphology effect it uses (no 3.36 counterpart); control order and
+ * defaults (Width 5, Height 5, Linked, Mode Dilate) as in the 5.1
+ * documentation screenshot:
  * gray-scale morphology with a (2 * Width + 1) x (2 * Height + 1) rectangle.
  * Erode takes the per-channel minimum, Dilate the per-channel maximum, of the
  * premultiplied pixels in the window (the window is clipped to the image, so
@@ -14,23 +17,23 @@
 #include <string.h>
 
 typedef struct morph_params {
-    int32_t mode;            /* 0 Erode, 1 Dilate */
     int32_t width;           /* 1 .. 100 */
     int32_t height;          /* 1 .. 100 */
     int32_t linked;          /* bool */
+    int32_t mode;            /* 0 Erode, 1 Dilate */
 } morph_params;
 
 static const char *const k_modes[] = { "Erode", "Dilate", NULL };
 
 static const fx_prop k_props[] = {
-    { "mode", "Mode", FXP_CHOICE, (uint32_t)offsetof(morph_params, mode),
-      0.0, 1.0, 0.0, 0.0, k_modes, NULL, 0u, 0u, NULL },
     { "width", "Width", FXP_INT, (uint32_t)offsetof(morph_params, width),
-      1.0, 100.0, 1.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      1.0, 100.0, 5.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "height", "Height", FXP_INT, (uint32_t)offsetof(morph_params, height),
-      1.0, 100.0, 1.0, 1.0, NULL, NULL, 0u, 0u, "linked=0" },
+      1.0, 100.0, 5.0, 1.0, NULL, NULL, 0u, 0u, "linked=0" },
     { "linked", "Linked", FXP_BOOL, (uint32_t)offsetof(morph_params, linked),
       0.0, 1.0, 1.0, 0.0, NULL, NULL, 0u, 0u, NULL },
+    { "mode", "Mode", FXP_CHOICE, (uint32_t)offsetof(morph_params, mode),
+      0.0, 1.0, 1.0, 0.0, k_modes, NULL, 0u, 0u, NULL },
 };
 
 #define BAND 64              /* output rows per pass, bounds the scratch size */
