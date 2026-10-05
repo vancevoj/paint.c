@@ -20,6 +20,10 @@ Lane I. How the packages are built and what they contain: docs/PACKAGING.md.
 | macos/make-dmg.sh | ad-hoc signed paint.c.app in a .dmg |
 | RELEASE_NOTES_<version>.md | release notes; `@CHECKSUMS@` is filled in by release-dist.sh |
 | release-dist.sh | source archive, SHA256SUMS.txt and the rendered notes of a local release |
+| plugins/build-plugins.sh | the optional plugins of plugins/ as release zips (Linux in the AppImage's Ubuntu 20.04 container, Windows with mingw-w64), with library checks and SHA256SUMS (docs/PLUGINS.md) |
+| plugins/release.conf | plugin set version, repository of the download links, glibc floor |
+| plugins/plugin_meta.py | reads the plugins' README cards: zip names, the plugin tables of README.md and docs/PLUGINS.md (`write`, `check`), reproducible zips |
+| plugins/screenshot.sh, plugins/shot_tool.py | a plugin's screenshot.png: its dialog over a test image, rendered headless |
 
 The bundle metadata of paint.c.app is src/app/platform/Info.plist.in; the
 Windows icon and version resources are src/app/platform/paintc_version.rc.in.
