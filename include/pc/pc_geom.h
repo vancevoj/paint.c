@@ -58,6 +58,12 @@ pc_rect   pc_geom_selection_bounds(const pc_doc *d);
  * with the same mode (one linear channel). */
 pc_status pc_geom_resize(pc_hist *h, uint32_t w, uint32_t hgt, pc_resample mode,
                          uint32_t flags, const pc_par *par, const char *label);
+/* W3B-FXCORE: the same, linearizing with trc (borrowed for the call; NULL =
+ * sRGB) when flags has PC_RESAMPLE_GAMMA: the image profile's transfer
+ * curve, as Paint.NET 5.1 resizes in the profile's linear light. */
+pc_status pc_geom_resize_trc(pc_hist *h, uint32_t w, uint32_t hgt, pc_resample mode,
+                             uint32_t flags, const pc_trc *trc, const pc_par *par,
+                             const char *label);
 
 /* Image > Canvas Size: new size w x hgt, the old image placed by anchor.
  * New area: the bottom layer (index 0, Paint.NET's background layer) is
