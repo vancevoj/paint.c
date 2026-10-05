@@ -24,6 +24,12 @@
 pc_status lc_doc_new(const pc_codec_limits *lim, uint32_t w, uint32_t h, uint32_t n_layers,
                      pc_doc **out, pc_layer **layer);
 
+/* Turn a single-layer document upright for an EXIF/TIFF orientation 1..8
+ * (1 and invalid values: nothing to do). *d (unpublished, owned by the
+ * caller) is replaced by a new document; the old one is destroyed. On
+ * failure *d is unchanged. Streams through quant.h's pc_rowsink. */
+pc_status lc_doc_orient(pc_doc **d, const pc_codec_limits *lim, int orientation);
+
 /* calloc(count, size) after checked multiplication and a check against
  * lim->max_mem (lim may be NULL: no budget). Sets *st to PC_ERR_LIMIT or
  * PC_ERR_NOMEM on failure and returns NULL. Caller frees with free(). */
@@ -78,6 +84,8 @@ typedef enum lc_filter {
     LC_FILTER_BILINEAR,          /* tent, widened when reducing */
     LC_FILTER_LANCZOS,           /* Lanczos, 3 lobes */
     LC_FILTER_NEAREST,
+    LC_FILTER_BILINEAR_LOW,      /* tent, never widened (2 x 2 taps, "low quality") */
+    LC_FILTER_ADAPTIVE,          /* Fant when reducing, bicubic when enlarging */
     LC_FILTER_COUNT
 } lc_filter;
 
@@ -96,12 +104,15 @@ typedef pc_status (*lc_png_hdr_fn)(void *ud, uint32_t w, uint32_t h);
 
 /* Decode a PNG (any color type and bit depth; tRNS applied, gAMA ignored,
  * 16-bit rounded to 8) and deliver straight BGRA rows to sink in increasing
- * order, in bands. meta (may be NULL) receives iCCP, pHYs, src_bits and
- * had_alpha. Limits are applied before anything is allocated. On failure
- * meta->icc is freed again. */
+ * order, in bands. meta (may be NULL) receives iCCP, pHYs, src_bits,
+ * had_alpha and the metadata items (eXIf, XMP, text chunks; cmeta.h). With
+ * orient != NULL the EXIF orientation is returned there (1..8) and stored
+ * as 1: the caller turns the pixels upright (lc_doc_orient). Limits are
+ * applied before anything is allocated. On failure meta->icc is freed
+ * again (items may remain: the caller frees meta). */
 pc_status lc_png_decode(const uint8_t *p, size_t n, const pc_codec_limits *lim,
                         lc_png_hdr_fn hdr, lc_rows_sink sink, void *ud,
-                        pc_image_meta *meta);
+                        pc_image_meta *meta, int *orient);
 
 /* PNG pixel layouts the writer produces. */
 typedef enum lc_png_kind {
@@ -110,14 +121,29 @@ typedef enum lc_png_kind {
     LC_PNG_PALETTE      /* 8-bit; every pixel must be in pal[] */
 } lc_png_kind;
 
+/* One text chunk: keyword and text in UTF-8 (borrowed). */
+typedef struct lc_png_text {
+    const char *keyword;
+    const char *text;
+} lc_png_text;
+
 typedef struct lc_png_opts {
     lc_png_kind    kind;
     const pc_px32 *pal;        /* LC_PNG_PALETTE: n_pal entries (borrowed) */
-    uint32_t       n_pal;      /* 1..256 */
+    uint32_t       n_pal;      /* 1..2^bit_depth */
+    uint32_t       bit_depth;  /* LC_PNG_PALETTE: 1, 2, 4 or 8 (0 = 8) */
+    bool           interlace;  /* Adam7 (the encoder then holds the whole image) */
     double         dpi_x, dpi_y;   /* <= 0: no pHYs chunk */
     const uint8_t *icc;        /* NULL: no iCCP chunk (borrowed) */
     size_t         icc_len;
     int32_t        level;      /* zlib level 0..9, -1 = default */
+    const lc_png_text *text;   /* n_text chunks (borrowed): tEXt when the text is
+                                  Latin-1 (zTXt past 1 KiB), else iTXt; keywords that
+                                  are not valid PNG keywords are skipped */
+    uint32_t       n_text;
+    const char    *xmp;        /* NULL: no XMP iTXt chunk (borrowed, UTF-8) */
+    const uint8_t *exif;       /* NULL: no eXIf chunk (borrowed, TIFF header first) */
+    size_t         exif_len;
 } lc_png_opts;
 
 /* Encode a w x h image pulled from src (bands of LC_BAND rows) and append
@@ -125,13 +151,14 @@ typedef struct lc_png_opts {
 pc_status lc_png_encode(pc_buf *out, uint32_t w, uint32_t h, lc_rows_src src, void *ud,
                         const lc_png_opts *opts);
 
-/* ---- ICC internals (icc.c), used by the JPEG CMYK path ----------------------- */
+/* ---- ICC internals (icc.c), used by the JPEG and TIFF CMYK paths --------------- */
 typedef struct lc_cmyk_xf lc_cmyk_xf;
-/* Transform from a CMYK profile to sRGB (perceptual). inverted selects
- * Adobe-style inverted samples. NULL when the profile is unusable (the
- * caller then falls back to the naive formula). Caller frees with
- * lc_cmyk_close. */
-lc_cmyk_xf *lc_cmyk_open(const uint8_t *icc, size_t len, bool inverted);
+/* Transform from a CMYK profile to the RGB profile dst (dst_len bytes,
+ * borrowed; NULL = sRGB), perceptual intent. inverted selects Adobe-style
+ * inverted samples. NULL when a profile is unusable (the caller then falls
+ * back to the naive formula). Caller frees with lc_cmyk_close. */
+lc_cmyk_xf *lc_cmyk_open(const uint8_t *icc, size_t len, bool inverted, const uint8_t *dst,
+                         size_t dst_len);
 /* n CMYK pixels (4 bytes each, borrowed) to opaque BGRA. */
 void        lc_cmyk_run(lc_cmyk_xf *x, const uint8_t *cmyk, pc_px32 *dst, size_t n);
 void        lc_cmyk_close(lc_cmyk_xf *x);

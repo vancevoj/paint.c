@@ -13,15 +13,17 @@
  * maps [-1, 1] to [0, 255].
  *
  * Save (DDS file type bundled with Paint.NET 5.1): the formats in k_formats
- * (BC1, BC2, BC3 linear and sRGB, BC4, BC5 unsigned and signed, BC7 linear
- * and sRGB, the uncompressed 32, 24 and 16-bit layouts, R8, R8G8, R32
- * float, and the legacy ATI1, ATI2 and RXGB variants), error diffusion
- * dithering (16-bit layouts), BC7 compression speed, error metric
- * (perceptual or uniform; BC1..BC3 index selection and BC7), cube maps
- * from a horizontal (4:3) or vertical (3:4) crossed image, and mipmap
- * generation with a choice of resampling filter and gamma correction.
- * Complete cube maps load as a horizontal cross. BC6H output is not
- * implemented.
+ * (BC1, BC2, BC3 linear and sRGB, BC4, BC5 unsigned and signed, BC6H
+ * unsigned (own encoder, bc6h_enc.c), BC7 linear and sRGB, the uncompressed
+ * 32, 24 and 16-bit layouts, R8, R8G8, R32 float, and the legacy ATI1,
+ * ATI2 and RXGB variants), error diffusion dithering (on by default; BC1..BC3
+ * color indices and BC2 alpha within each block, and the 16-bit layouts),
+ * BC6H / BC7 compression speed, error metric (perceptual or uniform;
+ * BC1..BC3 index selection; BC6H and BC7 use uniform weights), cube maps from a horizontal (4:3) or vertical
+ * (3:4) crossed image, and mipmap generation with a choice of resampling
+ * filter (default Bicubic) and gamma correction. Each option is enabled
+ * only for the formats it applies to (FILES.md, DDS rows). Complete cube
+ * maps load as a horizontal cross.
  *
  * Threads: reentrant. The BC7 encoder tables are built once behind an
  * atomic flag.
@@ -33,6 +35,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bc6h_enc.h"
 #include "bcdec.h"
 #include "stb_dxt.h"
 #include "pc_bc7enc.h"
@@ -619,12 +622,12 @@ typedef struct dds_params {
     int32_t metric;       /* 0 perceptual, 1 uniform */
     int32_t cube_map;     /* bool: cube map from a horizontal or vertical cross */
     int32_t mipmaps;      /* bool */
-    int32_t mip_filter;   /* lc_filter */
+    int32_t mip_filter;   /* index into k_filters / k_filter_of */
     int32_t gamma;        /* bool: gamma-corrected mip resampling */
 } dds_params;
 
 typedef enum enc_kind {
-    E_BC1, E_BC2, E_BC3, E_BC4, E_BC5U, E_BC5S, E_BC7, E_RXGB,
+    E_BC1, E_BC2, E_BC3, E_BC4, E_BC5U, E_BC5S, E_BC6H, E_BC7, E_RXGB,
     E_BGRA8, E_BGRX8, E_RGBA8, E_RGBX8, E_BGR8, E_B5G5R5A1, E_B4G4R4A4, E_B5G6R5,
     E_R8, E_RG8, E_RG8S, E_R32F
 } enc_kind;
@@ -646,6 +649,7 @@ static const dds_out_fmt k_formats[] = {
     { E_BC4, 80, NULL }, /* BC4 (Linear, Unsigned) */
     { E_BC5U, 83, NULL }, /* BC5 (Linear, Unsigned) */
     { E_BC5S, 84, NULL }, /* BC5 (Linear, Signed) */
+    { E_BC6H, 95, NULL }, /* BC6H (Linear, Unsigned, DX 11+) */
     { E_BC7, 98, NULL }, /* BC7 (Linear, DX 11+) */
     { E_BC7, 99, NULL }, /* BC7 (sRGB, DX 11+) */
     { E_BGRA8, 0, NULL }, /* B8G8R8A8 (Linear, A8R8G8B8) */
@@ -672,7 +676,8 @@ static const dds_out_fmt k_formats[] = {
 static const char *const k_format_labels[] = {
     "BC1 (Linear, DXT1)", "BC1 (sRGB, DX 10+)", "BC2 (Linear, DXT3)", "BC2 (sRGB, DX 10+)",
     "BC3 (Linear, DXT5)", "BC3 (sRGB, DX 10+)", "BC4 (Linear, Unsigned)",
-    "BC5 (Linear, Unsigned)", "BC5 (Linear, Signed)", "BC7 (Linear, DX 11+)",
+    "BC5 (Linear, Unsigned)", "BC5 (Linear, Signed)", "BC6H (Linear, Unsigned, DX 11+)",
+    "BC7 (Linear, DX 11+)",
     "BC7 (sRGB, DX 11+)", "B8G8R8A8 (Linear, A8R8G8B8)", "B8G8R8A8 (sRGB, DX 10+)",
     "B8G8R8X8 (Linear, X8R8G8B8)", "B8G8R8X8 (sRGB, DX 10+)", "R8G8B8A8 (Linear, A8B8G8R8)",
     "R8G8B8A8 (sRGB, DX 10+)", "B5G5R5A1 (Linear, A1R5G5B5)", "B4G4R4A4 (Linear, A4R4G4B4)",
@@ -687,25 +692,40 @@ _Static_assert(sizeof k_format_labels / sizeof k_format_labels[0] == (size_t)N_F
 
 static const char *const k_speed[] = { "Fast", "Medium", "Slow", NULL };
 static const char *const k_metric[] = { "Perceptual", "Uniform", NULL };
+/* Mip map resampling choices (FILES.md order) and their filters. */
 static const char *const k_filters[] = {
-    "Fant", "Bicubic", "Bicubic (Smooth)", "Bilinear", "Lanczos", "Nearest Neighbor", NULL
+    "Bicubic", "Bicubic (Smooth)", "Bilinear", "Bilinear (Low Quality)", "Adaptive", "Lanczos",
+    "Fant", "Nearest Neighbor", NULL
 };
+static const lc_filter k_filter_of[] = {
+    LC_FILTER_BICUBIC, LC_FILTER_BICUBIC_SMOOTH, LC_FILTER_BILINEAR, LC_FILTER_BILINEAR_LOW,
+    LC_FILTER_ADAPTIVE, LC_FILTER_LANCZOS, LC_FILTER_FANT, LC_FILTER_NEAREST
+};
+#define N_FILTERS ((int)(sizeof k_filter_of / sizeof k_filter_of[0]))
+_Static_assert(sizeof k_filters / sizeof k_filters[0] == (size_t)N_FILTERS + 1u,
+               "k_filters and k_filter_of must stay aligned");
+
+/* Formats the options apply to (k_formats indices): BC1..BC3 variants
+ * (with RXGB), the 16-bit layouts, BC6H and BC7. */
+#define DDS_IF_DITHER "format=0|1|2|3|4|5|18|19|20|29"
+#define DDS_IF_SPEED  "format=9|10|11"
+#define DDS_IF_METRIC "format=0|1|2|3|4|5|29"
 
 static const fx_prop k_dds_props[] = {
     { "format", "DDS format", FXP_CHOICE, (uint32_t)offsetof(dds_params, format),
       0, N_FORMATS - 1, 0, 0, k_format_labels, NULL, 0, 0, NULL },
     { "dither", "Error diffusion dithering", FXP_BOOL, (uint32_t)offsetof(dds_params, dither),
-      0, 1, 0, 0, NULL, NULL, 0, 0, NULL },
-    { "bc7_speed", "BC7 compression speed", FXP_CHOICE, (uint32_t)offsetof(dds_params, bc7_speed),
-      0, 2, 1, 0, k_speed, NULL, 0, 0, NULL },
+      0, 1, 1, 0, NULL, NULL, 0, 0, DDS_IF_DITHER },
+    { "bc7_speed", "BC6H / BC7 compression speed", FXP_CHOICE,
+      (uint32_t)offsetof(dds_params, bc7_speed), 0, 2, 1, 0, k_speed, NULL, 0, 0, DDS_IF_SPEED },
     { "metric", "Error metric", FXP_CHOICE, (uint32_t)offsetof(dds_params, metric),
-      0, 1, 0, 0, k_metric, NULL, 0, 0, NULL },
+      0, 1, 0, 0, k_metric, NULL, 0, 0, DDS_IF_METRIC },
     { "cube_map", "Cube map from crossed image", FXP_BOOL,
       (uint32_t)offsetof(dds_params, cube_map), 0, 1, 0, 0, NULL, NULL, 0, 0, NULL },
     { "mipmaps", "Generate mip maps", FXP_BOOL, (uint32_t)offsetof(dds_params, mipmaps),
       0, 1, 0, 0, NULL, NULL, 0, 0, NULL },
     { "mip_filter", "Mip map resampling", FXP_CHOICE, (uint32_t)offsetof(dds_params, mip_filter),
-      0, LC_FILTER_COUNT - 1, LC_FILTER_FANT, 0, k_filters, NULL, 0, 0, "mipmaps" },
+      0, N_FILTERS - 1, 0, 0, k_filters, NULL, 0, 0, "mipmaps" },
     { "gamma", "Use gamma correction", FXP_BOOL, (uint32_t)offsetof(dds_params, gamma),
       0, 1, 1, 0, NULL, NULL, 0, 0, "mipmaps" },
 };
@@ -741,10 +761,13 @@ static int wdist(const int a[3], const uint8_t *p, const rgb_w *w)
 }
 
 /* Re-pick the 2-bit indices of an encoded color block for the given
- * weights. three_color: BC1 punch-through mode (index 3 = transparent). */
+ * weights. three_color: BC1 punch-through mode (index 3 = transparent).
+ * With dither the remaining error of each pixel is diffused (Floyd-
+ * Steinberg, raster order) to its neighbors inside the block. */
 static void reselect_indices(uint8_t *blk, const uint8_t rgba[64], const rgb_w *w,
-                             bool three_color, uint32_t transparent_mask)
+                             bool three_color, uint32_t transparent_mask, bool dither)
 {
+    int err[16][3];
     uint32_t c0 = (uint32_t)blk[0] | ((uint32_t)blk[1] << 8);
     uint32_t c1 = (uint32_t)blk[2] | ((uint32_t)blk[3] << 8);
     int pal[4][3], e0[3], e1[3], np = three_color ? 3 : 4;
@@ -761,20 +784,63 @@ static void reselect_indices(uint8_t *blk, const uint8_t rgba[64], const rgb_w *
             pal[3][c] = (e0[c] + 2 * e1[c]) / 3;
         }
     }
+    memset(err, 0, sizeof err);
     for (int i = 0; i < 16; i++) {
-        int best = 0, bd = 0x7FFFFFFF;
+        int best = 0, bd = 0x7FFFFFFF, x = i & 3, y = i >> 2;
+        uint8_t t[3];
         if (transparent_mask & (1u << i)) { idx |= 3u << (2 * i); continue; }
+        for (int c = 0; c < 3; c++) {      /* error in 1/16 units */
+            int v = (int)rgba[4 * i + c] + (err[i][c] >= 0 ? err[i][c] + 8 : err[i][c] - 8) / 16;
+            t[c] = (uint8_t)(v < 0 ? 0 : (v > 255 ? 255 : v));
+        }
         for (int k = 0; k < np; k++) {
-            int dd = wdist(pal[k], rgba + 4 * i, w);
+            int dd = wdist(pal[k], t, w);
             if (dd < bd) { bd = dd; best = k; }
         }
         idx |= (uint32_t)best << (2 * i);
+        if (dither)
+            for (int c = 0; c < 3; c++) {
+                int e = (int)t[c] - pal[best][c];
+                if (x < 3) err[i + 1][c] += 7 * e;
+                if (y < 3 && x > 0) err[i + 3][c] += 3 * e;
+                if (y < 3) err[i + 4][c] += 5 * e;
+                if (y < 3 && x < 3) err[i + 5][c] += e;
+            }
     }
     blk[4] = (uint8_t)idx; blk[5] = (uint8_t)(idx >> 8);
     blk[6] = (uint8_t)(idx >> 16); blk[7] = (uint8_t)(idx >> 24);
 }
 
-static void enc_bc1(uint8_t out[8], const uint8_t rgba[64], const rgb_w *w, bool perceptual)
+/* Error diffusion of the block's colors to 5:6:5 precision (in place, raster
+ * order inside the block), so the endpoints are fitted to colors whose local
+ * averages match the source (pixels in skip keep their colors). */
+static void dither_565(uint8_t rgba[64], uint32_t skip)
+{
+    static const int k_bits[3] = { 5, 6, 5 };
+    int err[16][3];
+    memset(err, 0, sizeof err);
+    for (int i = 0; i < 16; i++) {
+        int x = i & 3, y = i >> 2;
+        if (skip & (1u << i)) continue;
+        for (int c = 0; c < 3; c++) {
+            int max = (1 << k_bits[c]) - 1;
+            int v = (int)rgba[4 * i + c] + (err[i][c] >= 0 ? err[i][c] + 8 : err[i][c] - 8) / 16;
+            int q, e;
+            v = v < 0 ? 0 : (v > 255 ? 255 : v);
+            q = (v * max + 127) / 255;
+            q = k_bits[c] == 6 ? (q << 2) | (q >> 4) : (q << 3) | (q >> 2);
+            e = v - q;
+            rgba[4 * i + c] = (uint8_t)q;
+            if (x < 3) err[i + 1][c] += 7 * e;
+            if (y < 3 && x > 0) err[i + 3][c] += 3 * e;
+            if (y < 3) err[i + 4][c] += 5 * e;
+            if (y < 3 && x < 3) err[i + 5][c] += e;
+        }
+    }
+}
+
+static void enc_bc1(uint8_t out[8], const uint8_t rgba[64], const rgb_w *w, bool perceptual,
+                    bool dither)
 {
     uint8_t tmp[64];
     uint32_t tmask = 0;
@@ -793,7 +859,14 @@ static void enc_bc1(uint8_t out[8], const uint8_t rgba[64], const rgb_w *w, bool
         tmp[4 * i + 3] = 255u;
         if (tmask & (1u << i)) memcpy(tmp + 4 * i, rgba + 4 * first_opaque, 3);
     }
-    stb_compress_dxt_block(out, tmp, 0, STB_DXT_HIGHQUAL);
+    if (dither) {
+        uint8_t fit[64];
+        memcpy(fit, tmp, 64);
+        dither_565(fit, tmask);
+        stb_compress_dxt_block(out, fit, 0, STB_DXT_HIGHQUAL);
+    } else {
+        stb_compress_dxt_block(out, tmp, 0, STB_DXT_HIGHQUAL);
+    }
     if (tmask) {
         /* punch-through: order the endpoints so color0 <= color1 */
         uint32_t c0 = (uint32_t)out[0] | ((uint32_t)out[1] << 8);
@@ -802,25 +875,50 @@ static void enc_bc1(uint8_t out[8], const uint8_t rgba[64], const rgb_w *w, bool
             out[0] = (uint8_t)c1; out[1] = (uint8_t)(c1 >> 8);
             out[2] = (uint8_t)c0; out[3] = (uint8_t)(c0 >> 8);
         }
-        reselect_indices(out, tmp, w, true, tmask);
-    } else if (perceptual) {
+        reselect_indices(out, tmp, w, true, tmask, dither);
+    } else if (perceptual || dither) {
         uint32_t c0 = (uint32_t)out[0] | ((uint32_t)out[1] << 8);
         uint32_t c1 = (uint32_t)out[2] | ((uint32_t)out[3] << 8);
-        if (c0 > c1) reselect_indices(out, tmp, w, false, 0u);
+        if (c0 > c1) reselect_indices(out, tmp, w, false, 0u, dither);
     }
 }
 
 static void enc_color_opaque(uint8_t out[8], const uint8_t rgba[64], const rgb_w *w,
-                             bool perceptual)
+                             bool perceptual, bool dither)
 {
-    uint8_t tmp[64];
+    uint8_t tmp[64], fit[64];
     memcpy(tmp, rgba, 64);
     for (int i = 0; i < 16; i++) tmp[4 * i + 3] = 255u;
-    stb_compress_dxt_block(out, tmp, 0, STB_DXT_HIGHQUAL);
-    if (perceptual) {
+    memcpy(fit, tmp, 64);
+    if (dither) dither_565(fit, 0u);
+    stb_compress_dxt_block(out, fit, 0, STB_DXT_HIGHQUAL);
+    if (perceptual || dither) {
         uint32_t c0 = (uint32_t)out[0] | ((uint32_t)out[1] << 8);
         uint32_t c1 = (uint32_t)out[2] | ((uint32_t)out[3] << 8);
-        if (c0 != c1) reselect_indices(out, tmp, w, false, 0u);
+        if (c0 != c1) reselect_indices(out, tmp, w, false, 0u, dither);
+    }
+}
+
+/* BC2 explicit 4-bit alpha, optionally with error diffusion in the block. */
+static void enc_bc2_alpha(uint8_t out[8], const uint8_t rgba[64], bool dither)
+{
+    int err[16];
+    memset(err, 0, sizeof err);
+    memset(out, 0, 8);
+    for (int i = 0; i < 16; i++) {
+        int x = i & 3, y = i >> 2;
+        int v = (int)rgba[4 * i + 3] + (err[i] >= 0 ? err[i] + 8 : err[i] - 8) / 16;
+        int q;
+        v = v < 0 ? 0 : (v > 255 ? 255 : v);
+        q = (v * 15 + 127) / 255;
+        out[i / 2] |= (uint8_t)(q << (4 * (i & 1)));
+        if (dither) {
+            int e = v - q * 17;
+            if (x < 3) err[i + 1] += 7 * e;
+            if (y < 3 && x > 0) err[i + 3] += 3 * e;
+            if (y < 3) err[i + 4] += 5 * e;
+            if (y < 3 && x < 3) err[i + 5] += e;
+        }
     }
 }
 
@@ -843,86 +941,142 @@ static uint8_t u8_to_snorm_biased(uint8_t u)   /* snorm + 128, in 1..255 */
     return (uint8_t)(s + 128);
 }
 
-/* Encode one level (w x h, contiguous BGRA) of a block format. */
-static pc_status enc_level_bc(pc_buf *out, const pc_px32 *px, int32_t w, int32_t h,
-                              const dds_out_fmt *of, const dds_params *prm)
+/* One level of a block format: every block row is a job (pc_par), writing
+ * its blocks into the reserved output at a fixed offset. */
+typedef struct bc_job {
+    const pc_px32     *px;
+    int32_t            w, h;
+    size_t             bw;
+    uint32_t           bsz;
+    const dds_out_fmt *of;
+    const dds_params  *prm;
+    rgb_w              wt;
+    bool               perceptual, dither;
+    uint16_t           half[256];      /* BC6H: 8-bit level to half float */
+    uint8_t           *dst;            /* first block of the level */
+} bc_job;
+
+static void enc_block(const bc_job *j, size_t bx, size_t by, uint8_t blk[16])
 {
-    rgb_w wt;
-    bool perceptual = prm->metric == 0;
-    size_t bw = ((size_t)w + 3u) / 4u, bh = ((size_t)h + 3u) / 4u, need, bytes;
-    uint32_t bsz = (of->kind == E_BC1 || of->kind == E_BC4) ? 8u : 16u;
-    if (!pc_mul_size(bw * bh, bsz, &need)) return PC_ERR_LIMIT;
-    if (pc_buf_reserve(out, need) != PC_OK) return PC_ERR_NOMEM;
-    if (perceptual) { wt.r = 54; wt.g = 183; wt.b = 19; } else { wt.r = wt.g = wt.b = 85; }
-    if (of->kind == E_BC7) bc7_init_once();
-    bytes = 0;
-    for (size_t by = 0; by < bh; by++)
-        for (size_t bx = 0; bx < bw; bx++) {
-            uint8_t rgba[64], blk[16];
-            for (int i = 0; i < 16; i++) {
-                int32_t x = (int32_t)(bx * 4u) + (i & 3), y = (int32_t)(by * 4u) + (i >> 2);
-                pc_px32 p;
-                if (x >= w) x = w - 1;
-                if (y >= h) y = h - 1;
-                p = px[(size_t)y * (size_t)w + (size_t)x];
-                rgba[4 * i] = p.r; rgba[4 * i + 1] = p.g; rgba[4 * i + 2] = p.b;
-                rgba[4 * i + 3] = p.a;
-            }
-            switch (of->kind) {
-            case E_BC1: enc_bc1(blk, rgba, &wt, perceptual); break;
-            case E_BC2: {
-                for (int i = 0; i < 8; i++) {
-                    uint32_t a0 = (rgba[4 * (2 * i) + 3] * 15u + 127u) / 255u;
-                    uint32_t a1 = (rgba[4 * (2 * i + 1) + 3] * 15u + 127u) / 255u;
-                    blk[i] = (uint8_t)(a0 | (a1 << 4));
-                }
-                enc_color_opaque(blk + 8, rgba, &wt, perceptual);
-                break;
-            }
-            case E_BC3: case E_RXGB: {
-                if (of->kind == E_RXGB)
-                    for (int i = 0; i < 16; i++) { rgba[4 * i + 3] = rgba[4 * i]; rgba[4 * i] = 0; }
-                stb_compress_dxt_block(blk, rgba, 1, STB_DXT_HIGHQUAL);
-                if (perceptual) {
-                    uint32_t c0 = (uint32_t)blk[8] | ((uint32_t)blk[9] << 8);
-                    uint32_t c1 = (uint32_t)blk[10] | ((uint32_t)blk[11] << 8);
-                    if (c0 != c1) reselect_indices(blk + 8, rgba, &wt, false, 0u);
-                }
-                break;
-            }
-            case E_BC4: {
-                uint8_t r[16];
-                for (int i = 0; i < 16; i++) r[i] = rgba[4 * i];
-                stb_compress_bc4_block(blk, r);
-                break;
-            }
-            case E_BC5U: {
-                uint8_t rg[32];
-                for (int i = 0; i < 16; i++) {
-                    rg[2 * i] = rgba[4 * i];
-                    rg[2 * i + 1] = rgba[4 * i + 1];
-                }
-                stb_compress_bc5_block(blk, rg);
-                break;
-            }
-            case E_BC5S: {
-                uint8_t r[16], g[16];
-                for (int i = 0; i < 16; i++) {
-                    r[i] = u8_to_snorm_biased(rgba[4 * i]);
-                    g[i] = u8_to_snorm_biased(rgba[4 * i + 1]);
-                }
-                enc_bc4_signed(blk, r);
-                enc_bc4_signed(blk + 8, g);
-                break;
-            }
-            default:   /* E_BC7 */
-                pc_bc7enc_block(blk, rgba, prm->bc7_speed, perceptual);
-                break;
-            }
-            memcpy(out->p + out->n + bytes, blk, bsz);
-            bytes += bsz;
+    uint8_t rgba[64];
+    for (int i = 0; i < 16; i++) {
+        int32_t x = (int32_t)(bx * 4u) + (i & 3), y = (int32_t)(by * 4u) + (i >> 2);
+        pc_px32 p;
+        if (x >= j->w) x = j->w - 1;
+        if (y >= j->h) y = j->h - 1;
+        p = j->px[(size_t)y * (size_t)j->w + (size_t)x];
+        rgba[4 * i] = p.r; rgba[4 * i + 1] = p.g; rgba[4 * i + 2] = p.b;
+        rgba[4 * i + 3] = p.a;
+    }
+    switch (j->of->kind) {
+    case E_BC1: enc_bc1(blk, rgba, &j->wt, j->perceptual, j->dither); break;
+    case E_BC2:
+        enc_bc2_alpha(blk, rgba, j->dither);
+        enc_color_opaque(blk + 8, rgba, &j->wt, j->perceptual, j->dither);
+        break;
+    case E_BC3: case E_RXGB: {
+        if (j->of->kind == E_RXGB)
+            for (int i = 0; i < 16; i++) { rgba[4 * i + 3] = rgba[4 * i]; rgba[4 * i] = 0; }
+        if (j->dither) {
+            uint8_t fit[64];
+            memcpy(fit, rgba, 64);
+            dither_565(fit, 0u);
+            stb_compress_dxt_block(blk, fit, 1, STB_DXT_HIGHQUAL);
+        } else {
+            stb_compress_dxt_block(blk, rgba, 1, STB_DXT_HIGHQUAL);
         }
-    out->n += bytes;
+        if (j->perceptual || j->dither) {
+            uint32_t c0 = (uint32_t)blk[8] | ((uint32_t)blk[9] << 8);
+            uint32_t c1 = (uint32_t)blk[10] | ((uint32_t)blk[11] << 8);
+            if (c0 != c1) reselect_indices(blk + 8, rgba, &j->wt, false, 0u, j->dither);
+        }
+        break;
+    }
+    case E_BC6H: {
+        uint16_t rgb[48];
+        for (int i = 0; i < 16; i++) {
+            rgb[3 * i] = j->half[rgba[4 * i]];
+            rgb[3 * i + 1] = j->half[rgba[4 * i + 1]];
+            rgb[3 * i + 2] = j->half[rgba[4 * i + 2]];
+        }
+        bc6h_encode_block(blk, rgb, j->prm->bc7_speed);
+        break;
+    }
+    case E_BC4: {
+        uint8_t r[16];
+        for (int i = 0; i < 16; i++) r[i] = rgba[4 * i];
+        stb_compress_bc4_block(blk, r);
+        break;
+    }
+    case E_BC5U: {
+        uint8_t rg[32];
+        for (int i = 0; i < 16; i++) {
+            rg[2 * i] = rgba[4 * i];
+            rg[2 * i + 1] = rgba[4 * i + 1];
+        }
+        stb_compress_bc5_block(blk, rg);
+        break;
+    }
+    case E_BC5S: {
+        uint8_t r[16], g[16];
+        for (int i = 0; i < 16; i++) {
+            r[i] = u8_to_snorm_biased(rgba[4 * i]);
+            g[i] = u8_to_snorm_biased(rgba[4 * i + 1]);
+        }
+        enc_bc4_signed(blk, r);
+        enc_bc4_signed(blk + 8, g);
+        break;
+    }
+    default:   /* E_BC7: the error metric only applies to BC1..BC3 (uniform here) */
+        pc_bc7enc_block(blk, rgba, j->prm->bc7_speed, false);
+        break;
+    }
+}
+
+static void bc_row_job(void *ud, uint32_t index, uint32_t worker)
+{
+    const bc_job *j = (const bc_job *)ud;
+    uint8_t *row = j->dst + (size_t)index * j->bw * j->bsz;
+    (void)worker;
+    for (size_t bx = 0; bx < j->bw; bx++) {
+        uint8_t blk[16];
+        enc_block(j, bx, index, blk);
+        memcpy(row + bx * j->bsz, blk, j->bsz);
+    }
+}
+
+/* Encode one level (w x h, contiguous BGRA) of a block format; block rows
+ * run on par (may be NULL); the bytes do not depend on the thread count. */
+static pc_status enc_level_bc(pc_buf *out, const pc_px32 *px, int32_t w, int32_t h,
+                              const dds_out_fmt *of, const dds_params *prm, const pc_par *par)
+{
+    bc_job *j;
+    size_t bh = ((size_t)h + 3u) / 4u, need;
+    j = (bc_job *)calloc(1u, sizeof *j);
+    if (!j) return PC_ERR_NOMEM;
+    j->px = px;
+    j->w = w;
+    j->h = h;
+    j->bw = ((size_t)w + 3u) / 4u;
+    j->bsz = (of->kind == E_BC1 || of->kind == E_BC4) ? 8u : 16u;
+    j->of = of;
+    j->prm = prm;
+    j->perceptual = prm->metric == 0;
+    j->dither = prm->dither != 0;
+    if (j->perceptual) { j->wt.r = 54; j->wt.g = 183; j->wt.b = 19; }
+    else { j->wt.r = j->wt.g = j->wt.b = 85; }
+    if (!pc_mul_size(j->bw * bh, j->bsz, &need) || bh > UINT32_MAX) {
+        free(j);
+        return PC_ERR_LIMIT;
+    }
+    if (pc_buf_reserve(out, need) != PC_OK) { free(j); return PC_ERR_NOMEM; }
+    if (of->kind == E_BC7) bc7_init_once();
+    if (of->kind == E_BC6H)
+        for (int v = 0; v < 256; v++) j->half[v] = bc6h_float_to_half((float)v / 255.0f);
+    j->dst = out->p + out->n;
+    pc_par_for(par, bc_row_job, j, (uint32_t)bh);
+    out->n += need;
+    free(j);
     return PC_OK;
 }
 
@@ -1043,7 +1197,7 @@ static void put32(uint8_t *p, uint32_t v)
 static bool enc_is_bc(enc_kind k)
 {
     return k == E_BC1 || k == E_BC2 || k == E_BC3 || k == E_BC4 || k == E_BC5U ||
-           k == E_BC5S || k == E_BC7 || k == E_RXGB;
+           k == E_BC5S || k == E_BC6H || k == E_BC7 || k == E_RXGB;
 }
 
 static pc_status write_header(pc_buf *out, const dds_out_fmt *of, uint32_t w, uint32_t h,
@@ -1117,12 +1271,12 @@ static pc_status write_header(pc_buf *out, const dds_out_fmt *of, uint32_t w, ui
 /* ---- save --------------------------------------------------------------------------------- */
 /* Encode cur and its mip chain (mips levels). Consumes *cur. */
 static pc_status encode_chain(pc_buf *out, pc_surf *cur, uint32_t mips, const dds_out_fmt *of,
-                              const dds_params *prm)
+                              const dds_params *prm, const pc_par *par)
 {
     pc_surf next;
     pc_status st = PC_OK;
     for (uint32_t level = 0; level < mips && st == PC_OK; level++) {
-        if (enc_is_bc(of->kind)) st = enc_level_bc(out, cur->px, cur->w, cur->h, of, prm);
+        if (enc_is_bc(of->kind)) st = enc_level_bc(out, cur->px, cur->w, cur->h, of, prm, par);
         else st = enc_level_plain(out, cur->px, cur->w, cur->h, of, prm->dither != 0);
         if (st != PC_OK || level + 1u == mips) break;
         {
@@ -1130,7 +1284,7 @@ static pc_status encode_chain(pc_buf *out, pc_surf *cur, uint32_t mips, const dd
             st = pc_surf_alloc(&next, nw, nh);
             if (st != PC_OK) break;
             st = lc_resample(cur->w, cur->h, lc_src_surf, cur, next.px, nw, nh,
-                             (size_t)next.stride, (lc_filter)prm->mip_filter, prm->gamma != 0);
+                             (size_t)next.stride, k_filter_of[prm->mip_filter], prm->gamma != 0);
             pc_surf_free(cur);
             *cur = next;
         }
@@ -1156,10 +1310,11 @@ static pc_status dds_save(const pc_doc *d, const pc_image_meta *meta, const void
     size_t n0;
     (void)meta;
     if (!d || !out) return PC_ERR_ARG;
-    prm.format = 0; prm.dither = 0; prm.bc7_speed = 1; prm.metric = 0; prm.cube_map = 0;
-    prm.mipmaps = 0; prm.mip_filter = LC_FILTER_FANT; prm.gamma = 1;
+    prm.format = 0; prm.dither = 1; prm.bc7_speed = 1; prm.metric = 0; prm.cube_map = 0;
+    prm.mipmaps = 0; prm.mip_filter = 0; prm.gamma = 1;
     if (params) memcpy(&prm, params, sizeof prm);
     if (prm.format < 0 || prm.format >= N_FORMATS) return PC_ERR_ARG;
+    if (prm.mip_filter < 0 || prm.mip_filter >= N_FILTERS) prm.mip_filter = 0;
     if (prm.bc7_speed < 0) prm.bc7_speed = 0;
     if (prm.bc7_speed > 2) prm.bc7_speed = 2;
     of = &k_formats[prm.format];
@@ -1174,7 +1329,7 @@ static pc_status dds_save(const pc_doc *d, const pc_image_meta *meta, const void
     if (!prm.cube_map) {
         uint32_t mips = prm.mipmaps ? mip_count(d->w, d->h) : 1u;
         st = write_header(out, of, d->w, d->h, mips, false);
-        if (st == PC_OK) st = encode_chain(out, &full, mips, of, &prm);
+        if (st == PC_OK) st = encode_chain(out, &full, mips, of, &prm, par);
         else pc_surf_free(&full);
     } else {
         bool horizontal = d->w / 4u * 3u == d->h && d->w % 4u == 0u;
@@ -1190,7 +1345,7 @@ static pc_status dds_save(const pc_doc *d, const pc_image_meta *meta, const void
                 memcpy(pc_surf_row(&face, y),
                        pc_surf_row(&full, pos[1] * fs + y) + (size_t)(pos[0] * fs),
                        (size_t)fs * sizeof(pc_px32));
-            st = encode_chain(out, &face, mips, of, &prm);
+            st = encode_chain(out, &face, mips, of, &prm, par);
         }
         pc_surf_free(&full);
     }

@@ -1,11 +1,13 @@
 /* pc_icc.h - ICC color management for import and export (lane L6B,
  * Little-CMS 2 underneath).
  *
- * Policy (ADR-008, OD-7): pixels are converted to sRGB on import, and
- * exports either embed nothing or an sRGB profile. Codecs never convert by
- * themselves (except CMYK JPEG, whose CMYK samples exist only inside the
- * decoder); they hand the embedded profile over in pc_image_meta.icc and
- * the caller runs pc_icc_import on the freshly loaded document.
+ * Policy (ADR-008, OD-7, FL-ICC): codecs hand the embedded profile over in
+ * pc_image_meta.icc. Opening a file keeps it with the image (Paint.NET 5.1
+ * color management) after pc_icc_meta_validate dropped unusable ones;
+ * pasting and importing convert to sRGB with pc_icc_import. Codecs never
+ * convert by themselves, except CMYK (JPEG and TIFF), whose samples exist
+ * only inside the decoder: with an embedded CMYK profile they convert to
+ * Adobe RGB (1998) and tag the image with that profile (FL-CMYK).
  *
  * Robustness: profiles are untrusted input. Every function validates the
  * header first (size, signature, tag table bounds, a 64 MiB cap) and turns
@@ -76,5 +78,42 @@ pc_status pc_icc_srgb_profile(uint8_t **out, size_t *len);
 
 /* Export helper: replace meta->icc with the sRGB profile. */
 pc_status pc_icc_meta_set_srgb(pc_image_meta *meta);
+
+/* ---- additions of wave 3b (lane CODEC) ------------------------------------------- */
+
+/* A deterministic Adobe RGB (1998) profile (ICC v4 matrix/TRC: D65 white,
+ * the published primaries, gamma 563/256; made with Little-CMS, creation
+ * date zeroed). CMYK images are converted to it on load and tagged with it
+ * (FL-CMYK). *out is malloc'ed; the caller frees it with free(). */
+pc_status pc_icc_adobe_rgb_profile(uint8_t **out, size_t *len);
+
+/* Open-time check of an embedded profile (FL-ICC): when meta->icc is
+ * present but malformed (pc_icc_inspect fails), not usable as an image
+ * profile (device link, abstract or named color class, or a color space
+ * other than RGB and gray), a CMYK profile on RGB pixels, or a gray
+ * profile while some pixel of d is not gray, the profile is freed and
+ * meta->note says why (appended to an existing note when it fits). d (may
+ * be NULL: gray profiles are then kept) is only read. Returns true when
+ * the profile was dropped. Any thread; d must not change during the call. */
+bool      pc_icc_meta_validate(pc_image_meta *meta, const pc_doc *d);
+
+/* A prepared conversion from an image's RGB or gray profile to sRGB, for
+ * display color management (the view converts tile pixels before upload;
+ * the document keeps its values). Creating it parses the profile once;
+ * running it is cheap. */
+typedef struct pc_icc_xform pc_icc_xform;
+
+/* *out (owned by the caller, free with pc_icc_xform_destroy) converts from
+ * the profile icc/len (borrowed, only read during the call) to sRGB,
+ * perceptual intent. PC_ERR_ARG, PC_ERR_LIMIT, PC_ERR_FORMAT,
+ * PC_ERR_UNSUPPORTED (CMYK and other spaces), PC_ERR_NOMEM. *is_identity
+ * (may be NULL) is set when the profile is sRGB within one code value, so
+ * the caller can skip the conversion. */
+pc_status pc_icc_xform_create(const uint8_t *icc, size_t len, pc_icc_xform **out,
+                              bool *is_identity);
+/* Convert n straight-alpha pixels in place (alpha kept, alpha 0 stays all
+ * zero). Thread-safe: one xform may run on many threads at once. */
+void      pc_icc_xform_run(const pc_icc_xform *x, pc_px32 *px, size_t n);
+void      pc_icc_xform_destroy(pc_icc_xform *x);                   /* NULL-safe */
 
 #endif /* PC_ICC_H */

@@ -16,8 +16,11 @@
  * Image" files.
  *
  * Writer (Paint.NET options): Auto-detect, 32-bit (V5 header, BI_BITFIELDS,
- * straight alpha), 24-bit, 8-bit, 4-bit, 1-bit (palettes from quant.h).
- * Depths without alpha are flattened onto white first.
+ * straight alpha), 24-bit, 8-bit, 4-bit, 1-bit (palettes from quant.h; the
+ * quantization algorithm and dithering level apply to the explicit indexed
+ * depths). Depths without alpha are flattened onto white first. The image's
+ * ICC profile is embedded (V5 header, PROFILE_EMBEDDED, profile data after
+ * the pixels) at every depth (FS-ICC); without one, 32-bit files say sRGB.
  *
  * Threading: load and save are reentrant (no global state).
  */
@@ -34,7 +37,7 @@
 #define BI_JPEG           4u
 #define BI_PNG            5u
 #define BI_ALPHABITFIELDS 6u
-#define LCS_EMBEDDED      0x4D424544u   /* 'MBED' */
+#define LCS_EMBEDDED      0x4D424544u   /* 'MBED' (PROFILE_EMBEDDED) */
 #define LCS_SRGB          0x73524742u   /* 'sRGB' */
 
 /* ---- save options ------------------------------------------------------- */
@@ -49,13 +52,16 @@ static const char *const k_depths[] = {
 };
 static const char *const k_palettes[] = { "Octree", "Median Cut", NULL };
 
+/* dithering and the algorithm apply to the explicit indexed depths only */
+#define BMP_IF_INDEXED "bit_depth=3|4|5"
+
 static const fx_prop k_props[] = {
     { "bit_depth", "Bit depth", FXP_CHOICE, (uint32_t)offsetof(bmp_params, depth),
       0, 5, 0, 0, k_depths, NULL, 0, 0, NULL },
     { "dithering", "Dithering level", FXP_INT, (uint32_t)offsetof(bmp_params, dither),
-      0, 8, 7, 1, NULL, NULL, 0, 0, NULL },
-    { "palette", "Palette", FXP_CHOICE, (uint32_t)offsetof(bmp_params, palette),
-      0, 1, 0, 0, k_palettes, NULL, 0, 0, NULL },
+      0, 8, 7, 1, NULL, NULL, 0, 0, BMP_IF_INDEXED },
+    { "palette", "Quantization algorithm", FXP_CHOICE, (uint32_t)offsetof(bmp_params, palette),
+      0, 1, 0, 0, k_palettes, NULL, 0, 0, BMP_IF_INDEXED },
 };
 
 /* ---- reader ---------------------------------------------------------------- */
@@ -394,6 +400,7 @@ static pc_status bmp_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
 {
     bmp_info *bi;
     pc_rowsink rs;
+    pc_codec_limits dl;       /* must outlive every use of lim below */
     pc_px32 *row = NULL;
     pc_status st;
     bool holes = false, any_alpha = false;
@@ -402,14 +409,11 @@ static pc_status bmp_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
     memset(meta, 0, sizeof *meta);
     if (n == 0u) return blank_image(lim, out, meta);
     if (!p) return PC_ERR_ARG;
+    if (!lim) { pc_codec_limits_default(&dl); lim = &dl; }
     bi = (bmp_info *)malloc(sizeof *bi);
     if (!bi) return PC_ERR_NOMEM;
     st = parse_header(p, n, bi);
-    if (st == PC_OK) {
-        pc_codec_limits dl;
-        if (!lim) { pc_codec_limits_default(&dl); lim = &dl; }
-        st = pc_codec_check_size(lim, (uint64_t)bi->w, (uint64_t)bi->h, 1u);
-    }
+    if (st == PC_OK) st = pc_codec_check_size(lim, (uint64_t)bi->w, (uint64_t)bi->h, 1u);
     if (st == PC_OK && bi->comp != BI_RLE4 && bi->comp != BI_RLE8 && !raw_complete(n, bi))
         st = PC_ERR_FORMAT;                       /* truncated: fail before allocating */
     if (st == PC_OK)
@@ -489,6 +493,7 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
     pc_px32 pal[PC_QUANT_MAX_COLORS];
     uint32_t depth, w, h, hsize, npal = 0, ppm_x, ppm_y;
     uint64_t stride, total;
+    size_t icc_n;
     pc_status st;
     size_t base;
     if (!d || !out) return PC_ERR_ARG;
@@ -537,8 +542,9 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
     }
 
     stride = (((uint64_t)w * depth + 31u) / 32u) * 4u;
-    hsize = depth == 32u ? 124u : 40u;
-    total = 14u + (uint64_t)hsize + (uint64_t)npal * 4u + stride * h;
+    icc_n = meta && meta->icc && meta->icc_len <= 0x7FFFFFFFu ? meta->icc_len : 0u;
+    hsize = depth == 32u || icc_n ? 124u : 40u;
+    total = 14u + (uint64_t)hsize + (uint64_t)npal * 4u + stride * h + icc_n;
     if (total > 0xFFFFFFFFull || (uint64_t)SIZE_MAX < total) { st = PC_ERR_LIMIT; goto done; }
     base = out->n;
     st = pc_buf_reserve(out, (size_t)total);
@@ -565,8 +571,15 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
         put_le32(hdr + 58, 0x0000FF00u);
         put_le32(hdr + 62, 0x000000FFu);
         put_le32(hdr + 66, 0xFF000000u);
-        put_le32(hdr + 70, LCS_SRGB);
+    }
+    if (hsize == 124u) {
+        put_le32(hdr + 70, icc_n ? LCS_EMBEDDED : LCS_SRGB);
         put_le32(hdr + 14 + 108, 4u);              /* LCS_GM_IMAGES */
+        if (icc_n) {
+            /* profile after the pixels; offset from the start of the V5 header */
+            put_le32(hdr + 14 + 112, (uint32_t)(total - icc_n - 14u));
+            put_le32(hdr + 14 + 116, (uint32_t)icc_n);
+        }
     }
     st = pc_buf_append(out, hdr, 14u + hsize);
     for (uint32_t i = 0; i < npal && st == PC_OK; i++) {
@@ -595,6 +608,7 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
         }
         st = pc_buf_append(out, line, (size_t)stride);
     }
+    if (st == PC_OK && icc_n) st = pc_buf_append(out, meta->icc, icc_n);
     if (st != PC_OK) out->n = base;
 done:
     pc_quant_destroy(q);

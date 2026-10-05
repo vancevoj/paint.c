@@ -7,14 +7,20 @@
  * stored into the layer. Gray, YCbCr and RGB decode straight to BGRA;
  * CMYK and YCCK (Adobe inverted samples when an Adobe marker is present)
  * convert through the embedded CMYK profile with Little-CMS when there is
- * one, else with the naive formula. The EXIF orientation (APP1, bounds
- * checked TIFF walk) is applied, the ICC profile is reassembled from APP2
- * chunks, and JFIF density (or EXIF resolution) becomes meta.dpi. Only
- * 8-bit precision is supported, like Paint.NET (12-bit fails cleanly).
+ * one (the result is Adobe RGB (1998) and the image is tagged with that
+ * profile, FL-CMYK), else with the naive formula. The EXIF orientation is
+ * applied and reset to 1; EXIF (APP1 "Exif"), XMP (APP1, standard packet)
+ * and IPTC (APP13 Photoshop 3.0 resource 0x0404) become pc_image_meta
+ * items (cmeta.h key scheme, the EXIF thumbnail is dropped); the ICC
+ * profile is reassembled from APP2 chunks, and JFIF density (or EXIF
+ * resolution) becomes meta.dpi. Only 8-bit precision is supported, like
+ * Paint.NET (12-bit fails cleanly).
  *
  * Save: quality 0..100 (default 95, Paint.NET 3.36 JpegFileType), chroma
- * subsampling 4:2:0 (default), 4:2:2 or 4:4:4, optimized Huffman tables,
- * JFIF density from meta.dpi (96 when unknown), ICC embedding. The image is
+ * subsampling 4:2:0, 4:2:2 (default, FILES.md) or 4:4:4, optimized Huffman
+ * tables, JFIF density from meta.dpi (96 when unknown), ICC embedding, and
+ * the EXIF, XMP and IPTC items written back (APP1, APP1, APP13; a block
+ * that does not fit one marker segment is left out). The image is
  * flattened onto white first (3.36 behavior).
  *
  * Threads: reentrant. Error recovery uses setjmp/longjmp confined to the
@@ -22,6 +28,8 @@
  * the caller cleans up.
  */
 #include "lib_codec.h"
+#include "cmeta.h"
+#include "pc/pc_icc.h"
 
 #include <limits.h>
 #include <setjmp.h>
@@ -75,69 +83,102 @@ static void j_progress(j_common_ptr cinfo)
         j_fail(cinfo, PC_ERR_LIMIT);
 }
 
-/* ---- EXIF (APP1) ---------------------------------------------------------------------- */
+/* ---- metadata markers (APP1 EXIF and XMP, APP13 IPTC) ---------------------------------- */
+#define JPEG_XMP_SIG     "http://ns.adobe.com/xap/1.0/"     /* + NUL: 29 bytes */
+#define JPEG_XMP_SIG_LEN 29u
+#define JPEG_PS_SIG      "Photoshop 3.0"                    /* + NUL: 14 bytes */
+#define JPEG_PS_SIG_LEN  14u
+#define JPEG_SEG_MAX     65533u                             /* marker payload limit */
+
 typedef struct exif_info {
     int    orientation;          /* 1..8, 1 when absent */
-    double xres, yres;           /* 0 when absent */
-    int    unit;                 /* 2 inch, 3 cm */
+    double dpi_x, dpi_y;         /* 0 when absent */
 } exif_info;
 
-static uint32_t ex_u16(const uint8_t *p, bool be)
+/* EXIF, XMP and IPTC of the saved markers into meta; *e receives the EXIF
+ * orientation (applied by the caller, so the stored tag becomes 1) and
+ * resolution. Broken blocks are ignored. */
+static pc_status read_meta(j_decompress_ptr ci, pc_image_meta *meta, exif_info *e)
 {
-    return be ? ((uint32_t)p[0] << 8) | p[1] : ((uint32_t)p[1] << 8) | p[0];
-}
-
-static uint32_t ex_u32(const uint8_t *p, bool be)
-{
-    return be ? ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]
-              : ((uint32_t)p[3] << 24) | ((uint32_t)p[2] << 16) | ((uint32_t)p[1] << 8) | p[0];
-}
-
-/* p/n: the TIFF structure following "Exif\0\0". Reads IFD0 only. */
-static void exif_parse(const uint8_t *p, size_t n, exif_info *e)
-{
-    bool be;
-    uint32_t ifd, count;
-    if (n < 8u) return;
-    if (p[0] == 'I' && p[1] == 'I') be = false;
-    else if (p[0] == 'M' && p[1] == 'M') be = true;
-    else return;
-    if (ex_u16(p + 2, be) != 42u) return;
-    ifd = ex_u32(p + 4, be);
-    if (ifd < 8u || (size_t)ifd > n - 2u) return;
-    count = ex_u16(p + ifd, be);
-    if ((size_t)count > (n - ifd - 2u) / 12u) count = (uint32_t)((n - ifd - 2u) / 12u);
-    for (uint32_t i = 0; i < count; i++) {
-        const uint8_t *en = p + ifd + 2u + (size_t)i * 12u;
-        uint32_t tag = ex_u16(en, be), type = ex_u16(en + 2, be), cnt = ex_u32(en + 4, be);
-        if ((tag == 0x0112u || tag == 0x0128u) && type == 3u && cnt >= 1u) {
-            uint32_t v = ex_u16(en + 8, be);
-            if (tag == 0x0112u && v >= 1u && v <= 8u) e->orientation = (int)v;
-            if (tag == 0x0128u) e->unit = (int)v;
-        } else if ((tag == 0x011Au || tag == 0x011Bu) && type == 5u && cnt >= 1u) {
-            uint32_t off = ex_u32(en + 8, be), num, den;
-            if ((size_t)off > n || n - off < 8u) continue;
-            num = ex_u32(p + off, be);
-            den = ex_u32(p + off + 4, be);
-            if (den == 0u || num == 0u) continue;
-            if (tag == 0x011Au) e->xres = (double)num / den;
-            else e->yres = (double)num / den;
+    pc_buf irb;
+    pc_status st = PC_OK;
+    bool have_exif = false;
+    e->orientation = 1;
+    e->dpi_x = e->dpi_y = 0.0;
+    memset(&irb, 0, sizeof irb);
+    for (jpeg_saved_marker_ptr m = ci->marker_list; m && st == PC_OK; m = m->next) {
+        const uint8_t *d = m->data;
+        size_t n = m->data_length;
+        if (m->marker == JPEG_APP0 + 1 && n >= JPEG_XMP_SIG_LEN &&
+            memcmp(d, JPEG_XMP_SIG, JPEG_XMP_SIG_LEN) == 0) {
+            st = cm_meta_load_xmp(meta, d + JPEG_XMP_SIG_LEN, n - JPEG_XMP_SIG_LEN);
+        } else if (m->marker == JPEG_APP0 + 13 && n >= JPEG_PS_SIG_LEN &&
+                   memcmp(d, JPEG_PS_SIG, JPEG_PS_SIG_LEN) == 0) {
+            /* resources may continue in the next APP13 segment */
+            if (irb.n + n <= CM_IPTC_MAX * 2u)
+                st = pc_buf_append(&irb, d + JPEG_PS_SIG_LEN, n - JPEG_PS_SIG_LEN);
         }
     }
-}
-
-static void read_exif(j_decompress_ptr ci, exif_info *e)
-{
-    e->orientation = 1;
-    e->xres = e->yres = 0.0;
-    e->unit = 2;
-    for (jpeg_saved_marker_ptr m = ci->marker_list; m; m = m->next) {
+    for (jpeg_saved_marker_ptr m = ci->marker_list; m && st == PC_OK && !have_exif; m = m->next) {
         if (m->marker == JPEG_APP0 + 1 && m->data_length >= 6u &&
             memcmp(m->data, "Exif\0\0", 6u) == 0) {
-            exif_parse(m->data + 6, m->data_length - 6u, e);
-            break;   /* first EXIF block only */
+            cm_exif ex;
+            have_exif = true;              /* first EXIF block only */
+            st = cm_meta_load_exif(meta, m->data, m->data_length, true, &e->orientation);
+            if (st == PC_OK) st = cm_meta_get_exif(meta, &ex);
+            if (st == PC_OK && !cm_exif_resolution(&ex, &e->dpi_x, &e->dpi_y))
+                e->dpi_x = e->dpi_y = 0.0;
+            cm_exif_free(&ex);
         }
     }
+    if (st == PC_OK && irb.n) {
+        const uint8_t *iim;
+        size_t len;
+        if (cm_irb_find_iptc(irb.p, irb.n, &iim, &len)) st = cm_meta_load_iptc(meta, iim, len);
+    }
+    pc_buf_free(&irb);
+    return st;
+}
+
+/* Write the EXIF, XMP and IPTC items as marker segments (after the JFIF
+ * header). A block that does not fit one segment is left out. */
+static void write_meta(j_compress_ptr ci, const pc_image_meta *meta, uint32_t w, uint32_t h)
+{
+    pc_buf b;
+    uint8_t *ex = NULL, *iim = NULL;
+    size_t ex_n = 0, iim_n = 0, xmp_n = 0;
+    const char *xmp;
+    pc_status st;
+    if (!meta) return;
+    memset(&b, 0, sizeof b);
+    st = cm_exif_for_save(meta, w, h, NULL, 0u, JPEG_SEG_MAX - 6u, &ex, &ex_n);
+    if (st != PC_OK) j_fail((j_common_ptr)ci, st);
+    if (ex) {
+        st = pc_buf_append(&b, "Exif\0\0", 6u);
+        if (st == PC_OK) st = pc_buf_append(&b, ex, ex_n);
+        free(ex);
+        if (st != PC_OK) { pc_buf_free(&b); j_fail((j_common_ptr)ci, st); }
+        jpeg_write_marker(ci, JPEG_APP0 + 1, b.p, (unsigned int)b.n);
+        b.n = 0;
+    }
+    xmp = cm_meta_xmp(meta, &xmp_n);
+    if (xmp && xmp_n <= JPEG_SEG_MAX - JPEG_XMP_SIG_LEN) {
+        st = pc_buf_append(&b, JPEG_XMP_SIG, JPEG_XMP_SIG_LEN);
+        if (st == PC_OK) st = pc_buf_append(&b, xmp, xmp_n);
+        if (st != PC_OK) { pc_buf_free(&b); j_fail((j_common_ptr)ci, st); }
+        jpeg_write_marker(ci, JPEG_APP0 + 1, b.p, (unsigned int)b.n);
+        b.n = 0;
+    }
+    st = cm_get_blob(meta, CM_KEY_IPTC, &iim, &iim_n);
+    if (st == PC_OK && iim) {
+        st = pc_buf_append(&b, JPEG_PS_SIG, JPEG_PS_SIG_LEN);
+        if (st == PC_OK) st = cm_irb_put_iptc(&b, iim, iim_n);
+        if (st == PC_OK && b.n <= JPEG_SEG_MAX)
+            jpeg_write_marker(ci, JPEG_APP0 + 13, b.p, (unsigned int)b.n);
+    }
+    free(iim);
+    pc_buf_free(&b);
+    if (st != PC_OK) j_fail((j_common_ptr)ci, st);
 }
 
 /* ---- orientation ------------------------------------------------------------------------ */
@@ -205,6 +246,7 @@ static pc_status jdec_run(jdec *j, const uint8_t *p, size_t n, const pc_codec_li
     jpeg_mem_src(ci, p, (unsigned long)n);
     jpeg_save_markers(ci, JPEG_APP0 + 1, 0xFFFF);
     jpeg_save_markers(ci, JPEG_APP0 + 2, 0xFFFF);
+    jpeg_save_markers(ci, JPEG_APP0 + 13, 0xFFFF);
     if (jpeg_read_header(ci, TRUE) != JPEG_HEADER_OK) return PC_ERR_FORMAT;
     st = pc_codec_check_size(lim, ci->image_width, ci->image_height, 1u);
     if (st != PC_OK) return st;
@@ -212,16 +254,16 @@ static pc_status jdec_run(jdec *j, const uint8_t *p, size_t n, const pc_codec_li
     sw = (int32_t)ci->image_width;
     sh = (int32_t)ci->image_height;
 
-    read_exif(ci, &ex);
+    st = read_meta(ci, meta, &ex);
+    if (st != PC_OK) return st;
     if (ci->saw_JFIF_marker && (ci->density_unit == 1 || ci->density_unit == 2) &&
         ci->X_density && ci->Y_density) {
         double k = ci->density_unit == 2 ? 2.54 : 1.0;
         meta->dpi_x = ci->X_density * k;
         meta->dpi_y = ci->Y_density * k;
-    } else if (ex.xres > 0.0 && ex.yres > 0.0 && (ex.unit == 2 || ex.unit == 3)) {
-        double k = ex.unit == 3 ? 2.54 : 1.0;
-        meta->dpi_x = ex.xres * k;
-        meta->dpi_y = ex.yres * k;
+    } else if (ex.dpi_x > 0.0 && ex.dpi_y > 0.0) {
+        meta->dpi_x = ex.dpi_x;
+        meta->dpi_y = ex.dpi_y;
     }
     {
         JOCTET *icc = NULL;
@@ -250,14 +292,21 @@ static pc_status jdec_run(jdec *j, const uint8_t *p, size_t n, const pc_codec_li
     }
     if (cmyk) {
         bool inverted = ci->saw_Adobe_marker != 0;
-        if (meta->icc) j->xf = lc_cmyk_open(meta->icc, meta->icc_len, inverted);
+        uint8_t *adobe = NULL;
+        size_t adobe_n = 0;
+        if (meta->icc) {
+            st = pc_icc_adobe_rgb_profile(&adobe, &adobe_n);
+            if (st != PC_OK) return st;
+            j->xf = lc_cmyk_open(meta->icc, meta->icc_len, inverted, adobe, adobe_n);
+        }
         if (j->xf) {
-            /* pixels become sRGB; the CMYK profile no longer describes them */
+            /* pixels become Adobe RGB (1998) and carry that profile (FL-CMYK) */
             free(meta->icc);
-            meta->icc = NULL;
-            meta->icc_len = 0;
-            lc_note(meta, "CMYK converted to sRGB with the embedded color profile");
+            meta->icc = adobe;
+            meta->icc_len = adobe_n;
+            lc_note(meta, "CMYK converted to Adobe RGB (1998) with the embedded color profile");
         } else {
+            free(adobe);
             if (meta->icc) {
                 free(meta->icc);
                 meta->icc = NULL;
@@ -378,7 +427,7 @@ static const fx_prop k_jpeg_props[] = {
     { "quality", "Quality", FXP_INT, (uint32_t)offsetof(jpeg_params, quality),
       0, 100, 95, 1, NULL, NULL, 0, 0, NULL },
     { "subsampling", "Chroma subsampling", FXP_CHOICE,
-      (uint32_t)offsetof(jpeg_params, subsampling), 0, 2, JPEG_SUB_420, 0, k_jpeg_sub, NULL,
+      (uint32_t)offsetof(jpeg_params, subsampling), 0, 2, JPEG_SUB_422, 0, k_jpeg_sub, NULL,
       0, 0, NULL },
 };
 
@@ -459,6 +508,7 @@ static pc_status jenc_run(jenc *j, const pc_doc *d, const pc_image_meta *meta,
     ci->X_density = (UINT16)(dpi_x >= 65535.0 ? 65535 : (dpi_x < 1.0 ? 1 : (int)(dpi_x + 0.5)));
     ci->Y_density = (UINT16)(dpi_y >= 65535.0 ? 65535 : (dpi_y < 1.0 ? 1 : (int)(dpi_y + 0.5)));
     jpeg_start_compress(ci, TRUE);
+    write_meta(ci, meta, d->w, d->h);
     if (meta && meta->icc && meta->icc_len) {
         if (meta->icc_len > 65519u * 255u) return PC_ERR_LIMIT;
         jpeg_write_icc_profile(ci, meta->icc, (unsigned int)meta->icc_len);
@@ -495,7 +545,7 @@ static pc_status jpeg_save(const pc_doc *d, const pc_image_meta *meta, const voi
     if (!d || !out) return PC_ERR_ARG;
     if (d->w > 65500u || d->h > 65500u) return PC_ERR_LIMIT;   /* JPEG format limit */
     prm.quality = 95;
-    prm.subsampling = JPEG_SUB_420;
+    prm.subsampling = JPEG_SUB_422;
     if (params) memcpy(&prm, params, sizeof prm);
     j = (jenc *)calloc(1u, sizeof *j);
     if (!j) return PC_ERR_NOMEM;

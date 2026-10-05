@@ -366,7 +366,9 @@ static void t_decode_errors(void)
 }
 
 /* ---- saving -------------------------------------------------------------------- */
-typedef struct png_params_t { int32_t bit_depth, dither, threshold; } png_params_t;
+typedef struct png_params_t {
+    int32_t bit_depth, dither, threshold, palette, interlace;
+} png_params_t;
 
 static pc_doc *reload(const pc_buf *b, pc_image_meta *meta)
 {
@@ -382,9 +384,10 @@ static void t_params(void)
 {
     png_params_t p;
     CHECK(png()->params_size == sizeof p);
-    CHECK(png()->n_props == 3u);
+    CHECK(png()->n_props == 5u);
     pc_codec_default_params(png(), &p);
     CHECK(p.bit_depth == 0 && p.dither == 7 && p.threshold == 128);
+    CHECK(p.palette == 0 && p.interlace == 0);          /* Octree, not interlaced */
 }
 
 static void t_save_modes(void)

@@ -171,7 +171,16 @@ bool app_prop_enabled(const fx_prop *props, uint32_t n, const fx_prop *p, const 
         const fx_prop *q = &props[i];
         if (strlen(q->key) != klen || memcmp(q->key, e, klen) != 0) continue;
         if (q->kind == FXP_POINT || q->kind == FXP_CUSTOM) return true;
-        if (eq) return round_i32(app_prop_get(q, params)) == atoi(eq + 1);
+        if (eq) {
+            /* lane CODEC: "key=N|M|..." matches any of the listed values
+             * (the indexed bit depths of the PNG, BMP and TIFF options) */
+            int32_t v = round_i32(app_prop_get(q, params));
+            for (const char *alt = eq + 1; alt; alt = strchr(alt, '|')) {
+                if (*alt == '|') alt++;
+                if (v == atoi(alt)) return true;
+            }
+            return false;
+        }
         return app_prop_get(q, params) != 0.0;
     }
     return true;

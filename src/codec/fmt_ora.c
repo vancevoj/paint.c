@@ -541,7 +541,7 @@ static pc_status ora_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
             c.sink.l = l;
             c.sink.x = (int32_t)clamp64(ol->x, -ORA_CLAMP, ORA_CLAMP);
             c.sink.y = (int32_t)clamp64(ol->y, -ORA_CLAMP, ORA_CLAMP);
-            st = lc_png_decode(data, len, lim, ora_png_hdr, ora_png_rows, &c, NULL);
+            st = lc_png_decode(data, len, lim, ora_png_hdr, ora_png_rows, &c, NULL, NULL);
         }
         free(data);
         data = NULL;

@@ -2,6 +2,7 @@
  * document creation under limits, pixel swizzles, row sources and sinks,
  * and a streaming separable resampler. See lib_codec.h. */
 #include "lib_codec.h"
+#include "quant.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -33,6 +34,36 @@ pc_status lc_doc_new(const pc_codec_limits *lim, uint32_t w, uint32_t h, uint32_
     }
     *out = d;
     if (layer) *layer = l;
+    return PC_OK;
+}
+
+pc_status lc_doc_orient(pc_doc **d, const pc_codec_limits *lim, int orientation)
+{
+    pc_rowsink rs;
+    pc_doc *src, *res = NULL;
+    pc_px32 *band;
+    pc_status st;
+    if (!d || !*d) return PC_ERR_ARG;
+    if (orientation <= 1 || orientation > 8) return PC_OK;
+    src = *d;
+    if (src->n_layers != 1u) return PC_ERR_ARG;
+    band = (pc_px32 *)lc_alloc((size_t)src->w * (size_t)LC_BAND, sizeof *band, lim, &st);
+    if (!band) return st;
+    st = pc_rowsink_init(&rs, lim, src->w, src->h, (uint32_t)orientation);
+    if (st != PC_OK) { free(band); return st; }
+    for (uint32_t y0 = 0; y0 < src->h && st == PC_OK; y0 += (uint32_t)LC_BAND) {
+        uint32_t nb = src->h - y0 < (uint32_t)LC_BAND ? src->h - y0 : (uint32_t)LC_BAND;
+        pc_layer_read_rect(src, src->stack[0], pc_rect_make(0, (int32_t)y0, (int32_t)src->w,
+                                                            (int32_t)nb), band, src->w);
+        for (uint32_t r = 0; r < nb && st == PC_OK; r++)
+            st = pc_rowsink_put(&rs, y0 + r, band + (size_t)r * src->w);
+    }
+    free(band);
+    if (st != PC_OK) { pc_rowsink_abort(&rs); return st; }
+    st = pc_rowsink_finish(&rs, &res);
+    if (st != PC_OK) return st;
+    pc_doc_destroy(src);
+    *d = res;
     return PC_OK;
 }
 
@@ -204,6 +235,8 @@ static pc_status rs_axis_build(rs_axis *a, int32_t sn, int32_t dn, lc_filter f)
     double r;
     size_t cells;
     memset(a, 0, sizeof *a);
+    if (kf == LC_FILTER_ADAPTIVE) kf = scale > 1.0 ? LC_FILTER_FANT : LC_FILTER_BICUBIC;
+    if (kf == LC_FILTER_BILINEAR_LOW) { kf = LC_FILTER_BILINEAR; fs = 1.0; }   /* no widening */
     if (kf == LC_FILTER_FANT && scale <= 1.0) kf = LC_FILTER_BILINEAR;   /* enlarging */
     if (kf == LC_FILTER_NEAREST) a->taps = 1;
     else if (kf == LC_FILTER_FANT) a->taps = (int32_t)ceil(scale) + 2;

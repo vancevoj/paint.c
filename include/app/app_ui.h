@@ -81,7 +81,8 @@ void   app_prop_get_point(const fx_prop *p, const void *params, double xy[2]);
 void   app_prop_set_point(const fx_prop *p, void *params, const double xy[2]);
 /* Write every non-custom default (colors resolve primary / secondary). */
 void   app_props_defaults(app *a, const fx_prop *props, uint32_t n, void *params);
-/* enabled_if of p against the current params ("key" or "key=N"). */
+/* enabled_if of p against the current params ("key", "key=N" or, lane
+ * CODEC, "key=N|M|..." for any of the listed values). */
 bool   app_prop_enabled(const fx_prop *props, uint32_t n, const fx_prop *p, const void *params);
 
 #define APP_PROPS_CHANGED     1u   /* some value changed */

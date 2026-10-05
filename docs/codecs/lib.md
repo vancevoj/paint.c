@@ -28,27 +28,42 @@ sRGB and sBIT are ignored like Paint.NET; iCCP goes to meta.icc; pHYs in
 meters becomes meta.dpi; APNG chunks are ignored (default image). Non-
 interlaced images decode row by row; Adam7 images need one full RGBA buffer
 (bounded by max_mem). Critical chunk CRC errors fail with PC_ERR_FORMAT.
+Metadata (docs/codecs/meta.md), read after the image data so chunks behind
+IDAT count: eXIf becomes the "exif" item and its orientation is applied
+(lc_doc_orient) and reset to 1; the iTXt chunk XML:com.adobe.xmp becomes
+"xmp"; Author, Copyright, Description and Comment go into EXIF (Artist,
+Copyright, ImageDescription, UserComment; R 5.1.3); every other tEXt, zTXt
+or iTXt chunk becomes "png.text.<keyword>".
 
-Save options:
+Save options (order and defaults of Paint.NET 5.1, OBSERVED 3.3):
 | key | label | kind | range | default |
 |---|---|---|---|---|
-| bit_depth | Bit depth | choice | Auto-detect, 32-bit, 24-bit, 8-bit | Auto-detect |
-| dither | Dithering level | int (enabled for 8-bit) | 0..8 | 7 |
-| threshold | Transparency threshold | int (enabled for 8-bit) | 0..255 | 128 |
+| bit_depth | Bit depth | choice | Auto-detect, 32-bit, 24-bit, 8-bit, 4-bit, 2-bit, 1-bit | Auto-detect |
+| palette | Quantization algorithm | choice (indexed depths) | Octree, Median Cut | Octree |
+| dither | Dithering level | int (indexed depths) | 0..8 | 7 |
+| threshold | Transparency threshold | int (indexed depths) | 0..255 | 128 |
+| interlace | Interlaced | bool | | off |
 
+The params blob is { bit_depth, dither, threshold, palette, interlace }
+(int32 each); the indexed options carry enabled_if "bit_depth=3|4|5|6".
 - 32-bit writes RGBA exactly. 24-bit composites onto white first.
-- 8-bit: pixels with alpha below the threshold become transparent, the rest
-  are composited onto white (3.36 behavior); a threshold of 0 writes no
-  transparent entry. When the prepared image has at most 256 colors it is
-  written as an exact palette (tRNS for transparent entries).
+- Indexed (8, 4, 2, 1-bit): pixels with alpha below the threshold become
+  transparent, the rest are composited onto white (3.36 behavior); a
+  threshold of 0, or an opaque image whose colors fit, writes no
+  transparent entry. When the prepared image has at most 2^bits colors it
+  is written as an exact palette (tRNS for transparent entries, packed MSB
+  first); otherwise quant.h builds the palette with the chosen algorithm and
+  dithering level.
 - Auto-detect: the lossless bit depths per Paint.NET 3.36 (32-bit always;
-  24-bit when opaque; 8-bit when opaque with at most 256 colors, or with only
-  alpha 0 and 255 and fewer than 256 opaque colors) are all encoded and the
+  24-bit when opaque; a palette when opaque with at most 256 colors, or with
+  only alpha 0 and 255 and fewer than 256 opaque colors, both at 8 bits and
+  at the smallest of 1, 2 or 4 bits that holds it) are all encoded and the
   smallest file wins (Paint.NET 5.1 documentation); ties keep the lower depth.
-- GAP (L6A): 8-bit output of images with more than 256 colors needs the
-  octree quantizer with dithering from lane L6A. png_quantize_8bit() in
-  fmt_png.c is the marked TODO hook; until it is wired such saves return
-  PC_ERR_UNSUPPORTED. Auto-detect never needs the quantizer.
+- Interlaced: Adam7; the encoder then builds the whole packed image once.
+- Metadata: iCCP, pHYs, the XMP iTXt chunk, tEXt (iTXt when not Latin-1,
+  compressed past 1 KiB) chunks for the four mapped EXIF tags and the
+  png.text items, and eXIf for the remaining EXIF tags (without the mapped
+  ones and the resolution; omitted when nothing else is left).
 
 ## JPEG (id "jpeg", extensions jpg;jpeg;jpe;jfif;exif, libjpeg-turbo 3.2.0)
 Load: libjpeg API with setjmp/longjmp confined to one function per call.
@@ -56,11 +71,15 @@ Dimensions are checked right after jpeg_read_header; the libjpeg memory
 manager gets lim->max_mem as its budget (multi-scan coefficient buffers); a
 progress monitor rejects more than 500 scans (progressive DoS). Gray, YCbCr
 and RGB decode straight to BGRA; CMYK and YCCK use the embedded CMYK profile
-through Little-CMS when there is one (inverted samples when an Adobe marker
-is present), otherwise the naive formula; the CMYK profile is then dropped
-from meta (pixels are sRGB) and meta.note says so. EXIF orientation (APP1,
-bounds-checked IFD0 walk) is applied while storing bands, so oriented
-images never need a second copy. ICC from APP2 chunks is reassembled with
+through Little-CMS (unoptimized transform, one rounding) when there is one
+(inverted samples when an Adobe marker is present) and convert to Adobe RGB
+(1998), which becomes meta.icc (FL-CMYK); without a usable profile the
+naive formula gives untagged RGB; meta.note says which. EXIF orientation
+is applied while storing bands, so oriented images never need a second
+copy. Metadata (docs/codecs/meta.md): the first APP1 "Exif" block becomes
+the "exif" item (orientation reset to 1, thumbnail dropped), the APP1 XMP
+packet "xmp" (its tiff:Orientation reset too), the IPTC resource of the
+APP13 Photoshop blocks "iptc". ICC from APP2 chunks is reassembled with
 jpeg_read_icc_profile. DPI: JFIF density (inch or cm), else EXIF X/Y
 resolution with its unit. Only 8-bit precision is decoded (12-bit and
 16-bit lossless fail with PC_ERR_UNSUPPORTED, like Paint.NET). Warnings
@@ -70,18 +89,24 @@ Save options:
 | key | label | kind | range | default |
 |---|---|---|---|---|
 | quality | Quality | int | 0..100 (0 behaves as 1) | 95 |
-| subsampling | Chroma subsampling | choice | 4:2:0 (best compression), 4:2:2, 4:4:4 (best quality) | 4:2:0 |
+| subsampling | Chroma subsampling | choice | 4:2:0 (best compression), 4:2:2, 4:4:4 (best quality) | 4:2:2 (FILES.md) |
 
 The image is composited onto white, Huffman tables are optimized, JFIF
-density carries meta.dpi (96 when unknown), meta.icc is embedded in APP2
-chunks (up to 255 x 65519 bytes). Sides above 65500 fail with PC_ERR_LIMIT.
+density carries meta.dpi (96 when unknown), the EXIF item goes into APP1
+(MakerNote dropped, or the whole block left out, when it exceeds one
+segment), the XMP item into APP1 (left out past 65504 bytes; no extended
+XMP), the IPTC item into an APP13 Photoshop 3.0 resource, meta.icc into
+APP2 chunks (up to 255 x 65519 bytes). Sides above 65500 fail with
+PC_ERR_LIMIT.
 
 ## WebP (id "webp", libwebp 1.6.0)
 Load: the canvas size is checked first (the format caps sides at 16383).
 Still images decode into one BGRA buffer (libwebp has no public row output)
 and go to the layer in bands. Animated files load the first frame as
 composited by WebPAnimDecoder (meta.note says so); the budget check counts
-its two extra canvases. The ICCP chunk goes to meta.icc. Straight alpha.
+its two extra canvases. The ICCP chunk goes to meta.icc, the EXIF and XMP
+chunks to the "exif" and "xmp" items; the EXIF orientation is applied to
+the pixels and reset to 1. Straight alpha.
 
 Save options (the WebP file type that ships with Paint.NET 5.1):
 | key | label | kind | range | default |
@@ -93,7 +118,8 @@ Save options (the WebP file type that ships with Paint.NET 5.1):
 
 Lossy: WebPConfigPreset(preset, quality), method = round(effort * 6 / 9),
 lossless alpha plane (libwebp default). Lossless: WebPConfigLosslessPreset
-(effort) with exact RGB under transparency. meta.icc is muxed in as ICCP.
+(effort) with exact RGB under transparency. meta.icc, the EXIF item and the
+XMP item are muxed in as ICCP, EXIF and XMP chunks.
 Sides above 16383 fail with PC_ERR_LIMIT.
 
 ## DDS (id "dds", own parser; bcdec, stb_dxt, bc7enc)
@@ -122,34 +148,46 @@ Decoded layouts:
 Save options (the DDS file type that ships with Paint.NET 5.1):
 | key | label | kind | range | default |
 |---|---|---|---|---|
-| format | DDS format | choice | 29 formats (below) | BC1 (Linear, DXT1) |
-| dither | Error diffusion dithering | bool | | off |
-| bc7_speed | BC7 compression speed | choice | Fast, Medium, Slow | Medium |
-| metric | Error metric | choice | Perceptual, Uniform | Perceptual |
+| format | DDS format | choice | 30 formats (below) | BC1 (Linear, DXT1) |
+| dither | Error diffusion dithering | bool (BC1..BC3 variants, 16-bit layouts) | | on |
+| bc7_speed | BC6H / BC7 compression speed | choice (BC6H, BC7) | Fast, Medium, Slow | Medium |
+| metric | Error metric | choice (BC1..BC3 variants) | Perceptual, Uniform | Perceptual |
 | cube_map | Cube map from crossed image | bool | | off |
 | mipmaps | Generate mip maps | bool | | off |
-| mip_filter | Mip map resampling | choice (enabled with mipmaps) | Fant, Bicubic, Bicubic (Smooth), Bilinear, Lanczos, Nearest Neighbor | Fant |
+| mip_filter | Mip map resampling | choice (enabled with mipmaps) | Bicubic, Bicubic (Smooth), Bilinear, Bilinear (Low Quality), Adaptive, Lanczos, Fant, Nearest Neighbor | Bicubic |
 | gamma | Use gamma correction | bool (enabled with mipmaps) | | on |
 
 Formats (index order): BC1, BC1 sRGB, BC2, BC2 sRGB, BC3, BC3 sRGB, BC4,
-BC5 unsigned, BC5 signed, BC7, BC7 sRGB, B8G8R8A8, B8G8R8A8 sRGB, B8G8R8X8,
+BC5 unsigned, BC5 signed, BC6H unsigned, BC7, BC7 sRGB, B8G8R8A8, B8G8R8A8 sRGB, B8G8R8X8,
 B8G8R8X8 sRGB, R8G8B8A8, R8G8B8A8 sRGB, B5G5R5A1, B4G4R4A4, B5G6R5, R8,
 R8G8, R8G8 signed, R32 float, B8G8R8, R8G8B8X8, ATI1, ATI2, RXGB. Linear
 BC1..BC3 and the uncompressed legacy layouts get a DX9 header (FourCC or
-masks); sRGB, BC4/BC5 (non-legacy), BC7, R8, R8G8 and R32 get a DX10 header.
+masks); sRGB, BC4/BC5 (non-legacy), BC6H, BC7, R8, R8G8 and R32 get a DX10
+header. Block rows are encoded on the caller's pc_par (same bytes for any
+thread count).
 - BC1: stb_dxt (high quality); blocks with alpha below 128 use the 3-color
   punch-through mode. BC2: 4-bit alpha plus stb_dxt color. BC3/RXGB, BC4,
   BC5: stb_dxt; BC5 signed through the unsigned encoder on shifted values.
   BC7: bc7enc (modes 1 and 6, 5, 6, 7 for alpha); speed maps to its
   partition and uber settings. Perceptual metric: BC1..BC3 indices are
-  re-selected with luma weights, BC7 uses bc7enc's perceptual mode.
-- Error diffusion (Floyd-Steinberg) applies to B5G5R5A1, B4G4R4A4, B5G6R5.
+  re-selected with luma weights; BC6H and BC7 always use uniform weights
+  (the option is disabled for them).
+- BC6H unsigned (DXGI 95): src/codec/bc6h_enc.c, written from the format
+  specification; every 8-bit level becomes the half float v / 255 (the
+  loader maps back with a clamp, no tone curve); all 14 modes, the speed
+  picks how many two-region partitions are tried (1, 4, 12) and the least
+  squares refinement passes (1, 2, 3).
+- Error diffusion (Floyd-Steinberg) applies to B5G5R5A1, B4G4R4A4, B5G6R5
+  over the image, and inside each block to BC1..BC3: the block colors are
+  diffused to 5:6:5 before the endpoint fit, the color indices are picked
+  with diffusion, BC2's 4-bit alpha too.
 - Mipmaps: each level from the previous one with lc_resample (premultiplied,
-  separable, optional linear-light filtering), down to 1 x 1.
+  separable, optional linear-light filtering), down to 1 x 1. Bilinear (Low
+  Quality) uses the plain 2 x 2 tent, Adaptive is Fant when reducing and
+  bicubic when enlarging.
 - Cube maps: a 4:3 horizontal or 3:4 vertical cross of square faces is
   written as six faces (+X, -X, +Y, -Y, +Z, -Z), each with its own mip
   chain; other sizes fail with PC_ERR_ARG.
-- GAP: BC6H output is not implemented (no permissive C encoder vendored).
 
 ## OpenRaster (id "ora", PC_CODEC_LAYERED)
 Load: zip.c reader (below) with the total extraction budget tied to
@@ -218,19 +256,27 @@ entries and 4 GiB).
   Failures leave pixels untouched.
 - pc_icc_import(doc, meta, par): the import step for the app.
 - pc_icc_srgb_profile / pc_icc_meta_set_srgb: deterministic sRGB v4 profile
-  for export.
+  for export; pc_icc_adobe_rgb_profile: deterministic Adobe RGB (1998) v4
+  profile, the target of CMYK conversions.
+- pc_icc_meta_validate(meta, doc): the open-time check (FL-ICC): drops a
+  damaged profile, a device link, abstract or named color profile, a CMYK
+  or other non-RGB/gray profile, or a gray profile on color pixels, with a
+  note.
+- pc_icc_xform_create / _run / _destroy: a cached, thread-safe conversion
+  from an image's RGB or gray profile to sRGB for display color management.
 
 ## Integration notes for the app
-1. Load: pc_codec_load_any(bytes, len, path, &lim, &doc, &meta, &codec) on
-   the I/O thread, then pc_icc_import(doc, &meta, par) before the document
-   reaches history. On an import error keep the pixels and show meta.note.
+1. Open: pc_codec_load_any(bytes, len, path, &lim, &doc, &meta, &codec) on
+   the I/O thread, then pc_icc_meta_validate(&meta, doc); the profile stays
+   with the image (5.1 color management), the view converts for display
+   with a pc_icc_xform. Paste and import: pc_icc_import(doc, &meta, par)
+   before the document reaches history. Metadata items travel in meta.
 2. Show meta.note (animated WebP, CMYK conversion, cube maps, skipped ORA
    layers, profile conversion) as an info bar.
 3. Save: pc_codec_default_params, let the dialog edit the blob through the
-   fx_prop list (enabled_if strings: "bit_depth=3", "lossless=0",
-   "mipmaps"), then codec->save. Pass meta with dpi; set meta.icc to the
-   sRGB profile (pc_icc_meta_set_srgb) if the user wants a profile embedded,
-   or NULL. Formats without PC_CODEC_LAYERED flatten.
+   fx_prop list (enabled_if strings: "key", "key=N" or "key=N|M|..."), then
+   codec->save with the image's meta (dpi, icc, items). Formats without
+   PC_CODEC_LAYERED flatten. DDS uses par when one is passed.
 4. ORA keeps layers; PNG/JPEG/WebP/DDS flatten; DDS and WebP need the whole
    flattened image in memory.
 
@@ -260,11 +306,16 @@ entries and 4 GiB).
   import, malformed and fuzzed profiles, CMYK JPEG with a CMYK profile.
 - test_lib_resample: filters on constant images, Fant reference, no color
   bleeding from transparent pixels, streaming order, helper limits.
+- Lane CODEC (wave 3b): test_meta_model, test_meta_formats,
+  test_meta_tiff_bmp, test_png_options, test_quant_linear, test_dds_bc6h,
+  test_dds_options (see docs/codecs/meta.md).
 
 ## Known gaps
-- PNG 8-bit with more than 256 colors waits for the L6A quantizer.
-- DDS: no BC6H output; volume textures and arrays load their first image.
-- WebP: only the first frame of animations; EXIF and XMP are not kept.
-- JPEG: EXIF/XMP metadata is not written back on save.
+- DDS: volume textures and arrays load their first image.
+- WebP: only the first frame of animations.
+- JPEG: extended XMP (APP1 "http://ns.adobe.com/xmp/extension/") is neither
+  read nor written; a standard packet over 65504 bytes is left out on save.
+- CMYK without an embedded profile uses the naive formula (no default CMYK
+  profile is bundled).
 - Not verified on MSVC and macOS hardware (mingw-w64 cross build passes
   all suites under Wine).

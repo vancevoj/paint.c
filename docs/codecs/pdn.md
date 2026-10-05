@@ -140,6 +140,16 @@ core assembly `PdnLib`, and 3.0 MemoryBlocks add `bitmapWidth` and
    become '?', names longer than 63 bytes are cut at a character boundary
    (note in `pc_image_meta.note`). Resolution comes from EXIF 282/283/296
    (cm converted to inches), the ICC profile from EXIF 34675.
+7. Every other userMetadataItem becomes a `pc_image_meta` item
+   (docs/codecs/meta.md): the `$exif` entries (flattened PropertyItems,
+   little-endian values) are regrouped into IFD0, Exif, GPS and
+   Interoperability by tag id and stored as the "exif" item (not when only
+   Software and the resolution are present; GDI+ private PNG properties
+   768..771 and 0x5000..0x5FFF are dropped), tag 33723 becomes "iptc", the
+   first `$xmp.packetN` "xmp", `$paintc.<key>` the item <key>, and any other
+   `$<section>.<name>` (for example `$user.Palette`) "pdn.<section>.<name>".
+   3.x documents (NameValueCollection `userMetaData`) keep only resolution
+   and profile.
 
 `pdn_info` (tests, diagnostics) reports savedWith, the first block's format
 and chunk size, out-of-order chunks, legacy blend ops, isBackground flags,
@@ -153,7 +163,12 @@ the ArrayList capacity and name sharing.
 compatibility level) and EXIF Software "paint.c". Metadata items:
 `$exif.tag0[0]` Software, `tag1` ResolutionUnit (inches), `tag2`/`tag3`
 X/YResolution (closest rational with denominator up to 10^6, default 96),
-`tag4` ICC profile (type 7) when `meta->icc` is set. isBackground is true
+`tag4` ICC profile (type 7) when `meta->icc` is set, then the tags of the
+"exif" item (its Software and resolution excepted) one per `$exif.tagN[0]`,
+IPTC as tag 33723 (type 7), the XMP item as `$xmp.packet0`, the
+"pdn.<section>.<name>" items as `$<section>.<name>` and every other item as
+`$paintc.<key>` (an extra section Paint.NET keeps like `$user`; 3.36
+Metadata.cs treats sections generically). isBackground is true
 for the bottom layer. Equal layer names share one string record and, when
 the blend modes match too, one blend op object (Paint.NET's duplicate
 layer). ArrayList capacity follows .NET growth (4, 8, 16, ...), `_version` =
@@ -233,9 +248,7 @@ test_pdn_dump --export FILE PREFIX                      PREFIX.txt + PREFIX.bin 
 
 ## Known gaps
 
-- Document and layer metadata other than resolution and the ICC profile
-  (other EXIF tags, XMP packets, per-layer userMetadataItems) is not carried
-  through load and save: `pc_image_meta` has no generic metadata field.
+- Per-layer userMetadataItems are not carried (pc_layer has no metadata).
 - isBackground is not stored in `pc_layer`; the writer sets it on the bottom
   layer only.
 - 24-bit surfaces, parent memory blocks, chunk sizes below 4 bytes, the

@@ -350,6 +350,154 @@ done:
     return st;
 }
 
+/* Serialize h into a malloc'ed buffer with the creation date and profile
+ * ID zeroed, so exports stay reproducible. Closes nothing. */
+static pc_status save_profile(cmsHPROFILE h, uint8_t **out, size_t *len)
+{
+    cmsUInt32Number size = 0;
+    uint8_t *buf;
+    if (!cmsSaveProfileToMem(h, NULL, &size) || size < 132u) return PC_ERR_NOMEM;
+    buf = (uint8_t *)malloc(size);
+    if (!buf) return PC_ERR_NOMEM;
+    if (!cmsSaveProfileToMem(h, buf, &size)) { free(buf); return PC_ERR_NOMEM; }
+    memset(buf + 24, 0, 12u);
+    memset(buf + 84, 0, 16u);
+    *out = buf;
+    *len = size;
+    return PC_OK;
+}
+
+pc_status pc_icc_adobe_rgb_profile(uint8_t **out, size_t *len)
+{
+    static const cmsCIExyY k_white = { 0.3127, 0.3290, 1.0 };
+    static const cmsCIExyYTRIPLE k_prim = { { 0.64, 0.33, 1.0 }, { 0.21, 0.71, 1.0 },
+                                            { 0.15, 0.06, 1.0 } };
+    icc_log log;
+    cmsContext ctx;
+    cmsToneCurve *g = NULL;
+    cmsToneCurve *c3[3];
+    cmsHPROFILE h = NULL;
+    cmsMLU *desc = NULL, *cprt = NULL;
+    pc_status st = PC_ERR_NOMEM;
+    if (!out || !len) return PC_ERR_ARG;
+    *out = NULL;
+    *len = 0;
+    ctx = icc_ctx(&log);
+    if (!ctx) return PC_ERR_NOMEM;
+    g = cmsBuildGamma(ctx, 563.0 / 256.0);
+    if (!g) goto done;
+    c3[0] = c3[1] = c3[2] = g;
+    h = cmsCreateRGBProfileTHR(ctx, &k_white, &k_prim, c3);
+    desc = cmsMLUalloc(ctx, 1);
+    cprt = cmsMLUalloc(ctx, 1);
+    if (!h || !desc || !cprt) goto done;
+    if (!cmsMLUsetASCII(desc, "en", "US", "Adobe RGB (1998)") ||
+        !cmsMLUsetASCII(cprt, "en", "US", "No copyright, use freely") ||
+        !cmsWriteTag(h, cmsSigProfileDescriptionTag, desc) ||
+        !cmsWriteTag(h, cmsSigCopyrightTag, cprt))
+        goto done;
+    st = save_profile(h, out, len);
+done:
+    if (desc) cmsMLUfree(desc);
+    if (cprt) cmsMLUfree(cprt);
+    if (h) cmsCloseProfile(h);
+    if (g) cmsFreeToneCurve(g);
+    cmsDeleteContext(ctx);
+    return st;
+}
+
+/* Append why to the note ("; " separated) when it fits, else replace it. */
+static void note_add(pc_image_meta *meta, const char *why)
+{
+    size_t a = strlen(meta->note), b = strlen(why);
+    if (a && a + 2u + b < sizeof meta->note) {
+        memcpy(meta->note + a, "; ", 2u);
+        memcpy(meta->note + a + 2u, why, b + 1u);
+    } else {
+        lc_note(meta, why);
+    }
+}
+
+/* True when every visible pixel of every layer has R == G == B. */
+static bool doc_is_gray(const pc_doc *d)
+{
+    size_t per = (size_t)d->tiles_x * d->tiles_y;
+    for (uint32_t i = 0; i < d->n_layers; i++)
+        for (size_t k = 0; k < per; k++) {
+            const pc_tile *t = d->stack[i]->grid[k];
+            const pc_px32 *px;
+            if (!t || t->bpp != 4u) continue;
+            px = (const pc_px32 *)(const void *)t->data;
+            for (size_t j = 0; j < (size_t)PC_TILE_DIM * PC_TILE_DIM; j++)
+                if (px[j].a && (px[j].r != px[j].g || px[j].g != px[j].b)) return false;
+        }
+    return true;
+}
+
+bool pc_icc_meta_validate(pc_image_meta *meta, const pc_doc *d)
+{
+    pc_icc_info info;
+    const char *why = NULL;
+    if (!meta || !meta->icc || !meta->icc_len) return false;
+    if (pc_icc_inspect(meta->icc, meta->icc_len, &info) != PC_OK)
+        why = "The embedded color profile is damaged and was ignored";
+    else if (info.device_class == 0x6C696E6Bu || info.device_class == 0x61627374u ||
+             info.device_class == 0x6E6D636Cu)        /* 'link', 'abst', 'nmcl' */
+        why = "The embedded color profile is not an image profile and was removed";
+    else if (info.space == PC_ICC_SPACE_CMYK)
+        why = "The embedded CMYK color profile does not match the RGB image and was removed";
+    else if (info.space == PC_ICC_SPACE_OTHER)
+        why = "The embedded color profile does not match the image and was removed";
+    else if (info.space == PC_ICC_SPACE_GRAY && d && !doc_is_gray(d))
+        why = "The embedded gray color profile does not match the color image and was removed";
+    if (!why) return false;
+    free(meta->icc);
+    meta->icc = NULL;
+    meta->icc_len = 0;
+    note_add(meta, why);
+    return true;
+}
+
+struct pc_icc_xform {
+    icc_xf x;
+};
+
+pc_status pc_icc_xform_create(const uint8_t *icc, size_t len, pc_icc_xform **out,
+                              bool *is_identity)
+{
+    pc_icc_xform *t;
+    pc_status st;
+    if (!out) return PC_ERR_ARG;
+    *out = NULL;
+    if (is_identity) *is_identity = false;
+    t = (pc_icc_xform *)calloc(1u, sizeof *t);
+    if (!t) return PC_ERR_NOMEM;
+    st = icc_xf_make(&t->x, icc, len);
+    if (st != PC_OK) { free(t); return st; }
+    if (is_identity) *is_identity = icc_xf_is_identity(&t->x);
+    *out = t;
+    return PC_OK;
+}
+
+void pc_icc_xform_run(const pc_icc_xform *x, pc_px32 *px, size_t n)
+{
+    uint8_t scratch[256 * 4];
+    if (!x || !px) return;
+    while (n) {
+        size_t k = n < 256u ? n : 256u;
+        icc_xf_run(&x->x, px, k, scratch);
+        px += k;
+        n -= k;
+    }
+}
+
+void pc_icc_xform_destroy(pc_icc_xform *x)
+{
+    if (!x) return;
+    icc_xf_free(&x->x);
+    free(x);
+}
+
 pc_status pc_icc_meta_set_srgb(pc_image_meta *meta)
 {
     uint8_t *p;
@@ -371,21 +519,29 @@ struct lc_cmyk_xf {
     icc_log       log;
 };
 
-lc_cmyk_xf *lc_cmyk_open(const uint8_t *icc, size_t len, bool inverted)
+lc_cmyk_xf *lc_cmyk_open(const uint8_t *icc, size_t len, bool inverted, const uint8_t *dst,
+                         size_t dst_len)
 {
     lc_cmyk_xf *x;
     cmsHPROFILE in, out;
-    size_t size;
+    size_t size, dsize = 0;
     if (icc_validate(icc, len, &size) != PC_OK || space_of(icc) != PC_ICC_SPACE_CMYK) return NULL;
+    if (dst && (icc_validate(dst, dst_len, &dsize) != PC_OK || space_of(dst) != PC_ICC_SPACE_RGB))
+        return NULL;
     x = (lc_cmyk_xf *)calloc(1u, sizeof *x);
     if (!x) return NULL;
     x->ctx = icc_ctx(&x->log);
     if (!x->ctx) { free(x); return NULL; }
     in = cmsOpenProfileFromMemTHR(x->ctx, icc, (cmsUInt32Number)size);
-    out = cmsCreate_sRGBProfileTHR(x->ctx);
-    if (in && out && cmsGetColorSpace(in) == cmsSigCmykData)
+    out = dst ? cmsOpenProfileFromMemTHR(x->ctx, dst, (cmsUInt32Number)dsize)
+              : cmsCreate_sRGBProfileTHR(x->ctx);
+    if (in && out && cmsGetColorSpace(in) == cmsSigCmykData &&
+        cmsGetColorSpace(out) == cmsSigRgbData)
+        /* unoptimized: the precalculated 8-bit tables are up to 8 codes off for
+         * CMYK, the full pipeline rounds once (about 160 ns per pixel) */
         x->xf = cmsCreateTransformTHR(x->ctx, in, inverted ? TYPE_CMYK_8_REV : TYPE_CMYK_8, out,
-                                      TYPE_BGR_8, INTENT_PERCEPTUAL, cmsFLAGS_NOCACHE);
+                                      TYPE_BGR_8, INTENT_PERCEPTUAL,
+                                      cmsFLAGS_NOCACHE | cmsFLAGS_NOOPTIMIZE);
     if (in) cmsCloseProfile(in);
     if (out) cmsCloseProfile(out);
     if (!x->xf) { lc_cmyk_close(x); return NULL; }

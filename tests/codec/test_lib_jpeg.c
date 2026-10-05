@@ -94,7 +94,7 @@ static void t_params(void)
     jpeg_params_t p;
     CHECK(jpg()->params_size == sizeof p && jpg()->n_props == 2u);
     pc_codec_default_params(jpg(), &p);
-    CHECK(p.quality == 95 && p.subsampling == 0);
+    CHECK(p.quality == 95 && p.subsampling == 1);       /* 4:2:2 (FILES.md, R 4.2) */
 }
 
 static void t_roundtrip_quality(void)

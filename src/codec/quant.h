@@ -4,10 +4,11 @@
  *
  * Contents
  *  1. pc_quant: palette generation (Octree or Median Cut, both refined by a
- *     few k-means passes) for up to 256 entries with optional alpha, an
- *     exact-palette fast path when the image already has few colors, and a
- *     streaming Floyd-Steinberg remapper with Paint.NET's dithering level
- *     0..8 (the error is scaled by level / 8).
+ *     few k-means passes) for up to 256 entries with optional alpha, colors
+ *     merged in linear light (Paint.NET 5.1.5), an exact-palette fast path
+ *     when the image already has few colors, and a streaming Floyd-Steinberg
+ *     remapper with Paint.NET's dithering level 0..8 (the error is scaled by
+ *     level / 8).
  *  2. The Paint.NET save pipeline for limited bit depths: per-image stats,
  *     the Auto-detect bit depth choice and the per-pixel preparation
  *     (transparency threshold, flattening onto white).
@@ -49,8 +50,9 @@ void      pc_quant_destroy(pc_quant *q);                 /* NULL-safe */
 /* Accumulate n pixels (borrowed) into the color histogram. Pixels with
  * alpha 0 are counted as transparent and get a reserved palette entry.
  * The histogram keeps exact colors until it holds 2^17 distinct entries,
- * then merges neighbors by dropping low bits (sums stay exact, so palette
- * colors remain true means). Only valid before pc_quant_build. */
+ * then merges neighbors by dropping low bits (linear-light sums stay
+ * exact, so palette colors remain true means). Only valid before
+ * pc_quant_build. */
 pc_status pc_quant_add(pc_quant *q, const pc_px32 *px, size_t n);
 
 /* Build the palette with at most max_colors (2..256) entries, including the

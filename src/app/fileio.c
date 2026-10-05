@@ -20,6 +20,7 @@
 #include "edit/m_size.h"
 #include "edit/m_ui.h"
 #include "io/io_internal.h"
+#include "pc/pc_icc.h"
 #include "pc/pc_layerops.h"
 
 #include <math.h>
@@ -313,6 +314,18 @@ typedef struct open_job {
     char           *thumb_file;     /* its cache file, NULL = none (owned) */
 } open_job;
 
+/* lane CODEC (FL-BIG): decoder limits for opening files. Any size up to
+ * PC_MAX_DIM per side (ADR-014) is allowed; the decoded image may use up
+ * to three quarters of the physical RAM (never less than the codec default
+ * of 4 GiB). */
+static void open_limits(pc_codec_limits *lim)
+{
+    uint64_t ram = pal_ram_bytes(), budget = ram / 4u * 3u;
+    pc_codec_limits_default(lim);
+    lim->max_pixels = (uint64_t)PC_MAX_DIM * PC_MAX_DIM;
+    if (budget > lim->max_mem) lim->max_mem = budget;
+}
+
 static void open_work(void *ud)
 {
     open_job *j = (open_job *)ud;
@@ -326,9 +339,12 @@ static void open_work(void *ud)
     }
     j->st = pal_read_file(j->path, MAX_OPEN_BYTES, &data, &len);
     if (j->st != PC_OK) return;
-    pc_codec_limits_default(&lim);
+    open_limits(&lim);
     j->st = pc_codec_load_any(data, len, j->path, &lim, &j->doc, &j->meta, &j->codec);
     free(data);
+    /* lane CODEC (FL-ICC): a damaged profile, or one that does not match the
+     * pixels (CMYK or gray on color, device link), is dropped with a note */
+    if (j->st == PC_OK && j->doc) (void)pc_icc_meta_validate(&j->meta, j->doc);
     if (j->st == PC_OK && j->doc) j->thumb = io_thumb_rgba(j->doc, IO_THUMB_MAX, &j->tw, &j->th);
     if (j->thumb && j->thumb_file) (void)io_thumb_write(j->thumb_file, j->thumb, j->tw, j->th);
 }
@@ -341,8 +357,19 @@ static bool startup_untouched(app *a, app_doc *d)
 
 static void open_error(app *a, const char *path, pc_status st, bool missing)
 {
-    if (missing) app_error(a, "Could not open \"%s\": the file does not exist.", path);
-    else app_error(a, "Could not open \"%s\": %s.", path, pc_status_str(st));
+    if (missing) {
+        app_error(a, "Could not open \"%s\": the file does not exist.", path);
+    } else if (st == PC_ERR_LIMIT) {
+        /* lane CODEC (FL-BIG): say which limits apply */
+        pc_codec_limits lim;
+        open_limits(&lim);
+        app_error(a, "Could not open \"%s\": the image is too large. paint.c opens images "
+                     "up to %u x %u pixels that fit in %llu MB of memory.", path,
+                  (unsigned)PC_MAX_DIM, (unsigned)PC_MAX_DIM,
+                  (unsigned long long)(lim.max_mem >> 20));
+    } else {
+        app_error(a, "Could not open \"%s\": %s.", path, pc_status_str(st));
+    }
 }
 
 static void open_done(app *a, void *ud)
