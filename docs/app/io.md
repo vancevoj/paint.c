@@ -10,7 +10,7 @@ in docs/PACKAGING.md.
 | Function | What it does |
 |---|---|
 | `app_open_path(a, path)` | Decodes on a worker (content sniffing); an open file is activated, a file being decoded is not decoded twice; errors show the path and `pc_status_str`; the document's save type comes from the file name when it names a type that saves (load by content, save by name). |
-| `app_save_doc(a, d, save_as, done, ud)` | Save or Save As: native dialog (type list in Paint.NET's order), Save Configuration when the type has options and they were not chosen for this image yet (Save As always), then the Flatten prompt, then a worker writes a snapshot atomically. `done(ok)` after the flow. |
+| `app_save_doc(a, d, save_as, done, ud)` | Save or Save As: native dialog (type list in Paint.NET's order), Save Configuration when the type has options and they were not chosen for this image yet (Save As always), then the Flatten prompt, then a worker writes a snapshot atomically. `done(ok)` after the flow, exactly once: also `done(false)` when the app is destroyed while a step waits for an answer (lane W4-MODAL). |
 | `app_save_doc_to(a, d, path, codec, params, sync)` | Dialog-free save for scripts and tests (flattens as a history step when needed). |
 | `app_close_doc`, `app_close_all`, `app_quit_unsaved` | Close prompts; Close All and Exit list the unsaved images when there are several. |
 | `app_new_image_dialog` | File > New (clipboard size, remembered aspect lock and units). |

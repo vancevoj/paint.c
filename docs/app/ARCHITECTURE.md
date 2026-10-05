@@ -84,9 +84,11 @@ Helper files must not use these prefixes (for example `tools/stroke.c`).
   Ids: `file.*`, `edit.*`, `view.*`, `image.*`, `layers.*`,
   `adjust.<effect id>`, `effects.<effect id>`, `window.<panel id>`,
   `docs.*`, `colors.*`, `tool.*`, `help.*`, `app.settings`.
-* `app_cmd_exec` refuses disabled commands, finishes the live tool edit
-  first (unless `APP_CMD_NO_COMMIT`) and requests a frame. Menus, toolbar
-  buttons, panel buttons and shortcuts all go through it.
+* `app_cmd_exec` refuses every command while a modal dialog is open
+  (unless `APP_CMD_IN_DIALOG`, lane W4-MODAL), refuses disabled commands,
+  finishes the live tool edit first (unless `APP_CMD_NO_COMMIT`) and
+  requests a frame. Menus, toolbar buttons, panel buttons, shortcuts and
+  scripts all go through it.
 * The keymap in `cmd.c` binds documented keys to ids, so registering a
   command is enough to get its SHORTCUTS.md key. A definition's own
   `shortcut` is used only for ids missing from the keymap. Ctrl means Cmd on
@@ -267,6 +269,31 @@ their widgets from `app_props_ui`; custom blob props (`FXP_CUSTOM`, e.g.
 Message boxes: `app_message`, errors: `app_error`. Questions with up to
 three buttons (save prompts, Flatten, Expand Canvas) use `app_choice`, which
 calls `done` with the chosen button on the main thread.
+
+### Modal dialogs (lane W4-MODAL, wave 4)
+
+* A dialog on the stack is modal for the whole main window, as in
+  Paint.NET, which disables the main window under a modal dialog: the key
+  dispatch and `app_cmd_exec` run nothing (commands flagged
+  `APP_CMD_IN_DIALOG` excepted), and a close request (window close,
+  `SDL_EVENT_QUIT`, File > Exit) only raises and flashes the window
+  (`app_quit`), so no quit prompt or save chain stacks on the dialog. A
+  native Open or Save As dialog that is still open counts as modal for
+  close requests too.
+* `free_st` is also called for a dialog that closes without an answer
+  (`app_dialogs_free` at exit, or `app_dialog_push` refusing while the app
+  is destroyed). State that owns a flow must then end it exactly once as
+  cancelled: `app_choice` reports -1, `app_message` `UI_DLG_CANCEL`, Save
+  Configuration and the Unsaved Changes list end their save and close
+  flows.
+* Native file dialogs go through `app_filedlg` (`filedlg.c`), never
+  `pal_dialog_*` directly: the app keeps a ticket per open dialog,
+  `app_destroy` answers each one as cancelled, and an answer that arrives
+  after the app is gone is dropped. `a->filedlg_show` replaces the native
+  dialog in tests.
+* Dialogs whose ui id would repeat give each instance its own suffix
+  (`##savecfg<n>`, `##afx_<effect id>_<n>`), like `##msg<n>` and
+  `##choice<n>`.
 
 ## How to add a panel
 
