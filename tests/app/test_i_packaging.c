@@ -24,6 +24,19 @@ static char *slurp(const char *rel, size_t *len)
     return (char *)d;
 }
 
+/* A text file with CRLF line ends folded to LF: a Windows checkout
+ * (core.autocrlf) has CRLF in the packaging files. */
+static char *slurp_text(const char *rel)
+{
+    char *s = slurp(rel, NULL), *w;
+    if (!s) return NULL;
+    w = s;
+    for (const char *r = s; *r; r++)
+        if (!(r[0] == '\r' && r[1] == '\n')) *w++ = *r;
+    *w = '\0';
+    return s;
+}
+
 static uint32_t be32(const uint8_t *p)
 {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
@@ -134,11 +147,11 @@ static const type_map k_types[] = {
 
 static void t_associations(void)
 {
-    char *nsi = slurp(ROOT "packaging/windows/paintc.nsi", NULL);
-    char *desk = slurp(ROOT "packaging/linux/org.paintc.paintc.desktop", NULL);
-    char *meta = slurp(ROOT "packaging/linux/org.paintc.paintc.metainfo.xml", NULL);
-    char *mime = slurp(ROOT "packaging/linux/org.paintc.paintc.xml", NULL);
-    char *plist = slurp(ROOT "src/app/platform/Info.plist.in", NULL);
+    char *nsi = slurp_text(ROOT "packaging/windows/paintc.nsi");
+    char *desk = slurp_text(ROOT "packaging/linux/org.paintc.paintc.desktop");
+    char *meta = slurp_text(ROOT "packaging/linux/org.paintc.paintc.metainfo.xml");
+    char *mime = slurp_text(ROOT "packaging/linux/org.paintc.paintc.xml");
+    char *plist = slurp_text(ROOT "src/app/platform/Info.plist.in");
     size_t n = 0;
     const pc_codec *const *list = pc_codec_list(&n);
     CHECK(nsi && desk && meta && mime && plist);
@@ -193,7 +206,7 @@ out:
 /* ---- licenses -------------------------------------------------------------------------------- */
 static void t_licenses(void)
 {
-    char *index = slurp(ROOT "packaging/licenses/README.txt", NULL);
+    char *index = slurp_text(ROOT "packaging/licenses/README.txt");
     char **names = NULL;
     int n = pal_list_dir(ROOT "packaging/licenses", NULL, &names);
     CHECK(pal_file_exists(ROOT "LICENSE") && pal_file_exists(ROOT "NOTICE"));
