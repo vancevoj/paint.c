@@ -79,12 +79,15 @@ with that explanation. The bundled libjxl builds with clang-cl.
 | Windows mingw-w64 + Wine | built | built | BUNDLED; plus a cross AUTO configure with the host's libavif-dev/libjxl-dev installed, which must report both disabled and still build pc_codec |
 | Windows MSVC (windows-cl, zip, installer) | built | built | BUNDLED (NASM from Chocolatey) |
 | Windows clang-cl (windows-clang-cl) | disabled | disabled | AUTO, no system libraries on the runner |
-| macOS 14 arm64 (macos-14) | built | built | system: Homebrew libavif + jpeg-xl bottles (AUTO); BUNDLED on tags |
-| macOS 15 x86_64 (macos-15-intel) | disabled | disabled | AUTO without libraries; BUNDLED on tags |
+| macOS 14 arm64 (macos-14) | built | built | system: Homebrew bottles libavif 1.4.2 + jpeg-xl (libjxl 0.12.0), AUTO; BUNDLED on tags |
+| macOS 15 x86_64 (macos-15-intel) | built | disabled | AUTO: the image's preinstalled libavif 1.4.2, no libjxl; BUNDLED on tags |
 
-Release packages (tags) are all BUNDLED, so every package can load and
-save both formats; macOS runs its bundled build only on tags because its
-runners bill ten times Linux. Verified locally (Debian 13): Linux GCC and
+Run 37331223253 (ef118ee) configured and built both macOS jobs this way
+(their tests were stopped by a hanging test_shell_crash, fixed after
+that run; see docs/STATUS.md). Release packages (tags) are all BUNDLED, so
+every package can load and save both formats; macOS runs its bundled
+build only on tags because its runners bill ten times Linux; that path
+has not run on a macOS runner yet. Verified locally (Debian 13): Linux GCC and
 Clang with the system libraries, ASan/UBSan, mingw-w64 under Wine with
 BUNDLED (157/157 tests) and with OFF, and the cross AUTO detection with
 the host libraries installed (both reported disabled, pc_codec builds).

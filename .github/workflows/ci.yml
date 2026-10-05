@@ -11,10 +11,11 @@
 # packages): linux-gcc, mingw-w64, windows-cl and, on tags, both macOS jobs.
 # linux-clang and the sanitizer job use Ubuntu's libavif-dev and libjxl-dev
 # (the oldest supported versions, 1.0.4 and 0.7.0), macos-14 Homebrew's
-# libavif and jpeg-xl (AUTO, except on tags). windows-clang-cl and
-# macos-15-intel build with AUTO and no libraries (except on tags): both
-# formats report disabled, like the headless step with OFF; the bundled
-# libavif cannot be built with clang-cl. The mingw-w64 job checks that a
+# libavif and jpeg-xl (AUTO, except on tags). macos-15-intel builds with
+# AUTO and what the image has (libavif 1.4.2 is preinstalled there, libjxl
+# is not, so JPEG XL reports disabled); windows-clang-cl with AUTO and no
+# libraries (both report disabled, like the headless step with OFF); the
+# bundled libavif cannot be built with clang-cl. The mingw-w64 job checks that a
 # cross build ignores the build machine's libraries (AUTO reports them
 # disabled). macOS bills ten times Linux, so its bundled build runs on tags.
 #
@@ -39,6 +40,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Every ctest call has --timeout 600: no test needs more than about 80 s on
+# any runner, and a hung test must not hold a runner (macOS bills ten times
+# Linux) until the job limit.
 env:
   CMAKE_BUILD_PARALLEL_LEVEL: 4
   CTEST_OUTPUT_ON_FAILURE: 1
@@ -89,14 +93,14 @@ jobs:
       - name: Build
         run: cmake --build build
       - name: Test
-        run: ctest --test-dir build
+        run: ctest --test-dir build --timeout 600
       - name: Headless libraries (no SDL)
         if: matrix.cc == 'gcc'
         run: |
           cmake -S . -B build-hl -G Ninja -DCMAKE_BUILD_TYPE=Release -DPC_HEADLESS=ON \
             -DPC_DOWNLOAD_CACHE="$PC_DEPS" -DPC_WITH_AVIF=OFF -DPC_WITH_JXL=OFF
           cmake --build build-hl
-          ctest --test-dir build-hl
+          ctest --test-dir build-hl --timeout 600
       - name: Upload paintc
         if: hashFiles('src/app/CMakeLists.txt') != ''
         uses: actions/upload-artifact@v4
@@ -158,7 +162,7 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ctest --test-dir build
+        run: ctest --test-dir build --timeout 600
 
   linux-tsan:
     name: linux-tsan (pal, core)
@@ -188,8 +192,8 @@ jobs:
         env:
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
         run: |
-          ctest --test-dir build/tests/pal
-          ctest --test-dir build/tests/core
+          ctest --test-dir build/tests/pal --timeout 600
+          ctest --test-dir build/tests/core --timeout 600
 
   windows-cross:
     name: mingw-w64 + wine
@@ -236,7 +240,7 @@ jobs:
       - name: Build
         run: cmake --build build
       - name: Test under Wine
-        run: ctest --test-dir build
+        run: ctest --test-dir build --timeout 600
       # The build machine's libavif and libjxl (Debian packages, pkg-config)
       # must never reach a cross build: AUTO reports both formats disabled
       # and pc_codec still compiles (no -isystem /usr/include).
@@ -286,7 +290,7 @@ jobs:
         # -k 0: report every failing file in one run (still fails the job)
         run: cmake --build build -- -k 0
       - name: Test
-        run: ctest --test-dir build
+        run: ctest --test-dir build --timeout 600
       - name: Upload paintc
         if: hashFiles('src/app/CMakeLists.txt') != ''
         uses: actions/upload-artifact@v4
@@ -342,7 +346,7 @@ jobs:
       # Except on tags (release packages: BUNDLED, self-contained .dmg),
       # macos-14 tests the system-library path with Homebrew's libavif and
       # jpeg-xl (arm64 bottles; never a source build) and macos-15-intel
-      # the no-library path; both configure AUTO.
+      # takes what its image has; both configure AUTO.
       - name: AVIF and JPEG XL from Homebrew (macos-14, not on tags)
         if: matrix.os == 'macos-14' && !startsWith(github.ref, 'refs/tags/')
         continue-on-error: true
@@ -368,7 +372,7 @@ jobs:
       - name: Build
         run: cmake --build build -- -k 0
       - name: Test
-        run: ctest --test-dir build
+        run: ctest --test-dir build --timeout 600
       - name: Upload paintc
         if: hashFiles('src/app/CMakeLists.txt') != ''
         uses: actions/upload-artifact@v4
