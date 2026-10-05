@@ -73,9 +73,11 @@ static bool make_font(const char *family, bool broken, pc_buf *out)
     pc_buf *g, *l;
     uint32_t end0, end1;
     memset(&f, 0, sizeof f);
-    for (uint32_t c = '0'; c <= '9'; c++) map[n++] = (tf_map){ c, 1u };
-    for (uint32_t c = 'A'; c <= 'Z'; c++) map[n++] = (tf_map){ c, 1u };
-    for (uint32_t c = 'a'; c <= 'z'; c++) map[n++] = (tf_map){ c, 1u };
+    for (uint32_t c = '0'; c <= 'z'; c++) {
+        if ((c > '9' && c < 'A') || (c > 'Z' && c < 'a')) continue;
+        map[n].cp = c;
+        map[n++].gid = 1u;
+    }
     tf_head(&f, true);
     tf_hhea_hmtx_maxp(&f, 2u, adv);
     tf_name_os2(&f, family);
