@@ -14,6 +14,16 @@
 #include "app_internal.h"
 #include "pc_test.h"
 
+/* The platform's primary shortcut modifier, as the app reads it (keymap
+ * "Ctrl" and ui_mod_primary): Command on macOS, Ctrl elsewhere. */
+#if defined(__APPLE__)
+#define AT_KMOD_PRIMARY SDL_KMOD_LGUI
+#define AT_KEY_PRIMARY  SDLK_LGUI
+#else
+#define AT_KMOD_PRIMARY SDL_KMOD_LCTRL
+#define AT_KEY_PRIMARY  SDLK_LCTRL
+#endif
+
 static inline bool at_init(void)
 {
     static bool done, ok;
