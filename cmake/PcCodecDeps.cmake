@@ -297,3 +297,5 @@ function(pc_codec_link_deps tgt)
   # Headers only (no link): tests/codec builds fixtures with the libraries.
   target_link_libraries(${tgt} PUBLIC pc_codec_tp_headers)
 endfunction()
+
+include(PcAvifJxl)   # lane AVIFJXL: libavif + libjxl for fmt_avif.c / fmt_jxl.c (ADR-019)

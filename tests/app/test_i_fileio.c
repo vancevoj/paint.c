@@ -54,8 +54,10 @@ static const char *last_label(const app_doc *d)
 static void t_filters(void)
 {
     io_filters fs;
-    static const char *const order[] = { "pdn", "png", "jpeg", "webp", "dds", "tiff", "gif",
-                                         "bmp", "tga", "ora" };
+    /* lane AVIFJXL: jxl and avif (OBSERVED 3.3 order); a codec built without
+     * its library is registered without flags and not listed */
+    static const char *const order[] = { "pdn", "png", "jpeg", "jxl", "avif", "webp", "dds",
+                                         "tiff", "gif", "bmp", "tga", "ora" };
     int k = 1;
     io_build_filters(&fs, false);
     CHECK(fs.n >= 3);
@@ -64,7 +66,7 @@ static void t_filters(void)
     CHECK(strcmp(fs.f[fs.n - 1].pattern, "*") == 0);
     for (size_t i = 0; i < sizeof order / sizeof order[0]; i++) {
         const pc_codec *c = pc_codec_by_id(order[i]);
-        if (!c) continue;
+        if (!c || !(c->flags & PC_CODEC_LOAD)) continue;
         CHECK(k < fs.n - 1 && fs.codec[k] == c);
         CHECK(strstr(fs.all, c->exts) != NULL);
         k++;

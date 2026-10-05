@@ -11,4 +11,4 @@ StartupWMClass=org.paintc.paintc
 SingleMainWindow=true
 Categories=Graphics;2DGraphics;RasterGraphics;
 Keywords=image;photo;picture;paint;draw;layers;editor;pdn;
-MimeType=image/x-paintnet;image/png;image/jpeg;image/bmp;image/gif;image/tiff;image/webp;image/x-tga;image/x-dds;image/openraster;
+MimeType=image/x-paintnet;image/png;image/jpeg;image/bmp;image/gif;image/tiff;image/webp;image/avif;image/jxl;image/x-tga;image/x-dds;image/openraster;

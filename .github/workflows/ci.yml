@@ -6,6 +6,12 @@
 # platform tests the same pinned version; Ubuntu 24.04 has no SDL3 package
 # anyway. Dependency archives are cached through PC_DOWNLOAD_CACHE.
 #
+# AVIF and JPEG XL (lane AVIFJXL, docs/codecs/avif_jxl.md): the jobs that
+# build packages use the pinned static BUNDLED build (self-contained
+# packages); linux-clang and the sanitizer job use Ubuntu's libavif-dev and
+# libjxl-dev (the oldest supported versions, 1.0.4 and 0.7.0); the headless
+# step builds without them (the codecs register without load/save).
+#
 # Packages (lane I, docs/PACKAGING.md): the Linux GCC job builds the
 # AppImage and a tar.gz, the Windows MSVC job the portable zip and the NSIS
 # installer, the macOS jobs a .dmg each; they are uploaded as artifacts
@@ -57,6 +63,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends $SDL3_APT_DEPS
+      - name: AVIF and JPEG XL dependencies (lane AVIFJXL)
+        run: >
+          sudo apt-get install -y --no-install-recommends
+          ${{ matrix.cc == 'gcc' && 'nasm g++' || 'libavif-dev libjxl-dev' }}
       - uses: actions/cache@v4
         with:
           path: .deps-cache
@@ -68,6 +78,8 @@ jobs:
         run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$PC_DEPS"
+          -DPC_WITH_AVIF=${{ matrix.cc == 'gcc' && 'BUNDLED' || 'ON' }}
+          -DPC_WITH_JXL=${{ matrix.cc == 'gcc' && 'BUNDLED' || 'ON' }}
       - name: Build
         run: cmake --build build
       - name: Test
@@ -76,7 +88,7 @@ jobs:
         if: matrix.cc == 'gcc'
         run: |
           cmake -S . -B build-hl -G Ninja -DCMAKE_BUILD_TYPE=Release -DPC_HEADLESS=ON \
-            -DPC_DOWNLOAD_CACHE="$PC_DEPS"
+            -DPC_DOWNLOAD_CACHE="$PC_DEPS" -DPC_WITH_AVIF=OFF -DPC_WITH_JXL=OFF
           cmake --build build-hl
           ctest --test-dir build-hl
       - name: Upload paintc
@@ -125,12 +137,15 @@ jobs:
           path: .deps-cache
           key: deps-${{ hashFiles('cmake/*.cmake') }}
           restore-keys: deps-
+      - name: AVIF and JPEG XL system libraries (lane AVIFJXL)
+        run: sudo apt-get install -y --no-install-recommends libavif-dev libjxl-dev
       - name: Configure
         env:
           CC: clang
         run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPC_SANITIZE=ON
           -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$PC_DEPS"
+          -DPC_WITH_AVIF=ON -DPC_WITH_JXL=ON
       - name: Build
         run: cmake --build build
       - name: Test (quick, leak detection on)
@@ -189,6 +204,8 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates git cmake ninja-build \
             gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64 wine wine64
+          # lane AVIFJXL: bundled libaom (NASM SIMD, Perl scripts)
+          apt-get install -y --no-install-recommends nasm perl
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:
@@ -209,7 +226,7 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64-x86_64.cmake
           -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$GITHUB_WORKSPACE/.deps-cache"
-          -DPC_WINEPREFIX=/tmp/pc-wine
+          -DPC_WINEPREFIX=/tmp/pc-wine -DPC_WITH_AVIF=BUNDLED -DPC_WITH_JXL=BUNDLED
       - name: Build
         run: cmake --build build
       - name: Test under Wine
@@ -227,6 +244,11 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+      - name: NASM for the bundled libaom (lane AVIFJXL)
+        shell: pwsh
+        run: |
+          choco install nasm -y --no-progress | Out-Null
+          Add-Content $env:GITHUB_PATH "$env:ProgramFiles\NASM"
       - uses: actions/cache@v4
         with:
           path: .deps-cache
@@ -238,6 +260,7 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_C_COMPILER=${{ matrix.cc }} -DCMAKE_CXX_COMPILER=${{ matrix.cc }}
           -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$env:PC_DEPS"
+          -DPC_WITH_AVIF=BUNDLED -DPC_WITH_JXL=BUNDLED
       - name: Build
         run: cmake --build build
       - name: Test
@@ -292,8 +315,8 @@ jobs:
         os: [macos-14, macos-15-intel]
     steps:
       - uses: actions/checkout@v4
-      - name: Install Ninja
-        run: brew install ninja || true
+      - name: Install Ninja (and NASM for the bundled libaom, lane AVIFJXL)
+        run: brew install ninja nasm || true
       - uses: actions/cache@v4
         with:
           path: .deps-cache
@@ -309,6 +332,7 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$PC_DEPS"
           -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_OSX_SYSROOT=macosx
+          -DPC_WITH_AVIF=BUNDLED -DPC_WITH_JXL=BUNDLED
       - name: Build
         run: cmake --build build
       - name: Test

@@ -57,3 +57,34 @@ licenses below are permissive and compatible with the project's MIT license
 |---|---|---|---|---|
 | linuxdeploy (x86_64 AppImage) | 1-alpha-20251107-1 | c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d | MIT | puts AppRun and the AppImage runtime (MIT) into the AppImage |
 | NSIS | 3.x (CI image) | n/a (system package) | zlib/libpng style | installer stub inside the Windows setup.exe |
+
+## AVIF and JPEG XL (lane AVIFJXL, ADR-019; cmake/PcAvifJxl.cmake, docs/codecs/avif_jxl.md)
+System libraries are used when present (PC_WITH_AVIF / PC_WITH_JXL = AUTO or
+ON): libavif >= 1.0.0 (BSD-2-Clause; Debian/Ubuntu libavif-dev, Homebrew
+libavif) with the AV1 codecs of that package, libjxl >= 0.7.0 (BSD-3-Clause
+plus patent grant; libjxl-dev, Homebrew jpeg-xl). The pinned BUNDLED build
+(every release package) downloads at configure time:
+
+| Name | Version / tag | URL | SHA-256 | License | Used by |
+|---|---|---|---|---|---|
+| libaom | 3.14.1 | https://storage.googleapis.com/aom-releases/libaom-3.14.1.tar.gz | 44bf90dbd23e734d50e70a8c41c285193922938bd0d3bc2ee56764d181d55ef5 | BSD-2-Clause, plus the Alliance for Open Media Patent License 1.0 (PATENTS) | libavif (AV1 encode and decode) |
+| libavif | 1.4.2 (v1.4.2) | https://github.com/AOMediaCodec/libavif/archive/refs/tags/v1.4.2.tar.gz | 2b645287340ba5a631d268b551dc2d72bd73ac33335962dd36dcdb6d8366921d | BSD-2-Clause (LICENSE also lists the permissive licenses of files it contains: dav1d's obu.c, partial libyuv, iccjpeg) | fmt_avif.c |
+| libjxl | 0.11.2 (v0.11.2) | https://github.com/libjxl/libjxl/archive/refs/tags/v0.11.2.tar.gz | ab38928f7f6248e2a98cc184956021acb927b16a0dee71b4d260dc040a4320ea | BSD-3-Clause, plus Google's patent grant (PATENTS) | fmt_jxl.c |
+| Highway | 1.3.0 | https://github.com/google/highway/releases/download/1.3.0/highway-1.3.0.tar.gz | e8d696900b45f4123be8a9d6866f4e7b6831bf599f4b9c178964d968e6a58a69 | Apache-2.0 OR BSD-3-Clause (used under BSD-3-Clause) | libjxl |
+| Brotli | 1.2.0 (v1.2.0) | https://github.com/google/brotli/archive/refs/tags/v1.2.0.tar.gz | 816c96e8e8f193b40151dad7e8ff37b1221d019dbcb9c35cd3fadbfe6477dfec | MIT | libjxl ('brob' boxes) |
+| skcms | commit b2e692629c1fb19342517d7fb61f1cf83d075492 (the libjxl 0.11.2 submodule pin) | https://github.com/google/skcms/archive/b2e692629c1fb19342517d7fb61f1cf83d075492.tar.gz | 96e274f403135c19ad4e7f9272f03a64c0aa5615591b087457e7fd0a5f14af23 | BSD-3-Clause | libjxl (color management) |
+
+Build integration: ExternalProject with each project's own CMake (C++17 for
+Highway and libjxl; paint.c stays C17), static, Release, into
+<build>/_avifjxl/inst/<name>; the parent's sanitizer and warning flags do
+not apply (linked like system libraries). libaom uses NASM SIMD on x86 when
+NASM is found, otherwise its generic C code. Every sub-build carries its
+pin, so changing a row here rebuilds it.
+
+Notices: the license texts above ship in packaging/licenses (libavif.txt,
+libaom.txt, libaom-PATENTS.txt, libjxl.txt, libjxl-PATENTS.txt,
+highway.txt, brotli.txt, skcms.txt). Proposed NOTICE lines (orchestrator):
+docs/notice/avifjxl.md. Packages that bundle the system libraries instead
+(for example an AppImage built with AUTO) must also carry the licenses of
+those (dav1d, rav1e, SVT-AV1, libgav1, libyuv, Little-CMS as linked by the
+distribution's libavif/libjxl).

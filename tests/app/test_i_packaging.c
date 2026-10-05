@@ -127,6 +127,8 @@ static const type_map k_types[] = {
     { "gif", "image/gif", "com.compuserve.gif" },
     { "tiff", "image/tiff", "public.tiff" },
     { "webp", "image/webp", "org.webmproject.webp" },
+    { "avif", "image/avif", "public.avif" },              /* lane AVIFJXL (ADR-019) */
+    { "jxl", "image/jxl", "public.jpeg-xl" },             /* lane AVIFJXL (ADR-019) */
     { "tga", "image/x-tga", "com.truevision.tga-image" },
     { "dds", "image/x-dds", "com.microsoft.dds" },
     { "ora", "image/openraster", "org.openraster.ora" }

@@ -20,7 +20,7 @@
       <li>History of every change with undo and redo</li>
       <li>Selections, brushes, shapes, text, gradients and fills</li>
       <li>Adjustments and effects with live previews</li>
-      <li>Opens and saves PDN, PNG, JPEG, WebP, TIFF, BMP, GIF, TGA, DDS and OpenRaster</li>
+      <li>Opens and saves PDN, PNG, JPEG, JPEG XL, AVIF, WebP, TIFF, BMP, GIF, TGA, DDS and OpenRaster</li>
       <li>Autosave with crash recovery</li>
     </ul>
   </description>
@@ -34,6 +34,8 @@
     <mediatype>image/gif</mediatype>
     <mediatype>image/tiff</mediatype>
     <mediatype>image/webp</mediatype>
+    <mediatype>image/avif</mediatype>
+    <mediatype>image/jxl</mediatype>
     <mediatype>image/x-tga</mediatype>
     <mediatype>image/x-dds</mediatype>
     <mediatype>image/openraster</mediatype>
