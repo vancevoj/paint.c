@@ -164,6 +164,14 @@ pc_paint_src pc_gradient_paint_src(const pc_gradient *g);
 pc_status pc_gradient_apply(pc_txn *t, uint32_t layer_id, const pc_gradient *g,
                             const pc_paint_opts *opts, const pc_par *par, pc_rect *dirty);
 
+/* pc_gradient_apply limited to clip (intersected with the area above):
+ * pixels outside clip keep their current transaction content. A tool can
+ * re-render only the visible part of a huge canvas while a nub is being
+ * dragged and call pc_gradient_apply once the drag ends. */
+pc_status pc_gradient_apply_rect(pc_txn *t, uint32_t layer_id, const pc_gradient *g,
+                                 const pc_paint_opts *opts, const pc_par *par, pc_rect clip,
+                                 pc_rect *dirty);
+
 /* ---- handles (nubs) ----------------------------------------------------------- */
 typedef enum pc_grad_handle {
     PC_GRAD_HANDLE_NONE = 0,

@@ -39,9 +39,10 @@
  * false: its region ignores the selection, and the caller combines it with
  * pc_sel_apply_src(h, &src, mode, "Magic Wand") using the selection mode.
  *
- * Thread rules. pc_region_compute reads the document: call it on the
- * thread that owns the document while nobody mutates it (it may run par
- * workers, which only read tiles). A finished pc_region is immutable: its
+ * Thread rules. pc_region_compute only reads the document: call it from
+ * any thread (for example a worker while the canvas shows a busy
+ * indicator) as long as nobody mutates the document meanwhile; it may run
+ * par workers, which only read tiles. A finished pc_region is immutable: its
  * queries, coverage readers and selection source may run on any number of
  * threads at once. pc_bucket_fill mutates the transaction: the
  * transaction's thread only.
@@ -118,14 +119,14 @@ size_t     pc_region_bytes(const pc_region *r);          /* memory held */
 
 /* Coverage of rect rr into dst (stride bytes per row; 0 outside the
  * region and the document). antialias = false: 255 inside, 0 outside.
- * antialias = true (Paint Bucket "Antialiasing"): the edge is softened by
- * cutting staircase corners. Each pixel is split into four quadrants; a
- * quadrant at a corner whose two edge neighbors are both outside the
- * region counts half for an inside pixel, and a quadrant of an outside
- * pixel whose two edge neighbors and diagonal neighbor are all inside
- * counts half; straight edges stay hard. Coverage = round(255 * n / 8)
- * with n the number of covered quadrant halves (0..8). The softened
- * coverage can reach one pixel outside pc_region_bounds. */
+ * antialias = true (Paint Bucket "Antialiasing", measured on Paint.NET):
+ * the region stays 255 and every outside pixel next to it gets a soft
+ * fringe that depends only on its 8 neighbors: 75 when inside neighbors
+ * lie on opposite sides or on three or four sides; 70 at an inner corner
+ * (two adjacent sides), 74 if the diagonal across from that corner is
+ * inside too; 56 along one side, 64 / 70 with one / two inside diagonals
+ * on the far side; 17, 32, 46, 56 for one to four inside diagonals only.
+ * The fringe reaches one pixel outside pc_region_bounds. */
 void       pc_region_read(const pc_region *r, pc_rect rr, bool antialias, uint8_t *dst,
                           size_t stride);
 /* Allocate *out over rr (clipped to the document, plus nothing else) and

@@ -509,8 +509,9 @@ static pc_status apply_alpha(pc_txn *t, uint32_t layer_id, const pc_gradient *g,
     return PC_OK;
 }
 
-pc_status pc_gradient_apply(pc_txn *t, uint32_t layer_id, const pc_gradient *g,
-                            const pc_paint_opts *opts, const pc_par *par, pc_rect *dirty)
+static pc_status apply_impl(pc_txn *t, uint32_t layer_id, const pc_gradient *g,
+                            const pc_paint_opts *opts, const pc_par *par, const pc_rect *clip,
+                            pc_rect *dirty)
 {
     pc_doc *d;
     const pc_layer *l;
@@ -525,9 +526,23 @@ pc_status pc_gradient_apply(pc_txn *t, uint32_t layer_id, const pc_gradient *g,
     if (!l || l->tiles_x != d->tiles_x) return PC_ERR_ARG;
     area = opts->clip_to_selection ? pc_sel_extent(d) : pc_doc_rect(d);
     area = pc_rect_intersect(area, pc_doc_rect(d));
+    if (clip) area = pc_rect_intersect(area, *clip);
     if (pc_rect_is_empty(area)) return PC_OK;
     if (g->d.mode == PC_GRAD_TRANSPARENCY) return apply_alpha(t, layer_id, g, opts, par, area, dirty);
     return apply_color(t, layer_id, g, opts, par, area, dirty);
+}
+
+pc_status pc_gradient_apply(pc_txn *t, uint32_t layer_id, const pc_gradient *g,
+                            const pc_paint_opts *opts, const pc_par *par, pc_rect *dirty)
+{
+    return apply_impl(t, layer_id, g, opts, par, NULL, dirty);
+}
+
+pc_status pc_gradient_apply_rect(pc_txn *t, uint32_t layer_id, const pc_gradient *g,
+                                 const pc_paint_opts *opts, const pc_par *par, pc_rect clip,
+                                 pc_rect *dirty)
+{
+    return apply_impl(t, layer_id, g, opts, par, &clip, dirty);
 }
 
 /* ---- handles ---------------------------------------------------------------------- */

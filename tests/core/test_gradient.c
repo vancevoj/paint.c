@@ -472,6 +472,47 @@ static void t_apply_transparency(void)
     }
 }
 
+/* Viewport-limited rendering: inside the clip like a full render, outside
+ * untouched. */
+static void t_apply_rect(void)
+{
+    for (int it = 0; it < (g_quick ? 30 : 200); it++) {
+        uint32_t W = 1 + rndu(200), H = 1 + rndu(150);
+        pc_doc *d = pc_doc_create(W, H);
+        pc_hist *h = pc_hist_create(d);
+        pc_surf s, full, part;
+        pc_layer *l;
+        pc_gradient g = rand_grad(W, H, (pc_grad_mode)rndu(2));
+        pc_paint_opts po = pc_paint_opts_default();
+        pc_rect clip = pc_rect_make((int32_t)rndu(W + 20) - 10, (int32_t)rndu(H + 20) - 10,
+                                    (int32_t)rndu(W), (int32_t)rndu(H)), dirty;
+        pc_txn *t;
+        CHECK(pc_surf_alloc(&s, (int32_t)W, (int32_t)H) == PC_OK);
+        e2_blobby(&s, 3, 20);
+        l = add_layer(d, h, &s);
+        CHECK(pc_surf_alloc(&full, (int32_t)W, (int32_t)H) == PC_OK);
+        CHECK(pc_surf_alloc(&part, (int32_t)W, (int32_t)H) == PC_OK);
+        t = pc_txn_begin(d, "g");
+        CHECK(pc_gradient_apply(t, l->id, &g, &po, NULL, NULL) == PC_OK);
+        CHECK(pc_txn_read_rect(t, l->id, pc_doc_rect(d), full.px, (size_t)full.stride) == PC_OK);
+        pc_txn_cancel(t);
+        t = pc_txn_begin(d, "g");
+        CHECK(pc_gradient_apply_rect(t, l->id, &g, &po, NULL, clip, &dirty) == PC_OK);
+        CHECK(pc_txn_read_rect(t, l->id, pc_doc_rect(d), part.px, (size_t)part.stride) == PC_OK);
+        CHECK(pc_rect_is_empty(dirty) ||
+              (pc_rect_intersect(dirty, clip).w == dirty.w && pc_rect_intersect(dirty, clip).h == dirty.h));
+        pc_txn_cancel(t);
+        for (uint32_t y = 0; y < H; y++)
+            for (uint32_t x = 0; x < W; x++) {
+                bool in = pc_rect_contains(clip, (int32_t)x, (int32_t)y);
+                CHECK(e2_px_eq(part.px[y * W + x], in ? full.px[y * W + x] : s.px[y * W + x]));
+            }
+        pc_surf_free(&s); pc_surf_free(&full); pc_surf_free(&part);
+        pc_hist_destroy(h);
+        pc_doc_destroy(d);
+    }
+}
+
 /* Large canvas: the banded path renders the same as single calls would. */
 static void t_apply_banded(void)
 {
@@ -609,6 +650,7 @@ int main(int argc, char **argv)
     RUN(t_repeat);
     RUN(t_apply_color);
     RUN(t_apply_transparency);
+    RUN(t_apply_rect);
     RUN(t_apply_banded);
     RUN(t_oom);
     RUN(t_handles);

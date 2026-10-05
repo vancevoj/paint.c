@@ -610,6 +610,27 @@ static void read_bits(const pc_region *r, int32_t y, int32_t x0, int32_t n, uint
     }
 }
 
+/* Antialiased Paint Bucket edge, measured on Paint.NET: the region itself
+ * is filled fully and every outside pixel gets a fringe coverage that only
+ * depends on which of its 8 neighbors are inside (see docs/core/fills.md;
+ * all 256 neighborhoods were observed and this rule reproduces each). */
+static uint8_t fringe(int up, int rt, int dn, int lf, int ul, int ur, int dr, int dl)
+{
+    static const uint8_t diag_only[5] = { 0u, 17u, 32u, 46u, 56u };
+    static const uint8_t one_side[3] = { 56u, 64u, 70u };
+    int no = up + rt + dn + lf;
+    if (no >= 3 || (up && dn) || (lf && rt)) return 75u;
+    if (no == 2) {               /* an inner corner: is the far diagonal inside? */
+        int opp = up && rt ? dl : (rt && dn ? ul : (dn && lf ? ur : dr));
+        return opp ? 74u : 70u;
+    }
+    if (no == 1) {               /* one edge: diagonals on the far side add */
+        int far = up ? dl + dr : (rt ? ul + dl : (dn ? ul + ur : ur + dr));
+        return one_side[far];
+    }
+    return diag_only[ul + ur + dr + dl];
+}
+
 #define CHUNK 256
 
 void pc_region_read(const pc_region *r, pc_rect rr, bool antialias, uint8_t *dst, size_t stride)
@@ -630,18 +651,14 @@ void pc_region_read(const pc_region *r, pc_rect rr, bool antialias, uint8_t *dst
             read_bits(r, y - 1, cx - 1, n + 2, rows[0]);
             read_bits(r, y, cx - 1, n + 2, rows[1]);
             read_bits(r, y + 1, cx - 1, n + 2, rows[2]);
+            if (y < 0 || (uint32_t)y >= r->h) continue;      /* outside the document: 0 */
             for (int32_t i = 0; i < n; i++) {
                 const int j = i + 1;
-                unsigned q8 = 0;                    /* coverage in eighths */
-                int p = rows[1][j];
-                for (int dy = 0; dy <= 2; dy += 2) {
-                    for (int dx = -1; dx <= 1; dx += 2) {
-                        int h = rows[1][j + dx], v = rows[dy][j], g = rows[dy][j + dx];
-                        if (p) q8 += (!h && !v) ? 1u : 2u;
-                        else if (h && v && g) q8 += 1u;
-                    }
-                }
-                out[cx - rr.x + i] = (uint8_t)((255u * q8 + 4u) / 8u);
+                int32_t x = cx + i;
+                if (x < 0 || (uint32_t)x >= r->w) continue;
+                out[cx - rr.x + i] = rows[1][j] ? 255u
+                    : fringe(rows[0][j], rows[1][j + 1], rows[2][j], rows[1][j - 1],
+                             rows[0][j - 1], rows[0][j + 1], rows[2][j + 1], rows[2][j - 1]);
             }
         }
     }

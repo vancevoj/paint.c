@@ -14,8 +14,10 @@
 
 /* ---- tolerance ------------------------------------------------------------------- */
 
-/* k measured on Paint.NET for every whole percentage 0..100 (global bucket
- * fills of a dense distance grid, see docs/core/fills.md). */
+/* The tolerance byte for every whole percentage 0..100. Every value is
+ * consistent with global bucket fills measured on Paint.NET (dense
+ * distance grids, docs/core/fills.md); where a grid could not separate
+ * neighbors (0..14% and >= 93%) the measured interval contains it. */
 static const uint8_t k_measured[101] = {
     0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 6, 7, 7, 8, 9,
     10, 11, 12, 14, 15, 16, 17, 19, 20, 21, 23, 24, 26, 28, 30, 31, 33, 35, 37, 38,
@@ -248,7 +250,7 @@ static pc_layer *add_layer(pc_doc *d, pc_hist *h, const pc_surf *s, uint32_t ind
 
 static void t_flood_vs_bfs(void)
 {
-    int iters = g_quick ? 120 : 1200;
+    int iters = g_quick ? 400 : 3000;
     pc_par par = e2_par(), rev = e2_rev_par();
     for (int it = 0; it < iters; it++) {
         uint32_t W = 1 + rndu(it % 5 == 0 ? 300 : 140), H = 1 + rndu(it % 7 == 0 ? 260 : 120);
@@ -473,18 +475,38 @@ static void t_huge(void)
 
 /* ---- coverage --------------------------------------------------------------------------- */
 
+/* Antialiased bucket coverage of an outside pixel, measured on Paint.NET
+ * for all 256 neighborhoods (global antialiased fills of random patterns).
+ * Index bits: 1 up, 2 right, 4 down, 8 left, 16 up-left, 32 up-right,
+ * 64 down-right, 128 down-left neighbor inside the region. */
+static const uint8_t k_aa_measured[256] = {
+     0, 56, 56, 70, 56, 75, 70, 75, 56, 70, 75, 75, 70, 75, 75, 75,
+    17, 56, 64, 70, 64, 75, 74, 75, 56, 70, 75, 75, 70, 75, 75, 75,
+    17, 56, 56, 70, 64, 75, 70, 75, 64, 70, 75, 75, 74, 75, 75, 75,
+    32, 56, 64, 70, 70, 75, 74, 75, 64, 70, 75, 75, 74, 75, 75, 75,
+    17, 64, 56, 70, 56, 75, 70, 75, 64, 74, 75, 75, 70, 75, 75, 75,
+    32, 64, 64, 70, 64, 75, 74, 75, 64, 74, 75, 75, 70, 75, 75, 75,
+    32, 64, 56, 70, 64, 75, 70, 75, 70, 74, 75, 75, 74, 75, 75, 75,
+    46, 64, 64, 70, 70, 75, 74, 75, 70, 74, 75, 75, 74, 75, 75, 75,
+    17, 64, 64, 74, 56, 75, 70, 75, 56, 70, 75, 75, 70, 75, 75, 75,
+    32, 64, 70, 74, 64, 75, 74, 75, 56, 70, 75, 75, 70, 75, 75, 75,
+    32, 64, 64, 74, 64, 75, 70, 75, 64, 70, 75, 75, 74, 75, 75, 75,
+    46, 64, 70, 74, 70, 75, 74, 75, 64, 70, 75, 75, 74, 75, 75, 75,
+    32, 70, 64, 74, 56, 75, 70, 75, 64, 74, 75, 75, 70, 75, 75, 75,
+    46, 70, 70, 74, 64, 75, 74, 75, 64, 74, 75, 75, 70, 75, 75, 75,
+    46, 70, 64, 74, 64, 75, 70, 75, 70, 74, 75, 75, 74, 75, 75, 75,
+    56, 70, 70, 74, 70, 75, 74, 75, 70, 74, 75, 75, 74, 75, 75, 75
+};
+
 static uint8_t ref_aa(const pc_region *r, int32_t x, int32_t y)
 {
-    unsigned q = 0;
-    bool p = pc_region_at(r, x, y);
-    for (int dy = -1; dy <= 1; dy += 2)
-        for (int dx = -1; dx <= 1; dx += 2) {
-            bool hh = pc_region_at(r, x + dx, y), vv = pc_region_at(r, x, y + dy);
-            bool gg = pc_region_at(r, x + dx, y + dy);
-            if (p) q += (!hh && !vv) ? 1u : 2u;
-            else if (hh && vv && gg) q += 1u;
-        }
-    return (uint8_t)((255u * q + 4u) / 8u);
+    static const int dx[8] = { 0, 1, 0, -1, -1, 1, 1, -1 };
+    static const int dy[8] = { -1, 0, 1, 0, -1, -1, 1, 1 };
+    unsigned key = 0;
+    if (pc_region_at(r, x, y)) return 255u;
+    for (int i = 0; i < 8; i++)
+        if (pc_region_at(r, x + dx[i], y + dy[i])) key |= 1u << i;
+    return k_aa_measured[key];
 }
 
 static void t_coverage(void)
@@ -554,12 +576,13 @@ static void t_coverage(void)
         o.tolerance = 0.0;
         CHECK(pc_region_compute(d, l->id, 2, 2, &o, NULL, &r) == PC_OK);
         pc_region_read(r, pc_doc_rect(d), true, c, 16);
-        CHECK(c[2 * 16 + 2] == 128u);             /* isolated pixel: half */
-        CHECK(c[6 * 16 + 6] == 223u);             /* convex corner: 7 of 8 halves */
-        CHECK(c[6 * 16 + 8] == 255u);             /* straight edge stays hard */
-        CHECK(c[8 * 16 + 8] == 255u);
-        CHECK(c[5 * 16 + 8] == 0u);               /* outside a straight edge */
-        CHECK(c[5 * 16 + 5] == 0u);
+        CHECK(c[2 * 16 + 2] == 255u);             /* the region itself stays full */
+        CHECK(c[6 * 16 + 6] == 255u && c[8 * 16 + 8] == 255u);
+        CHECK(c[1 * 16 + 2] == 56u);              /* beside an isolated pixel */
+        CHECK(c[1 * 16 + 1] == 17u);              /* diagonal to it */
+        CHECK(c[5 * 16 + 8] == 56u);              /* outside a straight edge */
+        CHECK(c[5 * 16 + 5] == 17u);              /* outside a convex corner */
+        CHECK(c[4 * 16 + 8] == 0u);               /* two pixels away */
         pc_region_free(r);
         pc_surf_free(&s);
         pc_hist_destroy(h);
@@ -613,7 +636,7 @@ static void t_sel_src(void)
 
 static void t_bucket(void)
 {
-    int iters = g_quick ? 40 : 300;
+    int iters = g_quick ? 120 : 600;
     pc_par par = e2_par();
     for (int it = 0; it < iters; it++) {
         uint32_t W = 1 + rndu(200), H = 1 + rndu(150);
