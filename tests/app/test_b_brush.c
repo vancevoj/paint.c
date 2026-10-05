@@ -335,13 +335,13 @@ static void t_width_keys(void)
     a->ts.width = 10.0f;
     b_tap(a, SDLK_RIGHTBRACKET, SDL_KMOD_NONE);
     CHECK(a->ts.width == 11.0f);
-    b_tap(a, SDLK_LEFTBRACKET, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_LEFTBRACKET, AT_KMOD_PRIMARY);
     CHECK(a->ts.width == 6.0f);
     a->ts.width = 3.0f;
-    b_tap(a, SDLK_LEFTBRACKET, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_LEFTBRACKET, AT_KMOD_PRIMARY);
     CHECK(a->ts.width == 1.0f);
     a->ts.width = 1998.0f;
-    b_tap(a, SDLK_RIGHTBRACKET, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_RIGHTBRACKET, AT_KMOD_PRIMARY);
     CHECK(a->ts.width == 2000.0f);
     CHECK(app_tool_select(a, "eraser"));
     b_tap(a, SDLK_LEFTBRACKET, SDL_KMOD_NONE);

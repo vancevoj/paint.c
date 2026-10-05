@@ -137,15 +137,15 @@ static void t_draw_edit_finish(void)
     CHECK(b_history(a) == h0 + 5u);
     /* Undo walks back: the color, then antialiasing, then the repeat mode,
      * which the options bar shows again */
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(app_tool_live(a) && !a->ts.antialias);
     CHECK(app_settings_int(app_settings_of(a), "tool.gradient.repeat", 1) == 0);
     CHECK(b_eq(app_secondary(a), b_px(255, 255, 255, 255)));
     g.repeat = PC_GRAD_NO_REPEAT;
     CHECK(compare(a, before, &g) == 0);
-    b_tap(a, SDLK_Y, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_Y, AT_KMOD_PRIMARY);
     g.repeat = PC_GRAD_REPEAT_WRAPPED;
     CHECK(compare(a, before, &g) == 0);
     /* Enter finishes: a Finish item */
@@ -153,7 +153,7 @@ static void t_draw_edit_finish(void)
     CHECK(!app_tool_live(a));
     CHECK(strcmp(b_top_label(a), "Finish") == 0);
     /* undoing it makes the gradient editable again */
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(app_tool_live(a));
     b_tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     pc_doc_destroy(before);
@@ -204,7 +204,7 @@ static void t_right_and_nubs(void)
         CHECK(compare(a, before, &g) == 0);
     }
     /* Undo the move: back to the previous points */
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);
     g.s.x += 10.0;
     g.s.y -= 20.0;
     g.e.x += 10.0;

@@ -77,21 +77,21 @@ static void t_commands(void)
     CHECK(app_cmd_enabled(a, "layers.rotate_zoom") && app_cmd_enabled(a, "layers.properties"));
     n0 = hist_len(d);
     /* Add New Layer: "Layer 2" above, active */
-    tap(a, SDLK_N, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    tap(a, SDLK_N, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     CHECK(d->doc->n_layers == 2u && app_doc_layer_index(d) == 1 &&
           strcmp(lname(d, 1), "Layer 2") == 0);
     CHECK(hist_len(d) == n0 + 1u && strcmp(d->hist->cur->label, "Add New Layer") == 0);
     /* Duplicate: "<name> copy" above, active */
-    tap(a, SDLK_D, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    tap(a, SDLK_D, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     CHECK(d->doc->n_layers == 3u && app_doc_layer_index(d) == 2 &&
           strcmp(lname(d, 2), "Layer 2 copy") == 0);
     /* Go to (no history) */
     n0 = hist_len(d);
     tap(a, SDLK_PAGEDOWN, SDL_KMOD_LALT);
     CHECK(app_doc_layer_index(d) == 1 && hist_len(d) == n0);
-    tap(a, SDLK_PAGEDOWN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
+    tap(a, SDLK_PAGEDOWN, AT_KMOD_PRIMARY | SDL_KMOD_LALT);
     CHECK(app_doc_layer_index(d) == 0 && !app_cmd_enabled(a, "layers.go_down"));
-    tap(a, SDLK_PAGEUP, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
+    tap(a, SDLK_PAGEUP, AT_KMOD_PRIMARY | SDL_KMOD_LALT);
     CHECK(app_doc_layer_index(d) == 2 && !app_cmd_enabled(a, "layers.go_top"));
     tap(a, SDLK_PAGEUP, SDL_KMOD_LALT);
     CHECK(app_doc_layer_index(d) == 2 && hist_len(d) == n0);
@@ -99,27 +99,27 @@ static void t_commands(void)
     tap(a, SDLK_PAGEDOWN, SDL_KMOD_LALT | SDL_KMOD_LSHIFT);
     CHECK(app_doc_layer_index(d) == 1 && strcmp(lname(d, 1), "Layer 2 copy") == 0);
     CHECK(hist_len(d) == n0 + 1u && strcmp(d->hist->cur->label, "Move Layer Down") == 0);
-    tap(a, SDLK_PAGEDOWN, SDL_KMOD_LCTRL | SDL_KMOD_LALT | SDL_KMOD_LSHIFT);
+    tap(a, SDLK_PAGEDOWN, AT_KMOD_PRIMARY | SDL_KMOD_LALT | SDL_KMOD_LSHIFT);
     CHECK(app_doc_layer_index(d) == 0 && strcmp(lname(d, 0), "Layer 2 copy") == 0);
-    tap(a, SDLK_PAGEUP, SDL_KMOD_LCTRL | SDL_KMOD_LALT | SDL_KMOD_LSHIFT);
+    tap(a, SDLK_PAGEUP, AT_KMOD_PRIMARY | SDL_KMOD_LALT | SDL_KMOD_LSHIFT);
     CHECK(app_doc_layer_index(d) == 2 && strcmp(lname(d, 2), "Layer 2 copy") == 0);
     tap(a, SDLK_PAGEUP, SDL_KMOD_LALT | SDL_KMOD_LSHIFT);      /* already on top: nothing */
     CHECK(app_doc_layer_index(d) == 2);
     /* Toggle visibility keeps the layer active; one step */
     n0 = hist_len(d);
-    tap(a, SDLK_COMMA, SDL_KMOD_LCTRL);
+    tap(a, SDLK_COMMA, AT_KMOD_PRIMARY);
     CHECK(!d->doc->stack[2]->visible && app_doc_layer_index(d) == 2 && hist_len(d) == n0 + 1u);
-    tap(a, SDLK_COMMA, SDL_KMOD_LCTRL);
+    tap(a, SDLK_COMMA, AT_KMOD_PRIMARY);
     CHECK(d->doc->stack[2]->visible);
     /* Merge Down: the lower layer stays active and keeps its name */
-    tap(a, SDLK_M, SDL_KMOD_LCTRL);
+    tap(a, SDLK_M, AT_KMOD_PRIMARY);
     CHECK(d->doc->n_layers == 2u && app_doc_layer_index(d) == 1);
     /* Delete: the layer below becomes active; disabled with one layer */
-    tap(a, SDLK_DELETE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    tap(a, SDLK_DELETE, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     CHECK(d->doc->n_layers == 1u && app_doc_layer_index(d) == 0);
     CHECK(!app_cmd_enabled(a, "layers.delete"));
     n0 = hist_len(d);
-    tap(a, SDLK_DELETE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    tap(a, SDLK_DELETE, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     CHECK(d->doc->n_layers == 1u && hist_len(d) == n0);
     /* Flip and Rotate 180 of the layer: one step each */
     CHECK(pc_layerop_fill(d->hist, d->layer_id, pc_rect_make(0, 0, 8, 8),
@@ -256,7 +256,7 @@ static void t_rotzoom(void)
         return;
     }
     mem->angle = 180.0;
-    tap(a, SDLK_Z, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    tap(a, SDLK_Z, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     at_frames(a, 2);
     CHECK(app_dialog_active(a) && d->txn != NULL);
     if (d->txn) {                                    /* previewed in the transaction */
@@ -268,7 +268,7 @@ static void t_rotzoom(void)
     CHECK(!app_dialog_active(a) && d->txn == NULL && hist_len(d) == n0);
     CHECK(pc_doc_fingerprint(d->doc) == f0 && at_doc_px(a, 56, 56).g == 255u);
     /* OK: one step; the values are remembered */
-    tap(a, SDLK_Z, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    tap(a, SDLK_Z, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     at_frames(a, 2);
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     CHECK(!app_dialog_active(a) && d->txn == NULL && hist_len(d) == n0 + 1u);

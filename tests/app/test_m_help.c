@@ -42,7 +42,7 @@ static void t_links(void)
     u = m_last_url(a);
     CHECK(u && strncmp(u, "https://", 8) == 0 && strstr(u, "paint.c") != NULL);
     CHECK(app_cmd_exec(a, "help.website") && m_last_url(a) && strstr(m_last_url(a), "github.com"));
-    tap(a, SDLK_E, SDL_KMOD_LCTRL);
+    tap(a, SDLK_E, AT_KMOD_PRIMARY);
     CHECK(m_last_url(a) && strstr(m_last_url(a), "/search") != NULL);
     CHECK(app_cmd_exec(a, "help.feedback"));
     u = m_last_url(a);

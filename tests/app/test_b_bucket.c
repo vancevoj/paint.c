@@ -132,10 +132,10 @@ static void t_fill_and_finish(void)
     CHECK(b_eq(at_doc_px(a, 20, 40), b_px(0, 0, 0, 255)));          /* the frame */
     CHECK(b_eq(at_doc_px(a, 10, 10), b_px(255, 255, 255, 255)));    /* outside */
     /* undoing Finish makes the fill editable again */
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(app_tool_live(a) && b_history(a) == h0 + 2u);
     CHECK(strcmp(b_top_label(a), "Paint Bucket") == 0);
-    b_tap(a, SDLK_Y, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_Y, AT_KMOD_PRIMARY);
     CHECK(!app_tool_live(a) && strcmp(b_top_label(a), "Finish") == 0);
     /* Esc finishes too (K-UI-FINISH) */
     b_click(a, 10.5, 10.5, SDL_BUTTON_RIGHT);
@@ -165,8 +165,8 @@ static void t_pattern_and_shift(void)
     b_tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     CHECK(b_eq(at_doc_px(a, 5, 5), b_px(220, 30, 30, 255)));
     CHECK(b_eq(at_doc_px(a, 40, 40), b_px(255, 255, 255, 255)));
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);              /* Finish */
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);              /* the fill */
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);              /* Finish */
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);              /* the fill */
     CHECK(b_eq(at_doc_px(a, 5, 5), b_px(255, 255, 255, 255)));
     /* Shift: global, the inside is filled as well */
     b_mods(a, SDL_KMOD_LSHIFT);
@@ -176,8 +176,8 @@ static void t_pattern_and_shift(void)
     CHECK(b_eq(at_doc_px(a, 5, 5), b_px(220, 30, 30, 255)));
     CHECK(b_eq(at_doc_px(a, 40, 40), b_px(220, 30, 30, 255)));
     CHECK(b_eq(at_doc_px(a, 20, 40), b_px(0, 0, 0, 255)));
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);
     /* the toolbar's Global with Shift: contiguous again */
     a->ts.flood_global = true;
     b_mods(a, SDL_KMOD_LSHIFT);
@@ -230,21 +230,21 @@ static void t_live_edits_and_history(void)
     CHECK(b_history(a) == h0 + 3u);
     CHECK(b_eq(live_px(a, 82, 30), b_px(0, 160, 0, 255)));
     /* Undo: back to the red fill, still editable; the toolbar keeps 30 */
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(app_tool_live(a) && b_history(a) == h0 + 3u);
     CHECK(b_eq(live_px(a, 82, 30), b_px(220, 30, 30, 255)));
     CHECK(b_eq(app_primary(a), b_px(220, 30, 30, 255)));
     /* Undo: tolerance 0 again, also in the toolbar */
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(app_tool_live(a) && a->ts.tolerance == 0);
     CHECK(b_eq(live_px(a, 86, 30), scene(86, 30)));
     /* Undo: no fill any more */
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(!app_tool_live(a) && b_eq(live_px(a, 82, 30), scene(82, 30)));
     /* Redo twice: editable with tolerance 30 */
-    b_tap(a, SDLK_Y, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_Y, AT_KMOD_PRIMARY);
     CHECK(app_tool_live(a) && a->ts.tolerance == 0);
-    b_tap(a, SDLK_Y, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_Y, AT_KMOD_PRIMARY);
     CHECK(app_tool_live(a) && a->ts.tolerance == 30);
     CHECK(b_eq(live_px(a, 86, 30), b_px(220, 30, 30, 255)));
     /* a new edit after undo drops the redo branch (the green fill) */
@@ -306,8 +306,8 @@ static void t_selection_and_outside(void)
         CHECK(p.g > 60 && p.g < 230);
     }
     /* pixelated: the half covered column is all or nothing */
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);                /* Finish */
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);                /* the antialiased fill */
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);                /* Finish */
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);                /* the antialiased fill */
     CHECK(b_eq(at_doc_px(a, 10, 50), b_px(255, 255, 255, 255)));
     a->ts.sel_clip_aa = false;
     app_set_primary(a, b_px(0, 0, 0, 255));
@@ -452,7 +452,7 @@ static void t_finish_paths(void)
     app_set_active_doc(a, d);
     at_frames(a, 2);
     CHECK(!app_tool_live(a));
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);       /* the tolerance edit (no pixels changed) */
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);       /* the tolerance edit (no pixels changed) */
     CHECK(app_tool_live(a) && a->ts.tolerance == t0);
     /* closing the image of a live fill */
     app_close_doc_now(a, d);
@@ -463,7 +463,7 @@ static void t_finish_paths(void)
     CHECK(app_tool_live(a));
     CHECK(app_tool_select(a, "pencil"));
     CHECK(app_tool_select(a, "paint_bucket"));
-    b_tap(a, SDLK_Z, SDL_KMOD_LCTRL);
+    b_tap(a, SDLK_Z, AT_KMOD_PRIMARY);
     CHECK(!app_tool_live(a));
     app_destroy(a);
 }

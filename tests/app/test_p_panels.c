@@ -211,7 +211,7 @@ static void t_layers(void)
         CHECK(app_doc_layer_index(d) == 1);
         CHECK(pt_click_rect(a, "layers.up", SDL_BUTTON_LEFT));
         CHECK(app_doc_layer_index(d) == 2 && d->layer_id == id);
-        pt_mod(a, SDLK_LCTRL, SDL_KMOD_LCTRL, true);
+        pt_mod(a, AT_KEY_PRIMARY, AT_KMOD_PRIMARY, true);
         {
             ui_rect b = pnl_rect(a, "layers.down");
             pt_button(a, SDL_EVENT_MOUSE_BUTTON_DOWN, pt_cx(b), pt_cy(b), SDL_BUTTON_LEFT, 1);
@@ -220,7 +220,7 @@ static void t_layers(void)
             pt_button(a, SDL_EVENT_MOUSE_BUTTON_UP, pt_cx(b), pt_cy(b), SDL_BUTTON_LEFT, 1);
             at_frames(a, 2);
         }
-        pt_mod(a, SDLK_LCTRL, SDL_KMOD_LCTRL, false);
+        pt_mod(a, AT_KEY_PRIMARY, AT_KMOD_PRIMARY, false);
         CHECK(app_doc_layer_index(d) == 0 && d->layer_id == id);
         CHECK(!app_cmd_enabled(a, "layers.move_down") && !app_cmd_enabled(a, "layers.merge_down"));
         CHECK(pt_click_rect(a, "layers.duplicate", SDL_BUTTON_LEFT));
@@ -285,7 +285,7 @@ static void t_layer_props(void)
     pt_text(a, "Sky");
     /* live preview of the opacity */
     CHECK(pt_click_rect(a, "layerprops.opacity", SDL_BUTTON_LEFT));
-    pt_key(a, SDLK_A, SDL_KMOD_LCTRL);
+    pt_key(a, SDLK_A, AT_KMOD_PRIMARY);
     pt_text(a, "100");
     pt_key(a, SDLK_TAB, SDL_KMOD_NONE);
     at_frames(a, 2);
@@ -300,7 +300,7 @@ static void t_layer_props(void)
     at_frames(a, 3);
     pt_text(a, "Sky");
     CHECK(pt_click_rect(a, "layerprops.opacity", SDL_BUTTON_LEFT));
-    pt_key(a, SDLK_A, SDL_KMOD_LCTRL);
+    pt_key(a, SDLK_A, AT_KMOD_PRIMARY);
     pt_text(a, "128");
     pt_key(a, SDLK_TAB, SDL_KMOD_NONE);              /* -> the blend mode box */
     pt_key(a, SDLK_DOWN, SDL_KMOD_NONE);             /* Normal -> Multiply */
@@ -361,7 +361,7 @@ static void t_tools(void)
     CHECK(!app_panel_open(a, "tools"));
     pt_key(a, SDLK_P, SDL_KMOD_NONE);
     CHECK(strcmp(app_tool_current(a)->id, "pencil") == 0);
-    pt_key(a, SDLK_F5, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    pt_key(a, SDLK_F5, AT_KMOD_PRIMARY | SDL_KMOD_LSHIFT);
     CHECK(app_panel_open(a, "tools"));
     app_destroy(a);
 }

@@ -58,6 +58,7 @@ static inline void b_mods(app *a, SDL_Keymod mod)
 {
     SDL_Keycode k = (mod & SDL_KMOD_SHIFT) ? SDLK_LSHIFT
                   : (mod & SDL_KMOD_CTRL)  ? SDLK_LCTRL
+                  : (mod & SDL_KMOD_GUI)   ? SDLK_LGUI
                   : (mod & SDL_KMOD_ALT)   ? SDLK_LALT : SDLK_LSHIFT;
     b_key(a, k, mod, mod != 0);
     at_frames(a, 1);

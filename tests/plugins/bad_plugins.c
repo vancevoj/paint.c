@@ -92,7 +92,7 @@ FX_EXPORT int fx_entry(const fx_host *host, int (*reg)(const fx_effect *fx))
     n += reg(&k_norender) >= 0;
 #  elif BAD_KIND == 5
     n += reg(&k_valid) >= 0;
-    return -7;
+    n = -7;                         /* fails after registering (no early return: MSVC C4702) */
 #  elif BAD_KIND == 6
     n += reg(&k_dup) >= 0;
     n += reg(&k_dup) >= 0;

@@ -35,6 +35,13 @@ static double frames_max(app *a, int n, double *total)
 #  endif
 #endif
 
+/* ADR-017: wall-clock limits are enforced in local runs and only reported
+ * when the CI environment variable is set (shared runners vary 2.5 to 4x). */
+#define TIME_CHECK(c) do {                                                      \
+        if (getenv("CI") == NULL) CHECK(c);                                     \
+        else if (!(c)) INFO("over the time limit (reported only on CI): %s", #c); \
+    } while (0)
+
 static void t_large(void)
 {
     const uint32_t n = 8192u;
@@ -66,7 +73,7 @@ static void t_large(void)
     CHECK(app_cmd_exec(a, "adjust.org.paintc.adjust.hue_saturation"));
     dt = now_ms() - t0;
     INFO("open: %.1f ms", dt);
-    CHECK(dt < call_limit);
+    TIME_CHECK(dt < call_limit);
     s = afx_active(a);
     CHECK(s != NULL);
     if (!s || !fx) {
@@ -75,7 +82,7 @@ static void t_large(void)
     }
     worst = frames_max(a, 3, &total);
     INFO("first frames: worst %.1f ms", worst);
-    CHECK(worst < frame_limit);
+    TIME_CHECK(worst < frame_limit);
     /* render and blend while frames keep coming */
     for (frames = 0; frames < 20000 && !afx_session_preview_done(s); frames++) {
         dt = frames_max(a, 1, &total);
@@ -85,7 +92,7 @@ static void t_large(void)
     CHECK(afx_session_preview_done(s));
     INFO("preview: %d frames, worst %.1f ms, mean %.1f ms", frames, worst,
          frames ? total / (double)(frames + 3) : 0.0);
-    CHECK(worst < frame_limit);
+    TIME_CHECK(worst < frame_limit);
     /* a change while the next render runs: returns at once, restarts soon */
     runs = afx_session_runs(s);
     CHECK(fx_param_set(fx, afx_session_params(s), "hue", 90.0) == PC_OK);
@@ -93,13 +100,13 @@ static void t_large(void)
     afx_session_changed(a, s);
     dt = now_ms() - t0;
     INFO("change: %.2f ms", dt);
-    CHECK(dt < call_limit);
+    TIME_CHECK(dt < call_limit);
     CHECK(fx_param_set(fx, afx_session_params(s), "hue", -45.0) == PC_OK);
     (void)frames_max(a, 1, NULL);
     t0 = now_ms();
     afx_session_changed(a, s);              /* cancels the running job */
     dt = now_ms() - t0;
-    CHECK(dt < call_limit);
+    TIME_CHECK(dt < call_limit);
     worst = 0.0;
     for (frames = 0; frames < 2000 && afx_session_runs(s) < runs + 2u; frames++) {
         dt = frames_max(a, 1, NULL);
@@ -109,14 +116,14 @@ static void t_large(void)
     INFO("restart after cancel: %d frames, worst %.1f ms", frames, worst);
     CHECK(afx_session_runs(s) >= runs + 2u);
     CHECK(frames < 200);
-    CHECK(worst < frame_limit);
+    TIME_CHECK(worst < frame_limit);
     /* Cancel returns at once and restores */
     t0 = now_ms();
     afx_session_cancel(a, s);
     (void)app_frame(a, true);
     dt = now_ms() - t0;
     INFO("cancel: %.1f ms", dt);
-    CHECK(dt < frame_limit);
+    TIME_CHECK(dt < frame_limit);
     CHECK(d->txn == NULL && !app_dialog_active(a));
     /* OK on a dialog-less adjustment: one history item, frames stay short */
     worst = 0.0;

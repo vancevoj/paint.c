@@ -96,7 +96,7 @@ static void t_dialog(void)
     d = app_active_doc(a);
     fx = fx_registry_find(a->fx, "org.paintc.adjust.levels");
     CHECK(f_select_ellipse(a, 40.0, 30.0, 30.0, 22.0));
-    f_key(a, SDLK_L, SDL_KMOD_LCTRL);                    /* Ctrl+L */
+    f_key(a, SDLK_L, AT_KMOD_PRIMARY);                    /* Ctrl+L */
     s = afx_active(a);
     CHECK(s && afx_session_fx(s) == fx);
     if (!s || !fx) {
