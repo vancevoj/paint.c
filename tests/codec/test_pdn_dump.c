@@ -13,6 +13,8 @@
  *       original shares a blend op or name object between layers), ORDER
  *       (the original stores chunks out of order), V3 (a Paint.NET 3.x
  *       layout) or DIFF with the first differing line.
+ *   test_pdn_dump --emit-synthetic DIR N                    write N random documents
+ *       (fixed seed) for the pypdn cross-check
  *   test_pdn_dump --export FILE PREFIX                      write PREFIX.txt (size
  *       and layer properties) and PREFIX.bin (BGRA of every layer, bottom
  *       first) for cross-checks against other readers (pypdn).
@@ -242,6 +244,28 @@ static int tool(int argc, char **argv)
         }
         pc_meta_free(&meta);
         pc_doc_destroy(d);
+        return 0;
+    }
+    if (strcmp(argv[1], "--emit-synthetic") == 0 && argc == 4) {
+        /* N random documents (fixed seed): every blend mode, odd sizes,
+         * UTF-8 and shared names, hidden layers, opacities */
+        int count = atoi(argv[3]);
+        for (int k = 0; k < count; k++) {
+            uint32_t w = 1u + rndu(300u), h = 1u + rndu(200u), n = 1u + rndu(14u);
+            pc_doc *d = pdn_random_doc(w, h, n);
+            pc_buf out;
+            char path[512];
+            memset(&out, 0, sizeof out);
+            if (!d) return 1;
+            for (uint32_t li = 0; li < d->n_layers; li++)
+                d->stack[li]->mode = (pc_blend_mode)((li + (uint32_t)k) % PC_BLEND_COUNT);
+            if (pdn_save_ex(d, NULL, NULL, NULL, &out) != PC_OK) return 1;
+            snprintf(path, sizeof path, "%s/synthetic_%03d.pdn", argv[2], k);
+            if (!pdn_write_file(path, out.p, out.n)) return 1;
+            pc_buf_free(&out);
+            pc_doc_destroy(d);
+        }
+        printf("wrote %d files to %s\n", count, argv[2]);
         return 0;
     }
     if (strcmp(argv[1], "--compare") == 0) {

@@ -216,15 +216,16 @@ static pc_status write_nrbf(const pc_doc *d, const pdn_save_opts *o, kv_item *it
     (void)id_ref(&g, &doc);
     TRY(nrbf_put_header(b, doc, -1));
     TRY(nrbf_put_library(b, id_ref(&g, &lib_d), lib_data));
-    {
-        const nrbf_wmember m[6] = {
+    {   /* constant initializers only (MSVC C4204); library ids set below */
+        nrbf_wmember m[6] = {
             { "isDisposed", NRBF_BT_PRIMITIVE, NRBF_P_BOOLEAN, NULL, 0 },
-            { "layers", NRBF_BT_CLASS, 0, "PaintDotNet.LayerList", lib_d },
+            { "layers", NRBF_BT_CLASS, 0, "PaintDotNet.LayerList", 0 },
             { "width", NRBF_BT_PRIMITIVE, NRBF_P_INT32, NULL, 0 },
             { "height", NRBF_BT_PRIMITIVE, NRBF_P_INT32, NULL, 0 },
             { "savedWith", NRBF_BT_SYSTEM_CLASS, 0, "System.Version", 0 },
             { "userMetadataItems", NRBF_BT_SYSTEM_CLASS, 0, KVP_ARRAY_TYPE, 0 },
         };
+        m[1].type_lib = lib_d;
         TRY(nrbf_put_class(b, doc, "PaintDotNet.Document", m, 6u, lib_d));
     }
     TRY(put_bool(b, false));
@@ -236,12 +237,13 @@ static pc_status write_nrbf(const pc_doc *d, const pdn_save_opts *o, kv_item *it
 
     /* PaintDotNet.LayerList (an ArrayList) */
     {
-        const nrbf_wmember m[4] = {
-            { "parent", NRBF_BT_CLASS, 0, "PaintDotNet.Document", lib_d },
+        nrbf_wmember m[4] = {
+            { "parent", NRBF_BT_CLASS, 0, "PaintDotNet.Document", 0 },
             { "ArrayList+_items", NRBF_BT_OBJECT_ARRAY, 0, NULL, 0 },
             { "ArrayList+_size", NRBF_BT_PRIMITIVE, NRBF_P_INT32, NULL, 0 },
             { "ArrayList+_version", NRBF_BT_PRIMITIVE, NRBF_P_INT32, NULL, 0 },
         };
+        m[0].type_lib = lib_d;
         TRY(nrbf_put_class(b, list, "PaintDotNet.LayerList", m, 4u, lib_d));
     }
     TRY(nrbf_put_ref(b, id_ref(&g, &doc)));
@@ -475,8 +477,7 @@ static pc_status gzip_chunk(const uint8_t *src, uint32_t n, int level, uint8_t *
         return PC_ERR_NOMEM;
     gh.os = 10;                 /* what .NET's zlib writes (OS_CODE of Windows builds) */
     if (deflateSetHeader(&zs, &gh) != Z_OK) { deflateEnd(&zs); return PC_ERR_NOMEM; }
-    bound = deflateBound(&zs, n);
-    if (bound > 0xFFFFFFFFu) { deflateEnd(&zs); return PC_ERR_LIMIT; }
+    bound = deflateBound(&zs, n);       /* n <= 64 MiB, so bound fits 32 bits */
     buf = (uint8_t *)malloc((size_t)bound);
     if (!buf) { deflateEnd(&zs); return PC_ERR_NOMEM; }
     zs.next_in = (Bytef *)(uintptr_t)src;
