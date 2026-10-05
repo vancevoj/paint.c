@@ -1,6 +1,7 @@
 /* doc.c - open images: document, linear history, dirty tracking, active
  * layer, transactions, snapshots, selection outline (see app_doc.h). */
 #include "app_internal.h"
+#include "doc_spill.h"           /* W3B-FXCORE: history swap files */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -276,7 +277,9 @@ void app_doc_history_changed(app *a, app_doc *d)
             pc_hist_prune(h, depth_of(h->cur) + 1u);
         d->max_seq = h->cur->seq;
     }
-    if (a && a->hist_budget && d->doc->open_txns == 0u) pc_hist_prune_bytes(h, a->hist_budget);
+    /* W3B-FXCORE: over the budget, spill history-only tiles to the swap
+     * file; old steps are dropped only when that cannot help */
+    if (a) app_doc_spill_fit(a, d);
     validate_layer(d);
     if (a) app_request_frame(a);
 }
@@ -297,6 +300,8 @@ bool app_doc_undo(app *a, app_doc *d)
     bool ok;
     if (!app_doc_can_undo(d)) return false;
     ok = pc_hist_undo(d->hist);
+    if (!ok && a && app_doc_spill_error(d))              /* W3B-FXCORE */
+        app_error(a, "Undo failed: %s.", app_doc_spill_error(d));
     app_doc_history_changed(a, d);
     return ok;
 }
@@ -306,6 +311,8 @@ bool app_doc_redo(app *a, app_doc *d)
     bool ok;
     if (!app_doc_can_redo(d)) return false;
     ok = pc_hist_redo(d->hist);
+    if (!ok && a && app_doc_spill_error(d))              /* W3B-FXCORE */
+        app_error(a, "Redo failed: %s.", app_doc_spill_error(d));
     app_doc_history_changed(a, d);
     return ok;
 }
@@ -342,6 +349,8 @@ pc_status app_doc_history_jump(app *a, app_doc *d, pc_hist_node *target)
     if (!d || d->txn || d->doc->open_txns) return PC_ERR_STATE;
     if (target == d->hist->cur) return PC_OK;
     st = pc_hist_jump(d->hist, target);
+    if (st != PC_OK && st != PC_ERR_ARG && a && app_doc_spill_error(d))   /* W3B-FXCORE */
+        app_error(a, "The history step could not be restored: %s.", app_doc_spill_error(d));
     app_doc_history_changed(a, d);
     return st;
 }

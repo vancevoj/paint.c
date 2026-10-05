@@ -369,13 +369,12 @@ static size_t sel_op_bytes(const void *p)
     if (o->whole) {
         if (o->grid) {
             b += o->n_slots * sizeof *o->grid;
-            for (size_t i = 0; i < o->n_slots; i++)
-                if (o->grid[i] && pc_tile_refs(o->grid[i]) == 1u) b += pc_tile_bytes(1u);
+            /* W3B-FXCORE: through pc_hist_tile_exclusive (spill accounting) */
+            for (size_t i = 0; i < o->n_slots; i++) b += pc_hist_tile_exclusive(o->grid[i]);
         }
     } else {
         b += o->n * sizeof o->v[0];
-        for (size_t i = 0; i < o->n; i++)
-            if (o->v[i].t && pc_tile_refs(o->v[i].t) == 1u) b += pc_tile_bytes(1u);
+        for (size_t i = 0; i < o->n; i++) b += pc_hist_tile_exclusive(o->v[i].t);
     }
     return b;
 }

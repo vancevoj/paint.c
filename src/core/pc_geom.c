@@ -274,17 +274,12 @@ static void geom_destroy(void *p)
     free(g);
 }
 
+/* W3B-FXCORE: tiles through pc_hist_tile_share (spill store accounting). */
 static size_t grid_bytes(pc_tile **grid, size_t n)
 {
     size_t b = 0;
     if (!grid) return 0u;
-    for (size_t i = 0; i < n; i++) {
-        pc_tile *t = grid[i];
-        if (t) {
-            uint32_t r = pc_tile_refs(t);
-            b += pc_tile_bytes(t->bpp) / (r ? r : 1u);
-        }
-    }
+    for (size_t i = 0; i < n; i++) b += pc_hist_tile_share(grid[i]);
     return b + n * sizeof *grid;
 }
 
