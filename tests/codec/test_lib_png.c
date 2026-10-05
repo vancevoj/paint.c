@@ -3,6 +3,7 @@
  * here, metadata, save modes and round trips, limits, mutation fuzzing. */
 #include "pc_test.h"
 #include "lib_test_util.h"
+#include "spng.h"
 
 static const pc_codec *png(void) { return pc_codec_by_id("png"); }
 
@@ -592,6 +593,62 @@ static void t_save_icc_and_big(void)
     free(a);
 }
 
+/* Fixtures encoded by libspng itself: 16-bit RGBA and 8-bit gray + alpha. */
+static void t_spng_fixtures(void)
+{
+    for (int k = 0; k < 2; k++) {
+        const uint32_t W = 19, H = 11;
+        struct spng_ihdr ih;
+        spng_ctx *ctx = spng_ctx_new(SPNG_CTX_ENCODER);
+        uint16_t img16[19 * 11 * 4];
+        uint8_t img8[19 * 11 * 2];
+        size_t len = 0;
+        int err = 0;
+        void *png_buf;
+        pc_doc *d = NULL;
+        pc_image_meta m;
+        memset(&ih, 0, sizeof ih);
+        ih.width = W; ih.height = H;
+        ih.bit_depth = (uint8_t)(k == 0 ? 16 : 8);
+        ih.color_type = (uint8_t)(k == 0 ? SPNG_COLOR_TYPE_TRUECOLOR_ALPHA
+                                         : SPNG_COLOR_TYPE_GRAYSCALE_ALPHA);
+        for (size_t i = 0; i < sizeof img16 / 2; i++) img16[i] = (uint16_t)(rnd() >> 48);
+        for (size_t i = 0; i < sizeof img8; i++) img8[i] = rnd8();
+        /* SPNG_FMT_PNG takes 16-bit samples in host byte order */
+        CHECK(spng_set_option(ctx, SPNG_ENCODE_TO_BUFFER, 1) == 0);
+        CHECK(spng_set_ihdr(ctx, &ih) == 0);
+        CHECK(spng_encode_image(ctx, k == 0 ? (const void *)img16 : (const void *)img8,
+                                k == 0 ? sizeof img16 : sizeof img8, SPNG_FMT_PNG,
+                                SPNG_ENCODE_FINALIZE) == 0);
+        png_buf = spng_get_png_buffer(ctx, &len, &err);
+        CHECK(png_buf != NULL && err == 0);
+        spng_ctx_free(ctx);
+        if (!png_buf) continue;
+        CHECK(png()->load((const uint8_t *)png_buf, len, NULL, &d, &m) == PC_OK);
+        if (d) {
+            pc_px32 *px = tu_layer_px(d, d->stack[0]);
+            size_t bad = 0;
+            for (size_t i = 0; i < (size_t)W * H; i++) {
+                pc_px32 e;
+                if (k == 0) {
+                    const uint16_t *c = img16 + 4 * i;
+                    e = tu_px(scale_to8(c[0], 16), scale_to8(c[1], 16), scale_to8(c[2], 16),
+                              scale_to8(c[3], 16));
+                } else {
+                    e = tu_px(img8[2 * i], img8[2 * i], img8[2 * i], img8[2 * i + 1]);
+                }
+                if (!tu_px_eq(px[i], e)) bad++;
+            }
+            CHECK(bad == 0);
+            CHECK(m.src_bits == (k == 0 ? 16u : 8u) && m.had_alpha);
+            free(px);
+            pc_doc_destroy(d);
+            pc_meta_free(&m);
+        }
+        free(png_buf);
+    }
+}
+
 static void t_fuzz(void)
 {
     uint32_t iters = g_quick ? 1500u : 20000u, ok = 0;
@@ -629,6 +686,7 @@ int main(int argc, char **argv)
     RUN(t_params);
     RUN(t_decode_matrix);
     RUN(t_decode_meta);
+    RUN(t_spng_fixtures);
     RUN(t_decode_errors);
     RUN(t_save_modes);
     RUN(t_save_palette);

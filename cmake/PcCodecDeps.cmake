@@ -25,10 +25,17 @@ option(PC_JPEG_SIMD "Use the libjpeg-turbo NASM SIMD code on x86-64 when NASM ex
 set(_pc_tp_root ${PROJECT_SOURCE_DIR}/third_party)
 find_package(Threads REQUIRED)
 
-# Link libm where it exists as a separate library.
-function(_pc_tp_libm tgt)
+# Link libm where it exists as a separate library, and keep third-party
+# warnings out of the build log (we do not maintain that code; first-party
+# targets keep pc_warnings with -Werror).
+function(_pc_tp_common tgt)
   if(NOT MSVC AND NOT APPLE AND NOT WIN32)
     target_link_libraries(${tgt} PRIVATE m)
+  endif()
+  if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(${tgt} PRIVATE -w)
+  elseif(MSVC)
+    target_compile_options(${tgt} PRIVATE /w)
   endif()
 endfunction()
 
@@ -40,7 +47,7 @@ add_library(pc_spng STATIC ${pc_spng_src_SOURCE_DIR}/spng/spng.c)
 target_include_directories(pc_spng SYSTEM PUBLIC ${pc_spng_src_SOURCE_DIR}/spng)
 target_compile_definitions(pc_spng PUBLIC SPNG_STATIC)
 target_link_libraries(pc_spng PRIVATE pc_zlib)
-_pc_tp_libm(pc_spng)
+_pc_tp_common(pc_spng)
 set_target_properties(pc_spng PROPERTIES POSITION_INDEPENDENT_CODE ON C_EXTENSIONS ON)
 
 # ---- libjpeg-turbo 3.2.0 (IJG, BSD-3-Clause, zlib) ----------------------------
@@ -209,6 +216,7 @@ target_include_directories(pc_jpeg SYSTEM INTERFACE ${_jinc})
 if(MSVC)
   target_compile_definitions(pc_jpeg PRIVATE _CRT_NONSTDC_NO_WARNINGS)
 endif()
+_pc_tp_common(pc_jpeg)
 set_target_properties(pc_jpeg PROPERTIES POSITION_INDEPENDENT_CODE ON C_EXTENSIONS ON)
 
 # ---- libwebp 1.6.0 (BSD-3-Clause + patent grant) --------------------------------
@@ -225,7 +233,7 @@ target_include_directories(pc_webp PRIVATE ${_w})
 target_include_directories(pc_webp SYSTEM INTERFACE ${_w}/src)
 target_compile_definitions(pc_webp PRIVATE WEBP_USE_THREAD WEBP_NEAR_LOSSLESS=1)
 target_link_libraries(pc_webp PRIVATE Threads::Threads)
-_pc_tp_libm(pc_webp)
+_pc_tp_common(pc_webp)
 set_target_properties(pc_webp PROPERTIES POSITION_INDEPENDENT_CODE ON C_EXTENSIONS ON)
 # x86 with GCC/Clang: the SSE4.1 and AVX2 files need their ISA flag, and the
 # dispatchers need WEBP_HAVE_* to call them (runtime CPU detection decides).
@@ -252,7 +260,7 @@ target_link_libraries(pc_lcms2 PRIVATE Threads::Threads)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(pc_lcms2 PRIVATE -fwrapv)
 endif()
-_pc_tp_libm(pc_lcms2)
+_pc_tp_common(pc_lcms2)
 set_target_properties(pc_lcms2 PROPERTIES POSITION_INDEPENDENT_CODE ON C_EXTENSIONS ON)
 
 # ---- vendored texture block codecs (MIT / public domain) ---------------------------
@@ -264,7 +272,7 @@ add_library(pc_texcomp STATIC
 target_include_directories(pc_texcomp SYSTEM PUBLIC
   ${_pc_tp_root}/bcdec ${_pc_tp_root}/stb_dxt ${_pc_tp_root}/bc7enc)
 target_compile_definitions(pc_texcomp PUBLIC BCDEC_BC4BC5_PRECISE)
-_pc_tp_libm(pc_texcomp)
+_pc_tp_common(pc_texcomp)
 set_target_properties(pc_texcomp PROPERTIES POSITION_INDEPENDENT_CODE ON C_EXTENSIONS ON)
 
 # ---- header usage requirements for consumers that call the libraries directly
