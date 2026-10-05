@@ -69,6 +69,9 @@ static const fx_effect k_fx = {
     NULL, square_prepare, square_release, square_render
 };
 
+/* Module entry, called by fx_builtin_register on the main thread. Registers
+ * one static fx_effect; the host borrows it for the life of the process.
+ * Returns the number of effects the host accepted (0 or 1). */
 int fxm_blur_square(const fx_host *host, int (*reg)(const fx_effect *fx));
 int fxm_blur_square(const fx_host *host, int (*reg)(const fx_effect *fx))
 {

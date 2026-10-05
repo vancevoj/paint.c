@@ -60,7 +60,7 @@ static int sketch_prepare(const void *params, const fx_img *src, const fx_env *e
     }
     /* sample 0 is the pixel itself; the rest alternate between the two
      * axes, stratified over [-R, R] with a fixed hashed jitter */
-    nh = (st->n - 1 + 1) / 2;
+    nh = (st->n - 1) / 2;                       /* n is odd: equal halves */
     nv = st->n - 1 - nh;
     for (i = 1; i < st->n; i++) {
         int horiz = (i & 1) != 0;
@@ -172,6 +172,9 @@ static const fx_effect k_fx = {
     NULL, sketch_prepare, sketch_release, sketch_render
 };
 
+/* Module entry, called by fx_builtin_register on the main thread. Registers
+ * one static fx_effect; the host borrows it for the life of the process.
+ * Returns the number of effects the host accepted (0 or 1). */
 int fxm_blur_sketch(const fx_host *host, int (*reg)(const fx_effect *fx));
 int fxm_blur_sketch(const fx_host *host, int (*reg)(const fx_effect *fx))
 {

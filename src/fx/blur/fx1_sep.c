@@ -274,8 +274,11 @@ int fx1_sep_cache_build(const fx1_sep *s, const fx_img *src, fx_rect sel, fx1_vc
     x0 = sel.x - E < X0 ? X0 : sel.x - E;
     x1 = sel.x + sel.w + E > X1 ? X1 : sel.x + sel.w + E;
     if (x1 <= x0) return FX_OK;
-    n = (size_t)(x1 - x0) * (size_t)sel.h;
-    if (n > FX1_CACHE_MAX_BYTES / 16u) return FX_OK;          /* fall back, same output */
+    {
+        uint64_t n64 = (uint64_t)(x1 - x0) * (uint64_t)sel.h;  /* no size_t wrap (P-08) */
+        if (n64 > (uint64_t)(FX1_CACHE_MAX_BYTES / 16u)) return FX_OK;   /* same output */
+        n = (size_t)n64;
+    }
     c->v = (int32_t *)fx1_alloc(h, n, 4u * sizeof(int32_t));
     c->wv = (int32_t *)fx1_alloc(h, (size_t)sel.h, sizeof(int32_t));
     vrows = (size_t)sel.h + 2u * (size_t)E;

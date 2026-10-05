@@ -268,7 +268,7 @@ static void t_cancel(void)
 static void t_hostile_params(void)
 {
     int i;
-    const double nan = (double)NAN;
+    const double qnan = (double)NAN;
     for (i = 0; i < T_NIDS; i++) {
         const fx_effect *fx = t_find(g_t_ids[i]);
         int v;
@@ -279,7 +279,7 @@ static void t_hostile_params(void)
             uint32_t k;
             for (k = 0; k < fx->n_props; k++) {
                 const fx_prop *pr = &fx->props[k];
-                double val = v == 0 ? pr->min - 1e6 : (v == 1 ? pr->max + 1e6 : nan);
+                double val = v == 0 ? pr->min - 1e6 : (v == 1 ? pr->max + 1e6 : qnan);
                 if (pr->kind == FXP_REAL || pr->kind == FXP_ANGLE || pr->kind == FXP_POINT)
                     t_prop_write(pr, p, val, val);
                 else if (pr->kind != FXP_SEED)
