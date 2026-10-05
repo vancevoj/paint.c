@@ -182,8 +182,26 @@ Every `test_own_<fmt>` binary is also a fuzz driver:
 build-san/tests/codec/test_own_tiff --fuzz-iters 400000   # mutation loop
 build-san/tests/codec/test_own_tiff --fuzz-file crash.tif  # replay, AFL style
 # libFuzzer: compile the test file with -DPC_LIBFUZZER -fsanitize=fuzzer,address
+clang -std=c17 -O1 -g -fsanitize=fuzzer,address,undefined -DPC_LIBFUZZER \
+    -Iinclude -Itests -Ibuild/src/codec/gen -Isrc/codec tests/codec/test_own_tiff.c \
+    src/codec/*.c src/core/*.c -lz -lm -o fz_tiff
+./fz_tiff corpus_dir -max_total_time=600 -rss_limit_mb=2048
 ```
 
 Verified on 2026-10-04: 400000 mutation iterations per decoder under ASan
 and UBSan, plus 10 minutes of coverage-guided libFuzzer per decoder, without
-findings.
+findings. On 2026-10-05, after the TIFF fill order, tile lifetime and float
+changes: 150000 to 200000 mutation iterations per decoder under ASan and
+UBSan and 200 s (1.1 million runs) of libFuzzer on the TIFF decoder, without
+findings; decoding of 84 ImageMagick TIFF layouts (fill order, tiles,
+endianness, planar, 16-bit, palette, CMYK, bilevel, orientation) and 84
+float layouts matched ImageMagick, and 180 encoder outputs (every option of
+the four writers on four sources) decoded identically in Pillow and
+ImageMagick.
+
+Differences from ImageMagick 7.1.1 seen while cross-checking (ours follows
+the specification): half floats are rounded where ImageMagick truncates by
+one; 1-bit BMP alpha reads as 255 where ImageMagick returns 128; ImageMagick
+writes the floating point predictor wrongly with `-endian MSB` and writes
+`BMP3:` files with `RGB565` as BI_BITFIELDS without masks (rejected with
+`PC_ERR_FORMAT`, Pillow rejects them too).
