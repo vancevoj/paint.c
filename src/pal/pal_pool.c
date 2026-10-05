@@ -258,7 +258,13 @@ static void pool_run_round(pal_pool *p, pc_job_fn fn, void *ud, uint32_t base,
 
     SDL_LockMutex(p->mu);
     job_link(p, &j);
-    SDL_BroadcastCondition(p->cv_work);
+    /* Wake only as many sleepers as there are items for (the caller takes
+     * one), so tiny jobs do not stir up the whole pool. */
+    if (count - 1u >= p->n_threads) {
+        SDL_BroadcastCondition(p->cv_work);
+    } else {
+        for (uint32_t i = 0; i + 1u < count; i++) SDL_SignalCondition(p->cv_work);
+    }
     SDL_UnlockMutex(p->mu);
 
     ran = job_work(&j, 0u);

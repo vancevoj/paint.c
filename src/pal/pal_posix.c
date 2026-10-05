@@ -245,9 +245,8 @@ pc_status pal_write_file_atomic(const char *path, const void *data, size_t len)
      * descriptor, so no other file can be affected. */
     (void)fchmod(fd, mode);
     if (close(fd) != 0) {
-        fd = -1;
-        rc = PC_ERR_IO;                     /* data reached the disk (fsync) */
-        goto done;
+        /* The complete, fsync'ed data already has its final name. */
+        pal_log(PAL_LOG_WARN, "pal_write_file_atomic: close failed after saving %s", path);
     }
     fd = -1;
     {
@@ -316,9 +315,7 @@ bool pal__os_mkdirs(const char *path, bool private_mode)
         if (buf[i] == '/' || buf[i] == '\0') {
             char c = buf[i];
             buf[i] = '\0';
-            if (mkdir(buf, mode) != 0 && errno != EEXIST) {
-                /* keep going: a later component may still exist */
-            }
+            (void)mkdir(buf, mode);         /* EEXIST is fine; the end result counts */
             buf[i] = c;
         }
     }
