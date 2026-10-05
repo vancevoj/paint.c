@@ -99,12 +99,17 @@ static void tool_button(app *a, const char *id, const char *name, char letter, u
 void pnl_tools_body(app *a, void *ud)
 {
     ui_ctx *ui = a->ui;
-    ui_size cells[2];
+    ui_size cells[8];
+    int32_t ncols;
     (void)ud;
-    cells[0] = ui_size_px(28.0f);
-    cells[1] = ui_size_px(28.0f);
+    /* lane UIA (wave 4): as many 28 DIP columns as the window is wide
+     * (2 by default; the default layout widens a window that is too short) */
+    ncols = (ui_layout_content(ui).w + ui_px(ui, 2.0f)) / ui_px(ui, 30.0f);
+    if (ncols < 2) ncols = 2;
+    if (ncols > 8) ncols = 8;
+    for (int32_t i = 0; i < ncols; i++) cells[i] = ui_size_px(28.0f);
     ui_layout_set_spacing(ui, 2.0f);
-    ui_layout_row(ui, 0.0f, 2, cells);
+    ui_layout_row(ui, 0.0f, (int)ncols, cells);
     for (int32_t i = 0; i < N_SLOTS; i++)
         tool_button(a, k_slots[i].id, k_slots[i].name, k_slots[i].letter, k_slots[i].icon,
                     k_rect_names[i]);

@@ -47,6 +47,10 @@ typedef struct app_panel {
     app_panel_def  def;         /* id and title point at the owned copies below */
     char          *id, *title;  /* owned */
     ui_panel_state st;
+    /* lane UIA (wave 4): placed by the default layout (panels.c), which
+     * fits the standard windows to the workspace without overlaps; off
+     * once the user moves or resizes the window */
+    bool           uia_auto;
 } app_panel;
 
 typedef struct app_dialog_rec {
