@@ -53,7 +53,9 @@ EXIF 4 MiB, XMP 16 MiB, IPTC 4 MiB, one PNG text chunk or GIF comment
 1 MiB; larger blocks are ignored. EXIF IFDs are read with at most 2048
 entries each, every IFD at most once (no recursion, loop safe), every
 value bounds checked; values over 1 MiB are skipped when the source is a
-whole TIFF file. XMP must be valid UTF-8 without NUL bytes (trailing NULs
+whole TIFF file. One EXIF set holds at most 8192 entries (CM_EXIF_MAX_ENTRIES,
+so every IFD count fits its 16-bit field); merges, text tags and savers keep
+what fits instead of failing. XMP must be valid UTF-8 without NUL bytes (trailing NULs
 are trimmed).
 
 ## Gaps
