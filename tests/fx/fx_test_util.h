@@ -18,7 +18,9 @@
  *   1. determinism: a reference render (64 px tiles, one worker, row-major)
  *      against 17 px tiles with 3 concurrent workers and a priority point,
  *      5 px tiles with 4 interleaved workers, a single ROI with 2 workers,
- *      and fx_run_sync: dst must be byte-identical inside the area;
+ *      and fx_run_sync: dst must be byte-identical inside the area. The
+ *      reference starts from one canary pattern and the others from a
+ *      second one, so ROI pixels the effect never writes are caught too;
  *   2. ROI-only writes: dst starts as a canary pattern; pixels outside the
  *      area must keep it, and when stepping one ROI at a time every pixel
  *      outside the ROIs finished so far must keep it;
@@ -192,21 +194,32 @@ static inline void fxt_fill_photo(fx_img *im, uint32_t seed)
         }
 }
 
+/* Canary patterns: position-dependent bytes; two variants (variant 0 and 1)
+ * so that pixels an effect forgets to write differ between runs. */
+static inline uint8_t fxt_canary_byte_v(int32_t x, int32_t y, int32_t c, uint32_t variant)
+{
+    return (uint8_t)(0xA5u ^ fx_hash_xy(x, y, 0xC0FFEEu + variant, (uint32_t)c + 7u));
+}
 static inline uint8_t fxt_canary_byte(int32_t x, int32_t y, int32_t c)
 {
-    return (uint8_t)(0xA5u ^ fx_hash_xy(x, y, 0xC0FFEEu, (uint32_t)c + 7u));
+    return fxt_canary_byte_v(x, y, c, 0u);
 }
-static inline void fxt_fill_canary(fx_img *im)
+static inline void fxt_fill_canary_v(fx_img *im, uint32_t variant)
 {
     for (int32_t y = im->r.y; y < im->r.y + im->r.h; y++)
         for (int32_t x = im->r.x; x < im->r.x + im->r.w; x++) {
             uint8_t *p = fxt_at(im, x, y);
-            for (int32_t c = 0; c < im->chans; c++) p[c] = fxt_canary_byte(x, y, c);
+            for (int32_t c = 0; c < im->chans; c++) p[c] = fxt_canary_byte_v(x, y, c, variant);
         }
 }
+static inline void fxt_fill_canary(fx_img *im)
+{
+    fxt_fill_canary_v(im, 0u);
+}
 /* Number of pixels outside every rect of keep[0..nkeep) whose bytes are not
- * the canary. */
-static inline uint32_t fxt_canary_damage(const fx_img *im, const fx_rect *keep, uint32_t nkeep)
+ * the canary of the given variant. */
+static inline uint32_t fxt_canary_damage_v(const fx_img *im, const fx_rect *keep,
+                                           uint32_t nkeep, uint32_t variant)
 {
     uint32_t bad = 0;
     for (int32_t y = im->r.y; y < im->r.y + im->r.h; y++)
@@ -216,9 +229,13 @@ static inline uint32_t fxt_canary_damage(const fx_img *im, const fx_rect *keep, 
             for (uint32_t k = 0; k < nkeep && !inside; k++) inside = fxt_in(keep[k], x, y);
             if (inside) continue;
             for (int32_t c = 0; c < im->chans; c++)
-                if (p[c] != fxt_canary_byte(x, y, c)) { bad++; break; }
+                if (p[c] != fxt_canary_byte_v(x, y, c, variant)) { bad++; break; }
         }
     return bad;
+}
+static inline uint32_t fxt_canary_damage(const fx_img *im, const fx_rect *keep, uint32_t nkeep)
+{
+    return fxt_canary_damage_v(im, keep, nkeep, 0u);
 }
 /* Byte equality of a and b inside r (both must cover r). */
 static inline bool fxt_equal_in(const fx_img *a, const fx_img *b, fx_rect r)
@@ -434,11 +451,13 @@ static inline void fxt_check_case(const fx_effect *fx, const void *params, const
         static const int32_t tiles[3] = { 17, 5, 4096 };
         static const uint32_t thr[3] = { 3u, 4u | FXT_INTERLEAVE, 2u };
         for (int k = 0; k < 3; k++) {
-            fxt_fill_canary(&out);
+            /* the other canary variant: unwritten ROI pixels would differ */
+            fxt_fill_canary_v(&out, 1u);
             FXT_CHECK(fxt_run(fx, params, src, &out, &env, sel, tiles[k], thr[k],
                               k == 0 ? prio : NULL) == FX_JOB_DONE, fx, "tiled render");
-            FXT_CHECK(fxt_equal_in(&ref, &out, area), fx, "tiling invariance");
-            FXT_CHECK(fxt_canary_damage(&out, &area, 1u) == 0u, fx, "writes outside area");
+            FXT_CHECK(fxt_equal_in(&ref, &out, area), fx,
+                      "tiling invariance (and every ROI pixel written)");
+            FXT_CHECK(fxt_canary_damage_v(&out, &area, 1u, 1u) == 0u, fx, "writes outside area");
         }
         fxt_fill_canary(&out);
         FXT_CHECK(fx_run_sync(fx, params, src, &out, &env, sel, NULL) == PC_OK, fx,
@@ -501,7 +520,7 @@ static inline void fxt_check_case(const fx_effect *fx, const void *params, const
             fx_job_destroy(job);
         }
         fxt_fill_canary(&out);
-        if (area.h >= 4 && !(fx->flags & FX_FLAG_SINGLE_THREAD) &&
+        if (area.h >= 4 &&
             fx_job_create(fx, params, src, &out, &env, sel, 1 << 20, NULL, &job) == PC_OK) {
             fx_job_set_cancel_after(job, 2u);
             (void)fx_job_work(job, 0);

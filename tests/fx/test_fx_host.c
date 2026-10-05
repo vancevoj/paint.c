@@ -194,6 +194,15 @@ static int nondet_render(const void *params, const void *state, const fx_img *sr
     fx_row(dst, roi.y)[roi.x].b ^= k;
     return r;
 }
+static int lazy_render(const void *params, const void *state, const fx_img *src,
+                       fx_img *dst, fx_rect roi, const fx_env *env, const fx_host *host,
+                       const void *job)
+{
+    fx_px keep = fx_row(dst, roi.y)[roi.x];
+    int r = all_render(params, state, src, dst, roi, env, host, job);
+    fx_row(dst, roi.y)[roi.x] = keep;          /* "forgets" the first pixel */
+    return r;
+}
 static int nopoll_render(const void *params, const void *state, const fx_img *src,
                          fx_img *dst, fx_rect roi, const fx_env *env, const fx_host *host,
                          const void *job)
@@ -832,6 +841,17 @@ static void t_detectors(void)
     (void)fxt_run(&nondet, NULL, &src, &a, &env, area, 16, 1u, NULL);
     (void)fxt_run(&nondet, NULL, &src, &b, &env, area, 7, 1u, NULL);
     CHECK(!fxt_equal_in(&a, &b, area));
+
+    /* an effect that skips a pixel of every ROI is caught by the canaries */
+    {
+        fx_effect lazy = k_all;
+        lazy.render = lazy_render;
+        fxt_fill_canary_v(&a, 0u);
+        fxt_fill_canary_v(&b, 1u);
+        (void)fxt_run(&lazy, NULL, &src, &a, &env, area, 16, 1u, NULL);
+        (void)fxt_run(&lazy, NULL, &src, &b, &env, area, 16, 1u, NULL);
+        CHECK(!fxt_equal_in(&a, &b, area));
+    }
 
     CHECK(fx_job_create(&nopoll, NULL, &src, &a, &env, area, 1 << 20, NULL, &job) == PC_OK);
     fx_job_set_cancel_after(job, 2u);
