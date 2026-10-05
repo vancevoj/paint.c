@@ -72,7 +72,11 @@ static void load_options(app *a, shapes_state *s)
     s->draw = vec_get_int(a, KEY_DRAW, PC_SHAPE_DRAW_OUTLINE, 0, 2);
     s->dash = vec_get_int(a, KEY_DASH, PC_DASH_SOLID, 0, (int32_t)PC_DASH_STYLE_COUNT - 1);
     /* Settings > Tools shows Corner size = 10 (OBSERVED 9 and 10) */
-    s->corner = vec_get_double(a, KEY_CORNER, 10.0, 0.0, 2000.0);
+    /* lane UIA (wave 4): 10 at 100 % UI scale, scaled like the brush width */
+    s->corner = vec_get_double(a, KEY_CORNER,
+                               floor(10.0 * (double)app_tool_default_scale() * 100.0 + 0.5) /
+                                   100.0,
+                               0.0, 2000.0);
 }
 
 static void store_options(app *a, const shapes_state *s)

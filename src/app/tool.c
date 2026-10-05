@@ -164,6 +164,8 @@ float app_tool_default_width(void)
     return w;
 }
 
+float app_tool_default_scale(void) { return g_width_scale; }     /* lane UIA */
+
 bool app_tools_init(app *a)
 {
     float s = 1.0f;

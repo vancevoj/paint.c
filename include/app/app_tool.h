@@ -330,6 +330,9 @@ bool    app_opt_tool_button(const app *a, ui_rect *r);
  * 2 at 100 %, 4 at 200 % (O-WIDTH, R 4.0.9); app_tool_settings_reset uses
  * it. */
 float   app_tool_default_width(void);
+/* Lane UIA (wave 4): that UI scale itself (1 at 100 %), for other option
+ * defaults that scale with the UI (text size, corner size). */
+float   app_tool_default_scale(void);
 
 #ifdef __cplusplus
 }

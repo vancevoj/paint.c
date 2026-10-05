@@ -612,6 +612,10 @@ void ui_dialog_buttons(ui_ctx *ctx, uint32_t buttons, uint32_t def);
  * button (UI_DLG_CANCEL, or UI_DLG_NO / UI_DLG_CLOSE when there is no
  * Cancel). The app stops calling ui_dialog_begin after a nonzero result. */
 uint32_t ui_dialog_end(ui_ctx *ctx);
+/* Lane UIA (wave 4): a dialog taller than the window is as tall as the
+ * window and its body scrolls (wheel, scroll bar), buttons included. True
+ * while the dialog declared with this title (outside any id scope) does. */
+bool     ui_dialog_scrolled(ui_ctx *ctx, const char *title);
 
 /* Message box helper built on ui_dialog_*. Returns 0 while open. */
 uint32_t ui_message_box(ui_ctx *ctx, const char *title, const char *text, ui_icon icon,
