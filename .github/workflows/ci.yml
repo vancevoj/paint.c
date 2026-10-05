@@ -1,0 +1,253 @@
+# paint.c continuous integration (lane L0). Every job configures with CMake
+# and Ninja, builds Release (or the sanitizer flavour) and runs CTest, which
+# runs every test executable with --quick.
+#
+# SDL3 3.4.18 is built from source everywhere (PC_VENDOR_SDL=ON) so every
+# platform tests the same pinned version; Ubuntu 24.04 has no SDL3 package
+# anyway. Dependency archives are cached through PC_DOWNLOAD_CACHE.
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+  CTEST_OUTPUT_ON_FAILURE: 1
+  PC_DEPS: ${{ github.workspace }}/.deps-cache
+
+jobs:
+  linux:
+    name: linux-${{ matrix.cc }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools and SDL3 build dependencies (X11, Wayland)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev \
+            libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols \
+            libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev libdrm-dev \
+            libgbm-dev libdbus-1-dev libibus-1.0-dev libudev-dev libasound2-dev \
+            libpulse-dev libpipewire-0.3-dev
+      - uses: actions/cache@v4
+        with:
+          path: .deps-cache
+          key: deps-${{ hashFiles('cmake/*.cmake') }}
+          restore-keys: deps-
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$PC_DEPS"
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build
+      - name: Headless libraries (no SDL)
+        if: matrix.cc == 'gcc'
+        run: |
+          cmake -S . -B build-hl -G Ninja -DCMAKE_BUILD_TYPE=Release -DPC_HEADLESS=ON \
+            -DPC_DOWNLOAD_CACHE="$PC_DEPS"
+          cmake --build build-hl
+          ctest --test-dir build-hl
+      - name: Upload paintc
+        if: hashFiles('src/app/CMakeLists.txt') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: paintc-linux-${{ matrix.cc }}
+          path: |
+            build/paintc
+            build/**/paintc
+          if-no-files-found: warn
+
+  linux-sanitizers:
+    name: linux-asan-ubsan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools and SDL3 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev \
+            libdbus-1-dev libudev-dev
+      - uses: actions/cache@v4
+        with:
+          path: .deps-cache
+          key: deps-${{ hashFiles('cmake/*.cmake') }}
+          restore-keys: deps-
+      - name: Configure
+        env:
+          CC: clang
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPC_SANITIZE=ON
+          -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$PC_DEPS"
+      - name: Build
+        run: cmake --build build
+      - name: Test (quick, leak detection on)
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build
+
+  linux-tsan:
+    name: linux-tsan (pal, core)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools and SDL3 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev \
+            libdbus-1-dev libudev-dev
+      - name: Allow TSan shadow mappings (high ASLR entropy breaks TSan)
+        run: sudo sysctl vm.mmap_rnd_bits=28
+      - uses: actions/cache@v4
+        with:
+          path: .deps-cache
+          key: deps-${{ hashFiles('cmake/*.cmake') }}
+          restore-keys: deps-
+      - name: Configure
+        env:
+          CC: clang
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPC_TSAN=ON
+          -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$PC_DEPS"
+      - name: Build
+        run: cmake --build build
+      - name: Test pal and core
+        env:
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+        run: |
+          ctest --test-dir build/tests/pal
+          ctest --test-dir build/tests/core
+
+  windows-cross:
+    name: mingw-w64 + wine
+    runs-on: ubuntu-24.04
+    # Debian 13 matches the reference toolchain: mingw-w64 GCC 14 (UCRT via
+    # -mcrtdll) and Wine 10.
+    container: debian:trixie
+    defaults:
+      run:
+        shell: bash
+    env:
+      # github.workspace is the host path in container jobs; use the
+      # container's own GITHUB_WORKSPACE inside run steps instead.
+      PC_DEPS: ""
+    steps:
+      - name: Install toolchain and Wine
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git cmake ninja-build \
+            gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64 wine wine64
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .deps-cache
+          key: deps-${{ hashFiles('cmake/*.cmake') }}
+          restore-keys: deps-
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64-x86_64.cmake
+          -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$GITHUB_WORKSPACE/.deps-cache"
+          -DPC_WINEPREFIX="$GITHUB_WORKSPACE/.wine"
+      - name: Build
+        run: cmake --build build
+      - name: Test under Wine
+        run: ctest --test-dir build
+
+  windows:
+    name: windows-${{ matrix.cc }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [cl, clang-cl]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - uses: actions/cache@v4
+        with:
+          path: .deps-cache
+          key: deps-${{ hashFiles('cmake/*.cmake') }}
+          restore-keys: deps-
+      - name: Configure
+        shell: pwsh
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=${{ matrix.cc }} -DCMAKE_CXX_COMPILER=${{ matrix.cc }}
+          -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$env:PC_DEPS"
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build
+      - name: Upload paintc
+        if: hashFiles('src/app/CMakeLists.txt') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: paintc-windows-${{ matrix.cc }}
+          path: |
+            build/paintc.exe
+            build/**/paintc.exe
+          if-no-files-found: warn
+
+  macos:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-14: Apple Silicon (arm64). macos-15-intel: the x86_64 image
+        # (macos-13 was retired in 2025).
+        os: [macos-14, macos-15-intel]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: brew install ninja || true
+      - uses: actions/cache@v4
+        with:
+          path: .deps-cache
+          key: deps-${{ hashFiles('cmake/*.cmake') }}
+          restore-keys: deps-
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DPC_VENDOR_SDL=ON -DPC_DOWNLOAD_CACHE="$PC_DEPS"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build
+      - name: Upload paintc
+        if: hashFiles('src/app/CMakeLists.txt') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: paintc-${{ matrix.os }}
+          path: |
+            build/paintc
+            build/**/paintc
+            build/**/paint.c.app
+          if-no-files-found: warn

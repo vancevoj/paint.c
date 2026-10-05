@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=paint.c
+GenericName=Image Editor
+Comment=Raster image editor with layers, effects and adjustments
+Exec=paintc %F
+Icon=org.paintc.paintc
+Terminal=false
+Categories=Graphics;2DGraphics;RasterGraphics;
+MimeType=image/png;image/jpeg;image/bmp;image/gif;image/tiff;image/webp;image/x-tga;image/openraster;
+StartupWMClass=paintc
+SingleMainWindow=true
