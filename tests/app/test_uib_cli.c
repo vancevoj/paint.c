@@ -312,6 +312,13 @@ static SDL_Process *start_primary(const char *exe, const char *cfg, const proc_e
 
 static void t_forwarded(void)
 {
+#if defined(__APPLE__)
+    /* pal has no single instance on macOS (LaunchServices keeps one app
+     * per bundle), so a second launch never forwards there */
+    INFO("no single instance on macOS; skipping");
+    CHECK(true);
+    return;
+#else
     char exe[1024], base[1024], cfg[1100];
     const char *args[12];
     proc_env pe;
@@ -344,8 +351,18 @@ static void t_forwarded(void)
     sec = spawn(args, &pe, true);
     CHECK(sec != NULL);
     if (sec) {
-        void *data = SDL_ReadProcess(sec, &n, &code);
-        out = (char *)data;
+        /* a forwarding launch ends at once; one that does not forward
+         * would open a window and run: never wait for it forever */
+        uint64_t end = SDL_GetTicks() + 30000u;
+        bool done = false;
+        while (!(done = SDL_WaitProcess(sec, false, &code)) && SDL_GetTicks() < end) SDL_Delay(20);
+        if (done) {
+            out = (char *)SDL_ReadProcess(sec, &n, &code);
+        } else {
+            CHECK(!"the second launch did not end");
+            (void)SDL_KillProcess(sec, true);
+            (void)SDL_WaitProcess(sec, true, &code);
+        }
         SDL_DestroyProcess(sec);
     }
     CHECK(code == 0);
@@ -363,6 +380,7 @@ static void t_forwarded(void)
     } else {
         INFO("no graceful stop on this platform; exit check skipped");
     }
+#endif
 }
 
 static void t_other_folder(void)
