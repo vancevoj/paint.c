@@ -19,6 +19,8 @@
  *   move X Y                  pointer motion
  *   up X Y [left|right|middle]
  *   stroke X0 Y0 X1 Y1 [N] [left|right]  press, N motions, release
+ *   sclick X Y [left|right]   click at window coordinates (menus, panels)
+ *   smove X Y                 pointer motion in window coordinates
  *   zoom PERCENT | fit        view zoom
  *   frames N                  run N frames
  *   wait                      finish background work
@@ -195,15 +197,29 @@ static int run_line(app *a, char **tok, int n, int ln, char *err, size_t cap)
         }
         settle(a, 1);
     } else if (strcmp(c, "key") == 0 && n >= 2) {
+        /* through SDL events, so widgets and dialogs see the key too */
         app_key k;
+        SDL_Event e;
 #if defined(__APPLE__)
         bool mac = true;
 #else
         bool mac = false;
 #endif
         if (app_key_parse(tok[1], mac, &k, 1) != 1) return fail(err, cap, ln, "bad key");
-        (void)app_key_press(a, k.key, k.mods, false);
-        settle(a, 1);
+        memset(&e, 0, sizeof e);
+        e.type = SDL_EVENT_KEY_DOWN;
+        e.key.key = (SDL_Keycode)k.key;
+        e.key.mod = (SDL_Keymod)(((k.mods & UI_MOD_CTRL) ? SDL_KMOD_LCTRL : 0) |
+                                 ((k.mods & UI_MOD_SHIFT) ? SDL_KMOD_LSHIFT : 0) |
+                                 ((k.mods & UI_MOD_ALT) ? SDL_KMOD_LALT : 0) |
+                                 ((k.mods & UI_MOD_GUI) ? SDL_KMOD_LGUI : 0));
+        e.key.down = true;
+        e.key.timestamp = SDL_GetTicksNS();
+        app_event(a, &e);
+        e.type = SDL_EVENT_KEY_UP;
+        e.key.down = false;
+        app_event(a, &e);
+        settle(a, 2);
     } else if ((strcmp(c, "down") == 0 || strcmp(c, "up") == 0 || strcmp(c, "move") == 0) &&
                n >= 3) {
         float sx, sy;
@@ -234,6 +250,20 @@ static int run_line(app *a, char **tok, int n, int ln, char *err, size_t cap)
         settle(a, 1);
         mouse_event(a, SDL_EVENT_MOUSE_BUTTON_UP, sx, sy, btn);
         settle(a, 2);
+    } else if ((strcmp(c, "sclick") == 0 || strcmp(c, "smove") == 0) && n >= 3) {
+        float sx = (float)atof(tok[1]), sy = (float)atof(tok[2]);
+        mouse_event(a, SDL_EVENT_MOUSE_MOTION, sx, sy, 0);
+        settle(a, 2);
+        if (c[1] == 'c') {
+            int btn = parse_btn(n > 3 ? tok[3] : NULL);
+            mouse_event(a, SDL_EVENT_MOUSE_BUTTON_DOWN, sx, sy, btn);
+            settle(a, 1);
+            mouse_event(a, SDL_EVENT_MOUSE_BUTTON_UP, sx, sy, btn);
+            settle(a, 2);
+        }
+    } else if (strcmp(c, "sleep") == 0 && n >= 2) {
+        SDL_Delay((Uint32)atoi(tok[1]));
+        settle(a, 1);
     } else if (strcmp(c, "zoom") == 0 && n >= 2) {
         if (!d) return fail(err, cap, ln, "no image");
         app_view_set_zoom(a, d, atof(tok[1]) / 100.0);

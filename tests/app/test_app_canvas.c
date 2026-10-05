@@ -270,11 +270,15 @@ static void t_budget(void)
         CHECK(SDL_GetTicksNS() - t0 < 2000000000ull);
     }
     CHECK(st.pages_evicted > 0u);
-    /* fully zoomed out: level 6 shows the whole image */
-    v.zoom = 0.01;
-    v.cx = v.cy = 32767.5;
-    draw(&g, &v, vc, d, &st);
-    CHECK(gfx_view_level(v.zoom) == 6u && st.tiles_missing == 0u && st.tiles_visible > 0u);
+    /* zoomed out (12.5 %, mip level 3) the page set stays bounded too */
+    v.zoom = 0.125;
+    for (int i = 0; i < 4; i++) {
+        v.cx = 3000.0 + (double)i * 9000.0;
+        v.cy = 3000.0 + (double)i * 7000.0;
+        draw(&g, &v, vc, d, &st);
+        CHECK(gfx_view_level(v.zoom) == 3u && st.tiles_missing == 0u && st.tiles_visible > 0u);
+        CHECK(st.pages_live <= 4u + 4u);
+    }
     pc_view_cache_destroy(vc);
     pc_doc_destroy(d);
     rig_close(&g);
