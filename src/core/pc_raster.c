@@ -38,6 +38,8 @@ struct pc_raster {
     double   *xs;             /* aliased crossings */
     double   *ws;
     size_t    cap_xs;
+    uint8_t  *cnt;            /* W3B-FXCORE: 4 x 4 sample counts per pixel */
+    size_t    cap_cnt;
 };
 
 static unsigned ctz64(uint64_t v)
@@ -70,6 +72,7 @@ void pc_raster_destroy(pc_raster *r)
     free(r->act);
     free(r->xs);
     free(r->ws);
+    free(r->cnt);
     free(r);
 }
 
@@ -467,4 +470,97 @@ pc_status pc_raster_fill_poly(const pc_poly *p, const pc_affine *m, pc_fill_rule
     if (st == PC_OK) st = pc_raster_fill(r, dst, rule, aa);
     pc_raster_destroy(r);
     return st;
+}
+
+/* ---- 4 x 4 supersampling (W3B-FXCORE) ------------------------------------
+ * Every pixel takes 16 point samples at ((i + 0.5) / 4, (j + 0.5) / 4),
+ * each tested like the aliased mode tests pixel centers (the crossings of
+ * the sample row, the fill rule, a top-left convention so shared edges
+ * never count twice), and the coverage is round(255 n / 16): 17 levels,
+ * as Paint.NET's antialiased selections (TOOLS T-SEL-QUALITY, R 4.3). */
+static void ss_span(uint8_t *cnt, int32_t w, double xa, double xb)
+{
+    /* samples k (quarter pixels) with (k + 0.5) / 4 in [xa, xb) */
+    double fa = ceil(xa * 4.0 - 0.5), fb = ceil(xb * 4.0 - 0.5);
+    int64_t ka, kb, lim = (int64_t)w * 4;
+    if (fa < 0.0) fa = 0.0;
+    if (fb > (double)lim) fb = (double)lim;
+    if (!(fb > fa)) return;
+    ka = (int64_t)fa;
+    kb = (int64_t)fb;
+    while (ka < kb && (ka & 3) != 0) {                /* partial first pixel */
+        cnt[ka >> 2]++;
+        ka++;
+    }
+    while (kb - ka >= 4) {                            /* whole pixels */
+        cnt[ka >> 2] = (uint8_t)(cnt[ka >> 2] + 4u);
+        ka += 4;
+    }
+    while (ka < kb) {                                 /* partial last pixel */
+        cnt[ka >> 2]++;
+        ka++;
+    }
+}
+
+pc_status pc_raster_fill_ss4(pc_raster *r, const pc_mask *dst, pc_fill_rule rule)
+{
+    size_t next = 0, na = 0;
+    pc_status st;
+    if (!r || !dst || !dst->px || dst->w <= 0 || dst->h <= 0 || dst->stride < dst->w)
+        return PC_ERR_ARG;
+    if (!r->sorted) {
+        if (r->n > 1u) qsort(r->e, r->n, sizeof *r->e, cmp_edge);
+        r->sorted = true;
+    }
+    st = scratch(r, (size_t)dst->w);
+    if (st != PC_OK) return st;
+    if ((size_t)dst->w > r->cap_cnt) {
+        uint8_t *c = (uint8_t *)malloc((size_t)dst->w);
+        if (!c) return PC_ERR_NOMEM;
+        free(r->cnt);
+        r->cnt = c;
+        r->cap_cnt = (size_t)dst->w;
+    }
+    for (int32_t row = 0; row < dst->h; row++) {
+        double yt = (double)dst->y + (double)row, yb = yt + 1.0;
+        uint8_t *out = dst->px + (size_t)row * (size_t)dst->stride;
+        size_t k = 0;
+        while (next < r->n && r->e[next].y0 < yb) {
+            if (r->e[next].y1 > yt) r->act[na++] = (uint32_t)next;
+            next++;
+        }
+        for (size_t i = 0; i < na; i++)
+            if (r->e[r->act[i]].y1 > yt) r->act[k++] = r->act[i];
+        na = k;
+        if (na == 0u) {
+            memset(out, 0, (size_t)dst->w);
+            if (next == r->n) {
+                for (int32_t rr = row + 1; rr < dst->h; rr++)
+                    memset(dst->px + (size_t)rr * (size_t)dst->stride, 0, (size_t)dst->w);
+                break;
+            }
+            continue;
+        }
+        memset(r->cnt, 0, (size_t)dst->w);
+        for (int j = 0; j < 4; j++) {
+            double yc = yt + ((double)j + 0.5) * 0.25, w = 0.0;
+            size_t nx = 0;
+            for (size_t i = 0; i < na; i++) {
+                const rs_edge *e = &r->e[r->act[i]];
+                if (e->y0 <= yc && yc < e->y1) {
+                    r->xs[nx] = edge_x(e, yc) - (double)dst->x;
+                    r->ws[nx] = e->dir;
+                    nx++;
+                }
+            }
+            insert_sorted(r->xs, r->ws, nx);
+            for (size_t i = 0; i + 1u < nx; i++) {
+                w += r->ws[i];
+                if (inside(w, rule)) ss_span(r->cnt, dst->w, r->xs[i], r->xs[i + 1u]);
+            }
+        }
+        for (int32_t x = 0; x < dst->w; x++)
+            out[x] = (uint8_t)(((uint32_t)r->cnt[x] * 255u + 8u) >> 4);
+    }
+    return PC_OK;
 }

@@ -794,7 +794,11 @@ static void poly_fill(void *ud, pc_rect r, uint8_t *dst, size_t stride)
         m.y = y0;
         m.h = y1 - y0;
         p->band.y = y0;
-        if (p->st == PC_OK) p->st = pc_raster_fill(p->r, &m, p->rule, p->aa);
+        /* W3B-FXCORE: antialiased selections use Paint.NET's 4 x 4
+         * supersampled coverage (17 levels, T-SEL-QUALITY), not exact area */
+        if (p->st == PC_OK)
+            p->st = p->aa ? pc_raster_fill_ss4(p->r, &m, p->rule)
+                          : pc_raster_fill(p->r, &m, p->rule, false);
         if (p->st != PC_OK) memset(p->band.px, 0, (size_t)p->band.stride * PC_TILE_DIM);
         p->band_ty = ty;
     }

@@ -491,7 +491,9 @@ static void t_poly_preview_contour(void)
         /* preview of the mode against the full-canvas raster */
         pc_raster_reset(r);
         CHECK(pc_raster_add_poly(r, &p, NULL) == PC_OK);
-        CHECK(pc_raster_fill(r, &full, rule, aa) == PC_OK);
+        /* W3B-FXCORE: antialiased selections are 4 x 4 supersampled */
+        CHECK((aa ? pc_raster_fill_ss4(r, &full, rule) : pc_raster_fill(r, &full, rule, false)) ==
+              PC_OK);
         pc_sel_preview_rect(d, &full, mode, pc_doc_rect(d), a, 300);
         pc_poly_clear(&c1);
         CHECK(pc_sel_contour_preview(d, &full, mode, 0.0, &c1) == PC_OK);

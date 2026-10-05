@@ -104,7 +104,8 @@ pc_status pc_sel_apply(pc_hist *h, const pc_mask *cov, pc_sel_mode mode, const c
 pc_status pc_sel_apply_rect(pc_hist *h, pc_rect r, pc_sel_mode mode, const char *label);
 /* Polygon (lasso, ellipse, shapes, pasted selection) rasterized band by
  * band, never needing a document-sized buffer. antialias selects
- * Paint.NET's antialiased or pixelated selection quality. */
+ * Paint.NET's antialiased or pixelated selection quality; antialiased edges
+ * are 4 x 4 supersampled (pc_raster_fill_ss4, 17 coverage levels; W3B-FXCORE). */
 pc_status pc_sel_apply_poly(pc_hist *h, const pc_poly *p, pc_fill_rule rule, bool antialias,
                             pc_sel_mode mode, const char *label);
 pc_status pc_sel_apply_src(pc_hist *h, const pc_sel_src *src, pc_sel_mode mode,

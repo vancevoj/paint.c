@@ -61,6 +61,14 @@ pc_rect    pc_raster_bounds(const pc_raster *r);
 pc_status  pc_raster_fill(pc_raster *r, const pc_mask *dst, pc_fill_rule rule,
                           bool antialias);
 
+/* W3B-FXCORE: 4 x 4 supersampled antialiasing, the selection quality of
+ * Paint.NET (TOOLS T-SEL-QUALITY, R 4.3). Each pixel takes 16 point samples
+ * at ((i + 0.5) / 4, (j + 0.5) / 4), each inside by the fill rule with the
+ * aliased mode's top-left convention, and gets round(255 n / 16), so edge
+ * coverage takes one of 17 values (0, 16, 32, ..., 239, 255). Same window,
+ * clipping and error rules as pc_raster_fill. */
+pc_status  pc_raster_fill_ss4(pc_raster *r, const pc_mask *dst, pc_fill_rule rule);
+
 /* One-shot helper: rasterize p (mapped through m) into dst. */
 pc_status  pc_raster_fill_poly(const pc_poly *p, const pc_affine *m, pc_fill_rule rule,
                                bool antialias, const pc_mask *dst);
