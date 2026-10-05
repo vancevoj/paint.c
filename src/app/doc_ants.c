@@ -381,8 +381,16 @@ pc_status app_doc_sel_outline(app_doc *d, pc_poly *out)
     update(rt);
     gen = d->doc->sel_gen;
     if (rt->job && rt->job->gen == gen) {
-        /* a trace of this very state is running: wait for it */
+        /* a trace of this very state is queued or running: wait for its
+         * task (pal_task_wait runs a task that has not started yet here,
+         * so busy workers cannot hold this up) */
         ants_job *j = rt->job;
+        bool waited = false;
+        for (int32_t i = 0; i < rt->a->ntasks && !waited; i++)
+            if (rt->a->tasks[i].ud == j) {
+                pal_task_wait(rt->a->tasks[i].task);
+                waited = true;
+            }
         while (SDL_GetAtomicInt(&j->done) == 0) SDL_Delay(1);
         if (j->st == PC_OK && j->out && !rt->sel_valid) {
             install_sel(rt, j->out, gen);
