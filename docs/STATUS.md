@@ -30,3 +30,4 @@
 - 2026-10-05 ci/fix2 merged: MSVC warnings, macOS Cmd shortcuts in app tests, -ffp-contract=off, STREAMING UI atlas (SDL RLE rounding); CI 8/9 green, last red was the timing check on macos-15-intel, now report-only on CI (ADR-017).
 - 2026-10-05 W2B-A (selection and move tools, floating paste API app_float.h) and W2B-C (Line/Curve, Shapes, Text with system fonts and IME) merged; 89 CTest entries pass.
 - 2026-10-05 Wave 2b merged (P panels, M menus and dialogs, F effects UI and plugins, B painting tools, I file I/O, autosave, single instance, packaging): every Paint.NET 5.1 tool, menu and window now exists; 117 CTest entries pass locally.
+- 2026-10-05 Wave 3a parity audit: 1469 rows, 1289 DONE, 107 WIP (partial), 40 TODO, 33 N/A; statuses written to docs/inventory/PARITY.md. 147 gaps (5 high, 36 medium, 106 low) go to wave 3b.
