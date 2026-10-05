@@ -62,6 +62,15 @@ int   app_dialog_depth(const app *a);
  * dialog receives it. */
 bool  app_dialog_take_enter(app *a);
 
+/* Modal question with up to three buttons (b1, b2 may be NULL; labels are
+ * copied). Enter presses button def, Escape and the close button mean
+ * button cancel, reported as -1. thumb_doc (a document id, 0 = none) shows
+ * that image's thumbnail instead of the icon. done may be NULL. */
+typedef void (*app_choice_fn)(app *a, int choice, void *ud);
+void  app_choice(app *a, const char *title, const char *text, ui_icon icon, const char *b0,
+                 const char *b1, const char *b2, int def, int cancel, uint32_t thumb_doc,
+                 app_choice_fn done, void *ud);
+
 /* ---- fx_prop dialog builder ------------------------------------------------------ */
 /* Value access on a params blob described by props (no fx_effect needed).
  * Numeric kinds read and write as doubles, clamped to [min, max] (ints and

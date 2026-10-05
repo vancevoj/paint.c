@@ -1,10 +1,14 @@
 /* mod_edit.c - Edit menu commands (MENUS.md Edit): undo and redo, the
- * clipboard (Copy, Copy Merged, Cut, Paste into New Image, Copy and Paste
- * Selection) and the selection commands. Paste and Paste into New Layer
- * need floating pixels (Move Selected Pixels) and are left to the move
- * tool lane: they show disabled until registered. */
+ * clipboard (Copy, Copy Merged, Cut, Paste, Paste into New Layer, Paste
+ * into New Image, Copy and Paste Selection) and the selection commands.
+ * Paste and Paste into New Layer are provisional (APP_CMD_WEAK): they place
+ * the pixels at once (top left of the visible area, CB-PASTE-POS), select
+ * them and offer to expand the canvas (CB-PASTE-LARGER); the Move Selected
+ * Pixels lane replaces them with floating pastes by registering the same
+ * ids. */
 #include "../app_internal.h"
 #include "pal/pal_clip_raw.h"
+#include "pc/pc_geom.h"
 #include "pc/pc_layerops.h"
 
 #include <stdio.h>
@@ -201,13 +205,28 @@ static void cmd_cut(app *a, const app_cmd *c)
     report(a, d, st, "Cut");
 }
 
-static bool clip_image(app *a, const app_cmd *c)
+static bool has_clip_image(app *a, const app_cmd *c)
 {
+    (void)a;
     (void)c;
-    return a->win && pal_clip_has_image();
+    return SDL_WasInit(SDL_INIT_VIDEO) && pal_clip_has_image();
 }
 
-static void cmd_paste_new_image(app *a, const app_cmd *c)
+/* ---- paste (provisional) ------------------------------------------------------------ */
+typedef struct paste_job {
+    uint32_t doc_id;
+    pc_doc  *src;             /* decoded clipboard image (owned) */
+    bool     new_layer;
+} paste_job;
+
+static app_doc *doc_by_id(app *a, uint32_t id)
+{
+    for (int32_t i = 0; i < app_doc_count(a); i++)
+        if (app_doc_at(a, i)->id == id) return app_doc_at(a, i);
+    return NULL;
+}
+
+static pc_doc *clip_image(app *a)
 {
     uint8_t *data = NULL;
     size_t len = 0;
@@ -216,29 +235,156 @@ static void cmd_paste_new_image(app *a, const app_cmd *c)
     pc_image_meta m;
     pc_codec_limits lim;
     pc_status st;
-    (void)c;
     memset(&m, 0, sizeof m);
     if (!pal_clip_get_image(&data, &len, mime, sizeof mime)) {
         app_error(a, "The clipboard does not contain an image.");
-        return;
+        return NULL;
     }
     pc_codec_limits_default(&lim);
     st = pc_codec_load_any(data, len, NULL, &lim, &doc, &m, NULL);
     free(data);
+    pc_meta_free(&m);
     if (st != PC_OK || !doc) {
         app_error(a, "Could not read the clipboard image: %s.", pc_status_str(st));
-        pc_meta_free(&m);
-        return;
+        return NULL;
     }
-    {
-        app_doc *d = app_doc_create(a, doc, NULL, NULL, &m, "Paste into New Image");
-        if (!d) {
-            app_error(a, "Could not create the image: %s.", pc_status_str(PC_ERR_NOMEM));
+    return doc;
+}
+
+/* "Layer N" with N = count + 1, bumped until unique (as Add New Layer). */
+static void new_layer_name(const pc_doc *d, char out[PC_LAYER_NAME_MAX])
+{
+    for (uint32_t n = d->n_layers + 1u;; n++) {
+        bool used = false;
+        snprintf(out, PC_LAYER_NAME_MAX, "Layer %u", (unsigned)n);
+        for (uint32_t i = 0; i < d->n_layers; i++)
+            if (strcmp(d->stack[i]->name, out) == 0) used = true;
+        if (!used) return;
+    }
+}
+
+static void paste_place(app *a, paste_job *j, bool expand)
+{
+    app_doc *d = doc_by_id(a, j->doc_id);
+    pc_rect r;
+    pc_surf s;
+    pc_status st = PC_OK;
+    int32_t x = 0, y = 0;
+    if (!d || d->txn) return;
+    if (expand) {
+        uint32_t w = d->doc->w > j->src->w ? d->doc->w : j->src->w;
+        uint32_t h = d->doc->h > j->src->h ? d->doc->h : j->src->h;
+        pc_px32 none;
+        memset(&none, 0, sizeof none);
+        st = pc_geom_canvas_size(d->hist, w, h, PC_ANCHOR_TOP_LEFT, none, &a->par,
+                                 "Expand Canvas");
+        if (st != PC_OK) {
+            app_error(a, "Could not expand the canvas: %s.", pc_status_str(st));
             return;
         }
-        app_doc_set_untitled(a, d);
-        (void)app_add_doc(a, d);
+        app_doc_history_changed(a, d);
+        d->view.need_fit = true;
+    } else {
+        /* the top left of the visible area when the origin is scrolled away */
+        gfx_view v = app_doc_gview(a, d);
+        double vx0, vy0, vx1, vy1;
+        gfx_view_visible(&v, &vx0, &vy0, &vx1, &vy1);
+        if (vx0 > 0.0 || vy0 > 0.0) {
+            x = (int32_t)vx0;
+            y = (int32_t)vy0;
+            int32_t sw = (int32_t)j->src->w, sh = (int32_t)j->src->h;
+            if (x + sw > (int32_t)d->doc->w) x = (int32_t)d->doc->w - sw;
+            if (y + sh > (int32_t)d->doc->h) y = (int32_t)d->doc->h - sh;
+            if (x < 0) x = 0;
+            if (y < 0) y = 0;
+        }
     }
+    r = pc_rect_make(x, y, (int32_t)j->src->w, (int32_t)j->src->h);
+    if (pc_surf_alloc(&s, r.w, r.h) != PC_OK) {
+        app_error(a, "Paste failed: %s.", pc_status_str(PC_ERR_NOMEM));
+        return;
+    }
+    pc_comp_rect(j->src, pc_rect_make(0, 0, r.w, r.h), s.px, (size_t)s.stride, &a->par);
+    if (j->new_layer) {
+        char name[PC_LAYER_NAME_MAX];
+        pc_layer *l;
+        new_layer_name(d->doc, name);
+        l = pc_layer_create(d->doc, name);
+        st = l ? pc_layer_store_rect(d->doc, l, r, s.px, (size_t)s.stride) : PC_ERR_NOMEM;
+        if (st == PC_OK) {
+            uint32_t id = l->id;
+            st = pc_hist_add_layer(d->hist, l, (uint32_t)(app_doc_layer_index(d) + 1),
+                                   "Paste into New Layer");
+            if (st == PC_OK) {
+                l = NULL;
+                app_doc_history_changed(a, d);
+                app_doc_set_layer(d, id);
+            }
+        }
+        pc_layer_destroy(l);
+    } else {
+        pc_txn *t = app_doc_txn_begin(a, d, j, "Paste");
+        st = t ? pc_txn_write_rect(t, d->layer_id, r, s.px, (size_t)s.stride) : PC_ERR_STATE;
+        if (st == PC_OK) st = app_doc_txn_commit(a, d);
+        else if (t) app_doc_txn_cancel(a, d);
+    }
+    pc_surf_free(&s);
+    if (st == PC_OK)
+        st = pc_sel_apply_rect(d->hist, pc_rect_intersect(r, pc_doc_rect(d->doc)),
+                               PC_SEL_REPLACE, "Paste");
+    report(a, d, st, "Paste");
+}
+
+static void paste_free(paste_job *j)
+{
+    pc_doc_destroy(j->src);
+    free(j);
+}
+
+static void paste_choice(app *a, int pick, void *ud)
+{
+    paste_job *j = (paste_job *)ud;
+    if (pick >= 0) paste_place(a, j, pick == 0);
+    paste_free(j);
+}
+
+static void cmd_paste(app *a, const app_cmd *c)
+{
+    app_doc *d = app_active_doc(a);
+    paste_job *j = (paste_job *)calloc(1u, sizeof *j);
+    if (!j) return;
+    j->doc_id = d->id;
+    j->new_layer = c->arg != 0;
+    j->src = clip_image(a);
+    if (!j->src) {
+        free(j);
+        return;
+    }
+    if (j->src->w > d->doc->w || j->src->h > d->doc->h) {
+        app_choice(a, "Image Larger than Canvas",
+                   "The pasted image is larger than the canvas. Expand the canvas to fit it, "
+                   "or keep the canvas size and crop the pasted image?",
+                   UI_ICON_QUESTION, "Expand Canvas", "Keep Canvas Size", "Cancel", 0, 2, 0,
+                   paste_choice, j);
+        return;
+    }
+    paste_place(a, j, false);
+    paste_free(j);
+}
+
+static void cmd_paste_new_image(app *a, const app_cmd *c)
+{
+    pc_doc *doc = clip_image(a);
+    app_doc *d;
+    (void)c;
+    if (!doc) return;
+    d = app_doc_create(a, doc, NULL, NULL, NULL, "Paste into New Image");
+    if (!d) {
+        app_error(a, "Could not create the image: %s.", pc_status_str(PC_ERR_NOMEM));
+        return;
+    }
+    app_doc_set_untitled(a, d);
+    (void)app_add_doc(a, d);
 }
 
 static void cmd_copy_selection(app *a, const app_cmd *c)
@@ -255,8 +401,9 @@ static void cmd_copy_selection(app *a, const app_cmd *c)
 
 static bool clip_text(app *a, const app_cmd *c)
 {
+    (void)a;
     (void)c;
-    return a->win && SDL_HasClipboardText();
+    return SDL_WasInit(SDL_INIT_VIDEO) && SDL_HasClipboardText();
 }
 
 static void cmd_paste_selection(app *a, const app_cmd *c)
@@ -295,8 +442,12 @@ void mod_edit(app *a)
     reg(a, "edit.cut", "Cut", UI_ICON_CUT, nd, cmd_cut, NULL, 0);
     reg(a, "edit.copy", "Copy", UI_ICON_COPY, nd, cmd_copy, NULL, 0);
     reg(a, "edit.copy_merged", "Copy Merged", UI_ICON_COPY, nd, cmd_copy, NULL, 1);
+    reg(a, "edit.paste", "Paste", UI_ICON_PASTE, nd | APP_CMD_WEAK, cmd_paste, has_clip_image,
+        0);
+    reg(a, "edit.paste_layer", "Paste into New Layer", UI_ICON_PASTE, nd | APP_CMD_WEAK,
+        cmd_paste, has_clip_image, 1);
     reg(a, "edit.paste_image", "Paste into New Image", UI_ICON_PASTE, 0, cmd_paste_new_image,
-        clip_image, 0);
+        has_clip_image, 0);
     reg(a, "edit.copy_selection", "Copy Selection", UI_ICON_COPY, nd, cmd_copy_selection, has_sel,
         0);
     reg(a, "edit.paste_selection.replace", "Paste Selection (Replace)", UI_ICON_SEL_REPLACE, nd,

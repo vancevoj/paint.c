@@ -159,6 +159,32 @@ static void t_registry(void)
     /* NEEDS_DOC commands are disabled without an image */
     CHECK(!app_cmd_enabled(a, "file.save") && !app_cmd_enabled(a, "edit.undo"));
     CHECK(app_cmd_enabled(a, "file.new"));
+    /* provisional (weak) commands are replaced by a later registration;
+     * a weak one never replaces a real one */
+    {
+        app_cmd_def w;
+        memset(&w, 0, sizeof w);
+        w.id = "test.weak";
+        w.run = run_count;
+        w.arg = 10;
+        w.flags = APP_CMD_WEAK;
+        CHECK(app_cmd_register(a, &w));
+        CHECK(!app_cmd_register(a, &w));
+        w.flags = 0;
+        w.arg = 100;
+        CHECK(app_cmd_register(a, &w));
+        g_runs = 0;
+        CHECK(app_cmd_exec(a, "test.weak") && g_runs == 100);
+        w.flags = APP_CMD_WEAK;
+        w.arg = 1000;
+        CHECK(!app_cmd_register(a, &w));
+        g_runs = 0;
+        CHECK(app_cmd_exec(a, "test.weak") && g_runs == 100);
+        CHECK(!app_cmd_register(a, &w));
+        /* edit.paste ships as a stand-in */
+        CHECK(app_cmd_find(a, "edit.paste") &&
+              (app_cmd_find(a, "edit.paste")->flags & APP_CMD_WEAK));
+    }
     /* registered commands carry the keymap binding */
     c = app_cmd_find(a, "edit.undo");
     CHECK(c && c->nkeys >= 1 && c->keys[0].key == 'z');

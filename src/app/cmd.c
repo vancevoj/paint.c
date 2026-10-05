@@ -360,28 +360,11 @@ static void free_cmd(app_cmd *c)
     free(c);
 }
 
-bool app_cmd_register(app *a, const app_cmd_def *def)
+static app_cmd *make_cmd(const app_cmd_def *def)
 {
-    app_cmd *c;
+    app_cmd *c = (app_cmd *)calloc(1u, sizeof *c);
     const char *keys;
-    if (!a || !def || !def->run || !valid_id(def->id)) {
-        pal_log(PAL_LOG_WARN, "command rejected: invalid definition (%s)",
-                def && def->id ? def->id : "(null)");
-        return false;
-    }
-    if (find_index(a, def->id) >= 0) {
-        pal_log(PAL_LOG_WARN, "command rejected: duplicate id %s", def->id);
-        return false;
-    }
-    if (a->ncmds == a->cap_cmds) {
-        int32_t nc = a->cap_cmds ? a->cap_cmds * 2 : 128;
-        app_cmd **na = (app_cmd **)realloc(a->cmds, (size_t)nc * sizeof *na);
-        if (!na) return false;
-        a->cmds = na;
-        a->cap_cmds = nc;
-    }
-    c = (app_cmd *)calloc(1u, sizeof *c);
-    if (!c) return false;
+    if (!c) return NULL;
     keys = app_keymap_lookup(def->id);
     if (!keys) keys = def->shortcut;
     c->id = app_strdup(def->id);
@@ -390,7 +373,7 @@ bool app_cmd_register(app *a, const app_cmd_def *def)
     c->tip = def->tip ? app_strdup(def->tip) : NULL;
     if (!c->id || !c->label || (keys && !c->shortcut) || (def->tip && !c->tip)) {
         free_cmd(c);
-        return false;
+        return NULL;
     }
     c->icon = def->icon;
     c->flags = def->flags;
@@ -403,6 +386,47 @@ bool app_cmd_register(app *a, const app_cmd_def *def)
         c->nkeys = app_key_parse(keys, is_mac(), c->keys, APP_CMD_MAX_KEYS);
         if (c->nkeys == 0) pal_log(PAL_LOG_WARN, "command %s: bad shortcut '%s'", c->id, keys);
     }
+    return c;
+}
+
+/* A provisional (APP_CMD_WEAK) command is superseded in place: same index,
+ * so the map stays valid. */
+static bool replace_cmd(app *a, int32_t index, const app_cmd_def *def)
+{
+    app_cmd *c = make_cmd(def);
+    if (!c) return false;
+    free_cmd(a->cmds[index]);
+    a->cmds[index] = c;
+    pal_log(PAL_LOG_INFO, "command %s: provisional version replaced", c->id);
+    return true;
+}
+
+bool app_cmd_register(app *a, const app_cmd_def *def)
+{
+    app_cmd *c;
+    if (!a || !def || !def->run || !valid_id(def->id)) {
+        pal_log(PAL_LOG_WARN, "command rejected: invalid definition (%s)",
+                def && def->id ? def->id : "(null)");
+        return false;
+    }
+    {
+        int32_t old = find_index(a, def->id);
+        if (old >= 0 && (def->flags & APP_CMD_WEAK)) return false;  /* the real one exists */
+        if (old >= 0 && !(a->cmds[old]->flags & APP_CMD_WEAK)) {
+            pal_log(PAL_LOG_WARN, "command rejected: duplicate id %s", def->id);
+            return false;
+        }
+        if (old >= 0) return replace_cmd(a, old, def);
+    }
+    if (a->ncmds == a->cap_cmds) {
+        int32_t nc = a->cap_cmds ? a->cap_cmds * 2 : 128;
+        app_cmd **na = (app_cmd **)realloc(a->cmds, (size_t)nc * sizeof *na);
+        if (!na) return false;
+        a->cmds = na;
+        a->cap_cmds = nc;
+    }
+    c = make_cmd(def);
+    if (!c) return false;
     a->cmds[a->ncmds] = c;
     if (!map_insert(a, a->ncmds)) {
         free_cmd(c);

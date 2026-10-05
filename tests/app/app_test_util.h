@@ -61,6 +61,8 @@ static inline bool at_screen(app *a, double dx, double dy, float *sx, float *sy)
     app_doc *d = app_active_doc(a);
     gfx_view v;
     double x, y;
+    *sx = 0.0f;
+    *sy = 0.0f;
     if (!d) return false;
     v = app_doc_gview(a, d);
     gfx_view_to_screen(&v, dx, dy, &x, &y);

@@ -40,6 +40,9 @@ extern "C" {
 #define APP_CMD_REPEAT     4u   /* key auto-repeat runs it again (zoom, nudges) */
 #define APP_CMD_RADIO      8u   /* drawn as a radio item when checked != NULL */
 #define APP_CMD_IN_TEXT   16u   /* also runs while a text field has focus */
+#define APP_CMD_WEAK      32u   /* provisional implementation: a later registration
+                                   of the same id replaces it (wave 2a stand-ins
+                                   that feature lanes supersede by adding files) */
 
 typedef struct app_cmd app_cmd;
 typedef void (*app_cmd_fn)(app *a, const app_cmd *c);
@@ -78,7 +81,10 @@ struct app_cmd {
     int           nkeys;
 };
 
-/* Register a command. false for a duplicate or invalid id (logged) or OOM. */
+/* Register a command. false for an invalid id or OOM, and for a duplicate
+ * id unless the registered one is APP_CMD_WEAK (then it is replaced). A
+ * WEAK definition for an id that already exists is ignored (false), so
+ * module order does not matter. */
 bool           app_cmd_register(app *a, const app_cmd_def *def);
 /* Convenience for the common case. */
 bool           app_cmd_add(app *a, const char *id, const char *label, ui_icon icon,

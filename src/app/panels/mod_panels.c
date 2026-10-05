@@ -422,7 +422,7 @@ static void colors_body(app *a, void *ud)
                          UI_BUTTON_FLAT)) {
             ui_panel_state *st = app_panel_state(a, "colors");
             cs->more = !cs->more;
-            if (st) st->h = cs->more ? 520.0f : 300.0f;
+            if (st) st->h = cs->more ? 560.0f : 250.0f;
         }
         ui_layout_column(ui);
     }
@@ -502,7 +502,7 @@ void mod_panels(app *a)
     d.icon = UI_ICON_WIN_COLORS;
     d.toggle_order = 4;
     d.flags = UI_PANEL_CLOSABLE;
-    d.def = pstate(8.0f, 8.0f, 236.0f, 300.0f, UI_ANCHOR_START, UI_ANCHOR_END);
+    d.def = pstate(8.0f, 8.0f, 252.0f, 250.0f, UI_ANCHOR_START, UI_ANCHOR_END);
     d.body = colors_body;
     d.ud = &g_colors;
     (void)app_panel_register(a, &d);

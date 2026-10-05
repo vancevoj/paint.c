@@ -557,8 +557,8 @@ static void scrollbar(app *a, app_doc *d, ui_rect r, bool horiz)
     ui_rect thumb;
     ui_interaction tin, bin;
     if (ui_rect_empty(r)) return;
-    ui_draw_rect(ui, r, p->panel);
     if (!gfx_view_scrollbar(&v, a->overscroll, horiz, &content, &visible, &pos)) return;
+    ui_draw_rect(ui, r, ui_color_fade(p->panel, 0.82f));
     track = horiz ? (double)(r.w - 2 * pad) : (double)(r.h - 2 * pad);
     tlen = track * visible / content;
     if (tlen < (double)minlen) tlen = (double)minlen;
@@ -568,7 +568,8 @@ static void scrollbar(app *a, app_doc *d, ui_rect r, bool horiz)
         thumb = ui_rect_make(r.x + pad + (int32_t)tpos, r.y + pad, (int32_t)tlen, r.h - 2 * pad);
     else
         thumb = ui_rect_make(r.x + pad, r.y + pad + (int32_t)tpos, r.w - 2 * pad, (int32_t)tlen);
-    bin = ui_interact(ui, ui_get_id(ui, horiz ? "##hbar_track" : "##vbar_track"), r, 0);
+    bin = ui_interact(ui, ui_get_id(ui, horiz ? "##hbar_track" : "##vbar_track"), r,
+                      UI_INTERACT_OVERLAP);
     tin = ui_interact(ui, ui_get_id(ui, horiz ? "##hbar_thumb" : "##vbar_thumb"), thumb, 0);
     if (tin.held && track > tlen) {
         static double press_pos[2];       /* scroll position at the press, per axis */
@@ -727,14 +728,15 @@ static void draw_cb(SDL_Renderer *r, ui_rect clip, void *ud)
 }
 
 /* ---- the frame ----------------------------------------------------------------------- */
+/* The viewport never changes size with the zoom: scroll bars overlay its
+ * right and bottom edges, so zooming at the pointer stays anchored and the
+ * fitted view does not jump when bars appear. */
 static void layout(app *a, app_doc *d, ui_rect area)
 {
     ui_ctx *ui = a->ui;
     app_canvas *c = &a->cv;
     int32_t rw = a->rulers ? ui_px(ui, RULER_DIP) : 0, sb = ui_px(ui, SBAR_DIP);
     ui_rect inner = area;
-    gfx_view v;
-    bool hneed = false, vneed = false;
     c->hruler = c->vruler = c->hbar = c->vbar = ui_rect_make(0, 0, 0, 0);
     if (rw) {
         c->hruler = ui_rect_make(inner.x + rw, inner.y, inner.w - rw, rw);
@@ -742,24 +744,16 @@ static void layout(app *a, app_doc *d, ui_rect area)
         inner = ui_rect_make(inner.x + rw, inner.y + rw, inner.w - rw, inner.h - rw);
     }
     c->view = inner;
-    if (d && !d->view.need_fit && !d->view.fit_mode) {
-        /* two passes: one scroll bar can make the other necessary */
-        for (int it = 0; it < 2; it++) {
-            v = app_doc_gview(a, d);
-            hneed = (double)d->doc->w * v.zoom > (double)v.vw + 0.5;
-            vneed = (double)d->doc->h * v.zoom > (double)v.vh + 0.5;
-            c->view = ui_rect_make(inner.x, inner.y, inner.w - (vneed ? sb : 0),
-                                   inner.h - (hneed ? sb : 0));
-        }
-        if (hneed) c->hbar = ui_rect_make(inner.x, inner.y + inner.h - sb, c->view.w, sb);
-        if (vneed) c->vbar = ui_rect_make(inner.x + inner.w - sb, inner.y, sb, c->view.h);
-        if (rw) {
-            c->hruler.w = c->view.w;
-            c->vruler.h = c->view.h;
-        }
-    }
     if (c->view.w < 1) c->view.w = 1;
     if (c->view.h < 1) c->view.h = 1;
+    if (d && !d->view.need_fit) {
+        gfx_view v = app_doc_gview(a, d);
+        bool hneed = gfx_view_scrollbar(&v, a->overscroll, true, NULL, NULL, NULL);
+        bool vneed = gfx_view_scrollbar(&v, a->overscroll, false, NULL, NULL, NULL);
+        int32_t hw = inner.w - (vneed ? sb : 0), vh = inner.h - (hneed ? sb : 0);
+        if (hneed) c->hbar = ui_rect_make(inner.x, inner.y + inner.h - sb, hw, sb);
+        if (vneed) c->vbar = ui_rect_make(inner.x + inner.w - sb, inner.y, sb, vh);
+    }
 }
 
 static void empty_workspace(app *a, ui_rect area)
@@ -807,7 +801,7 @@ void app_canvas_frame(app *a, ui_rect area)
     app_doc_set_gview(a, d, &v);
 
     /* the canvas region: presses here belong to the tools */
-    in = ui_interact(ui, ui_get_id(ui, CANVAS_ID), c->view, 0);
+    in = ui_interact(ui, ui_get_id(ui, CANVAS_ID), c->view, UI_INTERACT_OVERLAP);
     c->hovered_prev = c->hovered;
     c->hovered = in.hovered || c->captured;
     process_queue(a, &in);
@@ -859,8 +853,8 @@ void app_canvas_frame(app *a, ui_rect area)
         if (x1 - x0 < 1e7 && y1 - y0 < 1e7) {
             ui_rect ir = ui_rect_make((int32_t)x0, (int32_t)y0, (int32_t)(x1 - x0),
                                       (int32_t)(y1 - y0));
-            ui_draw_shadow(ui, ir, 0.0f, (float)ui_px(ui, 10.0f),
-                           ui_rgba(0, 0, 0, a->dark ? 150 : 70));
+            ui_draw_shadow(ui, ir, 0.0f, (float)ui_px(ui, 14.0f),
+                           ui_rgba(0, 0, 0, a->dark ? 170 : 96));
         }
         g_draw.a = a;
         g_draw.v = v;
@@ -880,7 +874,8 @@ void app_canvas_frame(app *a, ui_rect area)
     scrollbar(a, d, c->hbar, true);
     scrollbar(a, d, c->vbar, false);
     if (!ui_rect_empty(c->hbar) && !ui_rect_empty(c->vbar))
-        ui_draw_rect(ui, ui_rect_make(c->vbar.x, c->hbar.y, c->vbar.w, c->hbar.h), p->panel);
+        ui_draw_rect(ui, ui_rect_make(c->vbar.x, c->hbar.y, c->vbar.w, c->hbar.h),
+                     ui_color_fade(p->panel, 0.82f));
     if (a->rulers) {
         ruler(a, d, c->hruler, true);
         ruler(a, d, c->vruler, false);

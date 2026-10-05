@@ -253,114 +253,11 @@ void app_cmd_open_dialog(app *a)
     pal_dialog_open(a->win, fs.f, fs.n, dir, true, open_dialog_cb, a);
 }
 
-/* ---- choice dialogs ------------------------------------------------------------------ */
-typedef void (*choice_fn)(app *a, int choice, void *ud);   /* -1 = cancelled */
-
-typedef struct choice_dlg {
-    char         title[160];
-    char        *text;
-    ui_icon      icon;
-    const char  *labels[4];
-    int          n, def, cancel;
-    SDL_Texture *thumb;            /* borrowed: owned by a document that outlives it */
-    uint32_t     thumb_doc;
-    choice_fn    done;
-    void        *ud;
-} choice_dlg;
-
-static void choice_free(void *p)
-{
-    choice_dlg *c = (choice_dlg *)p;
-    if (!c) return;
-    free(c->text);
-    free(c);
-}
-
 static app_doc *doc_by_id(app *a, uint32_t id)
 {
     for (int32_t i = 0; i < a->ndocs; i++)
         if (a->docs[i]->id == id) return a->docs[i];
     return NULL;
-}
-
-static bool choice_frame(app *a, void *st)
-{
-    choice_dlg *c = (choice_dlg *)st;
-    ui_ctx *ui = a->ui;
-    const ui_palette *p = ui_pal(ui);
-    ui_size cells[5];
-    int pick = -2;
-    uint32_t r;
-    ui_dialog_begin(ui, c->title, 440.0f, 0.0f);
-    cells[0] = ui_size_px(c->thumb ? 92.0f : (c->icon ? 44.0f : 0.0f));
-    cells[1] = ui_size_fr(1.0f);
-    ui_layout_row(ui, 0.0f, 2, cells);
-    {
-        app_doc *d = c->thumb_doc ? doc_by_id(a, c->thumb_doc) : NULL;
-        if (d && d->thumb) {
-            ui_rect box = ui_layout_next(ui, ui_px(ui, 84.0f), ui_px(ui, 64.0f));
-            float s = (float)box.w / (float)d->thumb_w < (float)box.h / (float)d->thumb_h
-                          ? (float)box.w / (float)d->thumb_w
-                          : (float)box.h / (float)d->thumb_h;
-            ui_rect img = ui_rect_make(box.x, box.y, (int32_t)((float)d->thumb_w * s),
-                                       (int32_t)((float)d->thumb_h * s));
-            ui_draw_checker(ui, img, ui_px(ui, 4.0f), p->checker_a, p->checker_b);
-            ui_draw_image(ui, d->thumb, NULL, img, UI_FILTER_LINEAR, ui_rgba(255, 255, 255, 255));
-            ui_draw_rect_outline(ui, ui_rect_inset(img, -1, -1), 1, p->border_strong);
-        } else {
-            ui_rect ir = ui_layout_next(ui, ui_px(ui, 44.0f), ui_px(ui, 36.0f));
-            if (c->icon)
-                ui_draw_icon(ui, c->icon,
-                             ui_rect_make(ir.x, ir.y, ui_px(ui, 32.0f), ui_px(ui, 32.0f)),
-                             ui_px(ui, 32.0f), p->text_on_accent,
-                             c->icon == UI_ICON_WARNING ? p->warning : p->accent);
-        }
-    }
-    ui_layout_begin(ui, 0.0f);
-    ui_layout_space(ui, 4.0f);
-    ui_text_wrapped(ui, c->text, 0);
-    ui_layout_end(ui);
-    ui_layout_column(ui);
-    ui_layout_space(ui, 8.0f);
-    cells[0] = ui_size_fr(1.0f);
-    for (int i = 0; i < c->n; i++) cells[i + 1] = ui_size_auto();
-    ui_layout_row(ui, 0.0f, c->n + 1, cells);
-    (void)ui_layout_next(ui, 0, ui_px(ui, ui_get_theme(ui)->m.control_h));
-    for (int i = 0; i < c->n; i++)
-        if (ui_button_ex(ui, c->labels[i], UI_ICON_NONE, i == c->def ? UI_BUTTON_PRIMARY : 0u))
-            pick = i;
-    ui_layout_column(ui);
-    if (pick == -2 && (ui_key_take(ui, SDLK_RETURN, 0) || ui_key_take(ui, SDLK_KP_ENTER, 0)))
-        pick = c->def;
-    r = ui_dialog_end(ui);
-    if (pick == -2 && r) pick = c->cancel;           /* Escape or the close button */
-    if (pick == -2) return true;
-    if (c->done) c->done(a, pick == c->cancel ? -1 : pick, c->ud);
-    return false;
-}
-
-static void choice(app *a, const char *title, const char *text, ui_icon icon, const char *l0,
-                   const char *l1, const char *l2, int def, int cancel, uint32_t thumb_doc,
-                   choice_fn done, void *ud)
-{
-    static uint32_t seq;
-    choice_dlg *c = (choice_dlg *)calloc(1u, sizeof *c);
-    if (!c) { if (done) done(a, -1, ud); return; }
-    snprintf(c->title, sizeof c->title, "%s##choice%u", title, (unsigned)++seq);
-    c->text = app_strdup(text);
-    c->icon = icon;
-    c->labels[0] = l0;
-    c->labels[1] = l1;
-    c->labels[2] = l2;
-    c->n = l2 ? 3 : (l1 ? 2 : 1);
-    c->def = def;
-    c->cancel = cancel;
-    c->thumb_doc = thumb_doc;
-    c->thumb = NULL;
-    c->done = done;
-    c->ud = ud;
-    if (!c->text) { choice_free(c); if (done) done(a, -1, ud); return; }
-    if (!app_dialog_push(a, choice_frame, c, choice_free) && done) done(a, -1, ud);
 }
 
 /* ---- save ---------------------------------------------------------------------------- */
@@ -796,8 +693,8 @@ static void step_flatten(app *a, save_flow *f)
         snprintf(text, sizeof text,
                  "The %s file type stores a single layer. Flatten the image to save it? "
                  "Flattening is recorded in the history and can be undone.", f->codec->name);
-        choice(a, "Flatten Image", text, UI_ICON_WARNING, "Flatten", "Cancel", NULL, 0, 1, 0,
-               flatten_choice, f);
+        app_choice(a, "Flatten Image", text, UI_ICON_WARNING, "Flatten", "Cancel", NULL, 0, 1, 0,
+                   flatten_choice, f);
         return;
     }
     step_config(a, f);
@@ -1019,8 +916,8 @@ void app_close_doc(app *a, app_doc *d, app_close_done_fn done, void *ud)
     c->ud = ud;
     snprintf(text, sizeof text, "Save changes to \"%s\" before closing? Unsaved changes are lost "
              "otherwise.", d->name);
-    choice(a, "Unsaved Changes", text, UI_ICON_WARNING, "Save", "Don't Save", "Cancel", 0, 2, d->id,
-           close_choice, c);
+    app_choice(a, "Unsaved Changes", text, UI_ICON_WARNING, "Save", "Don't Save", "Cancel", 0, 2,
+               d->id, close_choice, c);
 }
 
 /* ---- New Image dialog (MENUS.md New Image) ------------------------------------------- */

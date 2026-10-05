@@ -88,7 +88,8 @@ static void top_row(app *a, ui_rect r)
     /* right side: window toggles (panels with toggle_order), Settings, Help */
     for (int32_t i = 0; i < a->npanels; i++)
         if (a->panels[i].def.toggle_order > 0) nb++;
-    right = r.x + r.w - ui_px(ui, 6.0f) - (nb + 2) * bsz - ui_px(ui, 8.0f);
+    right = r.x + r.w - ui_px(ui, 6.0f) - (nb + 2) * bsz - nb * ui_px(ui, 2.0f) -
+            ui_px(ui, 8.0f);
     x = right;
     for (int32_t ord = 1; ord <= 64; ord++) {
         for (int32_t i = 0; i < a->npanels; i++) {
@@ -101,6 +102,7 @@ static void top_row(app *a, ui_rect r)
             if (sc) snprintf(tip, sizeof tip, "%s (%s)", pn->title, sc);
             else snprintf(tip, sizeof tip, "%s", pn->title);
             place(a, &x, r.y + r.h / 2, 32.0f, 32.0f);
+            x += ui_px(ui, 2.0f);
             snprintf(id, sizeof id, "##wt_%s", pn->id);
             if (ui_tool_button(ui, id, pn->def.icon, pn->st.open, tip)) {
                 if (ui_mods(ui) == (UI_MOD_CTRL | UI_MOD_SHIFT)) app_panel_reset(a, pn->id);
