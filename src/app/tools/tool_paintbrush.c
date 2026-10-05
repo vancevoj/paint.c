@@ -85,6 +85,15 @@ static void brush_options(app *a, void *st)
     app_opt_sel_clip(a);
 }
 
+static app_cursor brush_cursor(app *a, void *st, double x, double y, uint32_t mods)
+{
+    (void)a;
+    (void)x;
+    (void)y;
+    (void)mods;
+    return app_stroke_cursor(&((brush_state *)st)->s);
+}
+
 const app_tool app_tool_paintbrush = {
     "paintbrush",
     "Paintbrush",
@@ -107,6 +116,6 @@ const app_tool app_tool_paintbrush = {
     brush_live,
     brush_commit,
     NULL,                     /* cancel: Esc commits the stroke */
-    NULL,                     /* cursor_at */
+    brush_cursor,     /* cursor_at: outline only (lane TOOLB) */
     NULL                      /* settings_changed */
 };

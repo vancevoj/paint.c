@@ -53,7 +53,10 @@ opens the menu); the fill dropdown with pattern previews in the current
 colors ("Large Grid" is the 5.1 documentation name of the Cross style);
 the Pressure toggle appears once a pen was seen. The buttons do not keep
 the keyboard focus, so Enter keeps finishing the tool; Enter in the
-brush size box applies the value and hands the keyboard back.
+brush size box applies the value and hands the keyboard back. Lane TOOLB
+made the brush size box the generic `paint_number_combo` (paint_common.h),
+which Line / Curve and Shapes (through `paint_opt_width`) and the Text
+tool's size box use as well.
 
 Tool specific settings: tool.recolor.sampling, tool.gradient.type /
 mode / repeat, tool.color_picker.size / after; the rest is
@@ -90,7 +93,12 @@ previous edit; a tool switch forgets the object.
 
 ## Other observations used (Paint.NET 5.2, ADR-016 priority 2)
 
-- Brush outline: a thin circle at the brush size and zoom.
+- Brush outline: a thin circle at the brush size and zoom. With the center
+  point it is the whole cursor of Paintbrush, Eraser, Clone Stamp and
+  Recolor (TOOLS.md 1, R 5.1.3): their `cursor_at` hides the system
+  pointer over the canvas once the outline is drawn (lane TOOLB,
+  `app_stroke_cursor`), and canvas.c shows it again when the pointer
+  leaves the canvas.
 - Bucket origin: a small square on the clicked pixel and a 13 px
   translucent four-arrow handle 18 px below right of it.
 - Gradient end points: rings; the four-arrow handle 35 px beyond the end

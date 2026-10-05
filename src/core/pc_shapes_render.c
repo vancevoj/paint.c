@@ -2,7 +2,8 @@
  * and Text tools: banded rasterization of up to PC_VLAYER_MAX coverage
  * layers, 1 px aliased thin lines, layer stacking into one paint source,
  * pixelated selection clipping, and restore-then-repaint bookkeeping on a
- * transaction (lane E3). */
+ * transaction (lane E3). The optional image layer (pc_vimage, color
+ * glyphs of the Text tool) was added by lane TOOLB. */
 #include "pc/pc_shapes.h"
 #include "pc/pc_sel.h"
 
@@ -20,6 +21,9 @@
 /* Hard cap on dash pieces produced by pc_poly_dash_split. */
 #define MAX_DASH_PIECES ((size_t)1u << 22)
 
+/* Layers of one draw: the vector layers plus the optional image layer. */
+#define COMB_MAX (PC_VLAYER_MAX + 1u)
+
 struct pc_vrender {
     pc_txn    *txn;          /* transaction of the last draw (identity only) */
     uint32_t   layer_id;     /* layer of the last draw */
@@ -27,6 +31,8 @@ struct pc_vrender {
     pc_raster *ras[PC_VLAYER_MAX];
     uint8_t   *buf;
     size_t     buf_cap;
+    pc_px32   *row;          /* one band row of the image layer */
+    size_t     row_cap;      /* pixels */
 };
 
 /* ---- small helpers ------------------------------------------------------------ */
@@ -303,8 +309,8 @@ pc_status pc_poly_dash_split(const pc_poly *src, const double *dash, size_t n_da
 /* ---- layer stacking ---------------------------------------------------------------- */
 
 typedef struct comb_src {
-    const uint8_t      *mask[PC_VLAYER_MAX];
-    const pc_paint_src *src[PC_VLAYER_MAX];
+    const uint8_t      *mask[COMB_MAX];
+    const pc_paint_src *src[COMB_MAX];
     size_t              n;
     int32_t             bx, by;
     size_t              stride;
@@ -399,7 +405,7 @@ static pc_px32 mix_lerp(const uint8_t *k, const pc_px32 *p, size_t n)
 static void comb_row(void *ud, int32_t x, int32_t y, int32_t n, pc_px32 *out)
 {
     const comb_src *c = (const comb_src *)ud;
-    pc_px32 buf[PC_VLAYER_MAX][64];
+    pc_px32 buf[COMB_MAX][64];
     int32_t done = 0;
     while (done < n) {
         int32_t m = n - done > 64 ? 64 : n - done;
@@ -407,8 +413,8 @@ static void comb_row(void *ud, int32_t x, int32_t y, int32_t n, pc_px32 *out)
         for (size_t i = 0; i < c->n; i++) fetch(c->src[i], x + done, y, m, buf[i]);
         for (int32_t j = 0; j < m; j++) {
             size_t off = row + (size_t)(x + done + j - c->bx);
-            uint8_t k[PC_VLAYER_MAX];
-            pc_px32 p[PC_VLAYER_MAX];
+            uint8_t k[COMB_MAX];
+            pc_px32 p[COMB_MAX];
             for (size_t i = 0; i < c->n; i++) {
                 k[i] = c->mask[i][off];
                 p[i] = buf[i][j];
@@ -452,6 +458,7 @@ void pc_vrender_destroy(pc_vrender *vr)
     if (!vr) return;
     for (size_t i = 0; i < PC_VLAYER_MAX; i++) pc_raster_destroy(vr->ras[i]);
     free(vr->buf);
+    free(vr->row);
     free(vr);
 }
 
@@ -525,19 +532,32 @@ static void threshold_clip(const pc_doc *d, pc_rect band, uint8_t *sel, uint8_t 
         if (sel[i] < 128u) cov[i] = 0u;
 }
 
-pc_status pc_vrender_draw(pc_vrender *vr, pc_txn *t, uint32_t layer_id,
-                          const pc_vlayer *layers, size_t n,
-                          const pc_vdraw_opts *o, const pc_par *par, pc_rect *dirty)
+/* The image layer as a comb source: its colors made opaque (the alpha is
+ * the layer's coverage plane). */
+static void img_opaque_row(void *ud, int32_t x, int32_t y, int32_t n, pc_px32 *out)
+{
+    const pc_vimage *img = (const pc_vimage *)ud;
+    img->row(img->ud, x, y, n, out);
+    for (int32_t i = 0; i < n; i++)
+        if (out[i].a) out[i].a = 255u;
+}
+
+static pc_status draw_impl(pc_vrender *vr, pc_txn *t, uint32_t layer_id,
+                           const pc_vlayer *layers, size_t n, const pc_vimage *img,
+                           const pc_vdraw_opts *o, const pc_par *par, pc_rect *dirty)
 {
     pc_doc *d;
-    pc_rect old, area;
+    pc_rect old, area, bounds;
     pc_paint_opts po;
-    size_t rows, plane, nplanes, need;
+    pc_paint_src img_src;
+    size_t rows, plane, nplanes, need, nl;
     bool pix_clip, has_fill[PC_VLAYER_MAX];
     pc_status st = PC_OK;
 
     if (dirty) *dirty = pc_rect_make(0, 0, 0, 0);
-    if (!vr || !t || !layers || n == 0u || n > PC_VLAYER_MAX || !valid_opts(o))
+    if (img && !img->row) return PC_ERR_ARG;
+    if (!vr || !t || (n && !layers) || (n == 0u && !img) || n > PC_VLAYER_MAX ||
+        !valid_opts(o))
         return PC_ERR_ARG;
     d = pc_txn_doc(t);
     if (!pc_doc_layer_by_id(d, layer_id)) return PC_ERR_ARG;
@@ -558,7 +578,9 @@ pc_status pc_vrender_draw(pc_vrender *vr, pc_txn *t, uint32_t layer_id,
     pix_clip = po.clip_to_selection && o->clip_pixelated && pc_sel_is_active(d);
     if (pix_clip) po.clip_to_selection = false;
 
-    area = pc_rect_intersect(pc_vlayer_bounds(layers, n), pc_doc_rect(d));
+    bounds = n ? pc_vlayer_bounds(layers, n) : pc_rect_make(0, 0, 0, 0);
+    if (img) bounds = pc_rect_union(bounds, img->bounds);
+    area = pc_rect_intersect(bounds, pc_doc_rect(d));
     if (o->paint.clip_to_selection && pc_sel_is_active(d))
         area = pc_rect_intersect(area, pc_sel_bounds(d));
     if (pc_rect_is_empty(area)) return PC_OK;
@@ -570,9 +592,24 @@ pc_status pc_vrender_draw(pc_vrender *vr, pc_txn *t, uint32_t layer_id,
             if (st != PC_OK) return st;
         }
     }
+    if (img) {
+        img_src.row = img_opaque_row;
+        img_src.ud = (void *)(uintptr_t)img;
+        memset(&img_src.solid, 0, sizeof img_src.solid);
+        if ((size_t)area.w > vr->row_cap) {
+            size_t bytes;
+            pc_px32 *nr;
+            if (!pc_mul_size((size_t)area.w, sizeof *nr, &bytes)) return PC_ERR_LIMIT;
+            nr = (pc_px32 *)realloc(vr->row, bytes);
+            if (!nr) return PC_ERR_NOMEM;
+            vr->row = nr;
+            vr->row_cap = (size_t)area.w;
+        }
+    }
 
     /* band height: all planes together stay within BAND_BYTES */
-    nplanes = n + (n > 1u ? 1u : 0u) + (pix_clip ? 1u : 0u);
+    nl = n + (img ? 1u : 0u);
+    nplanes = nl + (nl > 1u || img ? 1u : 0u) + (pix_clip ? 1u : 0u);
     rows = BAND_BYTES / ((size_t)area.w * nplanes);
     if (rows < 1u) rows = 1u;
     if (rows >= PC_TILE_DIM) rows -= rows % PC_TILE_DIM;
@@ -585,7 +622,7 @@ pc_status pc_vrender_draw(pc_vrender *vr, pc_txn *t, uint32_t layer_id,
     for (int32_t y = area.y; y < area.y + area.h && st == PC_OK;) {
         int32_t yend = area.y + area.h, bh;
         pc_rect band, dr;
-        pc_mask m[PC_VLAYER_MAX], cov;
+        pc_mask m[COMB_MAX], cov;
         comb_src cs;
         pc_paint_src comb;
         const pc_paint_src *src;
@@ -599,34 +636,43 @@ pc_status pc_vrender_draw(pc_vrender *vr, pc_txn *t, uint32_t layer_id,
         bh = yend - y;
         band = pc_rect_make(area.x, y, area.w, bh);
         count = (size_t)area.w * (size_t)bh;
-        for (size_t i = 0; i < n && st == PC_OK; i++) {
+        for (size_t i = 0; i < nl && st == PC_OK; i++) {
             m[i].px = vr->buf + i * plane;
             m[i].x = band.x;
             m[i].y = band.y;
             m[i].w = band.w;
             m[i].h = band.h;
             m[i].stride = band.w;
+            if (i == n) {
+                /* the image layer: its alpha is the coverage */
+                for (int32_t yy = 0; yy < bh; yy++) {
+                    uint8_t *mp = m[i].px + (size_t)yy * (size_t)band.w;
+                    img->row(img->ud, band.x, band.y + yy, band.w, vr->row);
+                    for (int32_t xx = 0; xx < band.w; xx++) mp[xx] = vr->row[xx].a;
+                }
+                continue;
+            }
             if (has_fill[i]) st = pc_raster_fill(vr->ras[i], &m[i], layers[i].rule, o->antialias);
             else memset(m[i].px, 0, count);
             if (st == PC_OK && layers[i].thin) thin_poly(&m[i], layers[i].thin);
         }
         if (st != PC_OK) break;
-        if (n == 1u) {
+        if (nl == 1u && !img) {
             cov = m[0];
             src = layers[0].src;
         } else {
             memset(&cs, 0, sizeof cs);
-            for (size_t i = 0; i < n; i++) {
+            for (size_t i = 0; i < nl; i++) {
                 cs.mask[i] = m[i].px;
-                cs.src[i] = layers[i].src;
+                cs.src[i] = i == n ? &img_src : layers[i].src;
             }
-            cs.n = n;
+            cs.n = nl;
             cs.bx = band.x;
             cs.by = band.y;
             cs.stride = (size_t)band.w;
             cs.overwrite = o->paint.mode != PC_PAINT_BLEND;
             cov = m[0];
-            cov.px = vr->buf + n * plane;
+            cov.px = vr->buf + nl * plane;
             comb_cov(&cs, cov.px, count);
             comb.row = comb_row;
             comb.ud = &cs;
@@ -641,6 +687,22 @@ pc_status pc_vrender_draw(pc_vrender *vr, pc_txn *t, uint32_t layer_id,
     }
     if (dirty) *dirty = pc_rect_union(old, vr->painted);
     return st;
+}
+
+pc_status pc_vrender_draw(pc_vrender *vr, pc_txn *t, uint32_t layer_id,
+                          const pc_vlayer *layers, size_t n,
+                          const pc_vdraw_opts *o, const pc_par *par, pc_rect *dirty)
+{
+    if (dirty) *dirty = pc_rect_make(0, 0, 0, 0);
+    if (!layers || n == 0u) return PC_ERR_ARG;
+    return draw_impl(vr, t, layer_id, layers, n, NULL, o, par, dirty);
+}
+
+pc_status pc_vrender_draw_image(pc_vrender *vr, pc_txn *t, uint32_t layer_id,
+                                const pc_vlayer *layers, size_t n, const pc_vimage *img,
+                                const pc_vdraw_opts *o, const pc_par *par, pc_rect *dirty)
+{
+    return draw_impl(vr, t, layer_id, layers, n, img, o, par, dirty);
 }
 
 pc_status pc_vlayer_coverage(const pc_vlayer *layers, size_t n, bool antialias,

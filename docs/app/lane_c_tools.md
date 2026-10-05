@@ -14,6 +14,7 @@ lane adds input, toolbar, handles, history and fonts.
 | `src/app/tools/vec_ui.c` | Toolbar widgets and icons drawn from engine geometry, canvas handles |
 | `src/app/tools/vec_custom.c` | Custom shapes: XAML geometry subset, Shapes folder |
 | `src/app/tools/text_font.c` | Font catalog (folder scan, cache file) and the pc_font_face backend |
+| `src/app/tools/text_sfnt.c` | Lane TOOLB: hardened reader of color font tables (COLR / CPAL, CBLC / CBDT, sbix, GSUB ligatures) and of fonts without outlines |
 | `src/app/tools/text_ime.c` | The only file that reads pc_ui internals for text input and IME |
 | `src/app/tools/text_tool.h` | Read-only view of the text being edited (tests) |
 
@@ -71,8 +72,34 @@ worker (iterative walk, at most 16 levels and 20000 files) and described
 with `ui_font_describe`; the result is cached in `fonts.cache` in the
 settings folder and later scans only read changed files. Characters missing
 in the chosen family come from Inter, then from broad-coverage families when
-installed (DejaVu Sans, Noto Sans, Noto Sans CJK and others), loaded on
-first use. Faces load through `ui_font_load_file` (structural validation).
+installed (DejaVu Sans, Noto Sans, the color emoji families Segoe UI Emoji,
+Apple Color Emoji, Noto Color Emoji, Twemoji, JoyPixels, EmojiOne Color,
+then Noto Sans CJK and others), loaded on first use. Faces load through
+`ui_font_load_file` (structural validation).
+
+Color fonts (lane TOOLB, T-TEXT-COLORFONT; Paint.NET's docs: "Text tool
+supports colored fonts"): the scan marks faces with COLR, CBDT or sbix
+tables (`text_face_info.color`, cache format 2; older caches are rescanned)
+so the engine can prefer them for emoji before loading them. A color face
+reports COLR v0 layers with CPAL palette 0 colors (index 0xFFFF is the text
+color, the primary color), and CBDT (index formats 1 to 5, image formats 17
+to 19) or sbix ('png ', 'jpg ', 'tiff', one 'dupe' hop) strikes, choosing the
+smallest strike at least as large as the em size, else the largest. Strikes
+are decoded with the project's PNG (or JPEG, TIFF) codecs, bounded to 2048 x 2048,
+and cached per face (512 images, 48 MiB). Color faces apply their GSUB
+ligature lookups (types 4 and 7 of the ccmp, liga, clig and rlig features)
+to each cluster, which makes ZWJ sequences, flags, keycaps and skin tones
+one glyph. Fonts without outlines (Noto Color Emoji), which the toolkit
+rejects, are read with `text_sfnt` alone (cmap formats 4 and 12, hmtx,
+hhea, OS/2). Outlines go to the engine unhinted: the Sharp modes are grid
+fitted by `pc_text_hint_outline` (docs/core/shapes_text.md).
+
+The size box is the toolbar's number combo (`paint_number_combo`, shared
+with the Brush size box): "12" rather than "12.0", decimals kept, -/+
+through the size list, wheel and Up / Down through the presets, invalid
+values red and not applied. The default size is 12 at 100% UI scale and
+scales with it (24 at 200%, R 4.0.9). Line / Curve and Shapes use the Brush
+size combo (`paint_opt_width`) for their width.
 
 The Font button opens a searchable list (type to filter, Enter picks the
 first match, arrows preview on the live text) in which each family name is
@@ -92,8 +119,10 @@ at 1 MiB and 256 per folder; parsers are bounded and fuzzed in the tests.
 
 ## Known gaps
 
-- Color fonts (emoji) draw as outlines (T-TEXT-COLORFONT), complex-script
-  shaping is absent (ADR-004).
-- Sharp (Modern) and Sharp (Classic) snap glyph positions to whole pixels and
-  the outlines' vertical zones; there is no real TrueType hinting.
+- Complex-script shaping is absent (ADR-004); only color faces apply GSUB
+  ligatures, per cluster. COLR version 1 paint graphs and EBDT monochrome
+  strikes are not drawn (outlines are used).
+- The Sharp modes use paint.c's automatic grid fitter, not the font's own
+  TrueType or CFF instructions, so stems match GDI and DirectWrite in kind
+  (whole pixels; Modern only vertically) but not pixel for pixel.
 - History step names are inferred; Paint.NET's own names were not observed.

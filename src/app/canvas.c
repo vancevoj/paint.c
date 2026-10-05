@@ -389,6 +389,11 @@ void app_canvas_apply_cursor(app *a)
 {
     app_cursor k = a->cv.cursor;
     if (!a->win || ui_get_cursor(a->ui) != UI_CURSOR_APP) {
+        /* lane TOOLB: a pointer the canvas hid (brush tools) shows again
+         * over the rest of the window */
+        if (a->win && a->cv.applied == APP_CURSOR_HIDDEN &&
+            ui_get_cursor(a->ui) != UI_CURSOR_HIDDEN)
+            SDL_ShowCursor();
         a->cv.applied = APP_CURSOR_COUNT;
         return;
     }

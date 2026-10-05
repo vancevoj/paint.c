@@ -28,6 +28,29 @@
  *    coverage layer painted with pc_vrender (primary color, blend mode,
  *    antialiasing, selection clipping). Fill styles are not supported for
  *    text (docs), but any pc_paint_src works.
+ *  - Color fonts (T-TEXT-COLORFONT, lane TOOLB; docs: "Text tool supports
+ *    colored fonts"): a face may describe glyphs as color layers (COLR
+ *    version 0: outlines filled with palette colors or the text color) or
+ *    as color bitmaps (CBDT / sbix strikes, decoded by the backend). Such
+ *    glyphs are painted in their own colors through an image layer on top
+ *    of the monochrome coverage (pc_vrender_draw_image); faces without the
+ *    callbacks, and glyphs without color data, stay monochrome outlines.
+ *    Clusters (emoji ZWJ sequences, flags, keycaps, skin tones) go through
+ *    the face's substitute callback, so one ligature glyph can stand for
+ *    the whole cluster. Faces are chosen by presentation: an emoji
+ *    presentation character (Unicode Emoji_Presentation, or any base
+ *    followed by U+FE0F) comes from the first color face that has it, so
+ *    emoji show in color even when the chosen font has a monochrome glyph
+ *    (as emoji are shown in color everywhere); other characters come from
+ *    the primary face, else the first monochrome fallback (U+FE0E asks for
+ *    text). The rest of a cluster prefers the base character's face.
+ *    Default ignorable code
+ *    points (ZWJ, variation selectors, tags...) that the chosen face lacks
+ *    take no space and draw nothing.
+ *  - Sharp modes are hinted by the engine itself (pc_text_hint.c): both
+ *    fit the outline vertically to the pixel grid (baseline, x-height and
+ *    cap-height zones, horizontal stems); Sharp (Classic) also fits
+ *    vertical stems horizontally, like GDI hinting. See pc_text_hint_outline.
  *
  * Editing model: the text is UTF-8 (always valid after insertion) with a
  * caret and a selection anchor as byte offsets on caret stops. Caret stops
@@ -78,7 +101,34 @@ typedef struct pc_font_metrics {
     double underline_thickness;
     double strike_offset;        /* baseline to the strikeout center, < 0 above */
     double strike_thickness;
+    /* Alignment zones for the Sharp modes (lane TOOLB), pixels above the
+     * baseline, 0 = unknown (the engine then measures 'x' and 'H'). */
+    double x_height;
+    double cap_height;
 } pc_font_metrics;
+
+/* One layer of a layered color glyph (OpenType COLR version 0): the
+ * outline of gid (same face) filled with color. Lane TOOLB. */
+typedef struct pc_font_color_layer {
+    uint32_t gid;
+    pc_px32  color;              /* straight alpha */
+    bool     foreground;         /* use the text color (CPAL index 0xFFFF) */
+} pc_font_color_layer;
+
+/* A bitmap color glyph (CBDT or sbix strike, PNG decoded by the backend).
+ * Lane TOOLB. */
+typedef struct pc_font_bitmap {
+    const pc_px32 *px;           /* w x h straight alpha, row stride w; borrowed
+                                    until the next call on the face */
+    int32_t        w, h;
+    double         scale;        /* pixels at the requested em per bitmap pixel */
+    double         left;         /* left edge relative to the pen, pixels */
+    double         top;          /* top edge relative to the baseline, pixels,
+                                    y down (negative above the baseline) */
+} pc_font_bitmap;
+
+/* Most layers of one color glyph the engine draws (more are ignored). */
+#define PC_TEXT_MAX_COLOR_LAYERS 1024u
 
 typedef struct pc_font_face {
     void *ud;
@@ -101,6 +151,20 @@ typedef struct pc_font_face {
     pc_status (*outline)(void *ud, uint32_t gid, double em, pc_text_mode mode, pc_path *out);
     bool bold;                   /* the face is bold: no synthetic emboldening */
     bool italic;                 /* the face is italic: no synthetic slant */
+    /* ---- optional color font support (lane TOOLB); a zeroed tail keeps a
+     * face monochrome ---- */
+    bool color;                  /* the face has color glyphs (fallback choice) */
+    /* COLR: write up to cap layers of gid (bottom first) to out and return
+     * how many the glyph has; 0 = not a layered color glyph. */
+    size_t    (*color_layers)(void *ud, uint32_t gid, pc_font_color_layer *out, size_t cap);
+    /* Color bitmap of gid for em pixels per em: PC_OK with *out filled,
+     * PC_ERR_UNSUPPORTED when gid has none (the outline is used), any
+     * other error aborts the render with that status. */
+    pc_status (*color_bitmap)(void *ud, uint32_t gid, double em, pc_font_bitmap *out);
+    /* Substitute the glyphs of one cluster (OpenType ligatures: emoji ZWJ
+     * sequences, flags, keycaps, skin tones) in place; returns the new
+     * count (1..n; any other value means no change). n >= 2. */
+    size_t    (*substitute)(void *ud, uint32_t *gids, size_t n);
 } pc_font_face;
 
 /* ---- style ---------------------------------------------------------------------------- */
@@ -157,6 +221,9 @@ typedef struct pc_text_glyph {
     size_t   byte;                   /* byte offset of cp */
     double   x, y;                   /* pen position: left, on the baseline */
     double   advance;                /* including kerning and synthetic bold */
+    bool     hidden;                 /* draws nothing, advance 0: a default
+                                        ignorable the face lacks, or a code
+                                        point merged into a ligature (TOOLB) */
 } pc_text_glyph;
 
 /* ---- the text object ------------------------------------------------------------------ */
@@ -260,15 +327,33 @@ pc_text_part pc_text_hit_test(const pc_text *t, pc_pt p, const pc_handle_metrics
 
 /* Append the coverage geometry (glyph outlines with synthetic styles,
  * underline, strikeout) in document coordinates to out, for the nonzero
- * rule. Glyph outlines are cached per face and glyph until the fonts or
- * the style change. Backend outline errors are returned. */
+ * rule. Glyphs drawn in color (pc_text_render) are not part of it. Glyph
+ * outlines are cached per face and glyph until the fonts or the style
+ * change. Backend outline and color errors are returned. */
 pc_status pc_text_build(pc_text *t, pc_poly *out);
 
+/* Number of glyphs of the current layout that render in color (layers or
+ * a bitmap). Backend errors give 0. Main thread. */
+size_t    pc_text_color_glyph_count(pc_text *t);
+
 /* Render through vr into layer_id of tx with src (the primary color; NULL
- * = opaque black). Empty text clears what vr painted before. dirty as
- * pc_vrender_draw. */
+ * = opaque black). Color glyphs paint their own colors above the outline
+ * coverage (layers with the foreground flag use src: its solid color, or
+ * for a row source the color at the glyph's pen position). Empty text
+ * clears what vr painted before. dirty as pc_vrender_draw. */
 pc_status pc_text_render(pc_text *t, pc_vrender *vr, pc_txn *tx, uint32_t layer_id,
                          const pc_paint_src *src, const pc_vdraw_opts *o, const pc_par *par,
                          pc_rect *dirty);
+
+/* Grid-fit a glyph outline for a Sharp mode (lane TOOLB, pc_text_hint.c;
+ * the engine calls it for every outline of a non-color face). p is in
+ * pixels at em pixels per em, y down, pen at the origin, baseline y = 0.
+ * x_height and cap_height are the alignment zones in pixels above the
+ * baseline (0 = none). PC_TEXT_SHARP_MODERN fits y only (natural symmetric
+ * hinting), PC_TEXT_SHARP_CLASSIC x and y (GDI-like), PC_TEXT_SMOOTH
+ * leaves p unchanged. Paths with arcs are left unchanged, and so is p on
+ * OOM. Any thread (pure; p is modified in place). */
+void      pc_text_hint_outline(pc_path *p, pc_text_mode mode, double em, double x_height,
+                               double cap_height);
 
 #endif /* PC_TEXT_H */

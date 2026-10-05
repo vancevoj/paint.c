@@ -20,10 +20,21 @@
  * when a character needs them). Faces stay loaded until the app exits.
  *
  * Backend: glyph = cmap, advance and kerning (GPOS pairs or kern) scaled
- * to the em size, metrics from hhea / OS/2, outlines as quadratic and cubic
- * pc_path segments with y pointing down. The Sharp rendering modes snap the
- * baseline, x-height and cap-height zones of the outline to whole pixels
- * (the toolkit's hinting for small UI text); Smooth keeps the outline.
+ * to the em size, metrics from hhea / OS/2 (with the x-height and cap
+ * height the engine's Sharp mode hinting aligns to), outlines as quadratic
+ * and cubic pc_path segments with y pointing down (unhinted: pc_text grid
+ * fits them in the Sharp modes).
+ *
+ * Color fonts (lane TOOLB, T-TEXT-COLORFONT; text_sfnt.h): faces with
+ * COLR / CPAL tables report their color layers, faces with CBDT / CBLC or
+ * sbix strikes report bitmaps decoded with the project's PNG (or JPEG,
+ * TIFF) codecs and cached per face (at most TF_BMP_CACHE_BYTES), and color faces
+ * apply their GSUB ligatures to clusters (emoji ZWJ sequences, flags,
+ * keycaps, skin tones). Fonts without outlines (Noto Color Emoji), which
+ * the toolkit cannot load, are read with text_sfnt alone. The scan marks
+ * color faces (text_face_info.color), so the engine can prefer them for
+ * emoji presentation before they are loaded; common emoji families are
+ * fallbacks.
  *
  * Thread rules: main thread, except text_fonts_scan_dirs (any thread, pure
  * apart from file reads). Ownership: the catalog belongs to the app
@@ -48,6 +59,7 @@ typedef struct text_face_info {
     char     style[64];
     uint16_t weight;
     bool     italic;
+    bool     color;             /* COLR, CBDT or sbix tables (lane TOOLB) */
 } text_face_info;
 
 #define TEXT_SCAN_MAX_FILES 20000u

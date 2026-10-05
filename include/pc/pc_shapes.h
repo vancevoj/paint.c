@@ -140,6 +140,31 @@ pc_status   pc_vrender_draw(pc_vrender *vr, pc_txn *t, uint32_t layer_id,
                             const pc_vlayer *layers, size_t n,
                             const pc_vdraw_opts *o, const pc_par *par, pc_rect *dirty);
 
+/* A color image stacked above the vector layers of a draw (the Text
+ * tool's color glyphs, lane TOOLB). row() fills n straight-alpha pixels of
+ * document row y starting at x, transparent where there is no image; like
+ * pc_paint_src.row it runs on par workers for disjoint spans (and on the
+ * calling thread), so it must be thread-safe and pure. bounds is the
+ * integer area outside which row() is always transparent. The image paints
+ * with its own alpha as coverage: in BLEND mode exactly like a layer of
+ * full coverage whose source is the image (the over composite of the
+ * layers and the image); in OVERWRITE mode the image's colors (made
+ * opaque) take part in the lerp chain with weight alpha / 255. Borrowed
+ * for the duration of a call. */
+typedef struct pc_vimage {
+    void   (*row)(void *ud, int32_t x, int32_t y, int32_t n, pc_px32 *out);
+    void    *ud;
+    pc_rect  bounds;
+} pc_vimage;
+
+/* pc_vrender_draw with an optional image layer above layers[0..n). n may
+ * be 0 when img is set (n <= PC_VLAYER_MAX); img NULL behaves exactly like
+ * pc_vrender_draw. Same errors, bookkeeping and threading as
+ * pc_vrender_draw. */
+pc_status   pc_vrender_draw_image(pc_vrender *vr, pc_txn *t, uint32_t layer_id,
+                                  const pc_vlayer *layers, size_t n, const pc_vimage *img,
+                                  const pc_vdraw_opts *o, const pc_par *par, pc_rect *dirty);
+
 /* Restore the area painted by the last draw on t (the object vanished or
  * became degenerate). *dirty (may be NULL) receives that area. A t other
  * than the last draw's transaction only forgets the area. PC_ERR_NOMEM as
