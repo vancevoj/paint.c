@@ -132,7 +132,8 @@ static void t_queue_take(void)
     app_cli_instance_id(pal_dir(PAL_DIR_CONFIG), id2, sizeof id2);
     CHECK(strcmp(id2, APP_ID) == 0);
     app_cli_instance_id(dir, id3, sizeof id3);
-    CHECK(strncmp(id3, APP_ID ".cfg", strlen(APP_ID) + 4u) == 0 && strlen(id3) < 64u);
+    CHECK(strncmp(id3, APP_ID ".c", strlen(APP_ID) + 2u) == 0 &&
+          strlen(id3) == strlen(APP_ID) + 14u);
     {
         char slash[1100];
         snprintf(slash, sizeof slash, "%s/", dir);

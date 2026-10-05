@@ -281,5 +281,8 @@ void app_cli_instance_id(const char *config_dir, char *out, size_t cap)
         snprintf(out, cap, "%s", APP_ID);
         return;
     }
-    snprintf(out, cap, "%s.cfg%016llx", APP_ID, (unsigned long long)fnv1a64(mine));
+    /* short: the POSIX socket path (runtime folder + id + ".sock") must fit
+     * in 108 bytes; 48 bits of the hash keep folders apart */
+    snprintf(out, cap, "%s.c%012llx", APP_ID,
+             (unsigned long long)(fnv1a64(mine) & 0xFFFFFFFFFFFFull));
 }
