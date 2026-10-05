@@ -518,7 +518,7 @@ static int bevel_prepare(const void *params, const fx_img *src, const fx_env *en
     int32_t bx0 = INT32_MAX, by0 = INT32_MAX, bx1 = INT32_MIN, by1 = INT32_MIN;
     double strength = isfinite(p->strength) ? fx_clampd(p->strength, 0.0, 2.0) : 1.0;
     double angle = isfinite(p->angle) ? p->angle : -45.0, c, s_, h_sigma, shadow_sigma;
-    int want_shadow = p->shadow != 0 && strength > 0.0, hard = p->hard != 0, rc;
+    int want_shadow = p->shadow != 0 && strength > 0.0, hard = p->hard != 0, rc = FX_OK;
     float *m = NULL, *h = NULL, *g = NULL;
     int32_t *near = NULL;
     bevel_state *s;
