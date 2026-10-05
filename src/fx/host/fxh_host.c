@@ -26,8 +26,13 @@ static void h_log(int level, const char *utf8)
     fx_run_log(level, utf8);
 }
 
+static void h_notice(const void *job, const char *utf8)
+{
+    fxh_job_notice(job, utf8);
+}
+
 static const fx_host g_host = {
-    FX_ABI_VERSION, (uint32_t)sizeof(fx_host), h_alloc, h_free, h_cancelled, h_log
+    FX_ABI_VERSION, (uint32_t)sizeof(fx_host), h_alloc, h_free, h_cancelled, h_log, h_notice
 };
 
 const fx_host *fx_run_host(void)

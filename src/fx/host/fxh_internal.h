@@ -10,6 +10,9 @@
 
 /* host->cancelled() implementation, defined in fxh_job.c. */
 int fxh_job_cancelled(const void *job);
+/* host->notice() implementation (ADR-024), defined in fxh_job.c. job is one
+ * of the runtime's fx_job objects or NULL (ignored). Any thread. */
+void fxh_job_notice(const void *job, const char *utf8);
 
 /* Number of entries of a NULL-terminated choice list, capped at
  * FX_MAX_CHOICES + 1 so callers can detect overlong lists. */

@@ -48,7 +48,7 @@ static inline void t_log(int level, const char *msg)
     (void)msg;
 }
 static const fx_host g_t_host = { FX_ABI_VERSION, (uint32_t)sizeof(fx_host), t_alloc, t_free,
-                                  t_cancelled, t_log };
+                                  t_cancelled, t_log, NULL /* notice (v1.2): none */ };
 
 /* ---- registry ------------------------------------------------------------- */
 #define T_MAX_FX 512

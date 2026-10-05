@@ -30,6 +30,8 @@ extern const unsigned char pc_help_fx_abi_h[];
 extern const size_t pc_help_fx_abi_h_size;
 extern const unsigned char pc_help_fx_util_h[];
 extern const size_t pc_help_fx_util_h_size;
+extern const unsigned char pc_help_fx_widgets_h[];
+extern const size_t pc_help_fx_widgets_h_size;
 
 typedef struct help_src {
     const char          *name;
@@ -701,6 +703,7 @@ bool app_help_build(app *a, app_help_set *out)
             { "fade_plugin.c", pc_help_fade_plugin_c, &pc_help_fade_plugin_c_size },
             { "fx_abi.h", pc_help_fx_abi_h, &pc_help_fx_abi_h_size },
             { "fx_util.h", pc_help_fx_util_h, &pc_help_fx_util_h_size },
+            { "fx_widgets.h", pc_help_fx_widgets_h, &pc_help_fx_widgets_h_size },
         };
         for (size_t i = 0; i < sizeof x / sizeof x[0] && ok; i++) {
             help_buf *h = add_file(out, x[i].name);

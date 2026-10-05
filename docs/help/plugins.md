@@ -19,6 +19,11 @@ assemblies) do not work in paint.c.
 3. Restart paint.c. The plugin's effects appear in the Adjustments or Effects
    menu; their tooltip names the plugin, its author and version.
 
+The paint.c source tree has optional plugins in its `plugins` folder, for
+example Align Object (Effects > Object > Align Object). Each one builds into
+a folder of its own (`cmake --build build --target plugins`, output in
+`build/plugins/out`); copy that folder into the plugin folder.
+
 If a plugin cannot be loaded, **Effects > Plugin Errors** lists the file and
 the reason (for example, a library built for another version of the
 interface). Starting paint.c with `--disable-plugins` skips all plugins.
@@ -73,6 +78,29 @@ then starts with "Adjustments/"), `FX_FLAG_NO_DIALOG` runs it at once with
 the defaults, `FX_FLAG_SINGLE_THREAD` gives one call for the whole selection,
 and `FX_FLAG_NO_SEL_CLIP` lets an effect draw outside the selection (for
 shadows).
+
+### Dialog extras
+
+[fx_widgets.h](fx_widgets.h) describes extras of paint.c's effect dialog.
+Versions of paint.c that do not know them show the plain control, so a
+plugin that uses them still works everywhere:
+
+- A `FXP_CHOICE` with the hint `"position-grid"` and the 16 position names
+  in `FX_POS_*` order becomes a 3 x 3 grid of position buttons with rows for
+  horizontal-only and vertical-only positions and a Reset position button
+  (otherwise: a drop-down of the same names).
+- A `"tip:"` hint on a check box, drop-down or seed button is its tooltip:
+  `"tip:Reveal low opacity pixels"`.
+- `FXP_F_PREVIEW_ONLY` marks a value as a preview aid: paint.c puts it back
+  to its default before the final render, so it never reaches the image.
+
+### Telling the user something
+
+When an effect has nothing to do (for example, there is no object to
+work on), call `host->notice(job, "One or two sentences.")` from `prepare`
+or `render`, then leave the pixels as they are. paint.c shows the first
+notice of a run in a message box. Check that the host has it first:
+`host->size >= offsetof(fx_host, notice) + sizeof host->notice && host->notice`.
 
 ## A complete example
 

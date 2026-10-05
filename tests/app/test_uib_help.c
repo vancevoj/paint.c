@@ -385,7 +385,8 @@ static void t_pages(void)
     if (!a) return;
     memset(&set, 0, sizeof set);
     CHECK(app_help_build(a, &set));
-    CHECK(set.n == app_help_page_count() + 4);
+    /* search.html, fade_plugin.c, fx_abi.h, fx_util.h, fx_widgets.h (ADR-024) */
+    CHECK(set.n == app_help_page_count() + 5);
     for (int i = 0; i < app_help_page_count(); i++) {
         char name[96];
         const char *t;
@@ -438,6 +439,8 @@ static void t_pages(void)
             if (!strpbrk(pdir, "&<>\"'")) CHECK(strstr(t, pdir) != NULL);
         }
         CHECK(strstr(page_text(&set, "fx_abi.h"), "#define FX_ABI_VERSION") != NULL);
+        CHECK(strstr(page_text(&set, "fx_widgets.h"), "FX_WIDGET_POSITION_GRID") != NULL);
+        CHECK(strstr(t, "fx_widgets.h") != NULL);
         CHECK(strstr(page_text(&set, "fade_plugin.c"), "fx_entry") != NULL);
     }
     {

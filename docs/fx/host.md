@@ -9,6 +9,7 @@ no OS headers. The app supplies threads.
 | Piece | Functions | Thread rules |
 |---|---|---|
 | Host services | `fx_run_host`, `fx_run_set_log`, `fx_run_log` | host table: any thread. Set the log hook once on the main thread before jobs run. |
+| Notices (ADR-024) | `fx_host.notice`, `fx_job_notice` | any thread |
 | Validation | `fx_effect_validate`, `fx_prop_value_size` | pure |
 | Menu paths | `fx_menu_split`, `fx_menu_compare` | pure |
 | Registry | `fx_registry_create/destroy/add/add_entry/add_builtins/count/at/find/find_menu` | build on one thread; read-only use from any thread afterwards |
@@ -112,6 +113,11 @@ fx_job_create(fx, params, &src, &dst, &env, region, tile, prio_xy, &job)
 * `host->cancelled(job)` reads the job's cancel flag. For tests,
   `fx_job_set_cancel_after(job, n)` makes the n-th poll raise the flag and
   `fx_job_polls` counts polls.
+* ADR-024: `host->notice(job, utf8)` keeps the first notice of a job
+  (an atomic claim, then the copy, cut to at most 511 bytes at a UTF-8
+  boundary, then a release store); `fx_job_notice` returns it (acquire
+  load) or NULL. Notices with a NULL job are dropped. The app shows them
+  (docs/app/EFFECTS.md, Notices and preview aids).
 * The job owns a clamped copy of the params blob (`fx_job_params`) and
   copies of the `fx_img` descriptors and `fx_env`; the pixels of src and dst
   are borrowed until `fx_job_destroy`. `release()` runs in

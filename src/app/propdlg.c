@@ -19,12 +19,17 @@
  *   SEED         a button with the prop's label ("Randomize") that reseeds
  *   CUSTOM       the widget registered for the prop's hint, hidden otherwise
  * enabled_if disables (dims) a control while its condition is false.
+ * ADR-024 (fx_widgets.h): a CHOICE prop whose hint names a registered widget
+ * ("position-grid") gets that widget instead of the drop-down (hosts
+ * without it show the drop-down), and BOOL, CHOICE and SEED props with a
+ * "tip:<text>" hint show <text> as their tooltip.
  *
  * Thread rules: main thread, inside a dialog body. The color editing state
  * (hue kept through grays) is per-app extension state ("propdlg.colors"). */
 #include "app_internal.h"
 #include "fx/afx.h"
 #include "fx/fx_abi_ext.h"
+#include "fx/fx_widgets.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -213,6 +218,26 @@ bool app_prop_widget_register(app *a, const char *hint, app_prop_widget_fn fn, v
     a->pwidgets[a->npwidgets].ud = ud;
     a->npwidgets++;
     return true;
+}
+
+/* The widget registered for hint, or NULL. */
+static const app_prop_widget *widget_for(const app *a, const char *hint)
+{
+    if (!hint || !*hint) return NULL;
+    for (int32_t i = 0; i < a->npwidgets; i++)
+        if (strcmp(a->pwidgets[i].hint, hint) == 0) return &a->pwidgets[i];
+    return NULL;
+}
+
+/* ADR-024: the tooltip of a BOOL, CHOICE or SEED prop ("tip:<text>"), or
+ * NULL. */
+static const char *tip_of(const fx_prop *p)
+{
+    size_t n = strlen(FX_HINT_TIP);
+    if (!p->hint || (p->kind != FXP_BOOL && p->kind != FXP_CHOICE && p->kind != FXP_SEED))
+        return NULL;
+    if (strncmp(p->hint, FX_HINT_TIP, n) != 0 || !p->hint[n]) return NULL;
+    return p->hint + n;
 }
 
 void app_pwidgets_free(app *a)
@@ -647,6 +672,7 @@ static bool w_choice(app *a, const fx_prop *p, void *params, uint32_t dis)
             cells[1] = ui_size_fr(1.0f);
             ui_layout_row(ui, 0.0f, 2, cells);
             ui_combo(ui, "##choice", &v, p->choices, (int)cn);
+            if (tip_of(p)) ui_tooltip(ui, tip_of(p));
             hit_note(a, p->key, AFX_HIT_MAIN, ui_last_rect(ui));
             if (dis) dim_last(a);
             ui_layout_column(ui);
@@ -659,6 +685,7 @@ static bool w_choice(app *a, const fx_prop *p, void *params, uint32_t dis)
         ui_label_ex(ui, lbl, dis);
     }
     ui_combo(ui, "##choice", &v, p->choices, (int)cn);
+    if (tip_of(p)) ui_tooltip(ui, tip_of(p));
     hit_note(a, p->key, AFX_HIT_MAIN, ui_last_rect(ui));
     if (dis) dim_last(a);
     ui_layout_column(ui);
@@ -735,6 +762,7 @@ uint32_t afx_props_ui(app *a, const fx_prop *props, uint32_t n, void *params,
             char lbl[160];
             snprintf(lbl, sizeof lbl, "%s##chk", p->label);
             ui_checkbox(ui, lbl, &v);
+            if (tip_of(p)) ui_tooltip(ui, tip_of(p));
             hit_note(a, p->key, AFX_HIT_MAIN, ui_last_rect(ui));
             if (!en) dim_last(a);
             if (v != old && en) {
@@ -743,9 +771,24 @@ uint32_t afx_props_ui(app *a, const fx_prop *props, uint32_t n, void *params,
             }
             break;
         }
-        case FXP_CHOICE:
-            changed = w_choice(a, p, params, dis);
+        case FXP_CHOICE: {
+            /* ADR-024: a registered widget named by the hint replaces the
+             * drop-down; it edits the int32 index, kept in range here */
+            const app_prop_widget *w = widget_for(a, p->hint);
+            if (w) {
+                int32_t old, now;
+                memcpy(&old, (uint8_t *)params + p->offset, sizeof old);
+                if (w->fn(a, p, (uint8_t *)params + p->offset, w->ud)) {
+                    app_prop_set(p, params, app_prop_get(p, params));   /* clamp */
+                    memcpy(&now, (uint8_t *)params + p->offset, sizeof now);
+                    if (!en) memcpy((uint8_t *)params + p->offset, &old, sizeof old);
+                    changed = en && now != old;
+                }
+            } else {
+                changed = w_choice(a, p, params, dis);
+            }
             break;
+        }
         case FXP_COLOR:
             changed = w_color(a, p, params, dis);
             break;
@@ -758,21 +801,20 @@ uint32_t afx_props_ui(app *a, const fx_prop *props, uint32_t n, void *params,
         case FXP_SEED: {
             char lbl[160];
             snprintf(lbl, sizeof lbl, "%s##seed", p->label && *p->label ? p->label : "Reseed");
-            if (ui_button_ex(ui, lbl, UI_ICON_NONE, dis) && en) {
+            bool click = ui_button_ex(ui, lbl, UI_ICON_NONE, dis);
+            if (tip_of(p)) ui_tooltip(ui, tip_of(p));
+            if (click && en) {
                 app_prop_set(p, params, (double)(int32_t)reseed(ctx));
                 changed = true;
             }
             hit_note(a, p->key, AFX_HIT_MAIN, ui_last_rect(ui));
             break;
         }
-        case FXP_CUSTOM:
-            for (int32_t k = 0; k < a->npwidgets; k++) {
-                if (!p->hint || strcmp(a->pwidgets[k].hint, p->hint) != 0) continue;
-                if (a->pwidgets[k].fn(a, p, (uint8_t *)params + p->offset, a->pwidgets[k].ud))
-                    changed = true;
-                break;
-            }
+        case FXP_CUSTOM: {
+            const app_prop_widget *w = widget_for(a, p->hint);
+            if (w && w->fn(a, p, (uint8_t *)params + p->offset, w->ud)) changed = true;
             break;
+        }
         default:
             break;
         }

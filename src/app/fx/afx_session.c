@@ -65,6 +65,8 @@ struct afx_app {
     afx_plugins *plugins;
     ui_color     saved_backdrop;            /* theme backdrop while cleared */
     bool         backdrop_cleared;
+    uint32_t     notices;                   /* ADR-024: notices shown so far */
+    char         last_notice[FX_NOTICE_MAX];
 };
 
 static void state_free(void *p)
@@ -237,6 +239,8 @@ struct afx_session {
     bool             tabs;
     float            width;          /* dialog width in DIPs */
     char             err[256];
+    char             notice[FX_NOTICE_MAX];  /* ADR-024: notice of the latest finished
+                                                preview ("" none), shown once */
 };
 
 struct afx_load {
@@ -338,6 +342,46 @@ static void try_commit(app *a, afx_session *s);
 static void start_run(app *a, afx_session *s);
 static void set_progress(app *a, afx_session *s, float v);
 
+/* ADR-024: show an effect's notice (fx_host.notice) in a message box,
+ * unless it is the one this session showed last. A finished preview
+ * without a notice forgets it, so a later notice shows again. */
+static void session_notice(app *a, afx_session *s, const char *note)
+{
+    afx_app *st;
+    if (!note || !*note) {
+        s->notice[0] = '\0';
+        return;
+    }
+    if (strcmp(note, s->notice) == 0) return;
+    app_copy_str(s->notice, sizeof s->notice, note);
+    st = afx_state(a);
+    if (st) {
+        st->notices++;
+        app_copy_str(st->last_notice, sizeof st->last_notice, note);
+    }
+    pal_log(PAL_LOG_INFO, "effects: %s: %s", s->fx->id, note);
+    app_message(a, s->name, note, UI_ICON_WARNING, UI_DLG_OK, UI_DLG_OK, NULL, NULL);
+}
+
+/* ADR-024: FXP_F_PREVIEW_ONLY values go back to their defaults for the
+ * final render (OK, Repeat, runs without a dialog). True when one changed. */
+static bool reset_preview_only(app *a, afx_session *s)
+{
+    bool changed = false;
+    if (!s->params) return false;
+    for (uint32_t i = 0; i < s->fx->n_props; i++) {
+        const fx_prop *p = &s->fx->props[i];
+        uint8_t before[16];
+        uint32_t n = fx_prop_value_size(p);
+        if (!(p->flags & FXP_F_PREVIEW_ONLY) || p->kind == FXP_CUSTOM || n > sizeof before)
+            continue;
+        memcpy(before, (const uint8_t *)s->params + p->offset, n);
+        afx_prop_reset(a, p, s->params);
+        if (memcmp(before, (const uint8_t *)s->params + p->offset, n) != 0) changed = true;
+    }
+    return changed;
+}
+
 static void run_done(app *a, void *ud)
 {
     afx_run *r = (afx_run *)ud;
@@ -370,6 +414,8 @@ static void run_done(app *a, void *ud)
         session_fail(a, s, msg);
         return;
     }
+    if (js == FX_JOB_DONE && s->state == AFX_PREVIEW && r->pgen == s->pgen)
+        session_notice(a, s, fx_job_notice(r->job));
     if (s->state == AFX_APPLYING && r->gen == s->gen) {
         s->commit_ready = true;
         try_commit(a, s);
@@ -594,6 +640,8 @@ static void session_commit(app *a, afx_session *s)
             app_doc_history_changed(a, d);
         }
     }
+    /* ADR-024: the final render's notice, unless the preview showed it */
+    if (s->run && s->run->job) session_notice(a, s, fx_job_notice(s->run->job));
     if (s->dialog) afx_memo_put(a, s->fx, s->params);
     if (afx_is_effect(s->fx) && !s->repeat) {
         char *id = app_strdup(s->fx->id);
@@ -654,6 +702,10 @@ bool afx_session_ok(app *a, afx_session *s)
     loading = s->state == AFX_LOADING;
     s->state = AFX_APPLYING;
     s->t_apply = SDL_GetTicks();
+    if (reset_preview_only(a, s)) {               /* ADR-024: preview aids end here */
+        s->gen++;
+        s->pgen++;
+    }
     app_request_frame(a);
     if (loading) return true;                       /* load_done starts the run */
     if (!s->run || s->run->gen != s->gen || s->restart) {
@@ -991,6 +1043,7 @@ static afx_session *session_start(app *a, const fx_effect *fx, bool dialog, cons
     if (s->params) {
         (void)fx_params_clamp(fx, s->params);
         (void)fx_params_apply_rules(fx, s->params);    /* W3B-FXCORE: initial sync */
+        if (!dialog) (void)reset_preview_only(a, s);   /* ADR-024 */
     }
     L->want_hist = has_custom(fx, "levels");
     snap = s->params ? snapshot(d, l, &snap_layer) : NULL;
@@ -1074,6 +1127,19 @@ const fx_effect *afx_session_fx(const afx_session *s) { return s ? s->fx : NULL;
 void *afx_session_params(afx_session *s) { return s ? s->params : NULL; }
 uint32_t afx_session_runs(const afx_session *s) { return s ? s->runs : 0u; }
 const char *afx_session_error(const afx_session *s) { return s ? s->err : ""; }
+const char *afx_session_notice(const afx_session *s) { return s ? s->notice : ""; }
+
+uint32_t afx_notice_count(app *a)
+{
+    afx_app *st = (afx_app *)app_ext_get(a, "afx");
+    return st ? st->notices : 0u;
+}
+
+const char *afx_last_notice(app *a)
+{
+    afx_app *st = (afx_app *)app_ext_get(a, "afx");
+    return st ? st->last_notice : "";
+}
 
 const fx_img *afx_session_src(const afx_session *s)
 {

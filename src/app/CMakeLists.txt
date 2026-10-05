@@ -55,6 +55,7 @@ file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/gen/app_help_list.inc CONTENT 
 pc_embed_file(PC_APP_EMBED ${PROJECT_SOURCE_DIR}/docs/help/fade_plugin.c pc_help_fade_plugin_c)
 pc_embed_file(PC_APP_EMBED ${PROJECT_SOURCE_DIR}/include/fx/fx_abi.h pc_help_fx_abi_h)
 pc_embed_file(PC_APP_EMBED ${PROJECT_SOURCE_DIR}/include/fx/fx_util.h pc_help_fx_util_h)
+pc_embed_file(PC_APP_EMBED ${PROJECT_SOURCE_DIR}/include/fx/fx_widgets.h pc_help_fx_widgets_h)
 option(PC_PROJECT_PUBLIC
        "The project repository is public: Help > Forum opens its issue list" OFF)
 

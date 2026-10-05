@@ -33,6 +33,10 @@ struct fx_job {
     pc_atomic_u32    next, done_tail, remaining, active;
     pc_atomic_u32    prep_claim, phase, cancel, failed;
     pc_atomic_u32    polls, cancel_after;
+    /* ADR-024: the first fx_host.notice of this job. notice_claim admits
+     * one writer; notice_ready (release after the copy) publishes it. */
+    pc_atomic_u32    notice_claim, notice_ready;
+    char             notice[FX_NOTICE_MAX];
 };
 
 /* ---- rectangles -------------------------------------------------------- */
@@ -207,6 +211,8 @@ pc_status fx_job_create(const fx_effect *fx, const void *params, const fx_img *s
     pc_atomic_store(&j->failed, 0u);
     pc_atomic_store(&j->polls, 0u);
     pc_atomic_store(&j->cancel_after, 0u);
+    pc_atomic_store(&j->notice_claim, 0u);
+    pc_atomic_store(&j->notice_ready, 0u);
     /* Nothing to prepare: no ROIs, or no prepare callback. */
     pc_atomic_store(&j->phase, (j->n_rois == 0u || !fx->prepare) ? PH_READY : PH_PENDING);
     *out = j;
@@ -248,6 +254,29 @@ void fx_job_set_cancel_after(fx_job *j, uint32_t n)
 uint32_t fx_job_polls(const fx_job *j)
 {
     return j ? pc_atomic_load((pc_atomic_u32 *)(uintptr_t)&j->polls) : 0u;
+}
+
+/* ---- notices (ADR-024) --------------------------------------------------- */
+void fxh_job_notice(const void *job, const char *utf8)
+{
+    fx_job *j = (fx_job *)(uintptr_t)job;   /* the runtime's own jobs only */
+    size_t n = 0;
+    if (!j || !utf8) return;
+    if (pc_atomic_inc(&j->notice_claim) != 1u) return;      /* the first one wins */
+    while (n < FX_NOTICE_MAX - 1u && utf8[n]) n++;
+    /* never cut a UTF-8 sequence: back up over continuation bytes */
+    if (utf8[n] != '\0')
+        while (n > 0u && ((unsigned char)utf8[n] & 0xC0u) == 0x80u) n--;
+    memcpy(j->notice, utf8, n);
+    j->notice[n] = '\0';
+    pc_atomic_store(&j->notice_ready, 1u);
+}
+
+const char *fx_job_notice(const fx_job *job)
+{
+    fx_job *j = (fx_job *)(uintptr_t)job;   /* loads only */
+    if (!j || pc_atomic_load(&j->notice_ready) == 0u) return NULL;
+    return j->notice;
 }
 
 /* ---- prepare ----------------------------------------------------------- */
