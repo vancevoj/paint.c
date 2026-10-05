@@ -289,14 +289,12 @@ static void menu_letters(ui_ctx *ctx, ui_popup *top)
         ui_key_press *k = &ctx->fin.keys[i];
         uint32_t m = (k->sym ? k->sym_mods : k->mods) & ~UI_MOD_SHIFT, cp;
         int32_t idx, count = 0;
-        bool by_first = false;
         if (k->used || (m != 0u && m != UI_MOD_ALT)) continue;
         cp = press_cp(k);
         if (!cp) continue;
         /* in menu bar menus Alt + letter belongs to the bar: a title's key
          * switches menus (ui_menubar_end), others go to the app (Alt+H) */
-        if (m == UI_MOD_ALT && ctx->popups[0].owner && ctx->popups[0].owner == ctx->mb_id)
-            continue;
+        if (m == UI_MOD_ALT && ctx->mb_id && ctx->popups[0].owner == ctx->mb_id) continue;
         k->used = true;
         ctx->want_frame = true;
         if (top->kind == 1) {                        /* dropdown list: type-ahead */
@@ -306,11 +304,7 @@ static void menu_letters(ui_ctx *ctx, ui_popup *top)
         }
         ctx->mnem_session = true;
         idx = match_items(top, cp, false, &count);
-        if (count == 0) {
-            idx = match_items(top, cp, true, &count);
-            by_first = true;
-        }
-        (void)by_first;
+        if (count == 0) idx = match_items(top, cp, true, &count);
         if (idx < 0) continue;
         top->nav = idx;
         top->keyboard = true;
@@ -359,7 +353,7 @@ void ui_popups_frame_begin(ui_ctx *ctx)
     if (ui_key_take(ctx, SDLK_ESCAPE, 0)) {
         /* lane KEYS: Esc in a menu bar menu used from the keyboard returns
          * to the focused menu bar (Windows convention) */
-        if (ctx->npopups == 1 && ctx->popups[0].owner && ctx->popups[0].owner == ctx->mb_id &&
+        if (ctx->npopups == 1 && ctx->mb_id && ctx->popups[0].owner == ctx->mb_id &&
             ctx->mnem_session) {
             for (int32_t i = 0; i < ctx->mb_n && i < 32; i++)
                 if (title_popup_id(ctx->mb_titles[i]) == ctx->popups[0].id) {

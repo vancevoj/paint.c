@@ -262,6 +262,8 @@ static void t_modifiers(void)
     CHECK(app_keys_os_conflict(a, "S", APP_NSMOD_COMMAND));            /* Save As */
     CHECK(!app_keys_os_conflict(a, "", APP_NSMOD_COMMAND));
     CHECK(app_keys_os_menus(a) == 0);                                  /* headless */
+    CHECK(app_keys_os_walk(a, "libpaintc-no-such-objc-runtime.so") == 0);
+    CHECK(app_keys_os_walk(a, NULL) == 0);
     app_destroy(a);
 }
 

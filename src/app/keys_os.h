@@ -36,5 +36,8 @@ bool app_keys_os_conflict(const app *a, const char *equiv, unsigned long mask);
  * the number of items changed; 0 elsewhere or when the runtime is not
  * reachable. */
 int  app_keys_os_menus(app *a);
+/* The same walk with the Objective-C runtime library lib (borrowed): 0
+ * when lib cannot be loaded or has no NSApplication. Exposed for tests. */
+int  app_keys_os_walk(app *a, const char *lib);
 
 #endif /* KEYS_OS_H */

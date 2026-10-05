@@ -94,9 +94,9 @@ static int fix_menu(app *a, const objc_rt *rt, void *menu, void *empty)
     return changed;
 }
 
-static int walk_menus(app *a, const char *lib)
+int app_keys_os_walk(app *a, const char *lib)
 {
-    SDL_SharedObject *so = SDL_LoadObject(lib);
+    SDL_SharedObject *so = lib ? SDL_LoadObject(lib) : NULL;
     objc_rt rt;
     msg_id_fn get;
     msg_long_fn count;
@@ -104,7 +104,10 @@ static int walk_menus(app *a, const char *lib)
     void *nsapp, *bar, *empty, *pool;
     long n;
     int changed = 0;
-    if (!so) return 0;
+    if (!a || !lib || !so) {
+        if (so) SDL_UnloadObject(so);
+        return 0;
+    }
     rt.cls = (objc_lookup_fn)SDL_LoadFunction(so, "objc_getClass");
     rt.sel = (objc_lookup_fn)SDL_LoadFunction(so, "sel_registerName");
     rt.send = SDL_LoadFunction(so, "objc_msgSend");
@@ -137,9 +140,8 @@ static int walk_menus(app *a, const char *lib)
 int app_keys_os_menus(app *a)
 {
 #if defined(__APPLE__)
-    return a && a->win ? walk_menus(a, "/usr/lib/libobjc.A.dylib") : 0;
+    return a && a->win ? app_keys_os_walk(a, "/usr/lib/libobjc.A.dylib") : 0;
 #else
-    (void)walk_menus;
     (void)a;
     return 0;
 #endif

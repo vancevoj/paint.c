@@ -38,6 +38,7 @@
  */
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>   /* UTF-8 argv on Windows */
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -149,62 +150,91 @@ static bool parse(int argc, char **argv, cli *c)
 }
 
 /* K-CLI-DIAG: everything that needs no window first, then an attempt to
- * start the video subsystem (its failure is part of the report). */
+ * start the video subsystem (its failure is part of the report). The text
+ * goes to stdout; a Windows GUI build started without a console or a
+ * redirection has no stdout, so it shows the report in a message box
+ * (SDL allows message boxes before and without video). */
+typedef struct diag_buf {
+    char   s[8192];
+    size_t n;
+} diag_buf;
+
+static void dprint(diag_buf *b, const char *fmt, ...)
+{
+    va_list ap;
+    int w;
+    if (b->n + 1u >= sizeof b->s) return;
+    va_start(ap, fmt);
+    w = vsnprintf(b->s + b->n, sizeof b->s - b->n, fmt, ap);
+    va_end(ap);
+    if (w > 0) b->n += (size_t)w;
+    if (b->n >= sizeof b->s) b->n = sizeof b->s - 1u;
+}
+
 static int diagnostics(const cli *c)
 {
+    static diag_buf b;
     bool events = SDL_Init(SDL_INIT_EVENTS);
     bool pal = events && pal_init(APP_ID, "paintc", APP_NAME);
     int v = SDL_GetVersion();
-    printf("%s %s\n", APP_NAME, APP_VERSION);
-    printf("platform: %s\n", SDL_GetPlatform());
-    printf("SDL %d.%d.%d (runtime %d.%d.%d)\n", SDL_MAJOR_VERSION, SDL_MINOR_VERSION,
+    b.n = 0;
+    b.s[0] = '\0';
+    dprint(&b, "%s %s\n", APP_NAME, APP_VERSION);
+    dprint(&b, "platform: %s\n", SDL_GetPlatform());
+    dprint(&b, "SDL %d.%d.%d (runtime %d.%d.%d)\n", SDL_MAJOR_VERSION, SDL_MINOR_VERSION,
            SDL_MICRO_VERSION, SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v),
            SDL_VERSIONNUM_MICRO(v));
-    printf("logical processors: %u\n",
+    dprint(&b, "logical processors: %u\n",
            pal ? (unsigned)pal_cpu_count() : (unsigned)SDL_GetNumLogicalCPUCores());
-    printf("memory: %llu MiB\n", pal ? (unsigned long long)(pal_ram_bytes() >> 20)
-                                     : (unsigned long long)SDL_GetSystemRAM());
-    if (!events) printf("events: unavailable (%s)\n", SDL_GetError());
+    dprint(&b, "memory: %llu MiB\n", pal ? (unsigned long long)(pal_ram_bytes() >> 20)
+                                         : (unsigned long long)SDL_GetSystemRAM());
+    if (!events) dprint(&b, "events: unavailable (%s)\n", SDL_GetError());
     if (pal) {
         const char *cfg = c->config_dir && *c->config_dir ? c->config_dir : pal_dir(PAL_DIR_CONFIG);
         char path[1024];
-        printf("settings folder: %s\n", cfg ? cfg : "?");
+        dprint(&b, "settings folder: %s\n", cfg ? cfg : "?");
         if (cfg) {
             pal_path_join(path, sizeof path, cfg, "settings.ini");
-            printf("settings file: %s%s\n", path,
+            dprint(&b, "settings file: %s%s\n", path,
                    pal_file_exists(path) ? "" : " (not created yet)");
         }
-        printf("data folder: %s\n", pal_dir(PAL_DIR_DATA) ? pal_dir(PAL_DIR_DATA) : "?");
-        printf("cache folder: %s\n", pal_dir(PAL_DIR_CACHE) ? pal_dir(PAL_DIR_CACHE) : "?");
-        printf("state folder: %s\n", pal_dir(PAL_DIR_STATE) ? pal_dir(PAL_DIR_STATE) : "?");
-        printf("executable folder: %s\n", pal_dir(PAL_DIR_EXE) ? pal_dir(PAL_DIR_EXE) : "?");
+        dprint(&b, "data folder: %s\n", pal_dir(PAL_DIR_DATA) ? pal_dir(PAL_DIR_DATA) : "?");
+        dprint(&b, "cache folder: %s\n", pal_dir(PAL_DIR_CACHE) ? pal_dir(PAL_DIR_CACHE) : "?");
+        dprint(&b, "state folder: %s\n", pal_dir(PAL_DIR_STATE) ? pal_dir(PAL_DIR_STATE) : "?");
+        dprint(&b, "executable folder: %s\n", pal_dir(PAL_DIR_EXE) ? pal_dir(PAL_DIR_EXE) : "?");
     } else {
-        printf("folders: unavailable (pal_init failed)\n");
+        dprint(&b, "folders: unavailable (pal_init failed)\n");
     }
     for (int i = 0; i < SDL_GetNumVideoDrivers(); i++)
-        printf("available video driver %d: %s\n", i, SDL_GetVideoDriver(i));
+        dprint(&b, "available video driver %d: %s\n", i, SDL_GetVideoDriver(i));
     for (int i = 0; i < SDL_GetNumRenderDrivers(); i++)
-        printf("render driver %d: %s\n", i, SDL_GetRenderDriver(i));
+        dprint(&b, "render driver %d: %s\n", i, SDL_GetRenderDriver(i));
     if (c->headless) {
-        printf("video: not started (--headless)\n");
+        dprint(&b, "video: not started (--headless)\n");
     } else if (SDL_InitSubSystem(SDL_INIT_VIDEO)) {
         int n = 0;
         SDL_DisplayID *ids = SDL_GetDisplays(&n);
-        printf("video driver: %s\n",
+        dprint(&b, "video driver: %s\n",
                SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "none");
         for (int i = 0; ids && i < n; i++) {
             SDL_Rect r;
             const char *name = SDL_GetDisplayName(ids[i]);
             if (!SDL_GetDisplayBounds(ids[i], &r)) memset(&r, 0, sizeof r);
-            printf("display %d: %s, %d x %d at %d, %d, scale %.2f\n", i, name ? name : "?", r.w,
-                   r.h, r.x, r.y, (double)SDL_GetDisplayContentScale(ids[i]));
+            dprint(&b, "display %d: %s, %d x %d at %d, %d, scale %.2f\n", i, name ? name : "?",
+                   r.w, r.h, r.x, r.y, (double)SDL_GetDisplayContentScale(ids[i]));
         }
         SDL_free(ids);
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
     } else {
-        printf("video: unavailable (%s)\n", SDL_GetError());
+        dprint(&b, "video: unavailable (%s)\n", SDL_GetError());
     }
+    fputs(b.s, stdout);
     fflush(stdout);
+#if defined(_WIN32)
+    if (_fileno(stdout) < 0)
+        (void)SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, APP_NAME " diagnostics", b.s,
+                                       NULL);
+#endif
     if (pal) pal_quit();
     SDL_Quit();
     return 0;
