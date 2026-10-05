@@ -3,8 +3,8 @@
  * Own design from the Paint.NET 5.1 documentation and the documented
  * Direct2D morphology effect it uses (no 3.36 counterpart); control order and
  * defaults (Width 5, Height 5, Linked, Mode Dilate) as in the 5.1
- * documentation screenshot:
- * gray-scale morphology with a (2 * Width + 1) x (2 * Height + 1) rectangle.
+ * documentation screenshot. Gray-scale morphology with a
+ * (2 * Width + 1) x (2 * Height + 1) rectangle.
  * Erode takes the per-channel minimum, Dilate the per-channel maximum, of the
  * premultiplied pixels in the window (the window is clipped to the image, so
  * the image border neither erodes nor dilates). Linked uses Width for both
@@ -161,7 +161,8 @@ static const fx_effect k_morph = {
     0u, NULL, NULL, NULL, morph_render
 };
 
-/* Module entry (fx_entry_fn). Main thread. Registers 1 effect. */
+/* Module entry (fx_entry_fn). Main thread. Registers 1 effect; the effect
+ * struct is static and borrowed by the host for the program lifetime. */
 int fxm_morphology(const fx_host *host, int (*reg)(const fx_effect *fx))
 {
     (void)host;

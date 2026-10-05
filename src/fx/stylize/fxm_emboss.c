@@ -121,7 +121,8 @@ static const fx_effect k_relief = {
     k_relief_props, 1u, (uint32_t)sizeof(angle_params), 0u, NULL, NULL, NULL, relief_render
 };
 
-/* Module entry (fx_entry_fn). Main thread. Registers Emboss and Relief. */
+/* Module entry (fx_entry_fn). Main thread. Registers Emboss and Relief; the
+ * effect structs are static and borrowed by the host for the program lifetime. */
 int fxm_emboss(const fx_host *host, int (*reg)(const fx_effect *fx))
 {
     int n = 0;

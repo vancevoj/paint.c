@@ -90,7 +90,8 @@ static const fx_effect k_frost = {
     0u, NULL, NULL, NULL, frost_render
 };
 
-/* Module entry (fx_entry_fn). Main thread. Registers 1 effect. */
+/* Module entry (fx_entry_fn). Main thread. Registers 1 effect; the effect
+ * struct is static and borrowed by the host for the program lifetime. */
 int fxm_frosted_glass(const fx_host *host, int (*reg)(const fx_effect *fx))
 {
     (void)host;

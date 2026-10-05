@@ -113,7 +113,8 @@ static const fx_effect k_clouds = {
     0u, NULL, clouds_prepare, clouds_release, clouds_render
 };
 
-/* Module entry (fx_entry_fn). Main thread. Registers 1 effect. */
+/* Module entry (fx_entry_fn). Main thread. Registers 1 effect; the effect
+ * struct is static and borrowed by the host for the program lifetime. */
 int fxm_clouds(const fx_host *host, int (*reg)(const fx_effect *fx))
 {
     (void)host;

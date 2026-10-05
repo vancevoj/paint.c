@@ -508,7 +508,8 @@ static const fx_effect k_quant = {
     0u, NULL, quant_prepare, quant_release, quant_render
 };
 
-/* Module entry (fx_entry_fn). Main thread. Registers 1 effect. */
+/* Module entry (fx_entry_fn). Main thread. Registers 1 effect; the effect
+ * struct is static and borrowed by the host for the program lifetime. */
 int fxm_quantize(const fx_host *host, int (*reg)(const fx_effect *fx))
 {
     (void)host;

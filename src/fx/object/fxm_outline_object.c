@@ -182,7 +182,8 @@ static const fx_effect k_feather = {
 };
 
 /* Module entry (fx_entry_fn). Main thread. Registers Outline Object and
- * Feather Object. */
+ * Feather Object; the effect structs are static and borrowed by the host for
+ * the program lifetime. */
 int fxm_outline_object(const fx_host *host, int (*reg)(const fx_effect *fx))
 {
     int n = 0;
