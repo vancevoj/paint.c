@@ -61,7 +61,8 @@ typedef struct sel_marquee {
     int         draw_mode;
     double      ratio_w, ratio_h;
     double      size_w, size_h;
-    int         size_units;     /* app_units */
+    int         size_units;     /* app_units, when size_units_set */
+    bool        size_units_set; /* picked by the user; else the View units apply */
 } sel_marquee;
 
 /* Defaults: Any Size, ratio 4 : 3, size 400 x 300 px (TOOLS.md 12). */

@@ -355,9 +355,8 @@ static SDL_Cursor *cursor_for(app *a, app_cursor k)
     case APP_CURSOR_PICKER:
         a->cv.cursors[k] = make_icon_cursor(UI_ICON_TOOL_COLOR_PICKER, size, 1, size - 2);
         break;
-    case APP_CURSOR_BUCKET:
-        a->cv.cursors[k] = make_icon_cursor(UI_ICON_TOOL_PAINT_BUCKET, size, 2, size - 3);
-        break;
+    /* lane TOOLS (wave 4 item 22): APP_CURSOR_BUCKET comes from
+     * app_tool_cursor_make above, with the hotspot on the paint drop */
     /* lane A: selection and move tool cursors */
     case APP_CURSOR_ROTATE:
         a->cv.cursors[k] = make_icon_cursor(UI_ICON_ROTATE_CW, size, size / 2, size / 2);

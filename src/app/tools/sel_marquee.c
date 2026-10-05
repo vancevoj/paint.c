@@ -5,6 +5,7 @@
  * follow the Paint.NET 3.36 SelectionTool, RectangleSelectTool and
  * EllipseSelectTool (MIT, docs/notice/a.md). Main thread. */
 #include "sel_marquee.h"
+#include "paint_common.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -29,9 +30,16 @@ static void load_opts(app *a, sel_marquee *m)
     m->size_w = app_settings_double(s, "tool.rect_select.size_w", 400.0);
     m->size_h = app_settings_double(s, "tool.rect_select.size_h", 300.0);
     /* lane SHELL (V-UNITS-WHERE): until the user picks units, the fixed
-     * size uses the View units */
-    m->size_units = (int)app_settings_int(s, "tool.rect_select.size_units",
-                                          (int64_t)app_get_units(a));
+     * size uses the View units. Lane TOOLS (wave 4 item 3): units count as
+     * picked only when chosen in the toolbar (the _set marker) or given as
+     * an explicit default on the Settings > Tools page; a value an earlier
+     * version stored with every option change is ignored. */
+    m->size_units_set = app_settings_get(s, "tool.rect_select.size_units") != NULL &&
+                        (app_settings_bool(s, "tool.rect_select.size_units_set", false) ||
+                         app_settings_int(s, "tooldef.rect_select.size_units", -1) >= 0);
+    m->size_units = m->size_units_set
+                        ? (int)app_settings_int(s, "tool.rect_select.size_units", APP_UNITS_PX)
+                        : (int)app_get_units(a);
     if (!(m->ratio_w > 0.0) || m->ratio_w > 65535.0) m->ratio_w = 4.0;
     if (!(m->ratio_h > 0.0) || m->ratio_h > 65535.0) m->ratio_h = 3.0;
     if (!(m->size_w > 0.0) || m->size_w > 65535.0) m->size_w = 400.0;
@@ -48,7 +56,22 @@ static void store_opts(app *a, const sel_marquee *m)
     app_settings_set_double(s, "tool.rect_select.ratio_h", m->ratio_h);
     app_settings_set_double(s, "tool.rect_select.size_w", m->size_w);
     app_settings_set_double(s, "tool.rect_select.size_h", m->size_h);
-    app_settings_set_int(s, "tool.rect_select.size_units", m->size_units);
+    /* lane TOOLS: the units only when the user picked them */
+    if (m->size_units_set) {
+        app_settings_set_int(s, "tool.rect_select.size_units", m->size_units);
+        app_settings_set_bool(s, "tool.rect_select.size_units_set", true);
+    } else {
+        (void)app_settings_remove(s, "tool.rect_select.size_units");
+        (void)app_settings_remove(s, "tool.rect_select.size_units_set");
+    }
+}
+
+/* The units of the fixed size: the picked ones, else the View units (read
+ * every time, so a loaded tool follows View > Units). */
+static int size_units(const app *a, const sel_marquee *m)
+{
+    int u = m->size_units_set ? m->size_units : (int)app_get_units(a);
+    return u < APP_UNITS_PX || u > APP_UNITS_CM ? APP_UNITS_PX : u;
 }
 
 void sel_marquee_init(sel_marquee *m, sel_shape shape, const char *label)
@@ -126,8 +149,8 @@ static void rect_shape(app *a, sel_marquee *m, const app_doc *d, double *rx0, do
     uint32_t mods = ui_mods(a->ui);
     switch (m->draw_mode) {
     case SEL_DRAW_SIZE: {
-        double w = sel_round(to_px(m->size_w, m->size_units, doc_dpi(d, false)));
-        double h = sel_round(to_px(m->size_h, m->size_units, doc_dpi(d, true)));
+        double w = sel_round(to_px(m->size_w, size_units(a, m), doc_dpi(d, false)));
+        double h = sel_round(to_px(m->size_h, size_units(a, m), doc_dpi(d, true)));
         if (w < 1.0) w = 1.0;
         if (h < 1.0) h = 1.0;
         /* the rectangle hangs from the pointer and stays inside the canvas
@@ -593,20 +616,23 @@ void sel_marquee_options(app *a, sel_marquee *m)
             m->draw_mode = v;
             ch = true;
         }
+        paint_widget_note(a, "##rectsel_mode", ui_last_rect(ui));    /* tests */
         ui_tooltip(ui, "Selection draw mode");
         if (m->draw_mode == SEL_DRAW_RATIO) {
             ch |= num_field(a, "Width:", "##rectsel_rw", &m->ratio_w, 0.01, 65535.0, 2);
             ch |= num_field(a, "Height:", "##rectsel_rh", &m->ratio_h, 0.01, 65535.0, 2);
         } else if (m->draw_mode == SEL_DRAW_SIZE) {
-            int u = m->size_units;
-            int dec = m->size_units == APP_UNITS_PX ? 0 : 2;
+            int u = size_units(a, m);
+            int dec = u == APP_UNITS_PX ? 0 : 2;
             ch |= num_field(a, "Width:", "##rectsel_sw", &m->size_w, 0.01, 65535.0, dec);
             ch |= num_field(a, "Height:", "##rectsel_sh", &m->size_h, 0.01, 65535.0, dec);
             (void)app_opt_next(a, 104.0f);
-            if (ui_combo(ui, "##rectsel_units", &u, units, 3) && u != m->size_units) {
+            if (ui_combo(ui, "##rectsel_units", &u, units, 3) && u != size_units(a, m)) {
                 m->size_units = u;
+                m->size_units_set = true;
                 ch = true;
             }
+            paint_widget_note(a, "##rectsel_units", ui_last_rect(ui));   /* tests */
             ui_tooltip(ui, "Units of the fixed size");
         }
         app_opt_separator(a);

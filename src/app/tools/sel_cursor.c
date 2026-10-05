@@ -7,7 +7,8 @@
  * and minus cursors). The drawings are paint.c's own: shapes from signed
  * distance functions sampled 4 x 4 per pixel, a white halo around dark
  * strokes so the cursor shows on any image, and the toolbar's selection
- * mode icons (ui_icons) as glyphs.
+ * mode icons (ui_icons) as glyphs. Lane TOOLS (wave 4): the Paint Bucket
+ * cursor, whose hotspot is the paint drop.
  *
  * Thread rules: app_tool_cursor_rgba and app_cursor_sel_mode run on any
  * thread; app_tool_cursor_make on the main thread (SDL cursors).
@@ -138,13 +139,13 @@ static void draw_cross(uint8_t *rgba, int size, int c)
     free(mask);
 }
 
-/* An icon (dark strokes) composited over a white halo, as the canvas draws
- * its icon cursors. */
-static bool draw_icon_halo(uint8_t *rgba, int size, ui_icon icon)
+/* An icon (dark strokes, accent parts in accent) composited over a white
+ * halo, as the canvas draws its icon cursors. */
+static bool draw_icon_halo_ex(uint8_t *rgba, int size, ui_icon icon, ui_color accent)
 {
     uint8_t *src = (uint8_t *)malloc((size_t)size * (size_t)size * 4u);
     if (!src) return false;
-    if (ui_icon_raster_rgba(icon, size, ui_rgba(16, 16, 16, 255), ui_rgba(255, 255, 255, 255),
+    if (ui_icon_raster_rgba(icon, size, ui_rgba(16, 16, 16, 255), accent,
                             ui_rgba(255, 255, 255, 200), src) != PC_OK) {
         free(src);
         return false;
@@ -167,6 +168,11 @@ static bool draw_icon_halo(uint8_t *rgba, int size, ui_icon icon)
         }
     free(src);
     return true;
+}
+
+static bool draw_icon_halo(uint8_t *rgba, int size, ui_icon icon)
+{
+    return draw_icon_halo_ex(rgba, size, icon, ui_rgba(255, 255, 255, 255));
 }
 
 /* The selection mode glyph (the toolbar icon of the mode) on a white
@@ -237,6 +243,14 @@ bool app_tool_cursor_rgba(app_cursor k, int size, uint8_t *rgba, int *hot_x, int
         hy = size * 4 / 16;
         ok = draw_icon_halo(rgba, size, UI_ICON_TOOL_MAGIC_WAND) &&
              draw_mode_glyph(rgba, size, (int)k - (int)APP_CURSOR_WAND_UNION + 1);
+    } else if (k == APP_CURSOR_BUCKET) {
+        /* lane TOOLS (wave 4 item 22): the fill starts where the paint
+         * drop lands, so the hotspot is the bottom of the drop (icon units
+         * 14, 13 of 16; the drop is a circle of radius 1.6 around 14, 12.2)
+         * and the drop is drawn in a color that shows on white images */
+        hx = size * 14 / 16;
+        hy = size * 13 / 16;
+        ok = draw_icon_halo_ex(rgba, size, UI_ICON_TOOL_PAINT_BUCKET, ui_rgba(0, 102, 204, 255));
     } else {
         return false;
     }
