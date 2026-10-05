@@ -44,6 +44,14 @@ struct gfx_canvas {
     bool                 sw;                 /* lane UIA: the software renderer */
     bool                 has_clip;           /* lane UIA: clip of this draw */
     SDL_Rect             clip;
+    /* lane UIA: zoomed-out views between two mip levels (fine path) */
+    double               fine_scale;         /* scale of the fine pages (0 none) */
+    uint32_t             fine_level;         /* their source level */
+    uint64_t             fine_changed_ms;    /* last change of the view's zoom */
+    double               fine_last_zoom;
+    bool                 fine_pending;       /* drawn coarse; a later frame refines */
+    uint8_t             *fine_buf;           /* tiles being rebuilt, owned */
+    size_t               fine_cap;
 };
 
 static const uint8_t k_zero_tile[PC_TILE_PX * 4u] = {0};
@@ -80,6 +88,7 @@ void gfx_canvas_destroy(gfx_canvas *c)
     if (c->sharp) SDL_DestroyTexture(c->sharp);
     free(c->rects);
     free(c->xbuf);
+    free(c->fine_buf);
     free(c);
 }
 
@@ -93,6 +102,7 @@ void gfx_canvas_reset(gfx_canvas *c)
     c->sharp = NULL;
     c->sharp_failed = false;
     c->vc = NULL;
+    c->fine_scale = 0.0;
 }
 
 void gfx_canvas_set_budget(gfx_canvas *c, uint32_t page_budget)
@@ -591,6 +601,292 @@ static bool draw_sharp(gfx_canvas *c, pc_rect lr, double ox, double oy, double z
     return true;
 }
 
+/* ---- lane UIA (wave 4): zoom between two mip levels (V-RENDER-DOWN) ---------------------
+ * Mip level L shows zooms with 2^L <= 1 / zoom; at a zoom that is not a
+ * power of two the level is shrunk further by s = zoom * 2^L in (0.5, 1).
+ * The renderer's bilinear filter did that in gamma space from four texels
+ * per pixel: darker than gamma-correct and with moire on fine detail (a
+ * 1 px checker at 66.7 % showed 96 / 159 stripes instead of an even 188).
+ * Here the shrunk image is computed on the CPU instead: screen pixel i of
+ * the shrunk image covers level pixels [i / s, (i + 1) / s), and its color
+ * is the area-weighted average of the (up to 3 x 3) level pixels it
+ * covers, in linear light and weighted by alpha, like the mip levels
+ * (pc_mip.h; pixels outside the image read as transparent). The result
+ * lives in tile pages of its own (FINE_LEVEL), one per 64 x 64 screen
+ * pixels, and is rebuilt only where the source tiles changed. While the
+ * zoom changes from frame to frame (a pinch) the bilinear path is shown
+ * and the fine one follows once the zoom rests (gfx_canvas_pending). */
+#define FINE_LEVEL    0x100u
+#define FINE_SETTLE   120u               /* ms without zoom changes */
+
+static float   g_lin[256];               /* sRGB decode, 0..1 */
+static uint8_t g_enc[4097];              /* sRGB encode of i / 4096 */
+static bool    g_tables;
+
+static void fine_tables(void)
+{
+    if (g_tables) return;
+    for (int i = 0; i < 256; i++) {
+        double c = (double)i / 255.0;
+        g_lin[i] = (float)(c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4));
+    }
+    for (int i = 0; i <= 4096; i++) {
+        double l = (double)i / 4096.0, e;
+        e = l <= 0.0031308 ? l * 12.92 : 1.055 * pow(l, 1.0 / 2.4) - 0.055;
+        e = floor(e * 255.0 + 0.5);
+        g_enc[i] = (uint8_t)(e < 0.0 ? 0.0 : (e > 255.0 ? 255.0 : e));
+    }
+    g_tables = true;
+}
+
+bool gfx_fine_zoom(double zoom, uint32_t *level, double *s)
+{
+    double z = gfx_zoom_clamp(zoom), k;
+    uint32_t l;
+    if (z >= 1.0 - 1e-9 || gfx_view_nearest(z)) return false;
+    l = gfx_view_level(z);
+    k = z * (double)(1u << l);
+    if (!(k < 1.0 - 1e-9) || !(k > 0.5 - 1e-9)) return false;
+    if (level) *level = l;
+    if (s) *s = k;
+    return true;
+}
+
+/* Coverage of source pixels by destination pixel i at scale s: the first
+ * source pixel and up to three weights summing to 1. */
+static void fine_weights(int64_t i, double s, int64_t *first, float w[3])
+{
+    double a = (double)i / s, b = (double)(i + 1) / s, inv = s;
+    int64_t f = (int64_t)floor(a);
+    *first = f;
+    for (int k = 0; k < 3; k++) {
+        double lo = (double)(f + k), hi = lo + 1.0, ov;
+        if (lo < a) lo = a;
+        if (hi > b) hi = b;
+        ov = hi > lo ? (hi - lo) * inv : 0.0;
+        w[k] = (float)ov;
+    }
+}
+
+/* The level tiles around one fine tile (resolved on the main thread; the
+ * pixel loop may then run on workers: the cache's tiles stay valid until
+ * its next update). */
+typedef struct fine_src {
+    const uint8_t *px[3][3];            /* tiles tx0.. ty0.., NULL = transparent */
+    int64_t        tx0, ty0;
+} fine_src;
+
+typedef struct fine_job {
+    fine_src  fs;
+    int64_t   u, v;                      /* fine tile */
+    uint32_t  page, slot;                /* destination */
+    uint64_t  stamp;
+} fine_job;
+
+typedef struct fine_batch {
+    const fine_job *jobs;
+    uint8_t        *out;                 /* PC_TILE_PX * 4 bytes per job */
+    double          s;
+    uint32_t        lw, lh;
+} fine_batch;
+
+static const uint8_t *fine_texel(const fine_src *fs, int64_t x, int64_t y)
+{
+    int64_t tx = (x >> PC_TILE_SHIFT) - fs->tx0, ty = (y >> PC_TILE_SHIFT) - fs->ty0;
+    const uint8_t *t;
+    if (x < 0 || y < 0 || tx < 0 || ty < 0 || tx > 2 || ty > 2) return NULL;
+    t = fs->px[ty][tx];
+    if (!t) return NULL;
+    return t + (((size_t)(y & (PC_TILE_DIM - 1)) * PC_TILE_DIM + (size_t)(x & (PC_TILE_DIM - 1)))
+                * 4u);
+}
+
+/* Resolve the level tiles of fine tile (u, v) at scale s and its stamp;
+ * false when one is not in the cache yet. Main thread. */
+static bool fine_plan(const pc_view_cache *vc, uint32_t level, double s, int64_t u, int64_t v,
+                      uint32_t lw, uint32_t lh, fine_src *fs, uint64_t *stamp)
+{
+    int64_t x0 = (int64_t)floor((double)(u * PC_TILE_DIM) / s);
+    int64_t y0 = (int64_t)floor((double)(v * PC_TILE_DIM) / s);
+    int64_t x1 = (int64_t)floor((double)((u + 1) * PC_TILE_DIM) / s) + 1;
+    int64_t y1 = (int64_t)floor((double)((v + 1) * PC_TILE_DIM) / s) + 1;
+    uint64_t h = 1469598103934665603ull;
+    memset(fs, 0, sizeof *fs);
+    fs->tx0 = x0 >> PC_TILE_SHIFT;
+    fs->ty0 = y0 >> PC_TILE_SHIFT;
+    for (int64_t ty = fs->ty0; ty <= (y1 >> PC_TILE_SHIFT) && ty - fs->ty0 < 3; ty++)
+        for (int64_t tx = fs->tx0; tx <= (x1 >> PC_TILE_SHIFT) && tx - fs->tx0 < 3; tx++) {
+            pc_view_tile t;
+            uint64_t k;
+            if ((uint64_t)tx * PC_TILE_DIM >= lw || (uint64_t)ty * PC_TILE_DIM >= lh) continue;
+            if (!pc_view_cache_get(vc, level, (uint32_t)tx, (uint32_t)ty, &t)) return false;
+            fs->px[ty - fs->ty0][tx - fs->tx0] = t.px;
+            k = t.stamp ^ ((uint64_t)tx << 40) ^ ((uint64_t)ty << 20);
+            h = (h ^ k) * 1099511628211ull;
+        }
+    *stamp = h ? h : 1u;
+    return true;
+}
+
+/* The pixels of one fine tile (any thread: reads only fs's tiles and the
+ * tables). */
+static void fine_build(const fine_src *fs, double s, int64_t u, int64_t v, uint32_t lw,
+                       uint32_t lh, uint8_t *out)
+{
+    for (int32_t j = 0; j < (int32_t)PC_TILE_DIM; j++) {
+        int64_t fy;
+        float wy[3];
+        uint8_t *row = out + (size_t)j * PC_TILE_DIM * 4u;
+        fine_weights(v * PC_TILE_DIM + j, s, &fy, wy);
+        for (int32_t i = 0; i < (int32_t)PC_TILE_DIM; i++) {
+            int64_t fx;
+            float wx[3], acc[3] = { 0.0f, 0.0f, 0.0f }, aw = 0.0f;
+            uint8_t *o = row + (size_t)i * 4u;
+            fine_weights(u * PC_TILE_DIM + i, s, &fx, wx);
+            for (int b = 0; b < 3; b++) {
+                if (wy[b] <= 0.0f || fy + b >= (int64_t)lh) continue;
+                for (int k = 0; k < 3; k++) {
+                    const uint8_t *p;
+                    float w = wx[k] * wy[b], al;
+                    if (w <= 0.0f || fx + k >= (int64_t)lw) continue;
+                    p = fine_texel(fs, fx + k, fy + b);
+                    if (!p || p[3] == 0) continue;
+                    al = (float)p[3] * (1.0f / 255.0f) * w;
+                    aw += al;
+                    if (p[3] == 255) {
+                        acc[0] += al * g_lin[p[0]];
+                        acc[1] += al * g_lin[p[1]];
+                        acc[2] += al * g_lin[p[2]];
+                    } else {
+                        for (int ch = 0; ch < 3; ch++) {
+                            uint32_t un = ((uint32_t)p[ch] * 255u + p[3] / 2u) / p[3];
+                            acc[ch] += al * g_lin[un > 255u ? 255u : un];
+                        }
+                    }
+                }
+            }
+            if (aw <= 0.0f) {
+                o[0] = o[1] = o[2] = o[3] = 0;
+                continue;
+            }
+            {
+                float a8 = floorf(aw * 255.0f + 0.5f);
+                uint32_t aa = a8 > 255.0f ? 255u : (uint32_t)a8;
+                for (int ch = 0; ch < 3; ch++) {
+                    float l = acc[ch] / aw;
+                    int32_t q = (int32_t)(l * 4096.0f + 0.5f);
+                    uint32_t e = g_enc[q < 0 ? 0 : (q > 4096 ? 4096 : q)];
+                    o[ch] = (uint8_t)((e * aa + 127u) / 255u);
+                }
+                o[3] = (uint8_t)aa;
+            }
+        }
+    }
+}
+
+static void fine_job_run(void *ud, uint32_t index, uint32_t worker)
+{
+    const fine_batch *b = (const fine_batch *)ud;
+    const fine_job *j = &b->jobs[index];
+    (void)worker;
+    fine_build(&j->fs, b->s, j->u, j->v, b->lw, b->lh,
+               b->out + (size_t)index * PC_TILE_PX * 4u);
+}
+
+/* Draw the view through fine pages; false when it cannot (a source tile is
+ * missing, or memory: the caller draws the bilinear path this frame). The
+ * changed tiles are built on the workers of st->par, then uploaded. */
+static bool draw_fine(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc, uint32_t level,
+                      double s, double ox, double oy, const SDL_Rect *vis)
+{
+    uint32_t lw = pc_view_level_size(v->dw, level), lh = pc_view_level_size(v->dh, level);
+    int64_t fw = (int64_t)ceil((double)lw * s - 1e-9), fh = (int64_t)ceil((double)lh * s - 1e-9);
+    int64_t i0 = (int64_t)floor((double)vis->x - ox), j0 = (int64_t)floor((double)vis->y - oy);
+    int64_t i1 = (int64_t)ceil((double)(vis->x + vis->w) - ox);
+    int64_t j1 = (int64_t)ceil((double)(vis->y + vis->h) - oy);
+    int64_t u0, u1, v0, v1;
+    size_t ntiles, njobs = 0, bytes;
+    fine_job *jobs;
+    pc_rect fr;
+    bool ok = true;
+    if (i0 < 0) i0 = 0;
+    if (j0 < 0) j0 = 0;
+    if (i1 > fw) i1 = fw;
+    if (j1 > fh) j1 = fh;
+    if (i1 <= i0 || j1 <= j0) return true;
+    if (fw > 0x7FFFFFFF || fh > 0x7FFFFFFF) return false;
+    u0 = i0 >> PC_TILE_SHIFT;
+    u1 = (i1 - 1) >> PC_TILE_SHIFT;
+    v0 = j0 >> PC_TILE_SHIFT;
+    v1 = (j1 - 1) >> PC_TILE_SHIFT;
+    ntiles = (size_t)(u1 - u0 + 1) * (size_t)(v1 - v0 + 1);
+    if (ntiles > 65536u) return false;
+    fine_tables();
+    if (c->fine_scale != s || c->fine_level != level) {
+        for (uint32_t k = 0; k < c->npages; k++)
+            if (c->pages[k].level == FINE_LEVEL) c->pages[k].live = false;
+        c->fine_scale = s;
+        c->fine_level = level;
+    }
+    jobs = (fine_job *)malloc(ntiles * sizeof *jobs);
+    if (!jobs) return false;
+    /* every source tile first (no half-built frame), the pages, the jobs */
+    for (int64_t vv = v0; vv <= v1 && ok; vv++)
+        for (int64_t uu = u0; uu <= u1 && ok; uu++) {
+            fine_job *j = &jobs[njobs];
+            gfx_page *p;
+            if (!fine_plan(vc, level, s, uu, vv, lw, lh, &j->fs, &j->stamp)) {
+                ok = false;
+                break;
+            }
+            p = get_page(c, FINE_LEVEL, (uint32_t)(uu / GFX_PAGE_TILES),
+                         (uint32_t)(vv / GFX_PAGE_TILES));
+            c->visible++;
+            if (!p) {
+                ok = false;
+                break;
+            }
+            j->u = uu;
+            j->v = vv;
+            j->page = (uint32_t)(p - c->pages);
+            j->slot = (uint32_t)(vv % GFX_PAGE_TILES) * GFX_PAGE_TILES +
+                      (uint32_t)(uu % GFX_PAGE_TILES);
+            if (p->stamp[j->slot] != j->stamp) njobs++;
+        }
+    if (ok && njobs > 0) {
+        fine_batch b;
+        bytes = njobs * PC_TILE_PX * 4u;
+        if (c->fine_cap < bytes) {
+            uint8_t *nb = (uint8_t *)realloc(c->fine_buf, bytes);
+            if (!nb) ok = false;
+            else {
+                c->fine_buf = nb;
+                c->fine_cap = bytes;
+            }
+        }
+        if (ok) {
+            b.jobs = jobs;
+            b.out = c->fine_buf;
+            b.s = s;
+            b.lw = lw;
+            b.lh = lh;
+            pc_par_for(c->st ? c->st->par : NULL, fine_job_run, &b, (uint32_t)njobs);
+            for (size_t k = 0; k < njobs; k++) {
+                gfx_page *p = &c->pages[jobs[k].page];
+                upload(c, p, jobs[k].slot, c->fine_buf + k * PC_TILE_PX * 4u);
+                p->stamp[jobs[k].slot] = jobs[k].stamp;
+            }
+        }
+    }
+    free(jobs);
+    if (!ok) return false;
+    fr = pc_rect_make((int32_t)i0, (int32_t)j0, (int32_t)(i1 - i0), (int32_t)(j1 - j0));
+    draw_pages(c, FINE_LEVEL, fr, ox, oy, 1.0, SDL_SCALEMODE_NEAREST);
+    return true;
+}
+
+bool gfx_canvas_pending(const gfx_canvas *c) { return c && c->fine_pending; }
+
 /* ---- main draw --------------------------------------------------------------------- */
 void gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
                      const gfx_style *st, gfx_stats *stats)
@@ -649,6 +945,26 @@ void gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
         if (f > (double)lh) f = (double)lh;
         if (e <= a || f <= b) goto grid;
         lr = pc_rect_make((int32_t)a, (int32_t)b, (int32_t)(e - a), (int32_t)(f - b));
+    }
+    /* lane UIA: between two mip levels, the CPU-shrunk fine pages (unless
+     * the zoom is still moving from frame to frame) */
+    {
+        uint32_t fl = 0u;
+        double fs = 0.0;
+        uint64_t now = SDL_GetTicks();
+        bool moving;
+        if (v->zoom != c->fine_last_zoom) {
+            moving = now - c->fine_changed_ms < FINE_SETTLE;
+            c->fine_changed_ms = now;
+            c->fine_last_zoom = v->zoom;
+        } else {
+            moving = false;
+        }
+        c->fine_pending = false;
+        if (gfx_fine_zoom(v->zoom, &fl, &fs) && fl == level) {
+            if (moving) c->fine_pending = true;
+            else if (draw_fine(c, v, vc, level, fs, ox, oy, &vis)) goto grid;
+        }
     }
     upload_pages(c, vc, level, lr);
     if (level == 0u && gfx_upscale_antialiased(v->zoom) &&

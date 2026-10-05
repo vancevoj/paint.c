@@ -75,6 +75,12 @@ typedef struct shell_cv {
     uint64_t     power_ms;            /* last battery check */
     bool         power_saver;
     int          power_force;         /* -1 measure, 0 off, 1 on (tests) */
+    /* lane UIA (wave 4): platform pinch gestures (SDL 3.4) and smooth
+     * Ctrl+wheel (touchpad pinches on Windows) */
+    bool         gp_active;           /* an SDL_EVENT_PINCH gesture over the image */
+    bool         gp_seen;             /* the platform reports pinches itself */
+    double       gp_z0, gp_scale;     /* zoom at the start, scale since the start */
+    bool         wheel_smooth;        /* the last wheel event had a fractional step */
 } shell_cv;
 
 static shell_cv *scv(const app *a)
@@ -468,6 +474,14 @@ static int map_btn(Uint8 b)
 }
 
 /* ---- two-finger pinch zoom (V-ZOOM-PINCH, lane SHELL) -------------------------------------
+ * Lane UIA (wave 4): touchpads whose pinch the platform reports as a
+ * gesture (libinput on X11 and Wayland, macOS) arrive as SDL 3.4's
+ * SDL_EVENT_PINCH_* when paint.c is built with SDL 3.4 (the bundled SDL;
+ * gesture_event below, behind SDL_VERSION_ATLEAST(3, 4, 0) since Debian's
+ * SDL is 3.2): the zoom follows the gesture's scale around the pointer.
+ * Windows turns a touchpad pinch into Ctrl+wheel with fractions of a
+ * notch; fractional Ctrl+wheel steps zoom continuously (WHEEL_ZOOM_BASE
+ * per notch) instead of through the presets (app_canvas_frame).
  * SDL 3.2 finger events. Touch screens (direct devices) report positions
  * normalized to the window: the image point under the two fingers'
  * centroid follows the centroid while the zoom follows the finger
@@ -556,6 +570,8 @@ static void pinch_begin(app *a, shell_cv *s)
         s->pinch_mode = 1;
     } else {
         if (!a->cv.mouse_in || !app_canvas_over(a)) return;
+        /* lane UIA: the platform reports this touchpad's pinches itself */
+        if (s->gp_seen) return;
         s->pinch_mode = 0;
     }
     s->pinching = true;
@@ -637,6 +653,50 @@ static void touch_event(app *a, const SDL_Event *e)
     app_request_frame(a);
 }
 
+/* Lane UIA (wave 4): the zoom factor of one wheel notch for smooth
+ * (fractional) Ctrl+wheel steps; close to the preset spacing. */
+#define WHEEL_ZOOM_BASE 1.25
+
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+/* SDL 3.4 pinch gestures (lane UIA). The scale of an update is relative to
+ * the start of the gesture on X11 and Wayland (XI2 and the pointer gesture
+ * protocol pass theirs through) and relative to the last update on macOS
+ * (SDL adds 1 to the magnification of each event). */
+static void gesture_event(app *a, shell_cv *s, const SDL_Event *e)
+{
+    app_doc *d = app_active_doc(a);
+    gfx_view v;
+    double z;
+    if (e->type == SDL_EVENT_PINCH_BEGIN) {
+        s->gp_seen = true;
+        s->gp_active = d && !app_dialog_active(a) && a->cv.mouse_in && app_canvas_over(a) &&
+                       !a->cv.captured;
+        s->gp_z0 = d ? d->view.zoom : 1.0;
+        s->gp_scale = 1.0;
+        if (s->pinching && !s->pinch_direct) s->pinching = false;   /* the platform's wins */
+        return;
+    }
+    if (e->type == SDL_EVENT_PINCH_END) {
+        s->gp_active = false;
+        return;
+    }
+    if (!s->gp_active || !d || !(e->pinch.scale > 0.0f) || !isfinite(e->pinch.scale)) return;
+#if defined(__APPLE__)
+    s->gp_scale *= (double)e->pinch.scale;
+#else
+    s->gp_scale = (double)e->pinch.scale;
+#endif
+    if (s->gp_scale < 1e-4) s->gp_scale = 1e-4;
+    if (s->gp_scale > 1e4) s->gp_scale = 1e4;
+    z = gfx_zoom_clamp(s->gp_z0 * s->gp_scale);
+    v = app_doc_gview(a, d);
+    gfx_view_zoom_at(&v, z, (double)a->cv.mx, (double)a->cv.my, a->overscroll);
+    d->view.fit_mode = false;
+    app_doc_set_gview(a, d, &v);
+    app_request_frame(a);
+}
+#endif
+
 void app_canvas_event(app *a, const SDL_Event *e)
 {
     app_canvas *c = &a->cv;
@@ -644,6 +704,19 @@ void app_canvas_event(app *a, const SDL_Event *e)
     SDL_Event m_mouse;                   /* lane M: pen as mouse */
     memset(&q, 0, sizeof q);
     q.pressure = 1.0f;
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+    if (e->type == SDL_EVENT_PINCH_BEGIN || e->type == SDL_EVENT_PINCH_UPDATE ||
+        e->type == SDL_EVENT_PINCH_END) {
+        shell_cv *s = scv(a);
+        if (s) gesture_event(a, s, e);
+        return;
+    }
+#endif
+    if (e->type == SDL_EVENT_MOUSE_WHEEL) {        /* lane UIA: smooth wheel steps */
+        shell_cv *s = scv(a);
+        float wy = e->wheel.y;
+        if (s && wy != 0.0f) s->wheel_smooth = fabsf(wy - roundf(wy)) > 1e-3f;
+    }
     /* lane SHELL: touch gestures; while two fingers pinch, the mouse
      * events SDL synthesizes from the touch screen are not for the tools */
     if (e->type == SDL_EVENT_FINGER_DOWN || e->type == SDL_EVENT_FINGER_UP ||
@@ -1272,11 +1345,15 @@ static void draw_cb(SDL_Renderer *r, ui_rect clip, void *ud)
         st.checker_b = gfx_rgba_make((uint8_t)c[3], (uint8_t)c[4], (uint8_t)c[5], 255);
     }
     st.checker_cell = ui_px(a->ui, 8.0f);
+    st.par = &a->par;                       /* lane UIA: fine zoom-out tiles */
     st.grid = a->grid;
     st.grid_color = a->dark ? gfx_rgba_make(255, 255, 255, 56) : gfx_rgba_make(0, 0, 0, 56);
     if (!d) return;
     (void)app_cm_gfx_style(a, d, &st);     /* lane SHELL: V-RENDER-CM */
     gfx_canvas_draw(a->cv.gfx, &dc->v, d->vcache, &st, &a->cv.stats);
+    /* lane UIA: the zoom moved this frame; the gamma-correct image between
+     * two mip levels follows when it rests */
+    if (gfx_canvas_pending(a->cv.gfx)) app_request_frame_at(a, SDL_GetTicks() + 130u);
     {
         const pc_poly *ants = app_doc_ants(d);
         if (ants && ants->n_contours) {
@@ -1388,7 +1465,17 @@ void app_canvas_frame(app *a, ui_rect area)
         ui_vec2 w = ui_wheel_take(ui, c->view);
         uint32_t m = ui_mods(ui);
         if (w.x != 0.0f || w.y != 0.0f) {
-            if (m & (UI_MOD_CTRL | UI_MOD_GUI)) {      /* lane KEYS: Ctrl or Cmd (K-OS-1) */
+            shell_cv *sc = scv(a);
+            if ((m & (UI_MOD_CTRL | UI_MOD_GUI)) && sc && sc->wheel_smooth && w.y != 0.0f) {
+                /* lane UIA: fractions of a notch (a Windows touchpad pinch,
+                 * smooth wheels) zoom continuously around the pointer */
+                gfx_view zv = app_doc_gview(a, d);
+                double z = gfx_zoom_clamp(zv.zoom * pow(WHEEL_ZOOM_BASE, (double)w.y));
+                c->wheel_zoom_acc = 0.0;
+                gfx_view_zoom_at(&zv, z, (double)c->mx, (double)c->my, a->overscroll);
+                d->view.fit_mode = false;
+                app_doc_set_gview(a, d, &zv);
+            } else if (m & (UI_MOD_CTRL | UI_MOD_GUI)) {   /* lane KEYS: Ctrl or Cmd (K-OS-1) */
                 c->wheel_zoom_acc += (double)w.y;
                 while (c->wheel_zoom_acc >= 1.0) {
                     app_view_zoom_step(a, d, 1, true, (double)c->mx, (double)c->my);

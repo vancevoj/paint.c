@@ -61,6 +61,9 @@ typedef struct gfx_style {
     void   (*xf)(void *ud, uint8_t *bgra, size_t n);
     void    *xf_ud;
     uint64_t xf_key;
+    /* lane UIA (wave 4): workers for the zoom between two mip levels
+     * (gfx_fine_zoom); NULL = the calling thread. Borrowed. */
+    const pc_par *par;
 } gfx_style;
 
 typedef struct gfx_stats {
@@ -101,6 +104,14 @@ bool        gfx_view_ready(const gfx_view *v, const pc_view_cache *vc);
  * may be NULL. */
 void        gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
                             const gfx_style *st, gfx_stats *stats);
+/* Lane UIA (wave 4): zooms between two mip levels (not a power of two,
+ * below 100 %) are shown from mip level *level shrunk by *s (0.5 < s < 1)
+ * with a gamma-correct area filter on the CPU (V-RENDER-DOWN). False for
+ * other zooms. */
+bool        gfx_fine_zoom(double zoom, uint32_t *level, double *s);
+/* True when the last draw showed the quick bilinear image because the zoom
+ * was still changing: draw again shortly (about 120 ms) for the fine one. */
+bool        gfx_canvas_pending(const gfx_canvas *c);
 void        gfx_canvas_stats(const gfx_canvas *c, gfx_stats *out);
 
 /* Settings > Diagnostics (lane SHELL): the renderer and, where the back end
