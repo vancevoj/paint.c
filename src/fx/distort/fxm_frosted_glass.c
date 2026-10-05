@@ -9,8 +9,9 @@
  * documentation: radii up to 500, Smoothness 1..8, and Diffusion, an exponent
  * on the scatter distance: Diffusion 1 spreads the samples evenly over the
  * ring area, larger values push them outwards (more scattering), smaller
- * values pull them inwards. Default Maximum Scatter Radius 5 as in the 5.1
- * documentation screenshot.
+ * values pull them inwards. Default Maximum Scatter Radius 3 and two-decimal
+ * radii as the Paint.NET 5.2 dialog shows (an earlier reading of the 5.0-era
+ * documentation screenshot gave 5; see docs/fx/parity.md).
  */
 #include "fx2_common.h"
 
@@ -24,10 +25,10 @@ typedef struct frost_params {
 
 static const fx_prop k_props[] = {
     { "max_radius", "Maximum Scatter Radius", FXP_REAL,
-      (uint32_t)offsetof(frost_params, max_radius), 0.0, 500.0, 5.0, 0.1, NULL, NULL, 0u,
+      (uint32_t)offsetof(frost_params, max_radius), 0.0, 500.0, 3.0, 0.01, NULL, NULL, 0u,
       FXP_F_SLIDER_LOG, NULL },
     { "min_radius", "Minimum Scatter Radius", FXP_REAL,
-      (uint32_t)offsetof(frost_params, min_radius), 0.0, 500.0, 0.0, 0.1, NULL, NULL, 0u,
+      (uint32_t)offsetof(frost_params, min_radius), 0.0, 500.0, 0.0, 0.01, NULL, NULL, 0u,
       FXP_F_SLIDER_LOG, NULL },
     { "diffusion", "Diffusion", FXP_REAL, (uint32_t)offsetof(frost_params, diffusion),
       0.01, 3.0, 1.0, 0.01, NULL, NULL, 0u, 0u, NULL },
@@ -41,7 +42,7 @@ static int frost_render(const void *params, const void *state, const fx_img *src
                         fx_rect roi, const fx_env *env, const fx_host *host, const void *job)
 {
     const frost_params *p = (const frost_params *)params;
-    double rmax = fx2_real(p->max_radius, 0.0, 500.0, 5.0);
+    double rmax = fx2_real(p->max_radius, 0.0, 500.0, 3.0);
     double rmin = fx2_real(p->min_radius, 0.0, 500.0, 0.0), lo, hi, lo2, span2;
     double inv_diff = 1.0 / fx2_real(p->diffusion, 0.01, 3.0, 1.0);
     double half = 0.5 * (double)(src->r.w < src->r.h ? src->r.w : src->r.h);

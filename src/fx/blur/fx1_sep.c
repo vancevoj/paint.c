@@ -16,12 +16,17 @@
  *     enclosing block started (byte-identical for any ROI split).
  *  3. The output divides by W, which renormalizes the kernel at the image
  *     border (the 3.36 Gaussian excluded outside pixels the same way).
+ *     In mirror mode (Gaussian Blur, 5.x) apron positions outside the image
+ *     hold the mirrored image instead and W is FX1_ONE everywhere.
+ *  4. Linear mode (5.x Gamma Boost) decodes sRGB to linear light before
+ *     the boost power and encodes with exact midpoint thresholds after it.
  *
  * Positions near a block edge see truncated windows. Each pass widens that
  * damaged margin by its own reach only, and the apron equals the total
  * reach, so the damage never reaches the ROI.
  */
 #include "fx1_lib.h"
+#include "fx_srgb.h"
 
 #include <string.h>
 
@@ -45,10 +50,42 @@ void fx1_sep_gamma(fx1_sep *s, double boost)
     }
 }
 
+void fx1_sep_gamma5(fx1_sep *s, double boost)
+{
+    double p;
+    int32_t i;
+    p = 1.0 + fx1_pd(boost, -0.99, 2.0);
+    s->linear = 1;
+    s->gamma_on = fabs(p - 1.0) > 1e-9;
+    s->inv_gamma = 1.0 / p;
+    for (i = 0; i < 256; i++) {
+        double v = s->gamma_on ? pow(fxl_lin_tab[i], p) : fxl_lin_tab[i];
+        s->glut[i] = (uint32_t)floor(v * (double)FX1_ONE + 0.5);
+    }
+    for (i = 0; i < 255; i++) s->lmid[i] = s->gamma_on ? pow(fxl_mid_tab[i], p) : fxl_mid_tab[i];
+}
+
 static void fx1_sep_reset(fx1_sep *s, double boost)
 {
     memset(s, 0, sizeof *s);
     fx1_sep_gamma(s, boost);
+}
+
+static void fx1_sep_reset5(fx1_sep *s, double boost)
+{
+    memset(s, 0, sizeof *s);
+    fx1_sep_gamma5(s, boost);
+}
+
+/* Mirror index for half-sample symmetric reflection: ..., 1, 0 | 0, 1, ...,
+ * n - 1 | n - 1, n - 2, ... (period 2 n), for any distance. */
+static int32_t fx1_mirror(int32_t i, int32_t o, int32_t n)
+{
+    int64_t k = (int64_t)i - (int64_t)o, per = 2 * (int64_t)n;
+    k %= per;
+    if (k < 0) k += per;
+    if (k >= n) k = per - 1 - k;
+    return o + (int32_t)k;
 }
 
 static void fx1_add_box(fx1_sep *s, int32_t r, double frac)
@@ -67,17 +104,70 @@ static void fx1_add_box(fx1_sep *s, int32_t r, double frac)
 void fx1_sep_box(fx1_sep *s, double radius, double boost)
 {
     int32_t r;
-    fx1_sep_reset(s, boost);
+    fx1_sep_reset5(s, boost);
     radius = fx1_pd(radius, 0.0, 4000.0);
     if (radius <= 0.0) return;
     r = (int32_t)floor(radius);
     fx1_add_box(s, r, radius - (double)r);
 }
 
+/* n extended boxes whose variances add up to var. A box of half width r
+ * with end taps of weight a has variance
+ * (r (r + 1) (2r + 1) / 3 + 2 a (r + 1)^2) / (2r + 1 + 2a). */
+static void fx1_add_boxes(fx1_sep *s, double var, int32_t n)
+{
+    double v1 = var / (double)n;
+    int32_t r = (int32_t)floor((-1.0 + sqrt(1.0 + 12.0 * v1)) * 0.5), i;
+    double a;
+    if (r < 0) r = 0;
+    while ((double)(r + 1) * (double)(r + 2) / 3.0 <= v1) r++;
+    while (r > 0 && (double)r * (double)(r + 1) / 3.0 > v1) r--;
+    a = (double)(2 * r + 1) * ((double)r * (double)(r + 1) / 3.0 - v1) /
+        (2.0 * (v1 - (double)(r + 1) * (double)(r + 1)));
+    for (i = 0; i < n; i++) fx1_add_box(s, r, a);
+}
+
+/* Standard normal distribution function. */
+static double fx1_phi(double z)
+{
+    return 0.5 * erfc(-z * 0.70710678118654752440);
+}
+
+void fx1_sep_gaussian5(fx1_sep *s, double radius, int32_t quality, double boost)
+{
+    double sigma;
+    int32_t k, i;
+    fx1_sep_reset5(s, boost);
+    s->mirror = 1;
+    radius = fx1_pd(radius, 0.0, 4000.0);
+    quality = fx1_pi(quality, 1, 4);
+    if (radius <= 0.0) return;
+    sigma = FX1_G5_SIGMA * radius;
+    k = (int32_t)ceil(3.0 * sigma + 0.5);
+    if (k < 1) k = 1;
+    if (k <= FX1_MAX_K && (sigma < 2.0 || (quality >= 4 && k <= 32))) {
+        /* exact kernel: the Gaussian integrated over each pixel */
+        double sum = 0.0;
+        fx1_pass *p = &s->pass[s->n_pass++];
+        for (i = -k; i <= k; i++) {
+            double w = fx1_phi(((double)i + 0.5) / sigma) - fx1_phi(((double)i - 0.5) / sigma);
+            s->kern[i + k] = w;
+            sum += w;
+        }
+        for (i = 0; i <= 2 * k; i++) s->kern[i] /= sum;
+        p->kernel = 1;
+        p->r = k;
+        p->frac = 0.0;
+        s->ext = k;
+        return;
+    }
+    fx1_add_boxes(s, sigma * sigma + 1.0 / 12.0, quality + 1);
+}
+
 void fx1_sep_gaussian(fx1_sep *s, double radius, int32_t quality, double boost)
 {
     double var, sigma;
-    int32_t k, n, i;
+    int32_t k, i;
     fx1_sep_reset(s, boost);
     radius = fx1_pd(radius, 0.0, 4000.0);
     quality = fx1_pi(quality, 1, 4);
@@ -102,21 +192,7 @@ void fx1_sep_gaussian(fx1_sep *s, double radius, int32_t quality, double boost)
         s->ext = k;
         return;
     }
-    /* n extended boxes whose variances add up to var. A box of half width
-     * r with end taps of weight a has variance
-     * (r (r + 1) (2r + 1) / 3 + 2 a (r + 1)^2) / (2r + 1 + 2a). */
-    n = quality + 1;
-    {
-        double v1 = var / (double)n;
-        int32_t r = (int32_t)floor((-1.0 + sqrt(1.0 + 12.0 * v1)) * 0.5);
-        double a;
-        if (r < 0) r = 0;
-        while ((double)(r + 1) * (double)(r + 2) / 3.0 <= v1) r++;
-        while (r > 0 && (double)r * (double)(r + 1) / 3.0 > v1) r--;
-        a = (double)(2 * r + 1) * ((double)r * (double)(r + 1) / 3.0 - v1) /
-            (2.0 * (v1 - (double)(r + 1) * (double)(r + 1)));
-        for (i = 0; i < n; i++) fx1_add_box(s, r, a);
-    }
+    fx1_add_boxes(s, var, quality + 1);
 }
 
 /* ---- passes ------------------------------------------------------------- */
@@ -193,6 +269,19 @@ void fx1_gamma_load(const fx1_sep *s, fx_px p, int32_t *v)
     v[4] = FX1_ONE;
 }
 
+/* Linear mode: index of the byte whose code interval holds t, i.e. the
+ * number of thresholds <= t (ties round up). */
+static uint8_t fx1_lin_encode(const fx1_sep *s, double t)
+{
+    int lo = 0, hi = 255;
+    while (lo < hi) {
+        int mid = (lo + hi + 1) >> 1;
+        if (s->lmid[mid - 1] <= t) lo = mid;
+        else hi = mid - 1;
+    }
+    return (uint8_t)lo;
+}
+
 fx_px fx1_gamma_store(const fx1_sep *s, const double *v)
 {
     double af, k, c[3];
@@ -203,6 +292,11 @@ fx_px fx1_gamma_store(const fx1_sep *s, const double *v)
     if (a8 <= 0) return fx_px_make(0, 0, 0, 0);
     if (a8 > 255) a8 = 255;
     k = 1.0 / v[3];
+    if (s->linear) {
+        uint8_t o[3];
+        for (i = 0; i < 3; i++) o[i] = fx1_lin_encode(s, v[i] * k);
+        return fx_px_make(o[2], o[1], o[0], (uint8_t)a8);
+    }
     for (i = 0; i < 3; i++) {
         double t = v[i] * k;
         if (t < 0.0) t = 0.0;
@@ -230,10 +324,14 @@ static int32_t *fx1_vstage(const fx1_sep *s, const fx_img *src, int32_t gx, int3
         int32_t *v = a + (size_t)(y - ry0) * (size_t)L;
         const fx_px *row;
         if (y < Y0 || y >= Y1) {
-            memset(v, 0, (size_t)L * sizeof(int32_t));
-            continue;
+            if (!s->mirror) {
+                memset(v, 0, (size_t)L * sizeof(int32_t));
+                continue;
+            }
+            row = fx_row(src, fx1_mirror(y, Y0, Y1 - Y0));
+        } else {
+            row = fx_row(src, y);
         }
-        row = fx_row(src, y);
         for (k = 0; k < g; k++) {
             fx1_gamma_load(s, row[gx + k], tmp);
             for (c = 0; c < nl; c++) v[k * nl + c] = tmp[c];
@@ -251,7 +349,8 @@ static void fx1_vstage_w(const fx1_sep *s, const fx_img *src, int32_t oy, int32_
     const int32_t E = s->ext, Y0 = src->r.y, Y1 = fx1_y1(src);
     int32_t ry0 = oy - E, nrows = hh + 2 * E, y;
     int32_t *a = va, *b = vb;
-    for (y = ry0; y < ry0 + nrows; y++) a[y - ry0] = (y < Y0 || y >= Y1) ? 0 : FX1_ONE;
+    for (y = ry0; y < ry0 + nrows; y++)
+        a[y - ry0] = (!s->mirror && (y < Y0 || y >= Y1)) ? 0 : FX1_ONE;
     fx1_run_passes(s, &a, &b, nrows, 1, iacc, dacc);
     memcpy(out, a + E, (size_t)hh * sizeof(int32_t));
 }
@@ -347,6 +446,13 @@ int fx1_sep_render_c(const fx1_sep *s, const fx1_vcache *cache, const fx_img *sr
     use_cache = cache && cache->v && roi.y >= cache->y0 && roi.y + roi.h <= cache->y0 + cache->h &&
                 (roi.x - E <= X0 || roi.x - E >= cache->x0) &&
                 (roi.x + roi.w + E >= X1 || roi.x + roi.w + E <= cache->x0 + cache->w);
+    if (use_cache && s->mirror) {
+        /* the mirrored apron columns must be cached too */
+        int32_t lx1 = X1 - X0 < E ? X1 : X0 + E, rx0 = X1 - X0 < E ? X0 : X1 - E;
+        if (roi.x - E < X0 && (cache->x0 > X0 || cache->x0 + cache->w < lx1)) use_cache = 0;
+        if (roi.x + roi.w + E > X1 && (cache->x0 > rx0 || cache->x0 + cache->w < X1))
+            use_cache = 0;
+    }
     sh = roi.h < FX1_SH ? roi.h : FX1_SH;
     cw = roi.w < FX1_CW ? roi.w : FX1_CW;
     hcols = (size_t)cw + 2u * (size_t)E;
@@ -396,6 +502,19 @@ int fx1_sep_render_c(const fx1_sep *s, const fx1_vcache *cache, const fx_img *sr
                             o[3] = v[3]; o[4] = wrow[y];
                         }
                 }
+                if (s->mirror && ix0 < ix1) {
+                    /* apron columns outside the image repeat their mirror
+                     * columns, which always lie in [ix0, ix1) */
+                    for (x = 0; x < ncols; x++) {
+                        int32_t xx = cx0 + x, mx;
+                        if (xx >= X0 && xx < X1) continue;
+                        mx = fx1_mirror(xx, X0, X1 - X0);
+                        for (y = 0; y < hh; y++)
+                            memcpy(hbuf + (size_t)y * hstride + (size_t)x * FX1_CH,
+                                   hbuf + (size_t)y * hstride + (size_t)(mx - cx0) * FX1_CH,
+                                   FX1_CH * sizeof(int32_t));
+                    }
+                }
             }
             /* horizontal stage */
             for (y = 0; y < hh; y++) {
@@ -411,10 +530,12 @@ int fx1_sep_render_c(const fx1_sep *s, const fx1_vcache *cache, const fx_img *sr
                     int32_t wv = cache->wv[oy + y - cache->y0];
                     for (x = 0; x < ncols; x++) {
                         int32_t xx = cx0 + x, *o = a + (size_t)x * FX1_CH;
-                        if (xx < X0 || xx >= X1) {
+                        if ((xx < X0 || xx >= X1) && !s->mirror) {
                             o[0] = o[1] = o[2] = o[3] = o[4] = 0;
                         } else {
-                            const int32_t *q = cv + (size_t)(xx - cache->x0) * 4u;
+                            const int32_t *q;
+                            if (xx < X0 || xx >= X1) xx = fx1_mirror(xx, X0, X1 - X0);
+                            q = cv + (size_t)(xx - cache->x0) * 4u;
                             o[0] = q[0]; o[1] = q[1]; o[2] = q[2]; o[3] = q[3];
                             o[4] = wv;
                         }

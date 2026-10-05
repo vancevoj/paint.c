@@ -42,7 +42,8 @@ static int render(const void *params, const void *state, const fx_img *src, fx_i
 }
 
 static const fx_prop k_props[] = {
-    { "exposure", "Exposure", FXP_INT, (uint32_t)offsetof(ex_params, exposure),
+    /* unlabeled single slider, as the Paint.NET 5.2 dialog shows */
+    { "exposure", "", FXP_INT, (uint32_t)offsetof(ex_params, exposure),
       -200.0, 200.0, 0.0, 1.0, NULL, NULL, 0u, 0u, NULL },
 };
 

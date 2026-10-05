@@ -303,7 +303,7 @@ static void t_turbulence(void)
     p = t_params(fx, &c.env);
     t_set_d(fx, p, "period", 13.0);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
-    t_set_i(fx, p, "noise", 1);
+    t_set_i(fx, p, "noise_type", 0);                    /* Fractal Sum */
     t_set_i(fx, p, "octaves", 7);
     t_set_i(fx, p, "blend", 8);
     t_check_tiling(fx, p, &c.src, &c.env, &c.ref);

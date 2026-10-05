@@ -7,8 +7,11 @@
  * selection rectangle fully covered, so no empty corners appear:
  *     s = max((w cos a + h sin a) / w, (w sin a + h cos a) / h).
  * Each output pixel maps back into the source and is resampled with the
- * chosen Sampling mode (Nearest Neighbor, Bilinear, Bicubic). Angle 0 is
- * the identity.
+ * chosen Sampling mode. The list order is the Paint.NET 5.2 dropdown's
+ * (Bicubic, Bilinear, Nearest Neighbor; the 5.1 documentation names the
+ * same three, Bicubic the default); the preset key is "sampling_mode"
+ * because the indices changed (it was "sampling" with Nearest Neighbor
+ * first). Angle 0 is the identity.
  *
  * Thread rules: no prepared state; render is reentrant.
  */
@@ -19,13 +22,14 @@ typedef struct straighten_params {
     int32_t sampling;
 } straighten_params;
 
-static const char *const k_sampling[] = { "Nearest Neighbor", "Bilinear", "Bicubic", NULL };
+static const char *const k_sampling[] = { "Bicubic", "Bilinear", "Nearest Neighbor", NULL };
+enum { SAMPLE_BICUBIC = 0, SAMPLE_BILINEAR = 1, SAMPLE_NEAREST = 2 };
 
 static const fx_prop k_props[] = {
     { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(straighten_params, angle),
       -45.0, 45.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "sampling", "Sampling", FXP_CHOICE, (uint32_t)offsetof(straighten_params, sampling),
-      0.0, 2.0, 2.0, 0.0, k_sampling, NULL, 0, 0, NULL },
+    { "sampling_mode", "Sampling", FXP_CHOICE, (uint32_t)offsetof(straighten_params, sampling),
+      0.0, 2.0, (double)SAMPLE_BICUBIC, 0.0, k_sampling, NULL, 0, 0, NULL },
 };
 
 static int straighten_render(const void *params, const void *state, const fx_img *src,
@@ -52,8 +56,8 @@ static int straighten_render(const void *params, const void *state, const fx_img
         for (x = roi.x; x < roi.x + roi.w; x++) {
             double vx = (double)x - cx, vy = (double)y - cy;
             double sx = cx + (vx * ca - vy * sa) * inv, sy = cy + (vx * sa + vy * ca) * inv;
-            if (mode == 0) d[x] = fx1_sample_nearest(src, sx, sy);
-            else if (mode == 1) d[x] = fx1_sample_bilinear(src, sx, sy);
+            if (mode == SAMPLE_NEAREST) d[x] = fx1_sample_nearest(src, sx, sy);
+            else if (mode == SAMPLE_BILINEAR) d[x] = fx1_sample_bilinear(src, sx, sy);
             else d[x] = fx1_sample_bicubic(src, sx, sy);
         }
     }

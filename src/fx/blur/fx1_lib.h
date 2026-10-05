@@ -115,7 +115,9 @@ fx_px fx1_bc_apply(const fx1_bc *bc, fx_px p);
 /* ---- separable blur engine ---------------------------------------------- */
 #define FX1_MAX_PASS 6
 #define FX1_MAX_K    48
-#define FX1_ONE      (1 << 24)      /* fixed-point unit of the blur engine */
+#define FX1_ONE      (1 << 30)      /* fixed-point unit of the blur engine: 2^30 keeps
+                                       dark linear values of Gamma Boost 2 (lin^3)
+                                       above the rounding of partial windows */
 
 typedef struct fx1_pass {
     int32_t r;        /* box: full half width; kernel: half width K */
@@ -124,7 +126,7 @@ typedef struct fx1_pass {
 } fx1_pass;
 
 /* Prepared description of an isotropic separable blur (same passes on both
- * axes) with optional gamma boost. Plain data, about 3 KiB; keep it in the
+ * axes) with optional gamma boost. Plain data, about 5 KiB; keep it in the
  * prepared state. */
 typedef struct fx1_sep {
     int32_t  n_pass;            /* 0 = identity */
@@ -133,17 +135,39 @@ typedef struct fx1_sep {
     double   inv_gamma;         /* 1 / p */
     fx1_pass pass[FX1_MAX_PASS];
     double   kern[2 * FX1_MAX_K + 1];
-    uint32_t glut[256];         /* round((c / 255)^p * FX1_ONE) */
+    uint32_t glut[256];         /* round(f(c) * FX1_ONE), f = (c / 255)^p, or
+                                   lin(c)^p in linear mode */
+    int32_t  linear;            /* 5.x mode: colors decoded to linear light */
+    int32_t  mirror;            /* border: mirrored image instead of exclusion */
+    double   lmid[255];         /* linear mode: lin(k + 0.5)^p, the encode
+                                   thresholds in the boosted space */
 } fx1_sep;
 
-/* Gamma boost b maps to the exponent p = 2^b applied to colors before the
- * blur and undone after it (b = 0: no change). */
+/* 3.36-era gamma boost (Glow, Soften Portrait, Ink and Pencil Sketch,
+ * Sharpen): b maps to the exponent p = 2^b applied to the gamma-encoded
+ * colors before the blur and undone after it (b = 0: no change). */
 void fx1_sep_gamma(fx1_sep *s, double boost);
+/* Paint.NET 5.1 Gamma Boost (Gaussian, Bokeh and Square Blur): colors are
+ * decoded to linear light (sRGB transfer, the 5.0 "sRGB" default that 5.1
+ * folded into Gamma Boost 0) and raised to p = 1 + b, b in [-0.99, 2];
+ * after the blur the power is undone and the result encoded back. b = 0 is
+ * a plain linear-light blur, as the 5.2 goldens show. */
+void fx1_sep_gamma5(fx1_sep *s, double boost);
 /* Gaussian whose variance equals the 3.36 tent kernel of the same radius,
  * sigma^2 = r (r + 2) / 6. quality 1..4 selects 2..5 extended box passes,
- * or an exact sampled kernel for small sigma. radius <= 0 is identity. */
+ * or an exact sampled kernel for small sigma. radius <= 0 is identity.
+ * Gamma-encoded, border excluded (the 3.36 look of Glow and friends). */
 void fx1_sep_gaussian(fx1_sep *s, double radius, int32_t quality, double boost);
-/* Square box of side 2 r + 1 with fractional edge weights for real r. */
+/* Gaussian Blur of Paint.NET 5.x: linear light with fx1_sep_gamma5, a
+ * mirrored border, and a Gaussian of standard deviation
+ * FX1_G5_SIGMA * radius whose taps integrate it over each pixel (exact
+ * kernel for small sigma or quality 4; otherwise quality + 1 extended boxes
+ * of the same total variance, sigma^2 + 1/12). Calibrated on the 5.2
+ * golden at radius 2 (docs/fx/parity.md). radius <= 0 is identity. */
+#define FX1_G5_SIGMA 0.3635
+void fx1_sep_gaussian5(fx1_sep *s, double radius, int32_t quality, double boost);
+/* Square box of side 2 r + 1 with fractional edge weights for real r,
+ * Paint.NET 5.1 Gamma Boost (linear light), border excluded. */
 void fx1_sep_box(fx1_sep *s, double radius, double boost);
 /* Fixed-point channels of the engine for one pixel: v[0..2] premultiplied
  * gamma-boosted B, G, R, v[3] alpha, v[4] coverage (all scaled by FX1_ONE). */
@@ -152,8 +176,10 @@ void  fx1_gamma_load(const fx1_sep *s, fx_px p, int32_t *v);
  * coverage v[4], undoes the gamma boost. Transparent when alpha rounds to 0. */
 fx_px fx1_gamma_store(const fx1_sep *s, const double *v);
 /* Blur src into the roi of dst (straight BGRA). Pixels outside the image
- * are excluded (renormalized), so constant images stay constant. Returns
- * FX_OK, FX_CANCELLED or FX_ERROR (out of memory). */
+ * are excluded (renormalized) or, with s->mirror, mirrored (the image is
+ * reflected about its border pixels' outer edges); either way constant
+ * images stay constant. Returns FX_OK, FX_CANCELLED or FX_ERROR (out of
+ * memory). */
 int fx1_sep_render(const fx1_sep *s, const fx_img *src, fx_img *dst, fx_rect roi,
                    const fx_host *h, const void *job);
 

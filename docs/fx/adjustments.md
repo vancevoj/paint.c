@@ -19,7 +19,7 @@ Paint.NET 5.1.12 golden corpus (OD-11 / ADR-009).
 | Menu | id suffix | Dialog | Shortcut (5.1 menu) | Source |
 |---|---|---|---|---|
 | Auto-Level | auto_level | no | Ctrl+Shift+L | 3.36 |
-| Black and White | black_and_white | no | Ctrl+Shift+G | 3.36 code, 5.x weights (see below) |
+| Black and White | black_and_white | no | Ctrl+Shift+G | 5.2 goldens (rounded Rec.601) |
 | Brightness / Contrast | brightness_contrast | yes | Ctrl+Shift+T | 3.36 |
 | Curves | curves | yes (widget "curves") | Ctrl+Shift+M | 3.36 behavior, own spline code |
 | Exposure | exposure | yes | none | design |
@@ -29,7 +29,7 @@ Paint.NET 5.1.12 golden corpus (OD-11 / ADR-009).
 | Invert Colors | invert_colors | no | Ctrl+Shift+I | 3.36 |
 | Levels | levels | yes (widget "levels") | Ctrl+L | 3.36 |
 | Posterize | posterize | yes | Ctrl+Shift+P | 3.36 tables, 5.x dialog layout |
-| Sepia | sepia | yes | Ctrl+Shift+E | 3.36 at intensity 50 |
+| Sepia | sepia | yes | Ctrl+Shift+E | 3.36 gammas, 5.2 rounding |
 | Temperature / Tint | temperature_tint | yes | none | design |
 
 The shortcuts are listed for the app's keymap; effects do not carry them.
@@ -47,11 +47,11 @@ The shortcuts are listed for the app's keymap; effects do not carry them.
 | | red, green, blue, alpha | INT | 2..64 | 16 | levels; empty label (the check box above names it) |
 | | linked | BOOL | | 1 | Red drives every channel; green, blue and alpha sliders have `enabled_if = "linked=0"` |
 | Sepia | intensity | INT | 0..100 | 50 | |
-| Exposure | exposure | INT | -200..200 | 0 | hundredths of a stop |
+| Exposure | exposure | INT | -200..200 | 0 | hundredths of a stop; empty label (5.2 dialog) |
 | Highlights / Shadows | highlights | INT | -100..100 | 0 | |
 | | shadows | INT | -100..100 | 0 | |
 | | clarity | INT | -100..100 | 0 | |
-| | radius | REAL | 0..40 | 5 | step 0.01; maximum and default estimated |
+| | radius | REAL | 0..10 | 1.25 | step 0.01; range and default from the 5.2 dialog |
 | Temperature / Tint | temperature | INT | -100..100 | 0 | |
 | | tint | INT | -100..100 | 0 | |
 | Curves | curves | CUSTOM | `fx_curves` | identity, luminosity mode | `include/fx/fx_curves.h` |
@@ -76,12 +76,11 @@ is about -200..200; Radius 4.85 sits at about 12 %, so its maximum is about
 identity.
 
 **Black and White.** B, G, R all become
-`(19595 B + 38470 G + 7471 R) >> 16`: the BT.601 weights of 3.36's
-Desaturate with red and blue exchanged. The documented Paint.NET 5 output
-matches these weights within JPEG noise and contradicts BT.601 (see the
-checks below); 3.36 used `I`. `FXA_BW_BT601=1` restores the 3.36 formula.
-Sepia and Hue / Saturation keep `I`, which their documented outputs
-confirm.
+`(299 R + 587 G + 114 B + 500) / 1000`, the Rec.601 luma of the stored
+values, rounded. The Paint.NET 5.2 goldens match it on every non-tie pixel
+(docs/fx/parity.md); 3.36 truncated the 16-bit form `I`. An earlier
+calibration on the JPEG documentation images had exchanged the red and blue
+weights; the goldens rule that out. Hue / Saturation keeps `I`.
 
 **Brightness / Contrast (3.36).** With `b` brightness and `c` contrast:
 `c < 0`: multiply `c + 100`, divide 100; `c > 0`: multiply 100, divide
@@ -115,12 +114,14 @@ screenshot, which we take as the defaults; so by default alpha is
 posterized to 16 levels as well (alpha 0 and 255 never change). Linked uses
 Red's value for every checked channel.
 
-**Sepia (3.36 at 50).** Desaturate to `I`, then a Level from 0..255 to
-0..255 with per-channel gamma B `1 + 0.2 k`, G 1, R `1 - 0.2 k`,
-`k = intensity / 50` in single precision. Intensity 50 reproduces the 3.36
-gammas 1.2f and 0.8f exactly, 0 gives grayscale (equal to Black and White)
-and 100 is more saturated, matching the documented meaning of the 5.0
-slider.
+**Sepia (3.36 gammas, 5.2 rounding).** With the continuous luma
+`Y = (299 R + 587 G + 114 B) / 1000` and `t = Y / 255`:
+`R = round(255 t^(1 - 0.2 k))`, `G = round(Y)`, `B = round(255 t^(1 + 0.2 k))`,
+`k = intensity / 50`. Intensity 50 has the 3.36 gammas 0.8 and 1.2 (3.36
+truncated an integer intensity and the Level, up to 2 levels darker; the
+5.2 goldens round the continuous value), 0 gives grayscale (equal to Black
+and White) and 100 is more saturated. `prepare()` turns each curve into 256
+exact thresholds over the integer luma sum, so `render()` needs no `pow`.
 
 **Levels (3.36).** Per channel: below `in_lo` gives `out_lo`, at or above
 `in_hi` gives `out_hi`, otherwise
@@ -196,7 +197,7 @@ and up to 4 where chroma subsampling is amplified):
 | Adjustment (values) | ours vs 5.x | before vs 5.x |
 |---|---|---|
 | Auto-Level | 1.6 | 39.1 |
-| Black and White (5.x weights) | 0.6 (BT.601: 4.3) | 8.4 |
+| Black and White (wave-1 exchanged weights; superseded by the goldens, see parity.md) | 0.6 (BT.601: 4.3) | 8.4 |
 | Invert Colors | 0.5 | 115.3 |
 | Sepia (50) | 1.4 | 13.1 |
 | Posterize (16, all channels) | 2.5 | 4.6 |
@@ -217,12 +218,14 @@ the repository (P-02); only these measurements are recorded.
 * Auto-Level computes its histogram over the selection bounds; Paint.NET
   uses the exact selection shape. `fx_env` only carries bounds in ABI v1.
 * Exposure, Highlights / Shadows and Temperature / Tint are calibrated on a
-  single JPEG pair each; Radius' maximum and default, the tint strength and
-  the defaults read from screenshots (Posterize alpha checked) need a
-  Paint.NET 5.1.12 golden corpus to confirm (ADR-009).
-* Black and White follows the 5.x documentation output (red and blue
-  weights exchanged against BT.601). If 5.1.12 turns out to use BT.601,
-  build with `FXA_BW_BT601=1` (owner decision).
+  single JPEG pair each; the tint strength needs a Paint.NET 5.1.12 golden
+  corpus to confirm (ADR-009). Ranges and defaults now follow the 5.2
+  dialogs (docs/inventory/OBSERVED.md, ADR-016); Posterize's checked Alpha
+  row is confirmed by the 5.2 golden.
+* Black and White, Sepia, Posterize, Invert Colors and Brightness /
+  Contrast at 0 / 0 are compared with the 5.2 goldens in
+  `tests/golden/test_golden_pdn52.c`; results and tolerances in
+  docs/fx/parity.md.
 * Paint.NET 5.x renders most adjustments on the GPU in premultiplied
   floating point. Our results equal the 3.36 CPU math, which can differ by
   rounding for semi-transparent pixels and for Hue / Saturation.
