@@ -1,8 +1,8 @@
 /* pc_recolor.c - Recolor: tolerance match and channel shift of the
  * stroke-start pixels. The shift rule follows the MIT Paint.NET 3.36
- * RecolorTool (docs/notice/e1.md); the tolerance metric is the core one. */
+ * RecolorTool (docs/notice/e1.md); the tolerance law was measured black box
+ * (see pc_recolor.h). */
 #include "pc/pc_recolor.h"
-#include "pc/pc_fill.h"
 
 #include <math.h>
 #include <string.h>
@@ -20,18 +20,19 @@ pc_recolor_opts pc_recolor_opts_default(void)
     return o;
 }
 
-bool pc_recolor_match(pc_px32 a, pc_px32 b, uint32_t lim, pc_recolor_alpha mode)
+bool pc_recolor_match(pc_px32 a, pc_px32 b, uint32_t tolerance, pc_recolor_alpha mode)
 {
-    int32_t dr, dg, db, da;
-    uint32_t d;
-    if (mode != PC_RECOLOR_ALPHA_STRAIGHT) return pc_color_within(a, b, lim);
-    dr = (int32_t)a.r - (int32_t)b.r;
-    dg = (int32_t)a.g - (int32_t)b.g;
-    db = (int32_t)a.b - (int32_t)b.b;
-    da = (int32_t)a.a - (int32_t)b.a;
-    d = (uint32_t)(dr * dr + dg * dg + db * db + da * da) * 255u;   /* <= 66325500 */
-    if (lim > 65025u) lim = 65025u;
-    return d <= lim * 1020u;
+    int64_t dr = (int64_t)a.r - b.r, dg = (int64_t)a.g - b.g, db = (int64_t)a.b - b.b;
+    int64_t da = (int64_t)a.a - b.a;
+    uint64_t rgb2 = (uint64_t)(dr * dr + dg * dg + db * db);   /* <= 195075 */
+    uint64_t a2 = (uint64_t)(da * da);                         /* <= 65025 */
+    uint64_t t = (uint64_t)(tolerance > 100u ? 100u : tolerance);
+    uint64_t k = 510u * t * t;                                 /* 1e4 * threshold */
+    if (tolerance >= 100u) return true;
+    if (mode == PC_RECOLOR_ALPHA_STRAIGHT)
+        return (rgb2 + a2) * 100000000u <= k * k;
+    /* premultiplied: color differences weighted by both alphas */
+    return ((uint64_t)a.a * b.a * rgb2 + 65025u * a2) * 100000000u <= k * k * 65025u;
 }
 
 static uint8_t shift8(uint8_t v, uint8_t to, uint8_t from)
@@ -40,11 +41,11 @@ static uint8_t shift8(uint8_t v, uint8_t to, uint8_t from)
     return (uint8_t)(r < 0 ? 0 : (r > 255 ? 255 : r));
 }
 
-pc_px32 pc_recolor_pixel(pc_px32 orig, pc_px32 target, pc_px32 replacement, uint32_t lim,
+pc_px32 pc_recolor_pixel(pc_px32 orig, pc_px32 target, pc_px32 replacement, uint32_t tolerance,
                          pc_recolor_alpha mode)
 {
     pc_px32 o = orig;
-    if (!pc_recolor_match(orig, target, lim, mode)) return orig;
+    if (!pc_recolor_match(orig, target, tolerance, mode)) return orig;
     o.b = shift8(orig.b, replacement.b, target.b);
     o.g = shift8(orig.g, replacement.g, target.g);
     o.r = shift8(orig.r, replacement.r, target.r);
@@ -92,7 +93,7 @@ void pc_recolor_row(void *ud, int32_t x, int32_t y, int32_t n, pc_px32 *out)
     read_orig(rc, x, y, n, out);
     if (!rc->have_target) return;
     for (int32_t i = 0; i < n; i++)
-        out[i] = pc_recolor_pixel(out[i], rc->target, rc->o.replacement, rc->lim,
+        out[i] = pc_recolor_pixel(out[i], rc->target, rc->o.replacement, rc->tol,
                                   rc->o.alpha_mode);
 }
 
@@ -126,7 +127,7 @@ pc_status pc_recolor_begin(pc_recolor *rc, pc_brush *b, pc_txn *t, uint32_t laye
     if (!d) return PC_ERR_ARG;
     memset(rc, 0, sizeof *rc);
     rc->o = *o;
-    rc->lim = pc_tol_limit_from_percent(o->tolerance > 100u ? 100u : o->tolerance);
+    rc->tol = o->tolerance > 100u ? 100u : o->tolerance;
     rc->t = t;
     rc->layer = layer_id;
     rc->w = d->w;

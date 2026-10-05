@@ -24,13 +24,21 @@
  *    (3.36 needed a tolerance restriction for that; it is not needed here
  *    and is not applied, which keeps 100% = everything).
  *
- * Tolerance metric (the core metric of pc_fill.h, scaled by 4 channels):
- *   lim = pc_tol_limit_from_percent(tolerance), d computed on straight
- *   8-bit channels:
- *   Premultiplied: d = (dR^2 + dG^2 + dB^2) * w + dA^2 * 255 with
- *     w = ceil((aA + aB) / 2)   (exactly pc_color_within)
- *   Straight:      d = (dR^2 + dG^2 + dB^2 + dA^2) * 255
- *   match when d <= lim * 1020.
+ * Tolerance metric. With T = tolerance / 100 and straight 8-bit channels:
+ *   Straight:      d^2 = dR^2 + dG^2 + dB^2 + dA^2
+ *   Premultiplied: d^2 = (dR^2 + dG^2 + dB^2) * aA * aB / 255^2 + dA^2
+ *   match when d <= 510 * T^2 (510 is the largest possible d, so 100%
+ *   matches everything and 0% exact colors only; Premultiplied makes all
+ *   fully transparent pixels equal).
+ * Provenance (black box, ADR-009 hint): Recolor in Paint.NET 5.2 under
+ * Wine matched gray and alpha steps around a target with thresholds of
+ * (498 .. 526) * T^2 for T = 30% .. 70% (consistent but looser bounds at
+ * 10 and 20%) in both alpha modes (the slider acts quadratically, like
+ * the 3.36 flood tools), and every recolored pixel equaled the channel
+ * shift above exactly. The two alpha modes
+ * differed by at most one 3-step of alpha there; the exact Premultiplied
+ * weighting is inferred. The core metric of pc_fill.h is linear in the
+ * slider and is not used here.
  *
  * Usage: pc_recolor_begin instead of pc_brush_begin, pc_recolor_add for
  * every pointer move (picks the Sampling Once target when the stroke
@@ -73,7 +81,7 @@ typedef struct pc_recolor {
     pc_recolor_opts o;
     bool            have_target;
     pc_px32         target;
-    uint32_t        lim;
+    uint32_t        tol;         /* tolerance percent 0..100 */
     /* stroke context (internal) */
     const pc_txn   *t;
     uint32_t        layer, w, h, tiles_x;
@@ -95,10 +103,11 @@ pc_status pc_recolor_add(pc_recolor *rc, pc_brush *b, const pc_brush_sample *s,
 bool      pc_recolor_target(const pc_recolor *rc, pc_px32 *out);
 
 /* ---- pure helpers (any thread) ------------------------------------------- */
-bool      pc_recolor_match(pc_px32 a, pc_px32 b, uint32_t lim, pc_recolor_alpha mode);
+/* The metric above; tolerance in percent (values above 100 act as 100). */
+bool      pc_recolor_match(pc_px32 a, pc_px32 b, uint32_t tolerance, pc_recolor_alpha mode);
 /* The recolored pixel: orig itself when it does not match target. */
-pc_px32   pc_recolor_pixel(pc_px32 orig, pc_px32 target, pc_px32 replacement, uint32_t lim,
-                           pc_recolor_alpha mode);
+pc_px32   pc_recolor_pixel(pc_px32 orig, pc_px32 target, pc_px32 replacement,
+                           uint32_t tolerance, pc_recolor_alpha mode);
 /* Paint source of a recolor stroke (pc_paint_src.row, ud = the pc_recolor). */
 void      pc_recolor_row(void *ud, int32_t x, int32_t y, int32_t n, pc_px32 *out);
 
