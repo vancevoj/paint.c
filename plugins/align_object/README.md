@@ -1,8 +1,19 @@
+<!-- paintc-plugin
+name: Align Object
+version: 1.0.0
+menu: Effects > Object > Align Object
+summary: Moves the object on a transparent layer to an edge, a corner or the center of the canvas or the selection.
+original: Align Object by xod, helped by MJW
+original-url: https://forums.paint.net/topic/112095-align-object/
+basis: clean room
+-->
 # Align Object (paint.c effect plugin)
 
 Moves the object on a transparent layer to an edge, a corner or the center
 of the canvas, or of the selection when there is one. It adds
 **Effects > Object > Align Object...** to paint.c.
+
+![The Align Object dialog with Bottom Right chosen and the live preview](screenshot.png)
 
 The object is every visible pixel (alpha above 0) of the active layer inside
 the selection, or on the whole canvas when nothing is selected. Its bounding
@@ -40,11 +51,13 @@ message to the log.
 
 ## Install
 
-1. Build it (`cmake --build build --target plugins`) or download the
-   `align_object` folder.
-2. Copy the whole `align_object` folder (it holds `align_object.so`,
-   `align_object.dll` or `align_object.dylib` and this README) into a
-   paint.c plugins folder:
+1. Download `paintc-plugin-align_object-<version>-<system>.zip` from the
+   paint.c release `plugins-v1.0.0` (or build it:
+   `cmake --build build --target plugins`, output in
+   `build/plugins/out/align_object`).
+2. Unzip it, or copy the whole `align_object` folder (it holds
+   `align_object.so`, `align_object.dll` or `align_object.dylib`, this
+   README and a screenshot), into a paint.c plugins folder:
    * Linux: `~/.local/share/paintc/plugins/`
    * Windows: `%APPDATA%\paintc\plugins\`
    * macOS: `~/Library/Application Support/paint.c/plugins/`
@@ -59,7 +72,8 @@ any plugin.
 
 The design (the position grid, the axis-only rows, Reset position, the Test
 check box and the two warnings) comes from the Paint.NET plugin
-"Align Object" 1.0.1.9 by **xod**, helped by **MJW**. This is an independent
+"Align Object" 1.0.1.9 by **xod**, helped by **MJW**
+(<https://forums.paint.net/topic/112095-align-object/>). This is an independent
 clean-room reimplementation for paint.c, written from a description of that
 plugin's visible behavior; no code, binaries or assets were taken from it.
 paint.c is not affiliated with Paint.NET or with the original authors.
