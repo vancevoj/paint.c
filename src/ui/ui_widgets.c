@@ -531,6 +531,9 @@ void ui_group_begin(ui_ctx *ctx, const char *title)
     l->kind = UI_LAY_GROUP;
     l->sid = id;
     l->pad = 0;
+    /* content too wide for a narrow group is cut at the frame instead of
+     * spilling over its neighbors (the frame height is last frame's) */
+    ui_push_clip(ctx, frame);
 }
 
 void ui_group_end(ui_ctx *ctx)
@@ -540,6 +543,7 @@ void ui_group_end(ui_ctx *ctx)
     int32_t pad = ctx->px.pad, th = ui_px(ctx, 22.0f), h;
     ui_rect cell;
     if (l->kind != UI_LAY_GROUP) return;
+    ui_pop_clip(ctx);
     cell = l->next;
     h = (l->max_y > l->rect.y ? l->max_y - l->rect.y : 0) + 2 * pad;
     st = ui_state_find(ctx, l->sid);

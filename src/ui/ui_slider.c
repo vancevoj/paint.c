@@ -71,6 +71,10 @@ static bool slider_rect(ui_ctx *ctx, ui_id id, ui_rect r, double *v, double min,
         }
     }
     *v = ui_clampd(*v, min, max);
+    if (!(x1 > x0)) {                       /* no room for a track: nothing to draw */
+        if (*v != old) ctx->want_frame = true;
+        return *v != old;
+    }
     t = ui_clampd(to_t(*v, min, max, flags), 0.0, 1.0);
     cx = x0 + (float)t * (x1 - x0);
     cy = (float)r.y + (float)r.h * 0.5f;
@@ -293,8 +297,8 @@ static bool prop_slider(ui_ctx *ctx, const char *label, double *v, double min, d
                         double def, double step, int decimals, uint32_t flags)
 {
     ui_size cells[3];
-    bool changed = false;
-    int n = (flags & UI_SLIDER_NO_RESET) ? 2 : 3;
+    bool changed = false, show_slider;
+    int n = (flags & UI_SLIDER_NO_RESET) ? 2 : 3, nc;
     size_t ln;
     const char *s = ui_label_text(label, &ln);
     ui_rect r;
@@ -304,12 +308,25 @@ static bool prop_slider(ui_ctx *ctx, const char *label, double *v, double min, d
     text[ln] = '\0';
     ui_push_id(ctx, label);
     ui_label_ex(ctx, text, flags & UI_DISABLED);
-    cells[0] = ui_size_fr(1.0f);
-    cells[1] = ui_size_px(84.0f);
-    cells[2] = ui_size_px(ctx->theme.m.control_h);
-    ui_layout_row(ctx, 0.0f, n, cells);
-    r = ui_layout_next(ctx, 0, ctx->px.control_h);
-    changed |= slider_rect(ctx, ui_get_id(ctx, "##slider"), r, v, min, max, step, flags);
+    {
+        /* narrow cells shrink the numeric field first, then drop the slider
+         * (the field and its spin buttons still edit the value) */
+        float sc = ctx->scale, sp = (float)ctx->px.spacing / sc;
+        float avail = (float)ui_layout_avail_w(ctx) / sc;
+        float reset = n == 3 ? ctx->theme.m.control_h + sp : 0.0f;
+        float num = ui_clampf(avail - reset - 48.0f - sp, 56.0f, 84.0f);
+        show_slider = avail - reset - num - sp >= 48.0f;
+        if (!show_slider) num = ui_maxf(avail - reset, 40.0f);
+        nc = 0;
+        if (show_slider) cells[nc++] = ui_size_fr(1.0f);
+        cells[nc++] = ui_size_px(num);
+        if (n == 3) cells[nc++] = ui_size_px(ctx->theme.m.control_h);
+    }
+    ui_layout_row(ctx, 0.0f, nc, cells);
+    if (show_slider) {
+        r = ui_layout_next(ctx, 0, ctx->px.control_h);
+        changed |= slider_rect(ctx, ui_get_id(ctx, "##slider"), r, v, min, max, step, flags);
+    }
     r = ui_layout_next(ctx, 0, ctx->px.control_h);
     changed |= number_rect(ctx, ui_get_id(ctx, "##value"), r, v, min, max, step, decimals, flags);
     if (n == 3) {

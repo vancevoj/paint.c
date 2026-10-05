@@ -95,7 +95,8 @@ static void t_scales(void)
         char path[512];
         uint64_t h = 0;
         shot_stats st;
-        int w = (int)(1440.0f * scales[i] / 1.5f), hgt = (int)(900.0f * scales[i] / 1.5f);
+        /* the gallery is laid out for 1440 x 900 DIPs */
+        int w = (int)(1440.0f * scales[i]), hgt = (int)(900.0f * scales[i]);
         snprintf(path, sizeof path, "%s/ui_gallery_light_main_%03d.bmp", PC_UI_OUT_DIR,
                  (int)(scales[i] * 100.0f + 0.5f));
         CHECK(ui_gallery_render_file(path, w, hgt, scales[i], i & 1, UI_GALLERY_SCENE_MAIN, &h));

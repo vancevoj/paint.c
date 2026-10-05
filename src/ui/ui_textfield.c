@@ -79,6 +79,7 @@ static size_t replace(char *buf, size_t cap, size_t a, size_t b, const char *ins
 static float origin_x(ui_rect inner, int align, float w, bool focused, float scroll)
 {
     if (focused && w > (float)inner.w - 2.0f) return (float)inner.x - scroll;
+    if (w > (float)inner.w) return (float)inner.x;    /* too wide: show the start */
     if (align == UI_ALIGN_RIGHT) return (float)(inner.x + inner.w) - w - (focused ? 1.0f : 0.0f);
     if (align == UI_ALIGN_CENTER) return (float)inner.x + floorf(((float)inner.w - w) * 0.5f);
     return (float)inner.x;
