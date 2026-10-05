@@ -861,6 +861,73 @@ pc_status pc_quant_image(const pc_px32 *px, uint32_t w, uint32_t h, size_t strid
     return st;
 }
 
+/* ---- row sources -------------------------------------------------------------------- */
+pc_status pc_quant_add_rows(pc_quant *q, uint32_t w, uint32_t h, pc_quant_rows_fn src,
+                            void *ud)
+{
+    pc_px32 *band;
+    size_t n;
+    pc_status st = PC_OK;
+    if (!q || !src || w == 0u || h == 0u || h > (uint32_t)INT32_MAX) return PC_ERR_ARG;
+    if (q->built) return PC_ERR_STATE;
+    if (!pc_mul_size(w, PC_TILE_DIM, &n) || !pc_mul_size(n, sizeof *band, &n))
+        return PC_ERR_LIMIT;
+    band = (pc_px32 *)malloc(n);
+    if (!band) return PC_ERR_NOMEM;
+    for (uint32_t y0 = 0; y0 < h && st == PC_OK; y0 += PC_TILE_DIM) {
+        uint32_t rows = h - y0 < PC_TILE_DIM ? h - y0 : PC_TILE_DIM;
+        st = src(ud, (int32_t)y0, (int32_t)rows, band);
+        if (st == PC_OK) st = pc_quant_add(q, band, (size_t)w * rows);
+    }
+    free(band);
+    return st;
+}
+
+pc_status pc_quant_rows_begin(pc_quant_rows *m, pc_quant *q, uint32_t w, uint32_t h,
+                              int32_t dither, pc_quant_rows_fn src, void *ud)
+{
+    pc_status st;
+    if (!m) return PC_ERR_ARG;
+    memset(m, 0, sizeof *m);
+    if (!q || !src || w == 0u || h == 0u || h > (uint32_t)INT32_MAX) return PC_ERR_ARG;
+    st = pc_quant_remap_begin(q, w, dither);
+    if (st != PC_OK) return st;
+    m->idx = (uint8_t *)malloc(w);
+    if (!m->idx) return PC_ERR_NOMEM;
+    m->q = q;
+    m->src = src;
+    m->ud = ud;
+    m->w = w;
+    m->h = h;
+    m->next = 0;
+    (void)pc_quant_palette(q, m->pal, NULL);
+    return PC_OK;
+}
+
+pc_status pc_quant_rows_get(void *ud, int32_t y0, int32_t n, pc_px32 *dst)
+{
+    pc_quant_rows *m = (pc_quant_rows *)ud;
+    pc_status st;
+    if (!m || !m->idx || !dst || n <= 0) return PC_ERR_ARG;
+    if (y0 != m->next || (uint32_t)n > m->h - (uint32_t)y0) return PC_ERR_STATE;
+    st = m->src(m->ud, y0, n, dst);
+    if (st != PC_OK) return st;
+    for (int32_t r = 0; r < n; r++) {
+        pc_px32 *row = dst + (size_t)r * m->w;
+        pc_quant_remap_row(m->q, row, m->idx);
+        for (uint32_t x = 0; x < m->w; x++) row[x] = m->pal[m->idx[x]];
+    }
+    m->next += n;
+    return PC_OK;
+}
+
+void pc_quant_rows_end(pc_quant_rows *m)
+{
+    if (!m) return;
+    free(m->idx);
+    memset(m, 0, sizeof *m);
+}
+
 /* ---- save pipeline ------------------------------------------------------------------ */
 void pc_quant_stats_init(pc_quant_stats *s)
 {

@@ -302,6 +302,89 @@ static void t_determinism(void)
 }
 
 /* More than 2^17 distinct colors: the histogram merges bins and stays sane. */
+/* Row source over an image in memory that also applies the GIF/PNG style
+ * preparation (threshold, flatten onto white), like an encoder's source. */
+typedef struct mem_src {
+    const pc_px32 *px;
+    uint32_t       w, h;
+    int32_t        threshold;
+    int32_t        fail_at;      /* row band that reports an error, -1 = none */
+    uint32_t       calls;
+} mem_src;
+
+static pc_status mem_rows(void *ud, int32_t y0, int32_t n, pc_px32 *dst)
+{
+    mem_src *m = (mem_src *)ud;
+    m->calls++;
+    if (m->fail_at >= 0 && y0 <= m->fail_at && m->fail_at < y0 + n) return PC_ERR_IO;
+    memcpy(dst, m->px + (size_t)y0 * m->w, (size_t)n * m->w * sizeof *dst);
+    pc_quant_prepare_row(dst, (size_t)n * m->w, m->threshold);
+    return PC_OK;
+}
+
+static void t_row_sources(void)
+{
+    const uint32_t W = 83, H = 150;              /* three bands, the last one partial */
+    pc_px32 *px = photo(W, H, true), *prep = (pc_px32 *)malloc((size_t)W * H * sizeof *prep);
+    pc_px32 *mapped = (pc_px32 *)malloc((size_t)W * H * sizeof *mapped), pal[256];
+    uint8_t *idx = (uint8_t *)malloc((size_t)W * H);
+    memcpy(prep, px, (size_t)W * H * sizeof *prep);
+    pc_quant_prepare_row(prep, (size_t)W * H, 128);
+    for (int a = 0; a < 2; a++) {
+        mem_src ms = { px, W, H, 128, -1, 0 };
+        pc_quant *q = NULL;
+        pc_quant_rows m;
+        uint32_t np;
+        int32_t tr;
+        bool ok = true;
+        /* reference: the whole prepared image in memory */
+        CHECK(pc_quant_image(prep, W, H, W, 256, k_algos[a], 7, idx, pal, &np, &tr) == PC_OK);
+        CHECK(tr >= 0);                          /* the threshold made pixels transparent */
+        CHECK(pc_quant_create(&q) == PC_OK);
+        CHECK(pc_quant_add_rows(q, W, H, mem_rows, &ms) == PC_OK);
+        CHECK(ms.calls == 3u);
+        CHECK(pc_quant_build(q, 256, k_algos[a]) == PC_OK);
+        CHECK(pc_quant_rows_begin(&m, q, W, H, 7, mem_rows, &ms) == PC_OK);
+        CHECK(memcmp(m.pal, pal, np * sizeof *pal) == 0);
+        /* pulled in uneven bands, top to bottom */
+        for (uint32_t y = 0; y < H;) {
+            uint32_t n = 1u + rndu(40);
+            if (n > H - y) n = H - y;
+            CHECK(pc_quant_rows_get(&m, (int32_t)y, (int32_t)n, mapped + (size_t)y * W) == PC_OK);
+            y += n;
+        }
+        for (size_t i = 0; i < (size_t)W * H; i++) ok = ok && px_same(mapped[i], pal[idx[i]]);
+        CHECK(ok);
+        /* out of order, repeated, past the end */
+        CHECK(pc_quant_rows_get(&m, 0, 1, mapped) == PC_ERR_STATE);
+        CHECK(pc_quant_rows_get(&m, (int32_t)H, 1, mapped) == PC_ERR_STATE);
+        pc_quant_rows_end(&m);
+        CHECK(m.idx == NULL);
+        CHECK(pc_quant_rows_begin(&m, q, W, H, 7, mem_rows, &ms) == PC_OK);
+        CHECK(pc_quant_rows_get(&m, 5, 1, mapped) == PC_ERR_STATE);           /* skipped rows */
+        CHECK(pc_quant_rows_get(&m, 0, (int32_t)H + 1, mapped) == PC_ERR_STATE);
+        ms.fail_at = 2;
+        CHECK(pc_quant_rows_get(&m, 0, 4, mapped) == PC_ERR_IO);              /* source error */
+        pc_quant_rows_end(&m);
+        pc_quant_rows_end(NULL);
+        CHECK(pc_quant_add_rows(q, W, H, mem_rows, &ms) == PC_ERR_STATE);     /* already built */
+        pc_quant_destroy(q);
+        /* a failing source stops accumulation with its status */
+        CHECK(pc_quant_create(&q) == PC_OK);
+        ms.fail_at = 70;
+        CHECK(pc_quant_add_rows(q, W, H, mem_rows, &ms) == PC_ERR_IO);
+        CHECK(pc_quant_add_rows(q, 0, H, mem_rows, &ms) == PC_ERR_ARG);
+        CHECK(pc_quant_add_rows(q, W, H, NULL, &ms) == PC_ERR_ARG);
+        CHECK(pc_quant_rows_begin(&m, q, W, H, 7, mem_rows, &ms) == PC_ERR_ARG);  /* not built */
+        CHECK(m.idx == NULL);
+        pc_quant_destroy(q);
+    }
+    free(px);
+    free(prep);
+    free(mapped);
+    free(idx);
+}
+
 static void t_many_colors(void)
 {
     const uint32_t W = 512, H = g_quick ? 300 : 512;
@@ -546,6 +629,7 @@ int main(int argc, char **argv)
     RUN(t_nearest);
     RUN(t_dither);
     RUN(t_determinism);
+    RUN(t_row_sources);
     RUN(t_many_colors);
     RUN(t_stats_depth);
     RUN(t_prepare);

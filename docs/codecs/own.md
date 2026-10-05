@@ -141,6 +141,33 @@ n = pc_quant_palette(q, pal, &transparent); /* last entry when reserved */
 pc_quant_destroy(q);
 ```
 
+Encoders that pull rows from a source in bands (lane L6b's `lc_rows_src`
+has the same shape as `pc_quant_rows_fn`) can use the streaming pair. This
+is all the PNG 8-bit hook (`png_quantize_8bit` in fmt_png.c) needs:
+
+```c
+pc_quant *q = NULL;
+pc_quant_rows m;
+lc_png_opts o = *base;
+pc_status st = pc_quant_create(&q);
+if (st == PC_OK) st = pc_quant_add_rows(q, w, h, png_src_prep, prep);
+if (st == PC_OK) st = pc_quant_build(q, 256, PC_QUANT_OCTREE);
+if (st == PC_OK) st = pc_quant_rows_begin(&m, q, w, h, dither, png_src_prep, prep);
+if (st == PC_OK) {
+    o.kind = LC_PNG_PALETTE;
+    o.pal = m.pal;                                 /* exact colors of the output */
+    o.n_pal = pc_quant_palette(q, NULL, NULL);
+    st = lc_png_encode(out, w, h, pc_quant_rows_get, &m, &o);
+    pc_quant_rows_end(&m);
+}
+pc_quant_destroy(q);
+```
+
+The transparent entry (when the prepared rows have alpha 0 pixels) is the
+last palette entry; a PNG writer that wants a short tRNS chunk can move it
+first, since the mapped source yields colors, not indices.
+`pc_quant_rows_get` requires rows in order, top first, each once.
+
 * Histogram of exact colors up to 2^17 distinct entries, then neighbors merge
   by dropping low bits (sums stay exact). Pixels with alpha 0 get one
   reserved transparent entry. Partial alpha is quantized in premultiplied

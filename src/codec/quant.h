@@ -88,6 +88,43 @@ pc_status pc_quant_image(const pc_px32 *px, uint32_t w, uint32_t h, size_t strid
                          uint8_t *idx, pc_px32 *pal, uint32_t *n_pal,
                          int32_t *transparent);
 
+/* ---- streaming over a row source (encoders that pull rows in bands) ----- */
+
+/* Fill rows [y0, y0 + n) of a w-pixel-wide image into dst (n * w pixels,
+ * row-major). Same shape as lane L6b's lc_rows_src, so its sources (for
+ * example a flattening or thresholding source) plug in directly. */
+typedef pc_status (*pc_quant_rows_fn)(void *ud, int32_t y0, int32_t n, pc_px32 *dst);
+
+/* Accumulate every row of a w x h source into q (pulled in 64-row bands
+ * through one owned scratch band). src and ud are borrowed for the call.
+ * Returns the source's error, PC_ERR_NOMEM, PC_ERR_LIMIT or PC_ERR_STATE. */
+pc_status pc_quant_add_rows(pc_quant *q, uint32_t w, uint32_t h, pc_quant_rows_fn src,
+                            void *ud);
+
+/* A row source that yields the palette colors the rows of another source
+ * map to, with dithering, for encoders that take pixels and look the
+ * (exact) palette colors up again. Rows must be requested in order, top row
+ * first, each once (the error diffusion state flows downwards); anything
+ * else returns PC_ERR_STATE. q (built), src and ud are borrowed and must
+ * outlive the object. */
+typedef struct pc_quant_rows {
+    pc_quant        *q;
+    pc_quant_rows_fn src;
+    void            *ud;
+    uint32_t         w, h;
+    int32_t          next;                      /* next row expected */
+    uint8_t         *idx;                       /* owned, w bytes */
+    pc_px32          pal[PC_QUANT_MAX_COLORS];
+} pc_quant_rows;
+
+/* Starts remapping (pc_quant_remap_begin with the dithering level 0..8).
+ * On failure m owns nothing. */
+pc_status pc_quant_rows_begin(pc_quant_rows *m, pc_quant *q, uint32_t w, uint32_t h,
+                              int32_t dither, pc_quant_rows_fn src, void *ud);
+/* The pc_quant_rows_fn of the mapped source; ud is the pc_quant_rows. */
+pc_status pc_quant_rows_get(void *ud, int32_t y0, int32_t n, pc_px32 *dst);
+void      pc_quant_rows_end(pc_quant_rows *m);  /* frees idx; NULL-safe */
+
 /* ==== 2. Paint.NET save pipeline for limited bit depths =================== */
 
 /* Image statistics for Auto-detect (Paint.NET 3.36 InternalFileType rules,
