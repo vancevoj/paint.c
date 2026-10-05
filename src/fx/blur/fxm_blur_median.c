@@ -6,7 +6,8 @@
  * smallest value whose cumulative count reaches ceil(n p / 100) (3.36 was
  * one bin high), and Quality (Paint.NET 5.1, 1..9) sets the value
  * precision: values are binned to 2^min(q, 8) levels, so low quality
- * posterizes and q >= 8 is exact for 8-bit images.
+ * posterizes and q >= 8 is exact for 8-bit images. Radius 0..100 as the
+ * Paint.NET 5.2 dialog shows (radius 0 is the pixel itself).
  *
  * Thread rules: no prepared state; render is reentrant.
  */
@@ -20,7 +21,7 @@ typedef struct median_params {
 
 static const fx_prop k_props[] = {
     { "radius", "Radius", FXP_INT, (uint32_t)offsetof(median_params, radius),
-      1.0, 100.0, 10.0, 1.0, NULL, NULL, 0, 0, NULL },
+      0.0, 100.0, 10.0, 1.0, NULL, NULL, 0, 0, NULL },
     { "percentile", "Percentile", FXP_INT, (uint32_t)offsetof(median_params, percentile),
       0.0, 100.0, 50.0, 1.0, NULL, NULL, 0, 0, NULL },
     { "quality", "Quality", FXP_INT, (uint32_t)offsetof(median_params, quality),
@@ -68,7 +69,7 @@ static int median_render(const void *params, const void *state, const fx_img *sr
     (void)state; (void)env;
     m.pct = fx1_pi(p->percentile, 0, 100);
     m.shift = 8 - (q > 8 ? 8 : q);
-    return fx1_hist_render(src, dst, roi, fx1_pi(p->radius, 1, 100), m.shift, median_fn, &m,
+    return fx1_hist_render(src, dst, roi, fx1_pi(p->radius, 0, 100), m.shift, median_fn, &m,
                            host, job);
 }
 

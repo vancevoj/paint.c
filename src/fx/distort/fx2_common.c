@@ -7,6 +7,7 @@
  * 3.36 UserBlendOps). Attribution: docs/notice/l5c.md and NOTICE.
  */
 #include "fx2_common.h"
+#include "fx_srgb.h"
 
 #include <string.h>
 
@@ -131,7 +132,19 @@ static int edge_index(int32_t i, int32_t o, int32_t n, int edge, int32_t *out)
     }
 }
 
+static fx_pxf fx2_sample_any(const fx_img *im, double fx, double fy, int edge, int linear);
+
 fx_pxf fx2_sample(const fx_img *im, double fx, double fy, int edge)
+{
+    return fx2_sample_any(im, fx, fy, edge, 0);
+}
+
+fx_pxf fx2_sample_lin(const fx_img *im, double fx, double fy, int edge)
+{
+    return fx2_sample_any(im, fx, fy, edge, 1);
+}
+
+static fx_pxf fx2_sample_any(const fx_img *im, double fx, double fy, int edge, int linear)
 {
     fx_pxf z = fx2_pxf_zero(), o;
     double x, y;
@@ -160,7 +173,8 @@ fx_pxf fx2_sample(const fx_img *im, double fx, double fy, int edge)
     o = z;
     for (k = 0; k < 4; k++) {
         if (!xv[k & 1] || !yv[k >> 1] || w[k] == 0.0f) continue;
-        fx2_pxf_madd(&o, fx_premul(fx_get(im, xi[k & 1], yi[k >> 1])), w[k]);
+        fx_px p = fx_get(im, xi[k & 1], yi[k >> 1]);
+        fx2_pxf_madd(&o, linear ? fxl_premul(p) : fx_premul(p), w[k]);
     }
     return o;
 }
@@ -210,10 +224,16 @@ int fx2_warp_render(const fx2_warp *w, const fx_img *src, fx_img *dst, fx_rect r
                     ident++;
                     continue;
                 }
-                fx2_pxf_add(&acc, fx2_sample(src, tx + w->cx, ty + w->cy, w->edge));
+                fx2_pxf_add(&acc, fx2_sample_any(src, tx + w->cx, ty + w->cy, w->edge,
+                                                 w->linear));
             }
             if (ident == n) {
                 drow[x] = srow[x];
+            } else if (w->linear) {
+                float k = 1.0f / (float)n;
+                if (ident > 0) fx2_pxf_madd(&acc, fxl_premul(srow[x]), (float)ident);
+                acc.b *= k; acc.g *= k; acc.r *= k; acc.a *= k;
+                drow[x] = fxl_unpremul(acc);
             } else {
                 if (ident > 0) fx2_pxf_madd(&acc, fx_premul(srow[x]), (float)ident);
                 drow[x] = fx2_average(acc, n);

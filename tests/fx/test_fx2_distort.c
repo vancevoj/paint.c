@@ -107,7 +107,7 @@ static void t_polar(void)
     ctx_init(&c, T_SMOOTH, 5u, sel_inner());
     p = t_params(fx, &c.env);
     for (e = 0; e < 3; e++) {
-        t_set_i(fx, p, "edge", e);
+        t_set_i(fx, p, "edge_behavior", e);
         t_check_tiling(fx, p, &c.src, &c.env, &c.ref);
     }
     t_set_d(fx, p, "amount", -6.5);

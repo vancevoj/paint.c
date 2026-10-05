@@ -9,7 +9,8 @@
  * jittered sample pattern, so the result is a cross-shaped percentile
  * filter with the stroke-like streaks and the coarse grain of a Monte
  * Carlo estimate. Smoothness sets the sample count (5 + 8 s): more samples
- * give a smoother, closer to exact result.
+ * give a smoother, closer to exact result; 1..20 as the Paint.NET 5.2
+ * dialog shows.
  *
  * Thread rules: prepare builds the sample pattern; render is reentrant.
  */
@@ -29,10 +30,10 @@ static const fx_prop k_props[] = {
     { "percentile", "Percentile", FXP_INT, (uint32_t)offsetof(sketch_params, percentile),
       0.0, 100.0, 50.0, 1.0, NULL, NULL, 0, 0, NULL },
     { "smoothness", "Smoothness", FXP_INT, (uint32_t)offsetof(sketch_params, smoothness),
-      1.0, 16.0, 3.0, 1.0, NULL, NULL, 0, 0, NULL },
+      1.0, 20.0, 3.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 
-#define SKETCH_MAXN (5 + 8 * 16)
+#define SKETCH_MAXN (5 + 8 * 20)
 
 typedef struct sketch_state {
     int32_t identity;
@@ -53,7 +54,7 @@ static int sketch_prepare(const void *params, const fx_img *src, const fx_env *e
     memset(st, 0, sizeof *st);
     *state = st;
     st->p = (double)fx1_pi(p->percentile, 0, 100) / 100.0;
-    st->n = 5 + 8 * fx1_pi(p->smoothness, 1, 16);
+    st->n = 5 + 8 * fx1_pi(p->smoothness, 1, 20);
     if (R < 0.5) {
         st->identity = 1;
         return FX_OK;

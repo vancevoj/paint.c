@@ -89,9 +89,13 @@ No output was compared against Paint.NET itself (ADR-009): pixel parity with
   half a pixel off from 3.36 for even selection sizes (symmetric now).
 * Alpha: sampling and averaging are premultiplied (an alpha-weighted color
   average, as 3.36 ColorBgra.Blend); fully transparent results are stored as
-  0,0,0,0.
+  0,0,0,0. The warp distortions (Bulge, Dents, Polar Inversion, Tile
+  Reflection, Twist) and Pixelate sample and average in linear light (sRGB
+  decoded, `src/fx/fx_srgb.h`), as the Paint.NET 5.2 Twist and Pixelate
+  goldens show (docs/fx/parity.md).
 * Quality of the distortions (Bulge, Dents, Polar Inversion, Tile Reflection,
-  Twist) is 1..8 and takes Quality^2 subsamples, as the Paint.NET 5 API
+  Twist) is 1..8 (default 1, as the 5.2 dialogs show) and takes Quality^2
+  subsamples, as the Paint.NET 5 API
   documents for its distortion base class; Crystalize keeps 1..5 (measured).
 * Blend modes (Clouds, Julia, Mandelbrot, Turbulence): the list holds the 14
   layer modes of include/pc/pc_blend.h in the same order, then Overwrite.
@@ -164,7 +168,7 @@ the whole selection is quantized in prepare() and render() copies its ROI.
 | amount | Bulge | real | -3 .. 1 | 0.45 |
 | center | Center | point | -1 .. 1 per axis | (0, 0) |
 | edge | Edge Behavior | choice | Clamp, Wrap, Mirror, Transparent | Clamp |
-| quality | Quality | int | 1 .. 8 | 2 |
+| quality | Quality | int | 1 .. 8 | 1 |
 
 3.36 transform: inside a disc of radius R = min(sel.w, sel.h) / 2 around the
 center, a point at distance r samples from r * (1 - a * (1 - r / R)^2),
@@ -178,7 +182,7 @@ with default 45). Bulge 0 is the identity.
 | Key | Label | Kind | Range | Default |
 |---|---|---|---|---|
 | cell | Cell Size | int | 2 .. 250 | 8 |
-| quality | Quality | int | 1 .. 5 | 2 |
+| quality | Quality | int | 1 .. 5 | 1 |
 | seed | Randomize | seed | any int32 | 0 |
 
 Design (no 3.36 effect; Cell Size range and default from the API reference):
@@ -194,12 +198,12 @@ flat; at Quality 1 every output color is a source color.
 
 | Key | Label | Kind | Range | Default |
 |---|---|---|---|---|
-| scale | Scale | real, sqrt slider | 1 .. 200 | 25 |
+| scale | Scale | real, sqrt slider | 0 .. 200 (0 = identity) | 25 |
 | refraction | Refraction | real, sqrt slider | 0 .. 200 | 50 |
 | detail | Detail | real | 0 .. 100 | 10 |
 | turbulence | Turbulence | real, sqrt slider | 0 .. 100 | 10 |
 | angle | Angle | angle | -180 .. 180 | 0 |
-| quality | Quality | int | 1 .. 8 | 2 |
+| quality | Quality | int | 1 .. 8 | 1 |
 | seed | Randomize | seed | any int32 | 0 |
 
 3.36 algorithm (its Roughness is Detail and its Tension is Turbulence here, the
@@ -217,7 +221,7 @@ the result depends only on the seed (3.36 also mixed in the clock). As in
 
 | Key | Label | Kind | Range | Default |
 |---|---|---|---|---|
-| max_radius | Maximum Scatter Radius | real, sqrt slider | 0 .. 500 | 5 |
+| max_radius | Maximum Scatter Radius | real, sqrt slider | 0 .. 500 | 3 |
 | min_radius | Minimum Scatter Radius | real, sqrt slider | 0 .. 500 | 0 |
 | diffusion | Diffusion | real | 0.01 .. 3 | 1 |
 | smoothness | Smoothness | int | 1 .. 8 | 2 |
@@ -226,8 +230,9 @@ the result depends only on the seed (3.36 also mixed in the clock). As in
 3.36 sampling: each pixel averages Smoothness bilinear samples taken at random
 angles and distances in the ring between the two radii (samples landing off
 the image are redrawn, up to 8 times, then clamped). Randomness is hashed from
-(x, y, seed, sample). Ranges from the API reference; the dialog default for
-the maximum radius (5) from the screenshot. Diffusion is the documented
+(x, y, seed, sample). Ranges from the API reference; the maximum radius
+default 3 from the Paint.NET 5.2 dialog (a screenshot reading had given 5).
+Diffusion is the documented
 exponent of the scatter distance: the distance is
 sqrt(min^2 + (max^2 - min^2) * u^(1 / Diffusion)) for a uniform u, so 1
 spreads the samples evenly over the ring area, larger values push them
@@ -269,14 +274,18 @@ colors (computed once in prepare(), for the selection's cells plus two rings):
 
 * Anisotropic: alpha-weighted mean of all pixels of the cell.
 * Bicubic (High Quality): Catmull-Rom filter stretched to the cell size.
-* Multisample Bilinear: mean of four bilinear samples at the cell quarters.
+* Multisample Bilinear: mean of four bilinear samples on a rotated grid.
 * Bicubic: Catmull-Rom sample at the cell center.
 * Bilinear: bilinear sample at the cell center.
 * Nearest Neighbor: the pixel under the cell center.
 
 Scale Up: Nearest Neighbor draws flat squares; Bilinear and Bicubic
 interpolate between cell centers in premultiplied space, giving the rounded
-look the documentation describes. Cell Size 1 is the identity.
+look the documentation describes. Cell Size 1 is the identity. All of it runs
+in premultiplied linear light, and Multisample Bilinear takes its 4 taps on
+a rotated grid at (-1/8, -3/8), (3/8, -1/8), (1/8, 3/8) and (-3/8, 1/8) cell
+sizes from the cell center: the footprint a fit of the Paint.NET 5.2 golden
+shows exactly (parity.md). The 5.2 dialog's Anchor pad is 5.2 only (X-24).
 
 ### Polar Inversion
 
@@ -284,8 +293,8 @@ look the documentation describes. Cell Size 1 is the identity.
 |---|---|---|---|---|
 | amount | Scale | real, sqrt slider | -8 .. 8 | 1 |
 | offset | Offset | point | -2 .. 2 per axis | (0, 0) |
-| edge | Edge Behavior | choice | Clamp, Reflect, Wrap | Reflect |
-| quality | Quality | int | 1 .. 8 | 2 |
+| edge_behavior | Edge Behavior | choice | Clamp, Wrap, Reflect | Reflect |
+| quality | Quality | int | 1 .. 8 | 1 |
 
 3.36 transform: p samples from p * lerp(1, R^2 / |p|^2, Scale) relative to the
 center, R = min(sel.w, sel.h) / 2. The exact center maps to infinity and
@@ -298,10 +307,10 @@ Wrap). Scale 0 is the identity.
 | Key | Label | Kind | Range | Default |
 |---|---|---|---|---|
 | angle | Angle | angle | -180 .. 180 | 30 |
-| tile_size | Tile Size | real | 1 .. 250 | 40 |
+| tile_size | Tile Size | real | 1 .. 1600 | 40 |
 | curvature | Curvature | real | -200 .. 200 | 8 |
 | edge | Edge Behavior | choice | Clamp, Wrap, Reflect, Transparent | Reflect |
-| quality | Quality | int | 1 .. 8 | 2 |
+| quality | Quality | int | 1 .. 8 | 1 |
 
 3.36 transform: in a frame rotated by Angle around the selection center, each
 coordinate s becomes s + k * tan(s * pi / Tile Size) with
@@ -316,7 +325,7 @@ screenshot (3.36: 1..800, -100..100, wrap). Curvature 0 is the identity.
 | amount | Amount / Direction | int | -200 .. 200 | 30 |
 | size | Size | real | 0.01 .. 2 | 1 |
 | center | Center | point | -2 .. 2 per axis | (0, 0) |
-| quality | Quality | int | 1 .. 8 | 2 |
+| quality | Quality | int | 1 .. 8 | 1 |
 
 3.36 transform: a point at distance r from the center is rotated by
 t^3 * Amount^2 * sign(Amount) / 100 radians with t = 1 - r / (Size * R),
@@ -335,7 +344,7 @@ selection, so a shadow or outline is drawn only inside the selection bounds.
 
 | Key | Label | Kind | Range | Default |
 |---|---|---|---|---|
-| radius | Shadow Radius | real, sqrt slider | 0 .. 300 | 10 |
+| radius | Shadow Radius | real, sqrt slider | 0 .. 100 | 10 |
 | distance | Distance | real | 0 .. 100 | 10 |
 | angle | Angle | angle | -180 .. 180 | -45 |
 | opacity | Opacity | real | 0 .. 1 | 0.75 |
@@ -407,7 +416,7 @@ FX_COLOR_SECONDARY defaults the host fills them from the palette.
 | factor | Factor | real | 1 .. 10 | 4 |
 | zoom | Zoom | real | 0.1 .. 50 | 1 |
 | angle | Angle | angle | -180 .. 180 | 0 |
-| quality | Quality | int | 1 .. 8 | 2 |
+| quality | Quality | int | 1 .. 8 | 1 |
 | blend | Blend Mode | choice | 14 layer modes, Overwrite | Overwrite |
 
 3.36 algorithm: Julia set of c = 0.3125 + 0.03i, smooth escape count times
@@ -425,7 +434,7 @@ transparent outside the set.
 | factor | Factor | real | 1 .. 10 | 1 |
 | zoom | Zoom | real | 0 .. 100 | 10 |
 | angle | Angle | angle | -180 .. 180 | 0 |
-| quality | Quality | int | 1 .. 8 | 2 |
+| quality | Quality | int | 1 .. 8 | 1 |
 | invert | Invert Colors | bool | off, on | off |
 | blend | Blend Mode | choice | 14 layer modes, Overwrite | Overwrite |
 
@@ -446,9 +455,9 @@ default view still spends most samples near bulb borders, about 9 s per
 | Key | Label | Kind | Range | Default |
 |---|---|---|---|---|
 | octaves | Octaves | int | 1 .. 15 | 4 |
-| period | Period | real, sqrt slider | 1 .. 1000 | 100 |
+| period | Period | real, sqrt slider | 0.1 .. 1024 | 100 |
 | size | Size | int | 1 .. 4096 | 4096 |
-| noise | Noise | choice | Turbulence, Fractal Sum | Turbulence |
+| noise_type | Noise | choice | Fractal Sum, Turbulence | Turbulence |
 | seed | Randomize | seed | any int32 | 0 |
 | blend | Blend Mode | choice | 14 layer modes, Overwrite | Normal |
 
@@ -492,12 +501,16 @@ border.
 
 | Key | Label | Kind | Range | Default |
 |---|---|---|---|---|
-| angle | Angle | angle | -180 .. 180 | 0 |
+| angle | Angle | angle | 0 .. 360 | 0 |
 
-3.36 algorithm: a directional 3x3 kernel (cos(Angle + k * 45 degrees) around
-the center, center 0) applied to the BT.601 intensity, plus 128, written as an
-opaque gray; taps outside the image are skipped. At angle 0 highlights are on
-the right and shadows on the left, as the API reference describes.
+3.36 kernel: a directional 3x3 kernel (cos(Angle + k * 45 degrees) around the
+center, center 0), applied as the Paint.NET 5.2 goldens show: to the
+continuous Rec.601 luma `(299 R + 587 G + 114 B) / 1000` with fully
+transparent taps counted as black, plus 128, rounded, written as gray with the
+source alpha; pixels beyond the image repeat the border (3.36: truncated
+intensity, truncation, skipped border taps, opaque output). At angle 0
+highlights are on the right and shadows on the left, as the API reference
+describes.
 
 ### Relief
 
@@ -510,8 +523,10 @@ each color channel, i.e. the original plus its directional derivative. Unlike
 3.36 (which wrote opaque pixels) the source alpha is kept, since the effect
 blends into the original image.
 
-Both Emboss and Relief truncate toward zero like 3.36, after a 1e-7 nudge so
-cosine rounding noise (76.99999999999999 for an exact 77) cannot drop a level.
+Relief truncates toward zero like 3.36, after a 1e-7 nudge so cosine
+rounding noise (76.99999999999999 for an exact 77) cannot drop a level; the
+kernel weights are snapped to multiples of 2^-40 so mirror-symmetric taps
+cancel exactly.
 
 ### Outline
 
@@ -606,9 +621,10 @@ in Release and a few seconds under ASan+UBSan):
   more modes for its render effects that pc_blend does not define.
 * Drop Shadow and the object extras cannot draw outside the selection
   (fx ABI v1 clipping).
-* Values measured from screenshots (Bulge range in the dialog, Tile Size and
-  Curvature ranges, Turbulence Octaves and Size ranges, Outline Quality range,
-  Polar Inversion and Tile Reflection Reflect defaults, Morphology defaults)
-  and the chosen filters (Pixelate scale filters, Crystalize site placement,
-  Edge Detect strength scaling, Frosted Glass Diffusion formula, Quantize
-  threshold semantics) await confirmation against the running application.
+* The ranges and defaults measured from screenshots in wave 1 were checked
+  against the running Paint.NET 5.2 beta (docs/inventory/OBSERVED.md) and
+  corrected where they differed (docs/fx/parity.md). The chosen filters
+  (Pixelate scale filters other than the golden-verified default pair,
+  Crystalize site placement, Edge Detect strength scaling, Frosted Glass
+  Diffusion formula, Quantize threshold semantics) still await confirmation
+  against the running application.

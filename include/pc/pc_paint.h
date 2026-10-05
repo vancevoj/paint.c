@@ -9,7 +9,8 @@
  *
  * Semantics per pixel p with coverage k (0..255):
  *   k = cov(p), times the selection coverage when opts.clip_to_selection
- *       and a selection is active (rounded product /255).
+ *       and a selection is active (rounded product /255); with
+ *       opts.clip_pixelated the selection acts as a hard 50% mask instead.
  *   k == 0:  the pixel keeps its CURRENT transaction content. Callers that
  *            shrink coverage between calls restore first (pc_txn_restore_*).
  *   PC_PAINT_BLEND:     paint as if drawn on a temporary layer and merged
@@ -50,6 +51,10 @@ typedef struct pc_paint_opts {
     pc_blend_mode blend;           /* PC_PAINT_BLEND only */
     uint8_t       opacity;         /* extra global strength, 255 = none */
     bool          clip_to_selection;
+    bool          clip_pixelated;  /* Paint.NET "pixelated" selection clipping:
+                                      selection coverage < 128 drops the pixel,
+                                      otherwise coverage is kept unscaled
+                                      (same rule as pc_brush and pc_vrender) */
 } pc_paint_opts;
 
 static inline pc_paint_opts pc_paint_opts_default(void)
@@ -59,6 +64,7 @@ static inline pc_paint_opts pc_paint_opts_default(void)
     o.blend = PC_BLEND_NORMAL;
     o.opacity = 255u;
     o.clip_to_selection = true;
+    o.clip_pixelated = false;
     return o;
 }
 

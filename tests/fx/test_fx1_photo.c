@@ -174,7 +174,7 @@ static void t_straighten(void)
     t_img_fill(&src, fx_px_make(10, 200, 90, 255));
     for (mode = 0; mode < 3; mode++)
         for (i = 0; i < sizeof angles / sizeof angles[0]; i++) {
-            t_set(fx, p, "sampling", mode);
+            t_set(fx, p, "sampling_mode", mode);
             t_set(fx, p, "angle", angles[i]);
             d = t_render(fx, p, &src, src.r);
             CHECK(t_is_const(&d, fx_px_make(10, 200, 90, 255)));
@@ -183,7 +183,7 @@ static void t_straighten(void)
     t_img_random(&src, 0);
     ok = 1;
     for (mode = 0; mode < 3; mode++) {
-        t_set(fx, p, "sampling", mode);
+        t_set(fx, p, "sampling_mode", mode);
         t_set(fx, p, "angle", 45.0);
         d = t_render(fx, p, &src, src.r);
         for (y = 0; y < 41; y++)
@@ -195,7 +195,7 @@ static void t_straighten(void)
      * moves up and stays right */
     t_img_fill(&src, fx_px_make(0, 0, 0, 255));
     fx_row(&src, 20)[42] = fx_px_make(255, 255, 255, 255);
-    t_set(fx, p, "sampling", 1);
+    t_set(fx, p, "sampling_mode", 1);       /* Bilinear */
     t_set(fx, p, "angle", 30.0);
     d = t_render(fx, p, &src, src.r);
     for (y = 0; y < 41; y++)

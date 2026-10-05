@@ -7,7 +7,8 @@
  * Iteration, coloring, constants and the sub-sample pattern come from the
  * MIT-licensed Paint.NET 3.36 JuliaFractalEffect (see docs/notice/l5c.md);
  * as documented for Paint.NET 5, Quality q (1..8) takes q^2 samples per pixel
- * (3.36 took q^2 + 1 with q in 1..5).
+ * (3.36 took q^2 + 1 with q in 1..5); default 1 and two-decimal steps as the
+ * Paint.NET 5.2 dialog shows.
  */
 #include "../distort/fx2_common.h"
 
@@ -21,13 +22,13 @@ typedef struct julia_params {
 
 static const fx_prop k_props[] = {
     { "factor", "Factor", FXP_REAL, (uint32_t)offsetof(julia_params, factor),
-      1.0, 10.0, 4.0, 0.1, NULL, NULL, 0u, 0u, NULL },
+      1.0, 10.0, 4.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "zoom", "Zoom", FXP_REAL, (uint32_t)offsetof(julia_params, zoom),
-      0.1, 50.0, 1.0, 0.1, NULL, NULL, 0u, 0u, NULL },
+      0.1, 50.0, 1.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(julia_params, angle),
-      -180.0, 180.0, 0.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      -180.0, 180.0, 0.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "quality", "Quality", FXP_INT, (uint32_t)offsetof(julia_params, quality),
-      1.0, 8.0, 2.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      1.0, 8.0, 1.0, 1.0, NULL, NULL, 0u, 0u, NULL },
     { "blend", "Blend Mode", FXP_CHOICE, (uint32_t)offsetof(julia_params, blend),
       0.0, (double)(FX2_BLEND_CHOICES - 1), (double)FX2_BLEND_OVERWRITE, 0.0,
       fx2_blend_choices, NULL, 0u, 0u, NULL },

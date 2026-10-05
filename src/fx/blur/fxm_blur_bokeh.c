@@ -9,8 +9,9 @@
  *    plus a few partially covered rim taps. Quality sets the band height:
  *    s = 2 floor(R / (8 q)) + 1, so high quality is exact (s = 1) for
  *    R < 8 q and low quality trades rim accuracy for speed.
- *  - Colors are premultiplied and gamma boosted like Gaussian Blur; a
- *    coverage channel renormalizes at the image border.
+ *  - Colors are premultiplied, decoded to linear light and gamma boosted
+ *    like Gaussian Blur (Paint.NET 5.1 Gamma Boost, range -0.99..2 as the
+ *    5.2 dialog shows); a coverage channel renormalizes at the image border.
  * Cost per pixel is O(R / s + rim taps). All sums are exact integers (or a
  * fixed-order floating sum per pixel), so output is independent of the ROI
  * split.
@@ -31,7 +32,7 @@ static const fx_prop k_props[] = {
     { "radius", "Radius", FXP_REAL, (uint32_t)offsetof(bokeh_params, radius),
       0.0, 300.0, 25.0, 0.1, NULL, NULL, 0, FXP_F_SLIDER_LOG, NULL },
     { "gamma_boost", "Gamma Boost", FXP_REAL, (uint32_t)offsetof(bokeh_params, gamma_boost),
-      -1.0, 2.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
+      -0.99, 2.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
     { "quality", "Quality", FXP_INT, (uint32_t)offsetof(bokeh_params, quality),
       1.0, 10.0, 3.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
@@ -80,7 +81,7 @@ static int bokeh_prepare(const void *params, const fx_img *src, const fx_env *en
     (void)src; (void)env; (void)job;
     if (!st) return FX_ERROR;
     memset(st, 0, sizeof *st);
-    fx1_sep_gamma(&st->gam, fx1_pd(p->gamma_boost, -1.0, 2.0));
+    fx1_sep_gamma5(&st->gam, fx1_pd(p->gamma_boost, -0.99, 2.0));
     *state = st;
     if (R < 0.5) {
         st->identity = 1;

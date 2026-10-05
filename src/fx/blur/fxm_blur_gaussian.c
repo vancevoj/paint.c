@@ -1,11 +1,13 @@
 /* fxm_blur_gaussian.c - Effects > Blurs > Gaussian Blur.
  *
- * Parameters follow Paint.NET 5.1 (Radius, Gamma Boost, Quality). The
- * kernel variance matches the 3.36 tent kernel of the same radius
- * (sigma^2 = r (r + 2) / 6) so radii keep their old visual strength; the
- * 3.36 renormalization at the image border is kept. Quality picks 2..5
- * extended box passes (O(1) per pixel for any radius) or an exact sampled
- * kernel. See docs/fx/effects1.md.
+ * Parameters follow Paint.NET 5.1 (Radius, Gamma Boost, Quality) with the
+ * ranges and defaults the 5.2 dialog shows (Gamma Boost -0.99..2, Quality
+ * 1..4 = 3). Rendering follows the 5.2 goldens (fx1_sep_gaussian5): linear
+ * light ("sRGB" gamma, the 5.0 default, is Gamma Boost 0 since 5.1),
+ * premultiplied, mirrored at the image border, with a pixel-integrated
+ * Gaussian of sigma = 0.3635 radius. Quality picks 2..5 extended box passes
+ * (O(1) per pixel for any radius) or the exact kernel. See
+ * docs/fx/effects1.md and docs/fx/parity.md.
  *
  * Thread rules: prepare builds an immutable fx1_sep (plus, for large
  * radii, a cache of the vertical passes); render is reentrant.
@@ -22,9 +24,9 @@ static const fx_prop k_props[] = {
     { "radius", "Radius", FXP_REAL, (uint32_t)offsetof(gauss_params, radius),
       0.0, 300.0, 2.0, 0.1, NULL, NULL, 0, FXP_F_SLIDER_LOG, NULL },
     { "gamma_boost", "Gamma Boost", FXP_REAL, (uint32_t)offsetof(gauss_params, gamma_boost),
-      -1.0, 2.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
+      -0.99, 2.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
     { "quality", "Quality", FXP_INT, (uint32_t)offsetof(gauss_params, quality),
-      1.0, 4.0, 4.0, 1.0, NULL, NULL, 0, 0, NULL },
+      1.0, 4.0, 3.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 
 typedef struct gauss_state {
@@ -47,8 +49,8 @@ static int gauss_prepare(const void *params, const fx_img *src, const fx_env *en
     gauss_state *st = (gauss_state *)fx1_alloc(host, 1, sizeof(gauss_state));
     int rc;
     if (!st) return FX_ERROR;
-    fx1_sep_gaussian(&st->sep, fx1_pd(p->radius, 0.0, 300.0), fx1_pi(p->quality, 1, 4),
-                     fx1_pd(p->gamma_boost, -1.0, 2.0));
+    fx1_sep_gaussian5(&st->sep, fx1_pd(p->radius, 0.0, 300.0), fx1_pi(p->quality, 1, 4),
+                      fx1_pd(p->gamma_boost, -0.99, 2.0));
     /* large radii: run the vertical passes once for the whole selection */
     rc = fx1_sep_cache_build(&st->sep, src, env->sel, &st->cache, host, job);
     if (rc != FX_OK) {

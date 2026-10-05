@@ -22,6 +22,8 @@ licenses below are permissive and compatible with the project's MIT license
 | bcdec | v0.985, commit 80859ed3b7afb1c527a2a99d70c61457bea72d0c | https://github.com/iOrange/bcdec | bcdec.h 134520764d96f70a27db814173616c89ad85db95fbd3328417c7a8c77e7ca189 | MIT OR Unlicense (third_party/bcdec/LICENSE) | Patched (marked "paint.c" in the file): well-defined sign extension in bcdec__extend_sign, unsigned shift for the half-float sign bit, zero-initialized BC7 endpoints, binary literals rewritten as hex for MSVC. All four were found by the UBSan fuzz loops or the MSVC review. Patched file SHA-256 e3dfa0635c4d616c43d837ce6b9af8286d1780e406cb7d0aae3d4107cfb74242 |
 | stb_dxt | v1.12, nothings/stb commit 2c980bb59875b0d32144a71867fbdebb2f77cd20 | https://github.com/nothings/stb/blob/master/stb_dxt.h | stb_dxt.h 807667ef98e0fd749cdb65cca0c2d980bc148109d2fed6f1873c81ae0f449933 | MIT OR public domain (third_party/stb_dxt/LICENSE) | none |
 | bc7enc | commit f66c2e489b07138f2673a2fb3d27c1aa1d565c48 | https://github.com/richgel999/bc7enc | bc7enc.c 817bfa5d30a2c4702e8c387ebb5a69398034c95905f580a6b8cd4261da901058, bc7enc.h 6a129cd608eebf9f2796dd1ad4659f8c4fbe2a2ace371b728fc4ece92f449c90 | MIT OR Unlicense (third_party/bc7enc/LICENSE) | none; pc_bc7enc.c/.h is our wrapper |
+| stb_truetype | v1.26, nothings/stb commit 6e9f34d5429cf16790ec43c9bac3f1ee4ad1f760 | https://github.com/nothings/stb | ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab | MIT or public domain | third_party/stb_truetype (outline extraction only, behind src/ui/ui_font_check.c) |
+| Inter | 4.1 | https://github.com/rsms/inter | zip 9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e | SIL OFL 1.1 | assets/fonts (embedded UI font) |
 
 ## Notices the shipped product must carry
 - libjpeg-turbo (IJG License): the documentation must state "This software is
@@ -49,5 +51,3 @@ licenses below are permissive and compatible with the project's MIT license
 - Little-CMS is compiled with -fwrapv (GCC, Clang): malformed profiles can push
   its fixed-point math into signed overflow, which then wraps instead of being
   undefined behavior.
-| stb_truetype | v1.26 (commit 6e9f34d5429cf16790ec43c9bac3f1ee4ad1f760) | vendored third_party/stb_truetype | ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab | MIT or public domain (outline extraction only, behind src/ui/ui_font_check.c) |
-| Inter | 4.1 | embedded from assets/fonts | zip 9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e | SIL OFL 1.1 (UI font) |

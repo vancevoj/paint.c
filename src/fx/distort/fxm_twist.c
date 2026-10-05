@@ -5,7 +5,9 @@
  * Positive Amount twists clockwise. Transform and ranges from the MIT-licensed
  * Paint.NET 3.36 TwistEffect (see docs/notice/l5c.md); as documented for
  * Paint.NET 5, Amount / Direction is an integer in [-200, 200] and Quality is
- * 1..8 (q^2 subsamples). Samples outside the image repeat the border pixels.
+ * 1..8 (q^2 subsamples, default 1 as the 5.2 dialog shows). Samples outside
+ * the image repeat the border pixels. Sampling is bilinear in linear light,
+ * which the Paint.NET 5.2 golden matches within 2 levels (docs/fx/parity.md).
  */
 #include "fx2_common.h"
 
@@ -24,7 +26,7 @@ static const fx_prop k_props[] = {
     { "center", "Center", FXP_POINT, (uint32_t)offsetof(twist_params, center),
       -2.0, 2.0, 0.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "quality", "Quality", FXP_INT, (uint32_t)offsetof(twist_params, quality),
-      1.0, 8.0, 2.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      1.0, 8.0, 1.0, 1.0, NULL, NULL, 0u, 0u, NULL },
 };
 
 typedef struct twist_ctx { double twist, inv_size, invmaxrad; } twist_ctx;
@@ -63,6 +65,7 @@ static int twist_render(const void *params, const void *state, const fx_img *src
     fx2_sel_point(env, off, &w.cx, &w.cy);
     w.quality = fx2_int(p->quality, 1, 8);
     w.edge = FX2_EDGE_CLAMP;
+    w.linear = 1;
     w.inverse = twist_inverse;
     w.ctx = &c;
     return fx2_warp_render(&w, src, dst, roi, host, job);

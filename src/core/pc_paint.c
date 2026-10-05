@@ -31,7 +31,11 @@ static uint8_t final_k(const paint_job *j, int32_t x, int32_t y)
 {
     size_t ox = (size_t)(x - j->cov->x), oy = (size_t)(y - j->cov->y);
     uint32_t k = j->cov->px[oy * (size_t)j->cov->stride + ox];
-    if (j->sel && k) k = pc_mul255(k, j->sel[oy * (size_t)j->cov->w + ox]);
+    if (j->sel && k) {
+        uint32_t sv = j->sel[oy * (size_t)j->cov->w + ox];
+        if (j->o.clip_pixelated) k = sv >= 128u ? k : 0u;
+        else k = pc_mul255(k, sv);
+    }
     return (uint8_t)k;
 }
 

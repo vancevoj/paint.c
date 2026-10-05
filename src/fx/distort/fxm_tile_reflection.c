@@ -6,13 +6,17 @@
  * Paint.NET 3.36 TileEffect (see docs/notice/l5c.md). Paint.NET 5 added Edge
  * Behavior (its documentation screenshot shows Reflect at default settings)
  * and, like its other distortions, takes Quality^2 subsamples with Quality
- * 1..8; the Tile Size and Curvature ranges were measured from that screenshot.
+ * 1..8 (default 1). Ranges, defaults and two-decimal steps are those of the
+ * Paint.NET 5.2 dialog (Tile Size 1..1600, Curvature -200..200; 3.36: 1..800,
+ * -100..100). The 5.2 dialog also has an Offset pad that the 5.1
+ * documentation does not list, so it is not offered (X-24). Samples are
+ * averaged in linear light.
  */
 #include "fx2_common.h"
 
 typedef struct tile_params {
     double  angle;           /* degrees, -180 .. 180 */
-    double  tile_size;       /* 1 .. 250 */
+    double  tile_size;       /* 1 .. 1600 */
     double  curvature;       /* -200 .. 200 */
     int32_t edge;            /* 0 Clamp, 1 Wrap, 2 Reflect, 3 Transparent */
     int32_t quality;         /* 1 .. 8 */
@@ -25,15 +29,15 @@ static const int k_edge_mode[] = {
 
 static const fx_prop k_props[] = {
     { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(tile_params, angle),
-      -180.0, 180.0, 30.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      -180.0, 180.0, 30.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "tile_size", "Tile Size", FXP_REAL, (uint32_t)offsetof(tile_params, tile_size),
-      1.0, 250.0, 40.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      1.0, 1600.0, 40.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "curvature", "Curvature", FXP_REAL, (uint32_t)offsetof(tile_params, curvature),
-      -200.0, 200.0, 8.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      -200.0, 200.0, 8.0, 0.01, NULL, NULL, 0u, 0u, NULL },
     { "edge", "Edge Behavior", FXP_CHOICE, (uint32_t)offsetof(tile_params, edge),
       0.0, 3.0, 2.0, 0.0, k_edge, NULL, 0u, 0u, NULL },
     { "quality", "Quality", FXP_INT, (uint32_t)offsetof(tile_params, quality),
-      1.0, 8.0, 2.0, 1.0, NULL, NULL, 0u, 0u, NULL },
+      1.0, 8.0, 1.0, 1.0, NULL, NULL, 0u, 0u, NULL },
 };
 
 typedef struct tile_ctx { double sn, cs, scale, intensity; } tile_ctx;
@@ -64,12 +68,13 @@ static int tile_render(const void *params, const void *state, const fx_img *src,
     curv = fx2_real(p->curvature, -200.0, 200.0, 8.0);
     c.sn = sin(rot);
     c.cs = cos(rot);
-    c.scale = FX2_PI / fx2_real(p->tile_size, 1.0, 250.0, 40.0);
+    c.scale = FX2_PI / fx2_real(p->tile_size, 1.0, 1600.0, 40.0);
     c.intensity = curv * curv / 10.0 * (curv < 0.0 ? -1.0 : 1.0);
     q = fx2_int(p->quality, 1, 8);
     fx2_sel_point(env, center, &w.cx, &w.cy);
     w.quality = q;
     w.edge = k_edge_mode[fx2_int(p->edge, 0, 3)];
+    w.linear = 1;
     w.inverse = tile_inverse;
     w.ctx = &c;
     return fx2_warp_render(&w, src, dst, roi, host, job);

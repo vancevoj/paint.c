@@ -1,0 +1,651 @@
+{
+  "producer": "Paint.NET 5.2 beta build 5.200.9772.9330 (Paint.NET-on-Wine EXPERIMENTAL x64 portable package, EnableWineMode=true)",
+  "version": "5.200.9772.9330",
+  "environment": {
+    "wine": "11.19 (Kron4ek wine-11.19-amd64-wow64 build)",
+    "dxvk": "3.1.1",
+    "vulkan_driver": "Mesa lavapipe (llvmpipe, LLVM 19.1.7)",
+    "display": "Xvfb :77 1920x1080x24, Wine virtual desktop",
+    "windows_version": "win11",
+    "host": "Debian 13"
+  },
+  "authoritative": false,
+  "notes": [
+    "Produced under Wine with a software Vulkan/D3D11 stack; NON-AUTHORITATIVE. Not produced by 5.1.12 (5.1.12 does not start under Wine 11.19).",
+    "Direct PNG Save As failed under Wine (WIC metadata writer NotImplementedException), so every output was saved as 8-bit TGA (Save Options: Bit Depth Auto-detect, Convert to sRGB on, Compress (RLE) on) and losslessly converted to PNG with Pillow into output_png/.",
+    "TGA/PNG store straight (non-premultiplied) alpha; RGB of fully transparent pixels is not meaningful.",
+    "Effect/adjustment parameters are the dialog defaults observed in this build (see docs/inventory/OBSERVED.md in the paint.c repo).",
+    "Inputs were generated procedurally by Python (gradients, seeded value noise with shapes, soft alpha edges); see input/ and sha256 below."
+  ],
+  "inputs": {
+    "alpha_edges.png": "eccf8e064de1f92aaf77d837c3d58b7cf5b218b0788928dced462cb49a497845",
+    "blend_top.png": "4bbbde7f54a8eb2da0e0e53a72f98caa43e850210c48f6694b3d8165cc67c099",
+    "grad_rgb.png": "5603503cca3423aac51ac1f2743010c34ec772ba92fce075173f4cf06ebba02c",
+    "photo.png": "8c641ca6a98d90b0a8bd65bcfa09d83aab8c127a0467c11e2b39a8873135df77"
+  },
+  "entries": [
+    {
+      "output_tga": "output/alpha_edges__black_and_white.tga",
+      "output_png": "output_png/alpha_edges__black_and_white.png",
+      "inputs": {
+        "image": "input/alpha_edges.png"
+      },
+      "operation": "Adjustments > Black and White",
+      "parameters": {},
+      "sha256_tga": "4f7653002bd6bd903ef442fb6246664b2433c44f8729320cd3e7d89f86d8ecc0",
+      "sha256_png": "a7801ba2ed89d59410bcae1b3ad7fc3ac0b267bd9079c08241452647c972c510"
+    },
+    {
+      "output_tga": "output/alpha_edges__brightness_contrast_default.tga",
+      "output_png": "output_png/alpha_edges__brightness_contrast_default.png",
+      "inputs": {
+        "image": "input/alpha_edges.png"
+      },
+      "operation": "Adjustments > Brightness / Contrast (OK with defaults)",
+      "parameters": {
+        "Brightness": 0,
+        "Contrast": 0
+      },
+      "sha256_tga": "78beded589949d25ae8e2ae51b88670c3df553784523c76939807c0d8d158773",
+      "sha256_png": "eccf8e064de1f92aaf77d837c3d58b7cf5b218b0788928dced462cb49a497845"
+    },
+    {
+      "output_tga": "output/alpha_edges__emboss_default.tga",
+      "output_png": "output_png/alpha_edges__emboss_default.png",
+      "inputs": {
+        "image": "input/alpha_edges.png"
+      },
+      "operation": "Effects > Stylize > Emboss (OK with defaults)",
+      "parameters": {
+        "Angle": 0.0
+      },
+      "sha256_tga": "a7fb1b1aa3ce743a3fdf63a07c069110a8ee87ba8b5e318b84f6bbe58e1c9803",
+      "sha256_png": "40d7e7aad47874bf67a7a06a633628bf4b7472d24d4901c59a7fc6ec7287cf11"
+    },
+    {
+      "output_tga": "output/alpha_edges__gaussian_blur_default.tga",
+      "output_png": "output_png/alpha_edges__gaussian_blur_default.png",
+      "inputs": {
+        "image": "input/alpha_edges.png"
+      },
+      "operation": "Effects > Blurs > Gaussian Blur (OK with defaults)",
+      "parameters": {
+        "Radius": 2.0,
+        "Gamma Boost": 0.0,
+        "Quality": 3
+      },
+      "sha256_tga": "e841ad177811df0fb1e4987f2cbfb75f40c7b358233e662c05043f6fa9be989c",
+      "sha256_png": "7656a9c8b1880c5ae72b63ea7e3dca59478a7e7d95918c22d47f97f919672098"
+    },
+    {
+      "output_tga": "output/alpha_edges__invert_colors.tga",
+      "output_png": "output_png/alpha_edges__invert_colors.png",
+      "inputs": {
+        "image": "input/alpha_edges.png"
+      },
+      "operation": "Adjustments > Invert Colors",
+      "parameters": {},
+      "sha256_tga": "a80a7f7d06c4d9976adf42d81f5cb41d0ab9f06360ce53d9815f16adefcb5687",
+      "sha256_png": "26c7d98c9390948a045958a8754f8e893dcd3a54683e57c9361b2020d0221591"
+    },
+    {
+      "output_tga": "output/alpha_edges__pixelate_default.tga",
+      "output_png": "output_png/alpha_edges__pixelate_default.png",
+      "inputs": {
+        "image": "input/alpha_edges.png"
+      },
+      "operation": "Effects > Distort > Pixelate (OK with defaults)",
+      "parameters": {
+        "Cell size": 2,
+        "Anchor": [
+          0.0,
+          0.0
+        ],
+        "Scale Down": "Multisample Bilinear",
+        "Scale Up": "Nearest Neighbor"
+      },
+      "sha256_tga": "a8bc85056b37ea146ea44f3dae7f0da0b3200b77022bd927a889053423b3317a",
+      "sha256_png": "34b9f5448251bdec2fa2798071f3a722b3e8f285707f688323c82f5985ae6135"
+    },
+    {
+      "output_tga": "output/alpha_edges__posterize_default.tga",
+      "output_png": "output_png/alpha_edges__posterize_default.png",
+      "inputs": {
+        "image": "input/alpha_edges.png"
+      },
+      "operation": "Adjustments > Posterize (OK with defaults)",
+      "parameters": {
+        "Red": 16,
+        "Green": 16,
+        "Blue": 16,
+        "Alpha": 16,
+        "Red/Green/Blue/Alpha checkboxes": "all on",
+        "Linked": true
+      },
+      "sha256_tga": "7cad549b5a371cb42b87be62d9539ee077bc9883f421b7c99a75252eb8d4d5a0",
+      "sha256_png": "d777c1a95397e1f7de78f7a6e47c870b60a8399a0f745a1d04bcad2c71e7a780"
+    },
+    {
+      "output_tga": "output/alpha_edges__sepia_default.tga",
+      "output_png": "output_png/alpha_edges__sepia_default.png",
+      "inputs": {
+        "image": "input/alpha_edges.png"
+      },
+      "operation": "Adjustments > Sepia (dialog, OK with defaults)",
+      "parameters": {
+        "Intensity": 50
+      },
+      "sha256_tga": "9f82d2574e5646e38034b303224ce90b2345c1c89f719a40ddf6ac79bb8cda1b",
+      "sha256_png": "4f4faedb8c90021427fb8434c5afd58a5381a8fbbbd668052227ecb68e1237ae"
+    },
+    {
+      "output_tga": "output/alpha_edges__twist_default.tga",
+      "output_png": "output_png/alpha_edges__twist_default.png",
+      "inputs": {
+        "image": "input/alpha_edges.png"
+      },
+      "operation": "Effects > Distort > Twist (OK with defaults)",
+      "parameters": {
+        "Amount / Direction": 30,
+        "Size": 1.0,
+        "Center": [
+          0.0,
+          0.0
+        ],
+        "Quality": 1
+      },
+      "sha256_tga": "18a10a5ca61158af8e65af193c29c756aea35d437fc22256bf84e7739fc66566",
+      "sha256_png": "bffc2a9e932a7b17c97eaa35acb28d6b843d2ea981fcd320e33b8c0e19d15511"
+    },
+    {
+      "output_tga": "output/blend__additive.tga",
+      "output_png": "output_png/blend__additive.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Additive, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "additive",
+        "blend_mode_list_index": 3,
+        "opacity": 255
+      },
+      "sha256_tga": "771ccc4ce05970e60b3bd0854522b0ee678cf812dea0746500cbe0d53bf2c2eb",
+      "sha256_png": "c20e5c682aa3c14e86e2a9cf7eb835bf1cfccc7500353b23e09d906136544740"
+    },
+    {
+      "output_tga": "output/blend__color_burn.tga",
+      "output_png": "output_png/blend__color_burn.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Color Burn, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "color_burn",
+        "blend_mode_list_index": 4,
+        "opacity": 255
+      },
+      "sha256_tga": "d85130d42dbae88b16f8e1f7a203488317d6d4638905d9b657e56a4160365cb3",
+      "sha256_png": "b1f29b937dfc5f75956ddc60803827859de773823e2f6b31c47f5fb2ca478b9b"
+    },
+    {
+      "output_tga": "output/blend__color_dodge.tga",
+      "output_png": "output_png/blend__color_dodge.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Color Dodge, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "color_dodge",
+        "blend_mode_list_index": 5,
+        "opacity": 255
+      },
+      "sha256_tga": "f13a73727aa8692b4eb766a74372c5b2c1e30b247fa1d6c7f286389e93e4c58d",
+      "sha256_png": "736fdf63c7a7a4553a2058ffcc7118dc42e26bdd43f966dc02881694cfcf5499"
+    },
+    {
+      "output_tga": "output/blend__darken.tga",
+      "output_png": "output_png/blend__darken.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Darken, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "darken",
+        "blend_mode_list_index": 12,
+        "opacity": 255
+      },
+      "sha256_tga": "60c0d324dce78a5183089c75f06f08fd79e0e13d3c56d73adb4f1ee6e22ffbfe",
+      "sha256_png": "171aa1824871cdc9182a2dcd3a0c6f5df5da8ac74290ded494b9a943e48040c1"
+    },
+    {
+      "output_tga": "output/blend__difference.tga",
+      "output_png": "output_png/blend__difference.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Difference, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "difference",
+        "blend_mode_list_index": 9,
+        "opacity": 255
+      },
+      "sha256_tga": "2e1719173ebeed200a00eca44dc151b832722be3bbae8a5653dcbf428e26de94",
+      "sha256_png": "79f4732ce9659a2e8864b89faba6d940bf4e817e2d9d1724937a1b7236cd3a1a"
+    },
+    {
+      "output_tga": "output/blend__glow.tga",
+      "output_png": "output_png/blend__glow.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Glow, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "glow",
+        "blend_mode_list_index": 7,
+        "opacity": 255
+      },
+      "sha256_tga": "774d38372e2d68139769214a1a41c2861bdb5333fdae8d2c79e90311d0ac7a81",
+      "sha256_png": "58e13f93002d614dce87834d7a02dfa9e240c5664fbc06ce83f49c1bdc7f0b8c"
+    },
+    {
+      "output_tga": "output/blend__lighten.tga",
+      "output_png": "output_png/blend__lighten.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Lighten, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "lighten",
+        "blend_mode_list_index": 11,
+        "opacity": 255
+      },
+      "sha256_tga": "b285f685293c16946634660bd13d2557616442b9cb5877f05717b93a9b049f41",
+      "sha256_png": "2410611b7b7aea56196d42f247372cef23fa15533feb7e2ce9f4e24d4701ee28"
+    },
+    {
+      "output_tga": "output/blend__multiply.tga",
+      "output_png": "output_png/blend__multiply.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Multiply, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "multiply",
+        "blend_mode_list_index": 2,
+        "opacity": 255
+      },
+      "sha256_tga": "20453078361f0ac19f5b2c8b210bfc344503497aa237f6ec31b8e5334cfec4d7",
+      "sha256_png": "7d41fdc60ecbb3930f4756d026211171d3cbcaa5d2e2d3c8edf2c12d991c506a"
+    },
+    {
+      "output_tga": "output/blend__negation.tga",
+      "output_png": "output_png/blend__negation.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Negation, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "negation",
+        "blend_mode_list_index": 10,
+        "opacity": 255
+      },
+      "sha256_tga": "380ef1ed623bf0efa2bdbf1ad3d6b00b50dd2ca2d403e0725b6f93475520e24b",
+      "sha256_png": "b15b0b0ca490d6d00cae18dccdfb15c20496597cf0a18eaa14232fafcdb485ac"
+    },
+    {
+      "output_tga": "output/blend__normal.tga",
+      "output_png": "output_png/blend__normal.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Normal, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "normal",
+        "blend_mode_list_index": 1,
+        "opacity": 255
+      },
+      "sha256_tga": "3f74cab8c383fbd0bca2636ac2364141d1c70f0fac1acc292dceddb9ada7323f",
+      "sha256_png": "3a5de9e86f9fcb3e86b5cd5025bf237a5be115a0577be60a1f08a14769ed80ec"
+    },
+    {
+      "output_tga": "output/blend__overlay.tga",
+      "output_png": "output_png/blend__overlay.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Overlay, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "overlay",
+        "blend_mode_list_index": 8,
+        "opacity": 255
+      },
+      "sha256_tga": "0488a59236a73ea0cb562866ee8c17f093d34f8c1646fbb3a1bb81888d78c727",
+      "sha256_png": "e06f431aeb11b38609065faf307d0bab17a014cc5d2450996685d8d5ed30703d"
+    },
+    {
+      "output_tga": "output/blend__reflect.tga",
+      "output_png": "output_png/blend__reflect.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Reflect, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "reflect",
+        "blend_mode_list_index": 6,
+        "opacity": 255
+      },
+      "sha256_tga": "a52d95b8177beb4acf1d2f452f793fd06a6f304deb5418005b748517179872a8",
+      "sha256_png": "ad8715f54a2605c2ce04dbca240a0101dac88503c065c5b15125c1b4b8110aec"
+    },
+    {
+      "output_tga": "output/blend__screen.tga",
+      "output_png": "output_png/blend__screen.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Screen, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "screen",
+        "blend_mode_list_index": 13,
+        "opacity": 255
+      },
+      "sha256_tga": "16a588635da2430762376ca93472f2a7f710340fc0c06aa0c2507fef1056e7dc",
+      "sha256_png": "f57d5457aeb0d0580644aa298a9fc8b97f62ec8824bf8d49a478108e4c00bf0c"
+    },
+    {
+      "output_tga": "output/blend__xor.tga",
+      "output_png": "output_png/blend__xor.png",
+      "inputs": {
+        "bottom_layer": "input/photo.png",
+        "top_layer": "input/blend_top.png"
+      },
+      "operation": "2-layer document: photo.png opened, blend_top.png added with Layers > Import From File (layer named 'blend_top:Background'), Layer Properties blend mode = Xor, opacity 255, visible; Save As TGA with Flatten",
+      "parameters": {
+        "blend_mode": "xor",
+        "blend_mode_list_index": 14,
+        "opacity": 255
+      },
+      "sha256_tga": "1eff121681b2ccf006fb116a9fe4ddb23952a46cfdfc689eab5bad6fbd4982fb",
+      "sha256_png": "c4d33187cbfa06af854f2f0867fcf6f0cb6f4e1c70135de283406ba7b91d5c7a"
+    },
+    {
+      "output_tga": "output/grad_rgb__black_and_white.tga",
+      "output_png": "output_png/grad_rgb__black_and_white.png",
+      "inputs": {
+        "image": "input/grad_rgb.png"
+      },
+      "operation": "Adjustments > Black and White",
+      "parameters": {},
+      "sha256_tga": "5d8860f8f729d51026268586fdaf51f29dbd1d098aedcc2f334f2eeede5953bc",
+      "sha256_png": "13dd099481a4a9626bff22b6c85ae89fdacb98074dbc9858a4bd5173db6f09e4"
+    },
+    {
+      "output_tga": "output/grad_rgb__brightness_contrast_default.tga",
+      "output_png": "output_png/grad_rgb__brightness_contrast_default.png",
+      "inputs": {
+        "image": "input/grad_rgb.png"
+      },
+      "operation": "Adjustments > Brightness / Contrast (OK with defaults)",
+      "parameters": {
+        "Brightness": 0,
+        "Contrast": 0
+      },
+      "sha256_tga": "5738cf495e0438010a9f5c27603346cc3a663c5b07008b8e2f456efb57209637",
+      "sha256_png": "a69480e5e4520b61f34d05ca204d3cb97aebaf7bbcffa2f01d5f7a4d421eeaca"
+    },
+    {
+      "output_tga": "output/grad_rgb__emboss_default.tga",
+      "output_png": "output_png/grad_rgb__emboss_default.png",
+      "inputs": {
+        "image": "input/grad_rgb.png"
+      },
+      "operation": "Effects > Stylize > Emboss (OK with defaults)",
+      "parameters": {
+        "Angle": 0.0
+      },
+      "sha256_tga": "01351cf1dff50889e8ab4819fe27e0943de27a5f158c053f9d12a51fb9add4ae",
+      "sha256_png": "e1bb8c97b62c68ef5a27c47195d5794aae3e5613ae95cf1868fea460b3f831aa"
+    },
+    {
+      "output_tga": "output/grad_rgb__gaussian_blur_default.tga",
+      "output_png": "output_png/grad_rgb__gaussian_blur_default.png",
+      "inputs": {
+        "image": "input/grad_rgb.png"
+      },
+      "operation": "Effects > Blurs > Gaussian Blur (OK with defaults)",
+      "parameters": {
+        "Radius": 2.0,
+        "Gamma Boost": 0.0,
+        "Quality": 3
+      },
+      "sha256_tga": "3d7cab6fc694e5d060e6b97562259327266570b3255be2793072fcf772416afe",
+      "sha256_png": "a69480e5e4520b61f34d05ca204d3cb97aebaf7bbcffa2f01d5f7a4d421eeaca"
+    },
+    {
+      "output_tga": "output/grad_rgb__invert_colors.tga",
+      "output_png": "output_png/grad_rgb__invert_colors.png",
+      "inputs": {
+        "image": "input/grad_rgb.png"
+      },
+      "operation": "Adjustments > Invert Colors",
+      "parameters": {},
+      "sha256_tga": "75f0057e2429d6be6377ab6cca86c837ea4233d95040605d8c01363206e5bcbb",
+      "sha256_png": "91c1e1d4010ab9bb2285d68812cb7f4dd16952440817df8bcee005d6db7aa921"
+    },
+    {
+      "output_tga": "output/grad_rgb__pixelate_default.tga",
+      "output_png": "output_png/grad_rgb__pixelate_default.png",
+      "inputs": {
+        "image": "input/grad_rgb.png"
+      },
+      "operation": "Effects > Distort > Pixelate (OK with defaults)",
+      "parameters": {
+        "Cell size": 2,
+        "Anchor": [
+          0.0,
+          0.0
+        ],
+        "Scale Down": "Multisample Bilinear",
+        "Scale Up": "Nearest Neighbor"
+      },
+      "sha256_tga": "bee336358cab68805a5f0820910d6365907e8ca680cf73021ca6d8d4215b9983",
+      "sha256_png": "5d6dd7eac5bcf809239428260f7071bda309d9e3bd9b6b39edce1618c986d111"
+    },
+    {
+      "output_tga": "output/grad_rgb__posterize_default.tga",
+      "output_png": "output_png/grad_rgb__posterize_default.png",
+      "inputs": {
+        "image": "input/grad_rgb.png"
+      },
+      "operation": "Adjustments > Posterize (OK with defaults)",
+      "parameters": {
+        "Red": 16,
+        "Green": 16,
+        "Blue": 16,
+        "Alpha": 16,
+        "Red/Green/Blue/Alpha checkboxes": "all on",
+        "Linked": true
+      },
+      "sha256_tga": "c4f603b1d1b9cb4799c02dbb8ff2685eb57b7f0a4a6b0334d150e5fa56e6147a",
+      "sha256_png": "f1272058a63ab799223c61332f47ae3ea4a92510defe04060f543dbc398ef84c"
+    },
+    {
+      "output_tga": "output/grad_rgb__sepia_default.tga",
+      "output_png": "output_png/grad_rgb__sepia_default.png",
+      "inputs": {
+        "image": "input/grad_rgb.png"
+      },
+      "operation": "Adjustments > Sepia (dialog, OK with defaults)",
+      "parameters": {
+        "Intensity": 50
+      },
+      "sha256_tga": "5ee41f6c788a2cedeb7a579118e84c72a38baa4b4ec72452e654d4a9a2103679",
+      "sha256_png": "09400602ea8d4a50b5f57e46100d692a5364fe473ff800c73d758c53e6b4c5db"
+    },
+    {
+      "output_tga": "output/grad_rgb__twist_default.tga",
+      "output_png": "output_png/grad_rgb__twist_default.png",
+      "inputs": {
+        "image": "input/grad_rgb.png"
+      },
+      "operation": "Effects > Distort > Twist (OK with defaults)",
+      "parameters": {
+        "Amount / Direction": 30,
+        "Size": 1.0,
+        "Center": [
+          0.0,
+          0.0
+        ],
+        "Quality": 1
+      },
+      "sha256_tga": "bac697fc2b220b92eed1e1a0363fb2d73f6454b4a53698e7488a4e903a512896",
+      "sha256_png": "6c09cbda176f0940622bb338fd5c61a7df101f2a31b90af03fb68ccd0888f39e"
+    },
+    {
+      "output_tga": "output/photo__black_and_white.tga",
+      "output_png": "output_png/photo__black_and_white.png",
+      "inputs": {
+        "image": "input/photo.png"
+      },
+      "operation": "Adjustments > Black and White",
+      "parameters": {},
+      "sha256_tga": "239a3d0ff9d51af9028d58713960c668433db73bf1a0c1ddf9bc816b83468835",
+      "sha256_png": "c68c747bb1bfe9625fa0b814df5e8dc63e384672ab40d2570c08b5068c9d8281"
+    },
+    {
+      "output_tga": "output/photo__brightness_contrast_default.tga",
+      "output_png": "output_png/photo__brightness_contrast_default.png",
+      "inputs": {
+        "image": "input/photo.png"
+      },
+      "operation": "Adjustments > Brightness / Contrast (OK with defaults)",
+      "parameters": {
+        "Brightness": 0,
+        "Contrast": 0
+      },
+      "sha256_tga": "6d54bc8e4d056c38e343234633f70c08335b32c3faa2da666d0ec03e148c1ad3",
+      "sha256_png": "fd2ca688269e4155dd75b2236a2e63c98588bcaeaad14c1545510ce9f1932590"
+    },
+    {
+      "output_tga": "output/photo__emboss_default.tga",
+      "output_png": "output_png/photo__emboss_default.png",
+      "inputs": {
+        "image": "input/photo.png"
+      },
+      "operation": "Effects > Stylize > Emboss (OK with defaults)",
+      "parameters": {
+        "Angle": 0.0
+      },
+      "sha256_tga": "cab2232473ab1cb72854a492d51f899996e0cad1bc77d1ca8155e39faf9cf206",
+      "sha256_png": "2514eac1a930a5963e7fc8679ffa8630a7ab611645b1c51dad5ad3296f899a8f"
+    },
+    {
+      "output_tga": "output/photo__gaussian_blur_default.tga",
+      "output_png": "output_png/photo__gaussian_blur_default.png",
+      "inputs": {
+        "image": "input/photo.png"
+      },
+      "operation": "Effects > Blurs > Gaussian Blur (OK with defaults)",
+      "parameters": {
+        "Radius": 2.0,
+        "Gamma Boost": 0.0,
+        "Quality": 3
+      },
+      "sha256_tga": "6aa0e93f2f93b61ed3fbae04f9340eb36aa3d4fa76e5fe60a00e030eaa6acbc9",
+      "sha256_png": "6f40fd9e9acec0c7e897852a1f9ce737f84a5add346f395b82438c02014f2a62"
+    },
+    {
+      "output_tga": "output/photo__invert_colors.tga",
+      "output_png": "output_png/photo__invert_colors.png",
+      "inputs": {
+        "image": "input/photo.png"
+      },
+      "operation": "Adjustments > Invert Colors",
+      "parameters": {},
+      "sha256_tga": "887cdc15186e19b6c695c4989c41ba5c9e423d452542fc11be1de3e8a64116a9",
+      "sha256_png": "1c24525e2fa7dbbba405024cfd7dd86eb406e9ae56c89df45c8282f92f992c30"
+    },
+    {
+      "output_tga": "output/photo__pixelate_default.tga",
+      "output_png": "output_png/photo__pixelate_default.png",
+      "inputs": {
+        "image": "input/photo.png"
+      },
+      "operation": "Effects > Distort > Pixelate (OK with defaults)",
+      "parameters": {
+        "Cell size": 2,
+        "Anchor": [
+          0.0,
+          0.0
+        ],
+        "Scale Down": "Multisample Bilinear",
+        "Scale Up": "Nearest Neighbor"
+      },
+      "sha256_tga": "153626b9d6e070e51d3f5809fb9ca904a5000fbf40d8a4aaee1c713f840813b8",
+      "sha256_png": "3d97c22100587c662af196d4ffe36f2b3a09624de32140db1b73846497393a07"
+    },
+    {
+      "output_tga": "output/photo__posterize_default.tga",
+      "output_png": "output_png/photo__posterize_default.png",
+      "inputs": {
+        "image": "input/photo.png"
+      },
+      "operation": "Adjustments > Posterize (OK with defaults)",
+      "parameters": {
+        "Red": 16,
+        "Green": 16,
+        "Blue": 16,
+        "Alpha": 16,
+        "Red/Green/Blue/Alpha checkboxes": "all on",
+        "Linked": true
+      },
+      "sha256_tga": "a8f23a689f5764f61002970836cbacb2e6ff75ac4204e1d3ca2aeb6d24ac0d57",
+      "sha256_png": "ce4f642538e24c1784f358067d7dffa141ce15d0c57bc63b88a45a03b4857ac9"
+    },
+    {
+      "output_tga": "output/photo__sepia_default.tga",
+      "output_png": "output_png/photo__sepia_default.png",
+      "inputs": {
+        "image": "input/photo.png"
+      },
+      "operation": "Adjustments > Sepia (dialog, OK with defaults)",
+      "parameters": {
+        "Intensity": 50
+      },
+      "sha256_tga": "d6d2b4ef8ba84292dacf131b65524b6fe45959d933f0c8d8e080042e52247e4e",
+      "sha256_png": "0063ed6b7459383f6133e9b4401f820ce955fd80431beaf41c0a66ac366aeda8"
+    },
+    {
+      "output_tga": "output/photo__twist_default.tga",
+      "output_png": "output_png/photo__twist_default.png",
+      "inputs": {
+        "image": "input/photo.png"
+      },
+      "operation": "Effects > Distort > Twist (OK with defaults)",
+      "parameters": {
+        "Amount / Direction": 30,
+        "Size": 1.0,
+        "Center": [
+          0.0,
+          0.0
+        ],
+        "Quality": 1
+      },
+      "sha256_tga": "9f77e044259c5abe4be972be3e898c7b07453347e4f08857a07c749dd5d994c6",
+      "sha256_png": "4cd8752454da49d480144cf7facb234d5ffe01ffe7f6cd3eab1ddbd3d5cfbe7a"
+    }
+  ]
+}
