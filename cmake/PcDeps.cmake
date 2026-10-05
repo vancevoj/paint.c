@@ -84,6 +84,13 @@ function(pc_dep_sdl3)
         endif()
       endif()
     endforeach()
+    # SDL 3.4's software renderer queues CopyExData (8-byte members) in its
+    # vertex buffer without asking for 8-byte alignment (SW_QueueCopyEx), so
+    # UBSan's alignment check aborts every flipped copy. Upstream code,
+    # harmless on x86-64 and arm64: only that check, only for SDL.
+    if(PC_SANITIZE AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" AND TARGET SDL3-static)
+      target_compile_options(SDL3-static PRIVATE -fno-sanitize=alignment)
+    endif()
   else()
     message(STATUS "paint.c: using system SDL3 ${SDL3_VERSION}")
   endif()
