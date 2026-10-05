@@ -41,6 +41,9 @@ struct gfx_canvas {
     bool                 sharp_failed;       /* the renderer cannot make one */
     uint64_t             xf_key;
     uint8_t             *xbuf;               /* one tile, owned */
+    bool                 sw;                 /* lane UIA: the software renderer */
+    bool                 has_clip;           /* lane UIA: clip of this draw */
+    SDL_Rect             clip;
 };
 
 static const uint8_t k_zero_tile[PC_TILE_PX * 4u] = {0};
@@ -53,6 +56,10 @@ gfx_canvas *gfx_canvas_create(SDL_Renderer *r, uint32_t page_budget)
     if (!c) return NULL;
     c->r = r;
     c->budget = page_budget ? page_budget : GFX_DEFAULT_PAGE_BUDGET;
+    {
+        const char *name = SDL_GetRendererName(r);
+        c->sw = name && strcmp(name, SDL_SOFTWARE_RENDERER) == 0;
+    }
     return c;
 }
 
@@ -407,6 +414,79 @@ static void upload_pages(gfx_canvas *c, const pc_view_cache *vc, uint32_t level,
     }
 }
 
+/* ---- lane UIA (wave 4): nearest blits the clip cannot shift ------------------------
+ * SDL 3.2's software renderer clips a scaled blit against the clip rect
+ * by moving the source rect by a fraction of a texel and rounding it
+ * (SDL_BlitSurfaceScaled), which shifts the magnified image by up to half
+ * an image pixel against the grid and the pointer mapping (w4 item 42).
+ * On that renderer a nearest blit that crosses the clip is cut here
+ * instead, at whole texels: the fully visible texels in one blit, and the
+ * partly visible first and last texel of each axis as one texel stretched
+ * over its visible part (nearest sampling of one texel is exact at any
+ * size). Integral origins and scales (integer zoom) give integral rects. */
+typedef struct clip_seg {
+    float s0, s1, d0, d1;                   /* source and destination ranges */
+} clip_seg;
+
+/* Segments of the source range [s0, s1) placed at o + s * k inside the
+ * clip range [c0, c1): a partly visible texel, the run of fully visible
+ * texels, a partly visible texel. Returns the count (0..3). */
+static int clip_axis(double s0, double s1, double o, double k, double c0, double c1,
+                     clip_seg *out)
+{
+    double a = floor((c0 - o) / k + 1e-9), b = ceil((c1 - o) / k - 1e-9), t;
+    int n = 0;
+    if (a < s0) a = s0;
+    if (b > s1) b = s1;
+    for (t = a; t < b && n < 3;) {
+        double d0 = o + t * k, d1, t1;
+        if (d0 < c0 || o + (t + 1.0) * k > c1) {     /* one partly visible texel */
+            t1 = t + 1.0;
+            d1 = o + t1 * k;
+            if (d0 < c0) d0 = c0;
+            if (d1 > c1) d1 = c1;
+        } else {                                     /* the fully visible run */
+            t1 = floor((c1 - o) / k + 1e-9);
+            if (t1 > b) t1 = b;
+            if (t1 <= t) t1 = t + 1.0;
+            d1 = o + t1 * k;
+        }
+        if (d1 > d0) {
+            out[n].s0 = (float)t;
+            out[n].s1 = (float)t1;
+            out[n].d0 = (float)d0;
+            out[n].d1 = (float)d1;
+            n++;
+        }
+        t = t1;
+    }
+    return n;
+}
+
+/* SDL_RenderTexture of texels [sx0, sx1) x [sy0, sy1) of tex placed at
+ * (ox + x * k, oy + y * k) in texture coordinates offset by (tx, ty). */
+static void blit_nearest_clipped(gfx_canvas *c, SDL_Texture *tex, double tx, double ty,
+                                 double sx0, double sy0, double sx1, double sy1, double ox,
+                                 double oy, double k)
+{
+    clip_seg xs[3], ys[3];
+    int nx = clip_axis(sx0, sx1, ox, k, (double)c->clip.x, (double)(c->clip.x + c->clip.w), xs);
+    int ny = clip_axis(sy0, sy1, oy, k, (double)c->clip.y, (double)(c->clip.y + c->clip.h), ys);
+    for (int j = 0; j < ny; j++)
+        for (int i = 0; i < nx; i++) {
+            SDL_FRect src, dst;
+            src.x = xs[i].s0 - (float)tx;
+            src.y = ys[j].s0 - (float)ty;
+            src.w = xs[i].s1 - xs[i].s0;
+            src.h = ys[j].s1 - ys[j].s0;
+            dst.x = xs[i].d0;
+            dst.y = ys[j].d0;
+            dst.w = xs[i].d1 - xs[i].d0;
+            dst.h = ys[j].d1 - ys[j].d0;
+            SDL_RenderTexture(c->r, tex, &src, &dst);
+        }
+}
+
 /* Draw the level pixels of lr: level pixel (x, y) lands at
  * (ox + x * scale, oy + y * scale). The pages were uploaded this frame. */
 static void draw_pages(gfx_canvas *c, uint32_t level, pc_rect lr, double ox, double oy,
@@ -439,6 +519,16 @@ static void draw_pages(gfx_canvas *c, uint32_t level, pc_rect lr, double ox, dou
             dst.w = (float)((double)(sx1 - sx0) * scale);
             dst.h = (float)((double)(sy1 - sy0) * scale);
             SDL_SetTextureScaleMode(p->tex, mode);
+            if (c->sw && c->has_clip && mode == SDL_SCALEMODE_NEAREST && scale > 1.0 &&
+                (dst.x < (float)c->clip.x || dst.y < (float)c->clip.y ||
+                 dst.x + dst.w > (float)(c->clip.x + c->clip.w) ||
+                 dst.y + dst.h > (float)(c->clip.y + c->clip.h))) {
+                /* lane UIA: cut at whole texels (see blit_nearest_clipped) */
+                blit_nearest_clipped(c, p->tex, (double)(px * GFX_PAGE_DIM),
+                                     (double)(py * GFX_PAGE_DIM), (double)sx0, (double)sy0,
+                                     (double)sx1, (double)sy1, ox, oy, scale);
+                continue;
+            }
             SDL_RenderTexture(c->r, p->tex, &src, &dst);
         }
     }
@@ -479,8 +569,13 @@ static bool draw_sharp(gfx_canvas *c, pc_rect lr, double ox, double oy, double z
             SDL_SetRenderDrawColor(c->r, 0, 0, 0, 0);
             SDL_RenderClear(c->r);
             /* image pixel (x, y) -> target texel ((x - cx + 1) * k, ...) */
-            draw_pages(c, 0u, ap, -(double)(cx - 1) * (double)k, -(double)(cy - 1) * (double)k,
-                       (double)k, SDL_SCALEMODE_NEAREST);
+            {
+                bool hc = c->has_clip;
+                c->has_clip = false;              /* lane UIA: the target has no clip */
+                draw_pages(c, 0u, ap, -(double)(cx - 1) * (double)k,
+                           -(double)(cy - 1) * (double)k, (double)k, SDL_SCALEMODE_NEAREST);
+                c->has_clip = hc;
+            }
             SDL_SetRenderTarget(c->r, prev);
             src.x = (float)k;
             src.y = (float)k;
@@ -510,9 +605,12 @@ void gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
     c->frame++;
     c->uploads = c->visible = c->missing = 0;
     view.x = v->vx; view.y = v->vy; view.w = v->vw; view.h = v->vh;
+    c->has_clip = false;
     if (SDL_RenderClipEnabled(c->r)) {
         SDL_GetRenderClipRect(c->r, &clip);
         if (!SDL_GetRectIntersection(&clip, &view, &vis)) goto done;
+        c->has_clip = true;                       /* lane UIA */
+        c->clip = clip;
     } else {
         vis = view;
     }
