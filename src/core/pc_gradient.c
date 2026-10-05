@@ -1,12 +1,14 @@
 /* pc_gradient.c - the Gradient tool engine (lane E2). See pc_gradient.h.
  *
- * The linear, reflected, diamond, radial and conical parameterizations and
- * the Transparency-mode alpha rule (start alpha = primary alpha, end alpha
+ * The linear, reflected, diamond and radial parameterizations and the
+ * Transparency-mode alpha rule (start alpha = primary alpha, end alpha
  * = 255 - secondary alpha, multiplied into the layer alpha with alpha
  * blending, written directly without) follow the MIT-licensed Paint.NET
  * 3.36 GradientRenderers.cs / GradientRenderer.cs / GradientTool.cs (see
- * docs/notice/e2.md). Spirals, repeat modes, supersampled seams, dithering
- * and the transaction plumbing are this project's own. */
+ * docs/notice/e2.md). The conical and spiral parameterizations, repeat
+ * modes and aliased quantization were measured black-box on Paint.NET;
+ * seam supersampling, the dither hash and the transaction plumbing are this
+ * project's own. */
 #include "pc/pc_gradient.h"
 #include "pc/pc_sel.h"
 
@@ -121,13 +123,24 @@ pc_status pc_gradient_prepare(pc_gradient *g, const pc_gradient_desc *desc)
     return PC_OK;
 }
 
-/* angle(d) - angle(v) normalized to (-pi, pi] */
-static double rel_angle(const pc_gradient *g, double dx, double dy)
+/* Clockwise (screen, y down) angle from the start -> end direction to d,
+ * in [0, 2 pi). */
+static double cw_angle(const pc_gradient *g, double dx, double dy)
 {
     double a = atan2(dy, dx) - g->base_angle;
-    if (a > PI_D) a -= 2.0 * PI_D;
-    else if (a <= -PI_D) a += 2.0 * PI_D;
+    while (a < 0.0) a += 2.0 * PI_D;
+    while (a >= 2.0 * PI_D) a -= 2.0 * PI_D;
     return a;
+}
+
+static bool is_spiral(const pc_gradient *g)
+{
+    return g->d.type == PC_GRAD_SPIRAL_CW || g->d.type == PC_GRAD_SPIRAL_CCW;
+}
+
+static bool is_angular(const pc_gradient *g)
+{
+    return g->d.type == PC_GRAD_CONICAL || is_spiral(g);
 }
 
 double pc_gradient_u(const pc_gradient *g, double x, double y)
@@ -146,15 +159,20 @@ double pc_gradient_u(const pc_gradient *g, double x, double y)
     case PC_GRAD_RADIAL:
         return sqrt(dx * dx + dy * dy) * g->inv_len;
     case PC_GRAD_CONICAL:
-        if (dx == 0.0 && dy == 0.0) return 0.0;
-        return fabs(rel_angle(g, dx, dy)) / PI_D;
+        a = (dx == 0.0 && dy == 0.0) ? 0.0 : cw_angle(g, dx, dy);
+        if (g->d.repeat == PC_GRAD_NO_REPEAT) return a / (2.0 * PI_D);
+        if (g->d.repeat == PC_GRAD_REPEAT_WRAPPED) return a / PI_D;
+        return a / PI_D + 1.0;
     case PC_GRAD_SPIRAL_CW:
     case PC_GRAD_SPIRAL_CCW:
-        if (dx == 0.0 && dy == 0.0) return 0.0;
-        a = rel_angle(g, dx, dy);            /* clockwise on screen is positive */
-        if (g->d.type == PC_GRAD_SPIRAL_CCW) a = -a;
-        if (a < 0.0) a += 2.0 * PI_D;
-        return sqrt(dx * dx + dy * dy) * g->inv_len + a / (2.0 * PI_D);
+        a = (dx == 0.0 && dy == 0.0) ? 0.0 : cw_angle(g, dx, dy);
+        if (g->d.type == PC_GRAD_SPIRAL_CW) {       /* counter-clockwise angle, [0, 2 pi) */
+            if (a > 0.0) a = 2.0 * PI_D - a;
+        } else if (a == 0.0 && (dx != 0.0 || dy != 0.0)) {
+            a = 2.0 * PI_D;                         /* clockwise angle, (0, 2 pi] */
+        }
+        return sqrt(dx * dx + dy * dy) * g->inv_len +
+               a / (g->d.repeat == PC_GRAD_REPEAT_REFLECTED ? PI_D : 2.0 * PI_D);
     case PC_GRAD_TYPE_COUNT:
         break;
     }
@@ -163,13 +181,8 @@ double pc_gradient_u(const pc_gradient *g, double x, double y)
 
 static double bound_s(const pc_gradient *g, double u)
 {
-    pc_grad_repeat rep = g->d.repeat;
     if (g->degenerate) return 1.0;
-    if (g->d.type == PC_GRAD_CONICAL) return u < 0.0 ? 0.0 : (u > 1.0 ? 1.0 : u);
-    if ((g->d.type == PC_GRAD_SPIRAL_CW || g->d.type == PC_GRAD_SPIRAL_CCW) &&
-        rep == PC_GRAD_NO_REPEAT)
-        rep = PC_GRAD_REPEAT_WRAPPED;
-    switch (rep) {
+    switch (g->d.repeat) {
     case PC_GRAD_REPEAT_WRAPPED:
         return u - floor(u);
     case PC_GRAD_REPEAT_REFLECTED: {
@@ -200,72 +213,79 @@ static double snap_s(double s)
 
 /* ---- seams --------------------------------------------------------------------- */
 
-static bool is_spiral(const pc_gradient *g)
+/* Distance from d to the ray start + t v, t >= 0 (or the opposite ray). */
+static double ray_dist(const pc_gradient *g, double dx, double dy, bool opposite)
 {
-    return g->d.type == PC_GRAD_SPIRAL_CW || g->d.type == PC_GRAD_SPIRAL_CCW;
+    double t = (dx * g->vx + dy * g->vy) * g->inv_len2;
+    if (opposite) t = -t;
+    if (t < 0.0) return sqrt(dx * dx + dy * dy);
+    return fabs(dx * g->vy - dy * g->vx) * g->inv_len;
 }
 
 /* Can the pixel centered at (cx, cy) straddle a hard seam of s? Seams are
- * whole values of u for wrapped repeats (spirals: also NO_REPEAT) and, for
- * reflected spirals, the ray from start through end where the angle term
- * wraps. The extent of u over the pixel is bounded analytically. */
+ * whole values of u under REPEAT_WRAPPED, and for the angular types the ray
+ * through the end point where the angle restarts (conical No Repeat and
+ * Wrapped, spiral No Repeat while the radius term is below 1), plus the
+ * opposite ray of a wrapped conical gradient and the center. The extent
+ * of u over the pixel is bounded analytically. */
 static bool near_seam(const pc_gradient *g, double cx, double cy, double u)
 {
     double span, dx, dy, r;
-    bool wrap_int;
     pc_grad_repeat rep = g->d.repeat;
-    if (g->degenerate || !g->d.antialias || g->d.type == PC_GRAD_CONICAL) return false;
-    if (is_spiral(g) && rep == PC_GRAD_NO_REPEAT) rep = PC_GRAD_REPEAT_WRAPPED;
-    wrap_int = rep == PC_GRAD_REPEAT_WRAPPED;
-    if (!wrap_int && !is_spiral(g)) return false;
+    if (g->degenerate || !g->d.antialias) return false;
     dx = cx - g->d.start.x;
     dy = cy - g->d.start.y;
     r = sqrt(dx * dx + dy * dy);
-    switch (g->d.type) {
-    case PC_GRAD_LINEAR:
-    case PC_GRAD_LINEAR_REFLECTED:
-        span = g->span_lin;
-        break;
-    case PC_GRAD_LINEAR_DIAMOND:
-        span = 2.0 * g->span_lin;
-        break;
-    case PC_GRAD_RADIAL:
-        span = 0.7072 * g->inv_len;
-        break;
-    default:   /* spirals: radial part plus the angle part 1 / (2 pi r) */
+    if (is_angular(g)) {
+        double k = rep == PC_GRAD_REPEAT_REFLECTED || (!is_spiral(g) && rep != PC_GRAD_NO_REPEAT)
+                       ? 1.0 : 2.0;               /* u has angle / (k pi) */
         if (r < 1.5) return true;
-        span = 0.7072 * (g->inv_len + 1.0 / (2.0 * PI_D * (r - 0.7072)));
-        break;
+        if (rep != PC_GRAD_REPEAT_REFLECTED && !(is_spiral(g) && rep == PC_GRAD_REPEAT_WRAPPED) &&
+            ray_dist(g, dx, dy, false) < 0.7072 &&
+            (!is_spiral(g) || r * g->inv_len < 1.0 + 0.7072 * g->inv_len))
+            return true;
+        if (rep != PC_GRAD_REPEAT_WRAPPED) return false;
+        span = 0.7072 / (k * PI_D * (r - 0.7072));
+        if (is_spiral(g)) span += 0.7072 * g->inv_len;
+    } else {
+        if (rep != PC_GRAD_REPEAT_WRAPPED) return false;
+        switch (g->d.type) {
+        case PC_GRAD_LINEAR_DIAMOND:
+            span = 2.0 * g->span_lin;
+            break;
+        case PC_GRAD_RADIAL:
+            span = 0.7072 * g->inv_len;
+            break;
+        default:
+            span = g->span_lin;
+            break;
+        }
     }
     span += 1e-9;
-    if (wrap_int && floor(u - span) != floor(u + span)) return true;
-    if (is_spiral(g) && rep == PC_GRAD_REPEAT_REFLECTED) {
-        /* distance to the ray start + t v, t >= 0 */
-        double t = (dx * g->vx + dy * g->vy) * g->inv_len2;
-        double dist;
-        if (t < 0.0) dist = r;
-        else dist = fabs(dx * g->vy - dy * g->vx) * g->inv_len;
-        if (dist < 0.7072) return true;
-    }
-    return false;
+    return floor(u - span) != floor(u + span);
 }
 
 /* ---- color evaluation -------------------------------------------------------------- */
 
-/* 16 x 16 ordered dither threshold in (0, 1), anchored at the document
- * origin: bit-reversed interleave of (x ^ y, y), the classic Bayer matrix. */
-static double dither_at(int32_t x, int32_t y)
+/* Triangular-PDF dither noise in (-1, 1), white, per pixel and channel,
+ * anchored at the document origin (a hash, so results do not depend on how
+ * rows are split between threads). */
+static double tpdf(int32_t x, int32_t y, uint32_t ch)
 {
-    uint32_t ux = (uint32_t)x & 15u, uy = (uint32_t)y & 15u, xy = ux ^ uy, v = 0;
-    for (uint32_t bit = 0; bit < 4u; bit++) {
-        v = (v << 2) | (((xy >> bit) & 1u) << 1) | ((uy >> bit) & 1u);
-    }
-    return ((double)v + 0.5) / 256.0;
+    uint32_t h = (uint32_t)x * 0x9E3779B1u ^ (uint32_t)y * 0x85EBCA77u ^ ch * 0xC2B2AE3Du;
+    h ^= h >> 16; h *= 0x7FEB352Du;
+    h ^= h >> 15; h *= 0x846CA68Bu;
+    h ^= h >> 16;
+    return ((double)(h & 0xFFFFu) - (double)(h >> 16)) / 65536.0;
 }
 
-static uint8_t quant(double v, double d)
+/* Quantize a real channel value: round to nearest, after adding dither
+ * noise when antialiasing (values that are already whole stay exact). */
+static uint8_t quant(double v, bool dither, int32_t x, int32_t y, uint32_t ch)
 {
-    double f = floor(v + d);
+    double f;
+    if (dither && fabs(v - floor(v + 0.5)) > 1e-9) v += tpdf(x, y, ch);
+    f = floor(v + 0.5);
     if (f <= 0.0) return 0u;
     if (f >= 255.0) return 255u;
     return (uint8_t)f;
@@ -278,15 +298,17 @@ static void premul_at(const pc_gradient *g, double s, double out[4])
         out[i] = (double)g->c0p[i] * (1.0 - s) + (double)g->c1p[i] * s;
 }
 
-static pc_px32 to_straight(const double p[4], double d)
+static pc_px32 to_straight(const double p[4], bool dither, int32_t x, int32_t y)
 {
     pc_px32 o = mkpx(0u, 0u, 0u, 0u);
-    uint8_t a = quant(p[3], d);
-    if (a == 0u || !(p[3] > 0.0)) return o;
+    uint8_t a;
+    if (!(p[3] > 0.0)) return o;
+    a = quant(p[3], dither, x, y, 3u);
+    if (a == 0u) return o;
     o.a = a;
-    o.b = quant(p[0] / p[3], d);
-    o.g = quant(p[1] / p[3], d);
-    o.r = quant(p[2] / p[3], d);
+    o.b = quant(p[0] / p[3], dither, x, y, 0u);
+    o.g = quant(p[1] / p[3], dither, x, y, 1u);
+    o.r = quant(p[2] / p[3], dither, x, y, 2u);
     return o;
 }
 
@@ -304,13 +326,16 @@ static pc_px32 color_px(const pc_gradient *g, int32_t x, int32_t y)
                 for (int c = 0; c < 4; c++) acc[c] += q[c];
             }
         for (int c = 0; c < 4; c++) acc[c] /= 16.0;
-        return to_straight(acc, dither_at(x, y));
+        return to_straight(acc, true, x, y);
     }
     s = snap_s(bound_s(g, u));
     if (s <= 0.0) return g->d.c0;
     if (s >= 1.0) return g->d.c1;
+    /* without antialiasing the ramp position is quantized to 255 steps
+     * (truncated) like Paint.NET's aliased gradients */
+    if (!g->d.antialias) s = floor(s * 255.0) / 255.0;
     premul_at(g, s, p);
-    return to_straight(p, g->d.antialias ? dither_at(x, y) : 0.5);
+    return to_straight(p, g->d.antialias, x, y);
 }
 
 static uint8_t alpha_px(const pc_gradient *g, int32_t x, int32_t y)
@@ -326,12 +351,12 @@ static uint8_t alpha_px(const pc_gradient *g, int32_t x, int32_t y)
                                                      (double)y + (j + 0.5) / 4.0));
                 acc += a0 + (a1 - a0) * si;
             }
-        return quant(acc / 16.0, dither_at(x, y));
+        return quant(acc / 16.0, true, x, y, 3u);
     }
     s = snap_s(bound_s(g, u));
     if (s <= 0.0) return g->d.a0;
     if (s >= 1.0) return g->d.a1;
-    return quant(a0 + (a1 - a0) * s, g->d.antialias ? dither_at(x, y) : 0.5);
+    return quant(a0 + (a1 - a0) * s, g->d.antialias, x, y, 3u);
 }
 
 void pc_gradient_row(const pc_gradient *g, int32_t x, int32_t y, int32_t n, pc_px32 *out)
@@ -528,7 +553,8 @@ static pc_status apply_impl(pc_txn *t, uint32_t layer_id, const pc_gradient *g,
     area = pc_rect_intersect(area, pc_doc_rect(d));
     if (clip) area = pc_rect_intersect(area, *clip);
     if (pc_rect_is_empty(area)) return PC_OK;
-    if (g->d.mode == PC_GRAD_TRANSPARENCY) return apply_alpha(t, layer_id, g, opts, par, area, dirty);
+    if (g->d.mode == PC_GRAD_TRANSPARENCY)
+        return apply_alpha(t, layer_id, g, opts, par, area, dirty);
     return apply_color(t, layer_id, g, opts, par, area, dirty);
 }
 

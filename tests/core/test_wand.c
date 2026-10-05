@@ -23,7 +23,8 @@ static const uint8_t k_measured[101] = {
     10, 11, 12, 14, 15, 16, 17, 19, 20, 21, 23, 24, 26, 28, 30, 31, 33, 35, 37, 38,
     41, 43, 45, 47, 49, 52, 54, 56, 58, 61, 64, 66, 69, 71, 75, 77, 80, 82, 86, 88,
     92, 95, 98, 102, 104, 108, 111, 115, 117, 121, 124, 128, 133, 136, 140, 143, 148, 151, 155, 158,
-    163, 168, 171, 176, 180, 185, 188, 193, 197, 202, 206, 211, 217, 220, 226, 230, 235, 239, 245, 249,
+    163, 168, 171, 176, 180, 185, 188, 193, 197, 202, 206, 211, 217, 220, 226, 230, 235, 239, 245,
+            249,
     255
 };
 
@@ -150,7 +151,8 @@ static void t_tol_measured(void)
         int64_t d2 = ((int64_t)a.b - b.b) * (a.b - b.b) + ((int64_t)a.g - b.g) * (a.g - b.g) +
                      ((int64_t)a.r - b.r) * (a.r - b.r);
         uint32_t k = rndu(256);
-        CHECK(pc_tol_match(a, b, k, PC_TOL_PREMULTIPLIED) == (d2 < (int64_t)(2 * k + 1) * (2 * k + 1)));
+        CHECK(pc_tol_match(a, b, k,
+                           PC_TOL_PREMULTIPLIED) == (d2 < (int64_t)(2 * k + 1) * (2 * k + 1)));
         CHECK(pc_tol_match(a, b, k, PC_TOL_STRAIGHT) == (d2 < (int64_t)(2 * k + 1) * (2 * k + 1)));
     }
 }
@@ -161,7 +163,8 @@ static void t_tol_measured(void)
 static void sample_image(const pc_doc *d, const pc_layer *l, pc_sampling s, pc_surf *out)
 {
     CHECK(pc_surf_alloc(out, (int32_t)d->w, (int32_t)d->h) == PC_OK);
-    if (s == PC_SAMPLE_LAYER) pc_layer_read_rect(d, l, pc_doc_rect(d), out->px, (size_t)out->stride);
+    if (s == PC_SAMPLE_LAYER)
+        pc_layer_read_rect(d, l, pc_doc_rect(d), out->px, (size_t)out->stride);
     else CHECK(pc_comp_rect(d, pc_doc_rect(d), out->px, (size_t)out->stride, NULL) == PC_OK);
 }
 
@@ -180,12 +183,14 @@ static uint8_t *ref_region(const pc_doc *d, const pc_surf *img, int32_t sx, int3
     if (sx < 0 || sy < 0 || sx >= W || sy >= H) return m;
     if (limit && pc_sel_coverage(d, sx, sy) == 0u) return m;
     seed = img->px[(size_t)sy * (size_t)img->stride + (size_t)sx];
-#define OK_AT(xx, yy) (pc_tol_match(seed, img->px[(size_t)(yy) * (size_t)img->stride + (size_t)(xx)], \
+#define OK_AT(xx, yy) (pc_tol_match(seed, \
+                                    img->px[(size_t)(yy) * (size_t)img->stride + (size_t)(xx)], \
                                     k, o->alpha_mode) && \
                        (!limit || pc_sel_coverage(d, (xx), (yy)) != 0u))
     if (o->flood == PC_FLOOD_GLOBAL) {
         for (int32_t y = 0; y < H; y++)
-            for (int32_t x = 0; x < W; x++) m[(size_t)y * (size_t)W + (size_t)x] = OK_AT(x, y) ? 1u : 0u;
+            for (int32_t x = 0; x < W; x++)
+                m[(size_t)y * (size_t)W + (size_t)x] = OK_AT(x, y) ? 1u : 0u;
         return m;
     }
     q = (int32_t *)malloc((size_t)W * (size_t)H * 2u * sizeof *q);
@@ -273,8 +278,9 @@ static void t_flood_vs_bfs(void)
             e2_blobby(&s1, 2u + rndu(3), rndu(20));
             for (int32_t i = 0; i < s1.w * s1.h; i++) if (rndu(3) == 0) s1.px[i].a = 0;
             l1 = add_layer(d, h, &s1, 1);
-            if (rndu(2)) CHECK(pc_hist_set_layer_props(h, l1->id, (pc_blend_mode)rndu(PC_BLEND_COUNT),
-                                                       rnd8(), rndu(4) != 0, NULL, "props") == PC_OK);
+            if (rndu(2))
+                CHECK(pc_hist_set_layer_props(h, l1->id, (pc_blend_mode)rndu(PC_BLEND_COUNT),
+                                              rnd8(), rndu(4) != 0, NULL, "props") == PC_OK);
             pc_surf_free(&s1);
         }
         o.flood = (pc_flood_mode)rndu(2);
@@ -287,7 +293,8 @@ static void t_flood_vs_bfs(void)
             pc_poly p;
             pc_poly_init(&p);
             for (int v = 0; v < 6; v++)
-                CHECK(pc_poly_add(&p, pc_pt_make(rndu(W + 20) - 10.0, rndu(H + 20) - 10.0), 0) == PC_OK);
+                CHECK(pc_poly_add(&p, pc_pt_make(rndu(W + 20) - 10.0, rndu(H + 20) - 10.0),
+                                  0) == PC_OK);
             CHECK(pc_poly_end(&p, true) == PC_OK);
             (void)pc_sel_apply_poly(h, &p, PC_FILL_EVENODD, rndu(2) == 0, PC_SEL_REPLACE, "sel");
             pc_poly_free(&p);
@@ -300,14 +307,16 @@ static void t_flood_vs_bfs(void)
             pc_surf_free(&img);
             sample_image(d, target, o.sampling, &img);
             ref = ref_region(d, &img, sx, sy, &o);
-            CHECK(pc_region_compute(d, target->id, sx, sy, &o, it % 3 == 0 ? &par : (it % 3 == 1 ? &rev : NULL),
+            CHECK(pc_region_compute(d, target->id, sx, sy, &o,
+                                    it % 3 == 0 ? &par : (it % 3 == 1 ? &rev : NULL),
                                     &r) == PC_OK);
         }
         CHECK(r != NULL);
         if (r) {
             compare_region(d, r, ref);
             if (sx >= 0 && sy >= 0 && (uint32_t)sx < W && (uint32_t)sy < H)
-                CHECK(e2_px_eq(pc_region_seed(r), img.px[(size_t)sy * (size_t)img.stride + (size_t)sx]));
+                CHECK(e2_px_eq(pc_region_seed(r),
+                               img.px[(size_t)sy * (size_t)img.stride + (size_t)sx]));
         }
         pc_region_free(r);
         free(ref);
@@ -332,7 +341,8 @@ static void t_sampling(void)
     for (int32_t y = 0; y < 80; y++)
         for (int32_t x = 0; x < 100; x++) {
             a.px[y * 100 + x] = e2_px(255, 0, 0, 255);                         /* blue */
-            b.px[y * 100 + x] = x >= 50 ? e2_px(0, 0, 255, 255) : e2_px(0, 0, 0, 0);   /* red right */
+            /* red right half */
+            b.px[y * 100 + x] = x >= 50 ? e2_px(0, 0, 255, 255) : e2_px(0, 0, 0, 0);
         }
     la = add_layer(d, h, &a, 0);
     lb = add_layer(d, h, &b, 1);
@@ -400,7 +410,8 @@ static void t_serpentine(void)
     pc_region_free(r);
     /* diagonal staircase */
     for (int32_t i = 0; i < n * n; i++) s.px[i] = e2_px(0, 0, 0, 255);
-    for (int32_t i = 0; i < n; i++) s.px[(size_t)i * (size_t)n + (size_t)i] = e2_px(255, 255, 255, 255);
+    for (int32_t i = 0; i < n; i++) s.px[(size_t)i * (size_t)n + (size_t)i] = e2_px(255, 255, 255,
+            255);
     {
         pc_txn *t = pc_txn_begin(d, "w");
         CHECK(pc_txn_write_rect(t, l->id, pc_doc_rect(d), s.px, (size_t)s.stride) == PC_OK);
@@ -529,7 +540,8 @@ static void t_coverage(void)
         l = add_layer(d, h, &s, 0);
         o.flood = (pc_flood_mode)rndu(2);
         o.tolerance = 0.0;
-        CHECK(pc_region_compute(d, l->id, (int32_t)rndu(W), (int32_t)rndu(H), &o, NULL, &r) == PC_OK);
+        CHECK(pc_region_compute(d, l->id, (int32_t)rndu(W), (int32_t)rndu(H), &o, NULL,
+                                &r) == PC_OK);
         buf = (uint8_t *)malloc((size_t)rr.w * (size_t)rr.h * 2u + 1u);
         for (int aa = 0; aa < 2; aa++) {
             pc_region_read(r, rr, aa != 0, buf, (size_t)rr.w * 2u);
@@ -548,7 +560,8 @@ static void t_coverage(void)
         if (pc_region_mask(r, rr, true, &m) == PC_OK) {
             for (int32_t y = 0; y < m.h; y++)
                 for (int32_t x = 0; x < m.w; x++)
-                    CHECK(m.px[(size_t)y * (size_t)m.stride + (size_t)x] == ref_aa(r, m.x + x, m.y + y));
+                    CHECK(m.px[(size_t)y * (size_t)m.stride + (size_t)x] ==
+                          ref_aa(r, m.x + x, m.y + y));
             pc_mask_free(&m);
         }
         free(buf);
@@ -608,21 +621,25 @@ static void t_sel_src(void)
         CHECK(pc_surf_alloc(&s, (int32_t)W, (int32_t)H) == PC_OK);
         e2_blobby(&s, 3, 10);
         l = add_layer(d, h, &s, 0);
-        if (rndu(2)) CHECK(pc_sel_apply_rect(h, pc_rect_make((int32_t)rndu(W), (int32_t)rndu(H),
-                                                             (int32_t)rndu(W) + 1, (int32_t)rndu(H) + 1),
-                                             PC_SEL_REPLACE, "r") == PC_OK);
+        if (rndu(2)) {
+            pc_rect sr = pc_rect_make((int32_t)rndu(W), (int32_t)rndu(H), (int32_t)rndu(W) + 1,
+                                      (int32_t)rndu(H) + 1);
+            CHECK(pc_sel_apply_rect(h, sr, PC_SEL_REPLACE, "r") == PC_OK);
+        }
         before = (uint8_t *)malloc((size_t)W * H);
         pc_sel_read_rect(d, pc_doc_rect(d), before, W, false);
         o.flood = (pc_flood_mode)rndu(2);
         o.tolerance = (double)rndu(60);
-        CHECK(pc_region_compute(d, l->id, (int32_t)rndu(W), (int32_t)rndu(H), &o, NULL, &r) == PC_OK);
+        CHECK(pc_region_compute(d, l->id, (int32_t)rndu(W), (int32_t)rndu(H), &o, NULL,
+                                &r) == PC_OK);
         pc_region_sel_src(r, &src);
         CHECK(pc_sel_apply_src(h, &src, mode, "Magic Wand") == PC_OK);
         for (uint32_t y = 0; y < H; y++)
             for (uint32_t x = 0; x < W; x++) {
                 uint8_t want = pc_sel_combine(mode, before[y * W + x],
                                               pc_region_at(r, (int32_t)x, (int32_t)y) ? 255u : 0u);
-                CHECK(pc_sel_coverage(d, (int32_t)x, (int32_t)y) == (pc_sel_is_active(d) ? want : 255u));
+                CHECK(pc_sel_coverage(d, (int32_t)x,
+                                      (int32_t)y) == (pc_sel_is_active(d) ? want : 255u));
             }
         free(before);
         pc_region_free(r);
@@ -658,16 +675,19 @@ static void t_bucket(void)
         e2_blobby(&s, 3, 6);
         l = add_layer(d, h, &s, 0);
         o.limit_to_selection = true;
-        if (rndu(2)) CHECK(pc_sel_apply_rect(h, pc_rect_make((int32_t)rndu(W) - 3, (int32_t)rndu(H) - 3,
-                                                             (int32_t)rndu(W) + 4, (int32_t)rndu(H) + 4),
-                                             PC_SEL_REPLACE, "sel") == PC_OK);
+        if (rndu(2)) {
+            pc_rect sr = pc_rect_make((int32_t)rndu(W) - 3, (int32_t)rndu(H) - 3,
+                                      (int32_t)rndu(W) + 4, (int32_t)rndu(H) + 4);
+            CHECK(pc_sel_apply_rect(h, sr, PC_SEL_REPLACE, "sel") == PC_OK);
+        }
         fp0 = pc_doc_fingerprint(d);
         o.flood = (pc_flood_mode)rndu(2);
         o.tolerance = (double)rndu(70);
         CHECK(pc_region_compute(d, l->id, sx, sy, &o, &par, &r) == PC_OK);
         po.mode = rndu(4) == 0 ? PC_PAINT_OVERWRITE : PC_PAINT_BLEND;
         po.blend = (pc_blend_mode)rndu(PC_BLEND_COUNT);
-        pc_fill_src_init(&fs, (pc_fill_style)rndu(PC_FILL_STYLE_COUNT), e2_px(rnd8(), rnd8(), rnd8(), rnd8()),
+        pc_fill_src_init(&fs, (pc_fill_style)rndu(PC_FILL_STYLE_COUNT), e2_px(rnd8(), rnd8(),
+                rnd8(), rnd8()),
                          e2_px(rnd8(), rnd8(), rnd8(), rnd8()));
         src = pc_fill_src_paint(&fs);
         t = pc_txn_begin(d, "Paint Bucket");
@@ -675,7 +695,8 @@ static void t_bucket(void)
         /* live: fill a different region first, then refill: must equal a
          * single fill of the final region */
         o.tolerance = (double)rndu(100);
-        CHECK(pc_region_compute(d, l->id, (int32_t)rndu(W), (int32_t)rndu(H), &o, &par, &r2) == PC_OK);
+        CHECK(pc_region_compute(d, l->id, (int32_t)rndu(W), (int32_t)rndu(H), &o, &par,
+                                &r2) == PC_OK);
         CHECK(pc_bucket_refill(t, l->id, r2, !aa, &src, &po, &par, &dirty) == PC_OK);
         CHECK(pc_bucket_refill(t, l->id, r, aa, &src, &po, &par, &dirty) == PC_OK);
         /* reference: pc_paint_apply with the coverage mask over the canvas */
@@ -701,7 +722,8 @@ static void t_bucket(void)
             t2 = pc_txn_begin(d2, "ref");
             CHECK(pc_paint_apply(t2, l2->id, &m, &src, &po, NULL, NULL) == PC_OK);
             CHECK(pc_surf_alloc(&want, (int32_t)W, (int32_t)H) == PC_OK);
-            CHECK(pc_txn_read_rect(t2, l2->id, pc_doc_rect(d2), want.px, (size_t)want.stride) == PC_OK);
+            CHECK(pc_txn_read_rect(t2, l2->id, pc_doc_rect(d2), want.px,
+                                   (size_t)want.stride) == PC_OK);
             CHECK(memcmp(got.px, want.px, (size_t)W * H * 4u) == 0);
             pc_txn_cancel(t2);
             pc_surf_free(&want);
@@ -717,7 +739,8 @@ static void t_bucket(void)
                 for (uint32_t x = 0; x < W; x++)
                     if (!pc_rect_contains(b, (int32_t)x, (int32_t)y))
                         CHECK(e2_px_eq(got.px[y * W + x], s.px[y * W + x]));
-            if (!pc_rect_is_empty(dirty)) CHECK(pc_rect_is_empty(pc_rect_intersect(dirty, b)) == false);
+            if (!pc_rect_is_empty(dirty)) CHECK(pc_rect_is_empty(pc_rect_intersect(dirty,
+                    b)) == false);
         }
         CHECK(pc_txn_commit(t, h) == PC_OK);
         if (pc_doc_fingerprint(d) != fp0) {
@@ -792,14 +815,16 @@ static void t_oom(void)
     for (long n = 0; n < 40; n++) {
         pc_txn *t = pc_txn_begin(d, "b");
         pc_status st;
-        CHECK(pc_txn_read_rect(t, l->id, pc_doc_rect(d), before.px, (size_t)before.stride) == PC_OK);
+        CHECK(pc_txn_read_rect(t, l->id, pc_doc_rect(d), before.px,
+                               (size_t)before.stride) == PC_OK);
         pc_fault_set(n);
         st = pc_bucket_fill(t, l->id, r, true, &src, &po, NULL, NULL);
         pc_fault_set(-1);
         CHECK(st == PC_OK || st == PC_ERR_NOMEM);
         if (st != PC_OK) {
             fails++;
-            CHECK(pc_txn_read_rect(t, l->id, pc_doc_rect(d), after.px, (size_t)after.stride) == PC_OK);
+            CHECK(pc_txn_read_rect(t, l->id, pc_doc_rect(d), after.px,
+                                   (size_t)after.stride) == PC_OK);
             CHECK(memcmp(before.px, after.px, 300u * 200u * 4u) == 0);
         } else {
             oks++;

@@ -119,8 +119,10 @@ static void t_bitmaps(void)
         CHECK(pc_pattern_at(PC_FILL_FORWARD_DIAGONAL, x, x));
         CHECK(pc_pattern_at(PC_FILL_BACKWARD_DIAGONAL, x, 7 - x));
         for (int y = 0; y < 8; y++) {
-            CHECK(pc_pattern_at(PC_FILL_SMALL_CHECKER_BOARD, x, y) == ((((x >> 1) + (y >> 1)) & 1) == 0));
-            CHECK(pc_pattern_at(PC_FILL_LARGE_CHECKER_BOARD, x, y) == ((((x >> 2) + (y >> 2)) & 1) == 0));
+            CHECK(pc_pattern_at(PC_FILL_SMALL_CHECKER_BOARD, x,
+                                y) == ((((x >> 1) + (y >> 1)) & 1) == 0));
+            CHECK(pc_pattern_at(PC_FILL_LARGE_CHECKER_BOARD, x,
+                                y) == ((((x >> 2) + (y >> 2)) & 1) == 0));
         }
     }
 }

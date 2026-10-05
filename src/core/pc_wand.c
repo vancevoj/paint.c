@@ -216,7 +216,8 @@ static void region_finish(pc_region *r)
                 continue;
             }
             r->count += c;
-            if ((int32_t)(tx * PC_TILE_DIM + ctz64(orw)) < x0) x0 = (int32_t)(tx * PC_TILE_DIM + ctz64(orw));
+            if ((int32_t)(tx * PC_TILE_DIM + ctz64(orw)) < x0)
+                x0 = (int32_t)(tx * PC_TILE_DIM + ctz64(orw));
             if ((int32_t)(tx * PC_TILE_DIM + 63u - clz64(orw)) > x1)
                 x1 = (int32_t)(tx * PC_TILE_DIM + 63u - clz64(orw));
             if ((int32_t)(ty * PC_TILE_DIM + fr) < y0) y0 = (int32_t)(ty * PC_TILE_DIM + fr);
@@ -384,7 +385,10 @@ static bool push(wctx *c, int32_t x, int32_t y)
     if (c->sn == c->scap) {
         size_t cap = c->scap ? c->scap * 2u : 4096u, bytes;
         int32_t *p;
-        if (cap < c->scap || !pc_mul_size(cap, 2u * sizeof *p, &bytes)) { c->err = PC_ERR_NOMEM; return false; }
+        if (cap < c->scap || !pc_mul_size(cap, 2u * sizeof *p, &bytes)) {
+            c->err = PC_ERR_NOMEM;
+            return false;
+        }
         p = (int32_t *)realloc(c->stk, bytes);
         if (!p) { c->err = PC_ERR_NOMEM; return false; }
         c->stk = p;

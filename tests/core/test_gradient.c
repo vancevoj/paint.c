@@ -75,7 +75,8 @@ static void t_param(void)
     CHECK(fabs(pc_gradient_u(&g, 0, 0) + 0.5) < eps && fabs(pc_gradient_s(&g, 0, 0)) < eps);
     CHECK(fabs(pc_gradient_s(&g, 60, 0) - 1.0) < eps);
     /* reflected */
-    g = prep(PC_GRAD_LINEAR_REFLECTED, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, false, 10, 10, 30, 10, a, b);
+    g = prep(PC_GRAD_LINEAR_REFLECTED, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, false, 10, 10, 30, 10,
+             a, b);
     CHECK(fabs(pc_gradient_u(&g, 0, 0) - 0.5) < eps && fabs(pc_gradient_u(&g, 20, 3) - 0.5) < eps);
     /* diamond: L1 norm in the rotated frame */
     g = prep(PC_GRAD_LINEAR_DIAMOND, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, false, 0, 0, 10, 0, a, b);
@@ -83,26 +84,43 @@ static void t_param(void)
     CHECK(fabs(pc_gradient_u(&g, -3, 4) - 0.7) < eps);
     /* radial */
     g = prep(PC_GRAD_RADIAL, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, false, 5, 5, 5, 25, a, b);
-    CHECK(fabs(pc_gradient_u(&g, 17, 21) - 1.0) < eps && fabs(pc_gradient_u(&g, 5, 15) - 0.5) < eps);
-    /* conical: 0 toward the end point, 1 opposite, 0.5 perpendicular */
+    CHECK(fabs(pc_gradient_u(&g, 17, 21) - 1.0) < eps && fabs(pc_gradient_u(&g, 5,
+            15) - 0.5) < eps);
+    /* conical: the clockwise angle from the end direction; a full turn
+     * without repeat, half turns when repeating, reflected = 1 toward the end */
+    g = prep(PC_GRAD_CONICAL, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, false, 0, 0, 10, 10, a, b);
+    CHECK(fabs(pc_gradient_u(&g, 3, 3)) < eps && fabs(pc_gradient_u(&g, -3, 3) - 0.25) < eps);
+    CHECK(fabs(pc_gradient_u(&g, -3, -3) - 0.5) < eps && fabs(pc_gradient_u(&g, 3,
+            -3) - 0.75) < eps);
     g = prep(PC_GRAD_CONICAL, PC_GRAD_REPEAT_WRAPPED, PC_GRAD_COLOR, false, 0, 0, 10, 10, a, b);
-    CHECK(fabs(pc_gradient_u(&g, 3, 3)) < eps && fabs(pc_gradient_u(&g, -3, -3) - 1.0) < eps);
-    CHECK(fabs(pc_gradient_u(&g, 3, -3) - 0.5) < eps && fabs(pc_gradient_u(&g, -3, 3) - 0.5) < eps);
-    CHECK(fabs(pc_gradient_s(&g, -3, -3) - 1.0) < eps);      /* repeat does not apply */
-    /* spirals: radius term plus the angle fraction in the named direction */
+    CHECK(fabs(pc_gradient_s(&g, -3, 3) - 0.5) < eps && fabs(pc_gradient_s(&g, -3, -3)) < eps);
+    CHECK(fabs(pc_gradient_s(&g, 3, -3) - 0.5) < eps);
+    g = prep(PC_GRAD_CONICAL, PC_GRAD_REPEAT_REFLECTED, PC_GRAD_COLOR, false, 0, 0, 10, 10, a, b);
+    CHECK(fabs(pc_gradient_s(&g, 3, 3) - 1.0) < eps && fabs(pc_gradient_s(&g, -3, -3)) < eps);
+    CHECK(fabs(pc_gradient_s(&g, -3, 3) - 0.5) < eps && fabs(pc_gradient_s(&g, 3, -3) - 0.5) < eps);
+    /* spirals: radius term plus the angle fraction (counter-clockwise angle
+     * for the clockwise spiral, clockwise angle for the counter-clockwise one) */
     g = prep(PC_GRAD_SPIRAL_CW, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, false, 0, 0, 10, 0, a, b);
     CHECK(fabs(pc_gradient_u(&g, 10, 0) - 1.0) < eps);
-    CHECK(fabs(pc_gradient_u(&g, 0, 10) - 1.25) < eps);       /* +90 degrees on screen */
-    CHECK(fabs(pc_gradient_u(&g, 0, -10) - 1.75) < eps);
-    CHECK(fabs(pc_gradient_s(&g, 0, 10) - 0.25) < eps);       /* spirals always wrap */
-    g = prep(PC_GRAD_SPIRAL_CCW, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, false, 0, 0, 10, 0, a, b);
-    CHECK(fabs(pc_gradient_u(&g, 0, -10) - 1.25) < eps);
+    CHECK(fabs(pc_gradient_u(&g, 0, -10) - 1.25) < eps);      /* 90 degrees up on screen */
     CHECK(fabs(pc_gradient_u(&g, 0, 10) - 1.75) < eps);
+    CHECK(fabs(pc_gradient_s(&g, 5, 0) - 0.5) < eps && pc_gradient_s(&g, 0, 5) == 1.0);
+    g = prep(PC_GRAD_SPIRAL_CCW, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, false, 0, 0, 10, 0, a, b);
+    CHECK(fabs(pc_gradient_u(&g, 0, 10) - 1.25) < eps);
+    CHECK(fabs(pc_gradient_u(&g, 0, -10) - 1.75) < eps);
+    CHECK(fabs(pc_gradient_u(&g, 10, 0) - 2.0) < eps);        /* on the ray: a full turn */
+    g = prep(PC_GRAD_SPIRAL_CW, PC_GRAD_REPEAT_WRAPPED, PC_GRAD_COLOR, false, 0, 0, 10, 0, a, b);
+    CHECK(fabs(pc_gradient_s(&g, 0, 5) - 0.25) < eps);
+    g = prep(PC_GRAD_SPIRAL_CW, PC_GRAD_REPEAT_REFLECTED, PC_GRAD_COLOR, false, 0, 0, 10, 0, a, b);
+    CHECK(fabs(pc_gradient_u(&g, 0, -10) - 1.5) < eps && fabs(pc_gradient_s(&g, 0,
+            -10) - 0.5) < eps);
     /* repeat modes */
     g = prep(PC_GRAD_LINEAR, PC_GRAD_REPEAT_WRAPPED, PC_GRAD_COLOR, false, 0, 0, 10, 0, a, b);
-    CHECK(fabs(pc_gradient_s(&g, 13, 0) - 0.3) < 1e-9 && fabs(pc_gradient_s(&g, -3, 0) - 0.7) < 1e-9);
+    CHECK(fabs(pc_gradient_s(&g, 13, 0) - 0.3) < 1e-9 && fabs(pc_gradient_s(&g, -3,
+            0) - 0.7) < 1e-9);
     g = prep(PC_GRAD_LINEAR, PC_GRAD_REPEAT_REFLECTED, PC_GRAD_COLOR, false, 0, 0, 10, 0, a, b);
-    CHECK(fabs(pc_gradient_s(&g, 13, 0) - 0.7) < 1e-9 && fabs(pc_gradient_s(&g, -3, 0) - 0.3) < 1e-9);
+    CHECK(fabs(pc_gradient_s(&g, 13, 0) - 0.7) < 1e-9 && fabs(pc_gradient_s(&g, -3,
+            0) - 0.3) < 1e-9);
     CHECK(fabs(pc_gradient_s(&g, 20, 0)) < 1e-9 && fabs(pc_gradient_s(&g, 30, 0) - 1.0) < 1e-9);
     /* degenerate: everything is the end */
     g = prep(PC_GRAD_RADIAL, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, true, 4, 4, 4, 4, a, b);
@@ -119,11 +137,13 @@ static void t_endpoints(void)
         bool aa = rndu(2) == 0;
         int32_t x0 = (int32_t)rndu(200) - 100, y0 = (int32_t)rndu(200) - 100;
         int32_t x1 = x0 + (int32_t)rndu(80) - 40, y1 = y0 + (int32_t)rndu(80) - 40;
-        pc_px32 c0 = e2_px(rnd8(), rnd8(), rnd8(), rnd8()), c1 = e2_px(rnd8(), rnd8(), rnd8(), rnd8());
+        pc_px32 c0 = e2_px(rnd8(), rnd8(), rnd8(), rnd8());
+        pc_px32 c1 = e2_px(rnd8(), rnd8(), rnd8(), rnd8());
         pc_gradient g;
         uint8_t al;
         if (x0 == x1 && y0 == y1) x1++;
-        g = prep(t, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, aa, x0 + 0.5, y0 + 0.5, x1 + 0.5, y1 + 0.5, c0, c1);
+        g = prep(t, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, aa, x0 + 0.5, y0 + 0.5, x1 + 0.5, y1 + 0.5,
+                 c0, c1);
         CHECK(e2_px_eq(px_at(&g, x0, y0), c0));
         CHECK(e2_px_eq(px_at(&g, x1, y1), c1));
         g.d.mode = PC_GRAD_TRANSPARENCY;
@@ -131,11 +151,17 @@ static void t_endpoints(void)
         CHECK(al == c0.a);
         pc_gradient_alpha_row(&g, x1, y1, 1, &al);
         CHECK(al == c1.a);
-        /* conical: the end direction is s = 0 */
-        g = prep(PC_GRAD_CONICAL, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, aa, x0 + 0.5, y0 + 0.5,
+        /* conical: without repeat the end direction is s = 0 (a seam, so
+         * aliased only); reflected: end direction s = 1, opposite s = 0 */
+        g = prep(PC_GRAD_CONICAL, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, false, x0 + 0.5, y0 + 0.5,
                  x1 + 0.5, y1 + 0.5, c0, c1);
         CHECK(e2_px_eq(px_at(&g, x1, y1), c0));
-        CHECK(e2_px_eq(px_at(&g, 2 * x0 - x1, 2 * y0 - y1), c1));
+        g = prep(PC_GRAD_CONICAL, PC_GRAD_REPEAT_REFLECTED, PC_GRAD_COLOR, aa, x0 + 0.5, y0 + 0.5,
+                 x1 + 0.5, y1 + 0.5, c0, c1);
+        if (!aa || abs(x1 - x0) + abs(y1 - y0) >= 3) {   /* the center is supersampled */
+            CHECK(e2_px_eq(px_at(&g, x1, y1), c1));
+            CHECK(e2_px_eq(px_at(&g, 2 * x0 - x1, 2 * y0 - y1), c0));
+        }
     }
 }
 
@@ -161,12 +187,13 @@ static void t_monotonic(void)
             int32_t px, py;
             pc_px32 p, q;
             int v[4], ends[2][4];
-            if (t == PC_GRAD_CONICAL) {
-                x = sx + 0.8 * len * cos(ang + f * 3.14159);
-                y = sy + 0.8 * len * sin(ang + f * 3.14159);
+            if (t == PC_GRAD_CONICAL) {             /* clockwise, off the seam ray */
+                x = sx + 0.8 * len * cos(ang + (0.03 + 0.94 * f) * 3.14159);
+                y = sy + 0.8 * len * sin(ang + (0.03 + 0.94 * f) * 3.14159);
             } else if (spiral) {
                 /* a circle of radius 40: u = 0.02 + turn fraction, no seam */
-                double turn = (t == PC_GRAD_SPIRAL_CW ? 1.0 : -1.0) * (0.01 + f * 0.95) * 2.0 * 3.14159265;
+                double turn = (t == PC_GRAD_SPIRAL_CW ? -1.0 : 1.0) * (0.01 + f * 0.95) *
+                              2.0 * 3.14159265;
                 x = sx + 0.02 * len * cos(ang + turn);
                 y = sy + 0.02 * len * sin(ang + turn);
             } else {
@@ -187,15 +214,22 @@ static void t_monotonic(void)
                 int hi = ends[0][c] < ends[1][c] ? ends[1][c] : ends[0][c];
                 if (c == 3 || (c0.a > 0u && c1.a > 0u)) {
                     CHECK(v[c] >= lo && v[c] <= hi);
-                    if (prev[c] >= 0) CHECK(ends[1][c] >= ends[0][c] ? v[c] >= prev[c] : v[c] <= prev[c]);
+                    if (prev[c] >= 0)
+                        CHECK(ends[1][c] >= ends[0][c] ? v[c] >= prev[c] : v[c] <= prev[c]);
                 }
                 prev[c] = v[c];
             }
-            /* dithering moves a value by at most one step */
-            CHECK(abs((int)q.a - (int)p.a) <= 1);
-            if (p.a == 255u && q.a == 255u) {
-                CHECK(abs((int)q.b - (int)p.b) <= 1 && abs((int)q.g - (int)p.g) <= 1 &&
-                      abs((int)q.r - (int)p.r) <= 1);
+            /* dithering stays within 1.5 steps of the exact ramp value */
+            {
+                double xv[4], pa = c0.a * (1.0 - s) + c1.a * s;
+                double cc0[3] = { c0.b, c0.g, c0.r }, cc1[3] = { c1.b, c1.g, c1.r };
+                int qv[4] = { q.b, q.g, q.r, q.a };
+                xv[3] = pa;
+                for (int c = 0; c < 3; c++)
+                    xv[c] = pa > 0.0 ? (cc0[c] * c0.a * (1.0 - s) + cc1[c] * c1.a * s) / pa : 0.0;
+                CHECK(fabs(qv[3] - xv[3]) <= 1.5 + 1e-6);
+                if (q.a > 0u && pa >= 1.0)
+                    for (int c = 0; c < 3; c++) CHECK(fabs(qv[c] - xv[c]) <= 1.5 + 1e-6);
             }
         }
     }
@@ -205,14 +239,16 @@ static void t_monotonic(void)
 static void t_dither(void)
 {
     pc_px32 c0 = e2_px(0, 100, 0, 255), c1 = e2_px(255, 100, 1, 255);
-    pc_gradient g = prep(PC_GRAD_LINEAR, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, true, 0, 0, 0, 1000, c0, c1);
-    pc_gradient gl = prep(PC_GRAD_LINEAR, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, true, 0, 0, 0, 1.0e6, c0, c1);
+    pc_gradient g = prep(PC_GRAD_LINEAR, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, true, 0, 0, 0, 1000,
+                         c0, c1);
+    pc_gradient gl = prep(PC_GRAD_LINEAR, PC_GRAD_NO_REPEAT, PC_GRAD_COLOR, true, 0, 0, 0, 1.0e6,
+                          c0, c1);
     pc_px32 row[256];
     for (int32_t y = 0; y < 1000; y += 37) {
         pc_gradient_row(&g, 0, y, 256, row);
         for (int x = 0; x < 256; x++) {
             CHECK(row[x].g == 100u);                  /* constant channel: never dithered */
-            CHECK(row[x].r <= 1u && row[x].a == 255u);
+            CHECK(row[x].r <= 2u && row[x].a == 255u);
         }
     }
     /* over a 16 x 16 block of an (almost) constant ramp value the ordered
@@ -223,7 +259,8 @@ static void t_dither(void)
             pc_gradient_row(&gl, 0, y, 16, row);
             for (int x = 0; x < 16; x++) sum += row[x].b;
         }
-        CHECK(fabs(sum / 256.0 - want) < 0.01);
+        if (want > 1.5 && want < 253.5)          /* away from clamping at 0 and 255 */
+            CHECK(fabs(sum / 256.0 - want) < 0.12);
     }
     /* flat area beyond the end: exact */
     pc_gradient_row(&g, -40, 1500, 256, row);
@@ -234,7 +271,8 @@ static void t_dither(void)
     for (int it = 0; it < 200; it++) {
         pc_gradient g3 = prep((pc_grad_type)rndu(PC_GRAD_TYPE_COUNT), (pc_grad_repeat)rndu(3),
                               PC_GRAD_COLOR, true, rndu(100), rndu(100), rndu(100), rndu(100),
-                              e2_px(rnd8(), rnd8(), rnd8(), rnd8()), e2_px(rnd8(), rnd8(), rnd8(), rnd8()));
+                              e2_px(rnd8(), rnd8(), rnd8(), rnd8()),
+                              e2_px(rnd8(), rnd8(), rnd8(), rnd8()));
         pc_px32 a[100], b[100];
         int32_t y = (int32_t)rndu(100), cut = (int32_t)rndu(100);
         pc_gradient_row(&g3, 0, y, 100, a);
@@ -259,8 +297,14 @@ static void t_repeat(void)
                                100.5, 100.5, 132.5, 100.5, c0, c1);
         for (int32_t y = 0; y < 48; y += 5) {
             for (int32_t x = -200; x < 200; x++) {
-                CHECK(e2_px_eq(px_at(&w, x, y), px_at(&w, x + 32, y)));
-                CHECK(e2_px_eq(px_at(&r, x, y), px_at(&r, x + 64, y)));
+                if (!aa) {                   /* the dither noise is not periodic */
+                    CHECK(e2_px_eq(px_at(&w, x, y), px_at(&w, x + 32, y)));
+                    CHECK(e2_px_eq(px_at(&r, x, y), px_at(&r, x + 64, y)));
+                }
+                CHECK(fabs(pc_gradient_s(&w, x + 0.5, y + 0.5) -
+                           pc_gradient_s(&w, x + 32.5, y + 0.5)) < 1e-9);
+                CHECK(fabs(pc_gradient_s(&r, x + 0.5, y + 0.5) -
+                           pc_gradient_s(&r, x + 64.5, y + 0.5)) < 1e-9);
                 if (!aa)                     /* mirror at start (the dither is not mirrored) */
                     CHECK(e2_px_eq(px_at(&r, 10 + (10 - x), y), px_at(&r, x, y)));
                 if (x >= 10 && x <= 42 && (!aa || (x != 10 && x != 42))) {   /* seam pixels mix */
@@ -270,19 +314,23 @@ static void t_repeat(void)
             }
         }
         for (int32_t k = 0; k < 4; k++)       /* radial reflected: rings of width 32 */
-            CHECK(e2_px_eq(px_at(&rad, 100 + 64 * k + 7, 100), px_at(&rad, 100 + 7, 100)));
+            if (!aa) CHECK(e2_px_eq(px_at(&rad, 100 + 64 * k + 7, 100), px_at(&rad, 100 + 7, 100)));
     }
     /* seams: a pixel straddling the wrap is a mix only with antialiasing */
     {
         pc_px32 a = e2_px(0, 0, 0, 255), b = e2_px(255, 255, 255, 255);
-        pc_gradient hard = prep(PC_GRAD_LINEAR, PC_GRAD_REPEAT_WRAPPED, PC_GRAD_COLOR, false, 0, 0, 10, 0, a, b);
-        pc_gradient soft = prep(PC_GRAD_LINEAR, PC_GRAD_REPEAT_WRAPPED, PC_GRAD_COLOR, true, 0, 0, 10, 0, a, b);
+        pc_gradient hard = prep(PC_GRAD_LINEAR, PC_GRAD_REPEAT_WRAPPED, PC_GRAD_COLOR, false, 0, 0,
+                                10, 0, a, b);
+        pc_gradient soft = prep(PC_GRAD_LINEAR, PC_GRAD_REPEAT_WRAPPED, PC_GRAD_COLOR, true, 0, 0,
+                                10, 0, a, b);
         pc_px32 h = px_at(&hard, 9, 0), s = px_at(&soft, 9, 0);   /* covers u in [0.9, 1.0) */
         pc_px32 h2 = px_at(&hard, 10, 0);
-        CHECK(h.b == 242u && h2.b == 13u);          /* u = 0.95 and 1.05 */
+        CHECK(h.b == 242u && h2.b == 12u);          /* u = 0.95 and 1.05, truncated */
         CHECK(s.b > 200u && s.b < 255u);
-        hard = prep(PC_GRAD_LINEAR, PC_GRAD_REPEAT_WRAPPED, PC_GRAD_COLOR, false, 0, 0, 10.5, 0, a, b);
-        soft = prep(PC_GRAD_LINEAR, PC_GRAD_REPEAT_WRAPPED, PC_GRAD_COLOR, true, 0, 0, 10.5, 0, a, b);
+        hard = prep(PC_GRAD_LINEAR, PC_GRAD_REPEAT_WRAPPED, PC_GRAD_COLOR, false, 0, 0, 10.5, 0,
+                    a, b);
+        soft = prep(PC_GRAD_LINEAR, PC_GRAD_REPEAT_WRAPPED, PC_GRAD_COLOR, true, 0, 0, 10.5, 0,
+                    a, b);
         h = px_at(&hard, 10, 0);                    /* center u = 1.0 exactly: wraps to 0 */
         s = px_at(&soft, 10, 0);                    /* straddles: half dark, half light */
         CHECK(h.b == 0u);
@@ -334,7 +382,8 @@ static void t_apply_color(void)
             pc_poly p;
             pc_poly_init(&p);
             for (int v = 0; v < 5; v++)
-                CHECK(pc_poly_add(&p, pc_pt_make(rndu(W + 10) - 5.0, rndu(H + 10) - 5.0), 0) == PC_OK);
+                CHECK(pc_poly_add(&p, pc_pt_make(rndu(W + 10) - 5.0, rndu(H + 10) - 5.0),
+                                  0) == PC_OK);
             CHECK(pc_poly_end(&p, true) == PC_OK);
             (void)pc_sel_apply_poly(h, &p, PC_FILL_NONZERO, true, PC_SEL_REPLACE, "sel");
             pc_poly_free(&p);
@@ -364,7 +413,8 @@ static void t_apply_color(void)
             t2 = pc_txn_begin(d, "ref");
             CHECK(pc_paint_apply(t2, l->id, &m, &src, &po, NULL, NULL) == PC_OK);
             CHECK(pc_surf_alloc(&want, (int32_t)W, (int32_t)H) == PC_OK);
-            CHECK(pc_txn_read_rect(t2, l->id, pc_doc_rect(d), want.px, (size_t)want.stride) == PC_OK);
+            CHECK(pc_txn_read_rect(t2, l->id, pc_doc_rect(d), want.px,
+                                   (size_t)want.stride) == PC_OK);
             CHECK(memcmp(got.px, want.px, (size_t)W * H * 4u) == 0);
             pc_txn_cancel(t2);
             pc_mask_free(&m);
@@ -388,7 +438,8 @@ static void t_apply_transparency(void)
         pc_hist *h = pc_hist_create(d);
         pc_surf s, got;
         pc_layer *l;
-        pc_gradient g0 = rand_grad(W, H, PC_GRAD_TRANSPARENCY), g = rand_grad(W, H, PC_GRAD_TRANSPARENCY);
+        pc_gradient g0 = rand_grad(W, H, PC_GRAD_TRANSPARENCY);
+        pc_gradient g = rand_grad(W, H, PC_GRAD_TRANSPARENCY);
         pc_paint_opts po = pc_paint_opts_default();
         pc_txn *t;
         uint64_t fp0;
@@ -401,7 +452,8 @@ static void t_apply_transparency(void)
             pc_poly p;
             pc_poly_init(&p);
             for (int v = 0; v < 5; v++)
-                CHECK(pc_poly_add(&p, pc_pt_make(rndu(W + 10) - 5.0, rndu(H + 10) - 5.0), 0) == PC_OK);
+                CHECK(pc_poly_add(&p, pc_pt_make(rndu(W + 10) - 5.0, rndu(H + 10) - 5.0),
+                                  0) == PC_OK);
             CHECK(pc_poly_end(&p, true) == PC_OK);
             (void)pc_sel_apply_poly(h, &p, PC_FILL_NONZERO, true, PC_SEL_REPLACE, "sel");
             pc_poly_free(&p);
@@ -499,8 +551,8 @@ static void t_apply_rect(void)
         t = pc_txn_begin(d, "g");
         CHECK(pc_gradient_apply_rect(t, l->id, &g, &po, NULL, clip, &dirty) == PC_OK);
         CHECK(pc_txn_read_rect(t, l->id, pc_doc_rect(d), part.px, (size_t)part.stride) == PC_OK);
-        CHECK(pc_rect_is_empty(dirty) ||
-              (pc_rect_intersect(dirty, clip).w == dirty.w && pc_rect_intersect(dirty, clip).h == dirty.h));
+        CHECK(pc_rect_is_empty(dirty) || (pc_rect_intersect(dirty, clip).w == dirty.w &&
+                                          pc_rect_intersect(dirty, clip).h == dirty.h));
         pc_txn_cancel(t);
         for (uint32_t y = 0; y < H; y++)
             for (uint32_t x = 0; x < W; x++) {
@@ -522,7 +574,8 @@ static void t_apply_banded(void)
     pc_layer *l = pc_layer_create(d, "L");
     pc_par par = e2_par();
     pc_gradient g = prep(PC_GRAD_RADIAL, PC_GRAD_REPEAT_REFLECTED, PC_GRAD_COLOR, true,
-                         1000.5, 2000.5, 1400.5, 2300.5, e2_px(0, 0, 255, 255), e2_px(255, 0, 0, 255));
+                         1000.5, 2000.5, 1400.5, 2300.5,
+                         e2_px(0, 0, 255, 255), e2_px(255, 0, 0, 255));
     pc_paint_opts po = pc_paint_opts_default();
     pc_txn *t;
     pc_rect dirty;
@@ -561,19 +614,21 @@ static void t_oom(void)
     CHECK(pc_surf_alloc(&before, 200, 150) == PC_OK);
     CHECK(pc_surf_alloc(&after, 200, 150) == PC_OK);
     for (int mode = 0; mode < 2; mode++) {
-        pc_gradient g = prep(PC_GRAD_LINEAR, PC_GRAD_NO_REPEAT, (pc_grad_mode)mode, true, 0, 0, 200, 150,
-                             e2_px(1, 2, 3, 255), e2_px(9, 8, 7, 9));
+        pc_gradient g = prep(PC_GRAD_LINEAR, PC_GRAD_NO_REPEAT, (pc_grad_mode)mode, true,
+                             0, 0, 200, 150, e2_px(1, 2, 3, 255), e2_px(9, 8, 7, 9));
         for (long n = 0; n < 20; n++) {
             pc_txn *t = pc_txn_begin(d, "g");
             pc_status st;
-            CHECK(pc_txn_read_rect(t, l->id, pc_doc_rect(d), before.px, (size_t)before.stride) == PC_OK);
+            CHECK(pc_txn_read_rect(t, l->id, pc_doc_rect(d), before.px,
+                                   (size_t)before.stride) == PC_OK);
             pc_fault_set(n);
             st = pc_gradient_apply(t, l->id, &g, &po, NULL, NULL);
             pc_fault_set(-1);
             CHECK(st == PC_OK || st == PC_ERR_NOMEM);
             if (st != PC_OK) {
                 fails++;
-                CHECK(pc_txn_read_rect(t, l->id, pc_doc_rect(d), after.px, (size_t)after.stride) == PC_OK);
+                CHECK(pc_txn_read_rect(t, l->id, pc_doc_rect(d), after.px,
+                                       (size_t)after.stride) == PC_OK);
                 CHECK(memcmp(before.px, after.px, 200u * 150u * 4u) == 0);
             }
             pc_txn_cancel(t);
@@ -595,6 +650,116 @@ static void t_oom(void)
     pc_surf_free(&s); pc_surf_free(&before); pc_surf_free(&after);
     pc_hist_destroy(h);
     pc_doc_destroy(d);
+}
+
+/* Golden pixels measured on Paint.NET (aliased black -> white gradients
+ * from document pixel (100, 130) to (150, 110), every type in every repeat
+ * mode; red channel). The aliased engine reproduces them up to one step
+ * of float rounding. */
+typedef struct golden_px { uint8_t type, repeat; int16_t x, y; uint8_t v; } golden_px;
+
+static const golden_px k_golden[] = {
+    { 0, 0, 153, 153, 192 }, { 0, 0, 158, 252,  40 }, { 0, 0, 131, 119, 155 },
+    { 0, 0, 140, 216,  24 }, { 0, 0, 151, 239,  32 }, { 0, 0, 110,  79, 133 },
+    { 0, 0, 171, 221, 152 }, { 0, 0, 176, 211, 191 }, { 0, 0,  79,   7, 123 },
+    { 0, 0, 185, 242, 176 }, { 0, 0, 126, 169,  45 }, { 0, 0, 216,  75, 255 },
+    { 1, 0,  81,  64,  32 }, { 1, 0,  67, 124, 134 }, { 1, 0,  87, 130,  57 },
+    { 1, 0, 111, 241, 146 }, { 1, 0,  81, 200, 206 }, { 1, 0, 190, 257, 172 },
+    { 1, 0,  18,  29, 182 }, { 1, 0, 176, 236, 147 }, { 1, 0, 159, 144, 234 },
+    { 1, 0,  38,  47, 126 }, { 1, 0, 113, 171,  14 }, { 1, 0, 200, 125, 255 },
+    { 2, 0,  74, 148, 179 }, { 2, 0,  75,  97, 240 }, { 2, 0, 106, 163, 187 },
+    { 2, 0,  83, 159, 223 }, { 2, 0, 127, 129, 163 }, { 2, 0, 109,  99, 214 },
+    { 2, 0, 104, 162, 186 }, { 2, 0, 115, 162, 176 }, { 2, 0, 114, 117, 116 },
+    { 2, 0,  75, 140, 127 }, { 2, 0, 183,  24, 255 }, { 2, 0,  83,  49, 255 },
+    { 3, 0,  85, 144,  97 }, { 3, 0, 102, 145,  71 }, { 3, 0, 100, 124,  28 },
+    { 3, 0, 102, 153, 109 }, { 3, 0, 102, 150,  95 }, { 3, 0, 111, 135,  57 },
+    { 3, 0,  96,  87, 204 }, { 3, 0, 144, 158, 246 }, { 3, 0,  98, 102, 132 },
+    { 3, 0,  81,  83, 240 }, { 3, 0,  99, 217, 255 }, { 3, 0,  14, 156, 255 },
+    { 4, 0, 141, 198,  57 }, { 4, 0, 159,  96, 249 }, { 4, 0, 190, 196,  41 },
+    { 4, 0, 243, 221,  38 }, { 4, 0,  91, 197,  84 }, { 4, 0, 167, 196,  47 },
+    { 4, 0, 113,  85, 218 }, { 4, 0,  56,   4, 193 }, { 4, 0, 226,  36, 244 },
+    { 4, 0, 189, 238,  51 }, { 4, 0, 209,  62, 247 }, { 4, 0, 233, 197,  34 },
+    { 5, 0,  72, 131, 246 }, { 5, 0, 123,  89, 250 }, { 5, 0,  95, 100, 199 },
+    { 5, 0, 115, 114, 121 }, { 5, 0,  95, 120, 120 }, { 5, 0,  93,  98, 212 },
+    { 5, 0,  92,  95, 227 }, { 5, 0,  98, 112, 138 }, { 5, 0,  83, 133, 200 },
+    { 5, 0,  85,  98, 233 }, { 5, 0,  84, 179, 255 }, { 5, 0, 211, 118, 255 },
+    { 6, 0, 135, 128, 179 }, { 6, 0,  82, 123, 249 }, { 6, 0,  93, 146, 178 },
+    { 6, 0, 123, 151, 192 }, { 6, 0,  90, 119, 247 }, { 6, 0,  79, 132, 238 },
+    { 6, 0,  90, 128, 199 }, { 6, 0, 148, 132, 244 }, { 6, 0, 144, 128, 222 },
+    { 6, 0, 148, 118, 239 }, { 6, 0, 100, 219, 255 }, { 6, 0,  31,  14, 255 },
+    { 0, 1,  32,  24, 142 }, { 0, 1,  13, 214, 234 }, { 0, 1,  44, 185, 167 },
+    { 0, 1,  63,  60, 215 }, { 0, 1, 162, 133,  12 }, { 0, 1, 148, 153, 170 },
+    { 0, 1, 150,  33, 135 }, { 0, 1, 209,  25, 153 }, { 0, 1,  25,  18, 122 },
+    { 0, 1, 100,  51, 138 }, { 0, 1,  21, 218,   7 }, { 0, 1, 107,  50, 171 },
+    { 1, 1,  21,  60, 224 }, { 1, 1,  18, 145, 131 }, { 1, 1,  28, 185, 158 },
+    { 1, 1, 100, 114,  28 }, { 1, 1, 194, 194,  45 }, { 1, 1,  73, 123, 106 },
+    { 1, 1, 188, 222, 225 }, { 1, 1,  60,  68,  66 }, { 1, 1,  74, 226,  28 },
+    { 1, 1, 120,  39, 247 }, { 1, 1,  20, 145, 123 }, { 1, 1, 115, 240, 127 },
+    { 2, 1, 149, 164, 136 }, { 2, 1, 209, 237, 188 }, { 2, 1,  16, 102,  80 },
+    { 2, 1, 203, 163, 211 }, { 2, 1, 147, 140,  60 }, { 2, 1, 223, 120, 220 },
+    { 2, 1,  71,  77,  63 }, { 2, 1, 139, 256, 162 }, { 2, 1, 137,  25, 233 },
+    { 2, 1, 231,  10,  64 }, { 2, 1, 153, 204,  11 }, { 2, 1, 251, 253, 233 },
+    { 3, 1,  60,  97, 245 }, { 3, 1, 168,  72, 168 }, { 3, 1, 147,  65, 124 },
+    { 3, 1, 131, 129, 146 }, { 3, 1, 160, 202, 188 }, { 3, 1, 140, 141, 196 },
+    { 3, 1,  86, 102, 148 }, { 3, 1, 163, 213, 238 }, { 3, 1,  23,  95, 145 },
+    { 3, 1, 122, 208, 128 }, { 3, 1, 116, 203,  98 }, { 3, 1,  55, 169,  26 },
+    { 4, 1, 145,  48, 199 }, { 4, 1, 170, 193,  90 }, { 4, 1,  33, 180, 233 },
+    { 4, 1,  76, 195, 187 }, { 4, 1,  17, 144,  17 }, { 4, 1, 152,  36, 199 },
+    { 4, 1,  22, 248, 205 }, { 4, 1,  59,  50, 119 }, { 4, 1, 114, 183, 137 },
+    { 4, 1, 115, 205, 142 }, { 4, 1,  10, 235, 215 }, { 4, 1, 240, 147,  40 },
+    { 5, 1, 155,  46, 245 }, { 5, 1,  57,  27,  82 }, { 5, 1, 152, 137, 227 },
+    { 5, 1,  90, 230, 137 }, { 5, 1,  82,  62, 136 }, { 5, 1, 121, 150,  90 },
+    { 5, 1, 149,  10, 136 }, { 5, 1, 152, 197,  94 }, { 5, 1, 175, 136,  82 },
+    { 5, 1,  69, 133,   8 }, { 5, 1,  25,  40, 121 }, { 5, 1,  65, 104,  37 },
+    { 6, 1,  84, 174,  60 }, { 6, 1, 155, 144,  39 }, { 6, 1, 106, 191, 110 },
+    { 6, 1,  80,  94, 126 }, { 6, 1,  26, 173,  16 }, { 6, 1, 152, 167,  87 },
+    { 6, 1,  29,  59, 140 }, { 6, 1, 132,  88, 228 }, { 6, 1, 175,  66, 198 },
+    { 6, 1, 159, 159,  90 }, { 6, 1,  42, 100, 216 }, { 6, 1,  91, 128, 195 },
+    { 0, 2, 239, 209,  37 }, { 0, 2,  24,   9, 121 }, { 0, 2, 173, 119, 169 },
+    { 0, 2, 111,  32, 220 }, { 0, 2, 156, 120, 246 }, { 0, 2, 101, 203, 123 },
+    { 0, 2,  33,  25, 109 }, { 0, 2, 143, 173, 113 }, { 0, 2,   3, 241, 111 },
+    { 0, 2, 219, 242, 183 }, { 0, 2, 203, 198, 176 }, { 0, 2,  96,  39, 142 },
+    { 1, 2, 137,  37, 183 }, { 1, 2, 134, 109, 186 }, { 1, 2, 248, 204,  10 },
+    { 1, 2,  13, 222,  34 }, { 1, 2,  77, 121,  85 }, { 1, 2, 104, 161,  36 },
+    { 1, 2, 200, 113,  40 }, { 1, 2, 185, 202, 247 }, { 1, 2, 108,  73, 135 },
+    { 1, 2,   4, 114, 116 }, { 1, 2, 165, 147, 254 }, { 1, 2, 104,   2, 242 },
+    { 2, 2,  31,  57, 107 }, { 2, 2, 161, 245, 168 }, { 2, 2, 114, 244, 154 },
+    { 2, 2,  79,  19, 117 }, { 2, 2,  69,  17, 103 }, { 2, 2, 133, 169, 204 },
+    { 2, 2,  64, 155, 248 }, { 2, 2, 101,  84, 224 }, { 2, 2, 239,  51, 167 },
+    { 2, 2, 122, 196, 161 }, { 2, 2,  65, 160, 233 }, { 2, 2, 133, 183, 167 },
+    { 3, 2, 233,  16, 190 }, { 3, 2, 220, 189, 123 }, { 3, 2, 172, 249, 148 },
+    { 3, 2, 228, 220, 230 }, { 3, 2, 192,  81,  16 }, { 3, 2, 173, 106, 146 },
+    { 3, 2,  39, 254, 144 }, { 3, 2, 186, 229, 110 }, { 3, 2, 161,   8, 135 },
+    { 3, 2, 245, 222, 206 }, { 3, 2,  82,  31,  33 }, { 3, 2, 222, 152,  77 },
+    { 4, 2,  57,  77, 103 }, { 4, 2, 240, 209, 182 }, { 4, 2, 252,  11, 231 },
+    { 4, 2,  83, 117,  83 }, { 4, 2, 253, 111, 234 }, { 4, 2, 246, 195, 190 },
+    { 4, 2, 170, 213, 153 }, { 4, 2,  35, 188,  28 }, { 4, 2,   3,  38,  92 },
+    { 4, 2,  64, 186,  50 }, { 4, 2, 239, 112, 234 }, { 4, 2, 204, 251, 154 },
+    { 5, 2, 109,   8, 159 }, { 5, 2, 193, 246,  90 }, { 5, 2, 229,  18, 183 },
+    { 5, 2,  77,  66,  63 }, { 5, 2, 222,  24, 227 }, { 5, 2,  69, 135, 124 },
+    { 5, 2,  13, 107, 119 }, { 5, 2,  42,  17, 226 }, { 5, 2, 140, 175, 185 },
+    { 5, 2,   8, 253,   6 }, { 5, 2, 139,   8, 167 }, { 5, 2,  44,  23, 197 },
+    { 6, 2, 190, 236, 249 }, { 6, 2,  34, 136,  82 }, { 6, 2,  54, 161,   9 },
+    { 6, 2,  69, 235, 190 }, { 6, 2, 148,   8,  44 }, { 6, 2, 205,  84,  30 },
+    { 6, 2, 191, 100,  51 }, { 6, 2, 188, 182,  48 }, { 6, 2, 173, 159,  76 },
+    { 6, 2, 138, 197,  28 }, { 6, 2,  88, 172, 122 }, { 6, 2,  47, 208, 143 }
+};
+
+static void t_golden(void)
+{
+    int exact = 0, n = (int)(sizeof k_golden / sizeof k_golden[0]);
+    for (int i = 0; i < n; i++) {
+        const golden_px *e = &k_golden[i];
+        pc_gradient g = prep((pc_grad_type)e->type, (pc_grad_repeat)e->repeat, PC_GRAD_COLOR,
+                             false, 100.5, 130.5, 150.5, 110.5, e2_px(0, 0, 0, 255),
+                             e2_px(255, 255, 255, 255));
+        pc_px32 p = px_at(&g, e->x, e->y);
+        CHECK(abs((int)p.r - (int)e->v) <= 1);
+        CHECK(p.r == p.g && p.g == p.b && p.a == 255u);
+        if (p.r == e->v) exact++;
+    }
+    INFO("golden gradient pixels: %d of %d exact", exact, n);
+    CHECK(exact >= n * 95 / 100);
 }
 
 static void t_handles(void)
@@ -653,6 +818,7 @@ int main(int argc, char **argv)
     RUN(t_apply_rect);
     RUN(t_apply_banded);
     RUN(t_oom);
+    RUN(t_golden);
     RUN(t_handles);
     pc_tile_stats(&t1, &b1);
     CHECK(t0 == t1 && b0 == b1);

@@ -78,8 +78,9 @@ these engines.
 
 - `opts.flood`: Contiguous (scanline flood from the clicked pixel) or
   Global (every matching pixel). Tools invert it while Shift is held.
-- Connectivity: 4-connected (diagonal neighbors do not join), as measured
-  (see 5); `opts.diagonal` enables 8-connectivity for other callers.
+- Connectivity: 4-connected (diagonal neighbors do not join). Measured: a
+  contiguous fill on a one-pixel diagonal staircase fills only the clicked
+  pixel. `opts.diagonal` enables 8-connectivity for other callers.
 - `opts.sampling`: Layer (the given layer's published tiles) or Image (the
   flattened composite of visible layers, `pc_comp_tile`). Both read the
   published document, never the open transaction, so a live bucket keeps
@@ -110,13 +111,22 @@ Queries: `pc_region_count`, `pc_region_bounds` (tight), `pc_region_at`,
 `pc_sel_apply_src`, `pc_sel_preview_src`, `pc_sel_contour_preview_src`).
 
 Antialiased bucket edges (`antialias = true` in `pc_region_read` and
-`pc_bucket_fill`): corner cutting. Each pixel is split into four
-quadrants; a quadrant of an inside pixel whose two edge neighbors at that
-corner are outside counts half, a quadrant of an outside pixel whose two
-edge neighbors and diagonal neighbor are inside counts half. Straight
-edges stay hard, staircases become 45 degree ramps, an isolated pixel gets
-50%. Coverage = round(255 n / 8) with n covered quadrant halves. (Own
-rule; see 5 for what was measured.)
+`pc_bucket_fill`), measured: the region itself is painted fully, and every
+outside pixel next to it gets a soft fringe that depends only on which of
+its 8 neighbors are inside. A global antialiased fill of random patterns
+produced all 256 neighborhoods (about 45000 fringe pixels), each with a
+single coverage value, reproduced by this rule:
+
+| Inside neighbors | Coverage |
+|---|---|
+| none | 0 |
+| only diagonals: 1, 2, 3, 4 | 17, 32, 46, 56 |
+| one side, plus 0, 1, 2 diagonals on the far side (diagonals touching that side do not count) | 56, 64, 70 |
+| two adjacent sides (inner corner), without / with the diagonal across from the corner | 70 / 74 |
+| two opposite sides, or three or four sides | 75 |
+
+Aliased fills paint exactly the region (verified with every tolerance
+probe above).
 
 ## 4. Paint Bucket fills
 
@@ -138,7 +148,54 @@ flood, alpha mode or sampling changes recompute it first.
 
 ## 5. Gradients (`pc_gradient.h`)
 
-(see the header for the full contract)
+`pc_gradient_desc` holds type, repeat mode, Color or Transparency mode,
+antialiasing, start and end points (document pixels; pixel (x, y) is
+evaluated at (x + 0.5, y + 0.5), so a nub on a pixel passes its center) and
+the colors (`pc_gradient_colors(&desc, primary, secondary, right_button)`).
+`pc_gradient_prepare` validates it; `pc_gradient_apply(txn, layer, &g,
+&paint_opts, par, &dirty)` renders it over the selection extent (or the
+canvas) from the transaction's original pixels, so each nub move just
+calls it again. `pc_gradient_apply_rect` limits the work to a viewport
+while dragging on huge canvases.
+
+Measured on Paint.NET (aliased black to white gradients from (100, 130)
+to (150, 110), every type in every repeat mode, plus horizontal ramps with
+and without antialiasing in both modes); with antialiasing off this
+engine reproduces the probe images pixel for pixel apart from float ties
+on seams (at least 99% exact per image, all within one step except seam
+pixels), and 252 sampled golden pixels are checked in test_gradient:
+
+- Linear, Linear (Reflected), Linear (Diamond), Radial: the 3.36
+  parameterizations (projection, its absolute value, the L1 norm in the
+  rotated frame, distance / length).
+- Conical: the clockwise screen angle from the end direction, one sweep
+  per turn without repeat (seam on the end direction), half turns when
+  repeating; Repeat Reflected is 1 toward the end and 0 opposite. (The
+  3.36 folded conical is not what Paint.NET draws now.)
+- Spiral (Clockwise): u = r + a_ccw / (2 pi), Spiral (Counter-clockwise):
+  u = r + a_cw / (2 pi), with r = distance / length; without repeat the
+  spiral is clamped (a disc-like arm of radius one length), Repeat Wrapped
+  draws one arm per turn, Repeat Reflected uses the angle over pi so the
+  triangle wave has no seam.
+- Repeat modes: clamp, fraction, triangle wave.
+- Antialiasing off: Color mode truncates the ramp position to 255 steps
+  and rounds the colors (a black to white ramp of length 128 gives
+  floor(255 t)); Transparency mode rounds the alpha.
+- Antialiasing on: white triangular dither noise per pixel and channel
+  (Paint.NET's error has standard deviation 0.50 and stays within 1.5
+  steps; ours too: 0.50), flat areas outside the ramp exact; seam pixels
+  of wrapped gradients are mixed (here 4 x 4 supersampling). Paint.NET's
+  noise is random, ours is a hash of the document position.
+- Transparency mode keeps the color channels, also where alpha reaches 0;
+  the alpha ramp runs from the primary alpha to 255 - secondary alpha and
+  multiplies the layer alpha (replaces it with Overwrite).
+- Status bar: the angle -atan2(dy, dx) in degrees and the length
+  (`pc_gradient_measure`), matching Paint.NET's status text for the probe
+  drag (21.80 degrees, 53.85 pixels).
+
+Handles: `pc_gradient_hit` (end, start, move handle beyond the end point),
+`pc_gradient_move_handle`, `pc_gradient_constrain` (Shift: 15 degree
+steps around the other nub).
 
 ## 6. Thread rules and ownership (summary)
 

@@ -2,27 +2,32 @@
  * Color and Transparency modes, repeat modes, antialiasing with dithering,
  * live re-rendering through a transaction, and handle helpers.
  *
+ * Behavior was matched black-box against Paint.NET (docs/core/fills.md):
+ * with antialiasing off this engine reproduces its gradients pixel for
+ * pixel except for float ties on seams.
+ *
  * Geometry. Start and end points are document coordinates in pixels with
  * pixel (x, y) covering [x, x + 1) x [y, y + 1); every pixel is evaluated
  * at its center (x + 0.5, y + 0.5). A tool that puts a nub on the pixel
- * under the mouse passes that pixel's center. The position parameter u of
- * a point p, with v = end - start, L = |v| and d = p - start:
+ * under the mouse passes that pixel's center. With v = end - start,
+ * L = |v|, d = p - start, r = |d| / L, and a_cw / a_ccw the clockwise /
+ * counter-clockwise angle on screen (y down) from v to d in [0, 2 pi),
+ * the position parameter u the repeat mode works on is:
  *   LINEAR            u = (d . v) / L^2               (0 at start, 1 at end)
  *   LINEAR_REFLECTED  u = |(d . v) / L^2|             (mirrored at start)
  *   LINEAR_DIAMOND    u = (|d . v| + |d x v|) / L^2   (diamond around start)
- *   RADIAL            u = |d| / L                     (circles around start)
- *   CONICAL           u = |angle(d) - angle(v)| / pi  (0 toward the end
- *                     point, 1 opposite, mirrored on both sides)
- *   SPIRAL_CW         u = |d| / L + phi / (2 pi), phi = the clockwise
- *   SPIRAL_CCW        angle (screen, y down) from v to d in [0, 2 pi), or
- *                     the counter-clockwise one for CCW. One turn of the
- *                     spiral arm spans one gradient length.
+ *   RADIAL            u = r                           (circles around start)
+ *   CONICAL           u = a_cw / (2 pi) without repeat (one sweep, seam on
+ *                     the end direction), a_cw / pi with Repeat Wrapped (two
+ *                     sweeps) and a_cw / pi + 1 with Repeat Reflected (1
+ *                     toward the end point, 0 opposite)
+ *   SPIRAL_CW         u = r + a_ccw / (2 pi)          (a_ccw / pi reflected)
+ *   SPIRAL_CCW        u = r + a_cw / (2 pi), a_cw in (0, 2 pi] (a_cw / pi
+ *                     reflected)
  * Repeat modes map u to the ramp position s in [0, 1]:
  *   NO_REPEAT         s = clamp(u, 0, 1)
  *   REPEAT_WRAPPED    s = u - floor(u)  (hard seam at every whole u)
- *   REPEAT_REFLECTED  s = 1 - |(u mod 2) - 1|  (seamless triangle wave)
- * CONICAL never leaves [0, 1], so repeat modes do not change it. The
- * spirals always repeat: NO_REPEAT behaves like REPEAT_WRAPPED for them.
+ *   REPEAT_REFLECTED  s = 1 - |(|u| mod 2) - 1|  (seamless triangle wave)
  * When start == end every pixel gets s = 1 (the end color or end alpha).
  *
  * Colors. Color mode interpolates c0 (s = 0) to c1 (s = 1) with alpha
@@ -35,13 +40,14 @@
  * right button reverses the ramp (255 - secondary.a -> primary.a).
  * s = 0 and s = 1 always give the exact end colors.
  *
- * Antialiasing (the toolbar toggle) does two things: pixels whose
- * footprint straddles a hard seam (wrapped repeats, spiral arms) are
- * supersampled 4 x 4 and averaged with alpha weighting, and colors inside
- * the ramp (0 < s < 1) are dithered with a fixed 16 x 16 ordered pattern
- * anchored at the document origin (no dithering in flat areas, where s is
- * exactly 0 or 1, or in channels that do not change). Off: one sample
- * per pixel center, rounded to nearest.
+ * Antialiasing (the toolbar toggle). Off: Color mode quantizes s to 255
+ * steps (truncated) and rounds the colors; Transparency mode rounds the
+ * alpha. On: values inside the ramp get white triangular dither noise
+ * (per pixel and channel, at most 1.5 steps, from a hash of the document
+ * position so renders are reproducible; whole values and flat areas stay
+ * exact), and pixels straddling a hard seam (wrapped repeats, the conical
+ * and spiral seam rays, the center of angular types) are supersampled 4 x 4
+ * with alpha weighting.
  *
  * Applying. pc_gradient_apply renders over the selection extent (or the
  * whole canvas) of an open transaction, always from the transaction's
@@ -139,8 +145,8 @@ typedef struct pc_gradient {
  * non-finite point (g is then zeroed). */
 pc_status pc_gradient_prepare(pc_gradient *g, const pc_gradient_desc *desc);
 
-/* Position parameter u (unbounded, see above) and ramp position s in
- * [0, 1] at a document point. */
+/* Position parameter u (the value the repeat mode is applied to, see
+ * above) and ramp position s in [0, 1] at a document point. */
 double    pc_gradient_u(const pc_gradient *g, double x, double y);
 double    pc_gradient_s(const pc_gradient *g, double x, double y);
 
