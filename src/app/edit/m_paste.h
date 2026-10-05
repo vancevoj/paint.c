@@ -11,12 +11,24 @@
  * Size; Cancel), the position is chosen (CB-PASTE-POS: the top left of the
  * visible part of the canvas when the canvas origin is scrolled out of
  * view, shifted back inside the canvas when possible, else 0, 0) and the
- * pixels are handed to the float hook. Without a hook (or when it
- * declines) the pixels are written into the layer, selected, and the
- * whole paste is one history step ("Paste", or "Paste into New Layer"
- * including the new layer); the Move Selected Pixels tool is then
- * activated when it is registered, so the pasted pixels can be moved at
- * once.
+ * pixels become a floating selection of Move Selected Pixels
+ * (app_float_paste, include/app/app_float.h; lane KEYS): one history step
+ * ("Paste", or "Paste into New Layer" including the new layer), the pasted
+ * rectangle selected, Move Selected Pixels active and live (Finish
+ * enabled). Moving the floating pixels restores what they covered, and the
+ * part outside the canvas (Keep Canvas Size) stays with the floating
+ * session until Finish, so it can be moved in. An installed float hook
+ * (below) replaces that step; when the hook declines, or when Move
+ * Selected Pixels is not available, the pixels are written into the layer
+ * and selected instead (same single history step) and the tool is
+ * activated when it is registered.
+ *
+ * Color profiles (CB-PROFILE): pasting into an image without a profile
+ * converts an embedded clipboard profile to sRGB; pasting into an image
+ * with a profile brings the pixels into that profile (unchanged when the
+ * clipboard carries the same profile, directly between matrix/TRC
+ * profiles, else through sRGB; untagged pixels count as sRGB). Paste into
+ * New Image keeps the clipboard profile with the new image.
  *
  * Thread rules: main thread. Ownership as stated per function.
  */

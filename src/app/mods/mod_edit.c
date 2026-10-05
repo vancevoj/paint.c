@@ -7,11 +7,11 @@
  * Every command that changes the image is exactly one history step: the
  * compound ones (Cut = erase to transparent white + deselect, Erase
  * Selection = erase to transparent black + deselect) are fused with
- * m_hist_fuse. Paste lives in edit/m_paste.c; Paste and Paste into New
- * Layer stay registered as APP_CMD_WEAK so the Move Selected Pixels owner
- * may still replace them wholesale (the preferred integration is its float
- * hook, m_paste_set_float_hook), and because tests/app/test_app_cmd.c pins
- * that contract.
+ * m_hist_fuse. Paste lives in edit/m_paste.c: the pasted pixels float in
+ * Move Selected Pixels (app_float_paste, lane KEYS). Paste and Paste into
+ * New Layer stay registered as APP_CMD_WEAK because
+ * tests/app/test_app_cmd.c pins that contract (a later registration may
+ * replace them wholesale; m_paste_set_float_hook can redirect the pixels).
  *
  * Thread rules: main thread. Ownership: commands keep no state. */
 #include "../app_internal.h"
