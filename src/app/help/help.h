@@ -7,8 +7,10 @@
  * (help_md.h; directives fill in this copy's key map, tools, effects, file
  * formats and folders), a worker writes the files into the help folder
  * (unchanged files are not rewritten), and the page opens in the browser
- * through its file:// URL (pal_open_url). Nothing needs the network, so the
- * Help menu never leads to a dead page.
+ * through its file:// URL (pal_open_url). Every file holds the whole guide
+ * with its own page shown (help_pages.c), so links between pages work even
+ * when a sandbox hands the browser only that one file. Nothing needs the
+ * network, so the Help menu never leads to a dead page.
  *
  * Help folder: <settings folder>/help with --config-dir, otherwise the
  * per-user cache folder's "help". Headless apps without a settings folder
