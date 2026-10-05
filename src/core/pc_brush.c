@@ -13,31 +13,27 @@
  * the whole mask once. Results never depend on the par thread count or on
  * how the input was split into events. No recursion (P-07); every size is
  * checked (P-08). */
-#include "pc/pc_brush.h"
+#include "pc_brush_int.h"
 #include "pc/pc_sel.h"
 
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
-#define MIN_STEP      (1.0 / 16.0)  /* px, floor of the dab spacing */
+#define MIN_STEP      1.0           /* px, floor of the dab spacing (measured) */
 #define DAB_BATCH     2048u         /* dabs rasterized per flush */
 #define PAR_MIN_WORK  16384.0       /* px of dab area before using par */
-#define QUAD_MAX_SEG  4096          /* flattening pieces per smoothed segment */
+#define CR_MAX_SEG    4096          /* flattening pieces per smoothed segment */
 #define EMPTY_IDX     UINT32_MAX
 
 /* ---- dab profile ------------------------------------------------------------ */
 
 typedef struct dab_prep {
-    double  cx, cy;       /* center (snapped when aliased) */
-    double  outer, outer2;
-    double  inner2;
-    double  band;         /* outer - inner (antialiased) */
-    double  k;            /* 0 = linear ramp, 1 = smoothstep */
-    double  scale;        /* 255 * intensity */
-    uint8_t full;         /* value at d <= inner */
-    bool    aa;
-    int32_t x0, y0, x1, y1;   /* candidate pixels, half-open */
+    double   cx, cy;      /* center (snapped when aliased) */
+    double   cut2;        /* squared radius beyond which the value is 0 */
+    pcb_soft soft;        /* antialiased profile */
+    bool     aa;
+    int32_t  x0, y0, x1, y1;   /* candidate pixels, half-open */
 } dab_prep;
 
 static double clampd(double v, double lo, double hi)
@@ -58,32 +54,27 @@ static bool dab_prepare(const pc_brush_params *p, double x, double y, double dia
     memset(o, 0, sizeof *o);
     if (!(dia > 0.0)) return false;
     if (p->antialias) {
-        double r = dia * 0.5, s = 1.0, h = clampd(p->hardness, 0.0, 1.0), inner;
-        if (r < 1.0) { s = r * r; r = 1.0; }
+        double cut;
+        if (!pcb_soft_setup(&o->soft, dia, clampd(p->hardness, 0.0, 1.0))) return false;
+        cut = o->soft.cut;
         o->aa = true;
         o->cx = x; o->cy = y;
-        o->outer = r + 0.5;
-        o->outer2 = o->outer * o->outer;
-        inner = h * (r - 0.5);
-        o->inner2 = inner * inner;
-        o->band = o->outer - inner;
-        o->k = clampd(o->band - 1.0, 0.0, 1.0);
-        o->scale = 255.0 * s;
-        o->full = (uint8_t)(o->scale + 0.5);
-        if (o->full == 0u) return false;
-        o->x0 = clamp_i32(floor(x - o->outer - 0.5));
-        o->y0 = clamp_i32(floor(y - o->outer - 0.5));
-        o->x1 = clamp_i32(ceil(x + o->outer - 0.5)) + 1;
-        o->y1 = clamp_i32(ceil(y + o->outer - 0.5)) + 1;
+        o->cut2 = cut * cut;
+        o->x0 = clamp_i32(floor(x - cut - 0.5));
+        o->y0 = clamp_i32(floor(y - cut - 0.5));
+        o->x1 = clamp_i32(ceil(x + cut - 0.5)) + 1;
+        o->y1 = clamp_i32(ceil(y + cut - 0.5)) + 1;
     } else {
-        double n = floor(dia + 0.5), r;
-        if (n < 1.0) return false;
+        /* integer diameter n = floor(dia) (at least 1 from 0.5 px up) */
+        double n = floor(dia), r;
+        if (n < 1.0) {
+            if (dia < 0.5) return false;
+            n = 1.0;
+        }
         if (fmod(n, 2.0) == 1.0) { o->cx = floor(x) + 0.5; o->cy = floor(y) + 0.5; }
         else { o->cx = floor(x + 0.5); o->cy = floor(y + 0.5); }
         r = n * 0.5;
-        o->outer = r;
-        o->outer2 = r * r;
-        o->full = 255u;
+        o->cut2 = r * r;
         o->x0 = clamp_i32(floor(o->cx - r));
         o->y0 = clamp_i32(floor(o->cy - r));
         o->x1 = clamp_i32(ceil(o->cx + r)) + 1;
@@ -96,16 +87,10 @@ static bool dab_prepare(const pc_brush_params *p, double x, double y, double dia
 static uint8_t dab_eval(const dab_prep *o, int32_t px, int32_t py)
 {
     double dx = (double)px + 0.5 - o->cx, dy = (double)py + 0.5 - o->cy;
-    double d2 = dx * dx + dy * dy, d, t, f, v;
-    if (!o->aa) return d2 <= o->outer2 ? 255u : 0u;
-    if (d2 >= o->outer2) return 0u;
-    if (d2 <= o->inner2) return o->full;
-    d = sqrt(d2);
-    t = (o->outer - d) / o->band;
-    if (t > 1.0) t = 1.0;
-    f = t + (t * t * (3.0 - 2.0 * t) - t) * o->k;
-    v = f * o->scale + 0.5;
-    return v >= 255.0 ? (uint8_t)255u : (uint8_t)v;
+    double d2 = dx * dx + dy * dy;
+    if (!o->aa) return d2 <= o->cut2 ? 255u : 0u;
+    if (d2 >= o->cut2) return 0u;
+    return pcb_soft_eval(&o->soft, sqrt(d2));
 }
 
 static uint8_t accum(pc_brush_accum a, uint8_t c, uint8_t v)
@@ -149,9 +134,9 @@ struct pc_brush {
     pc_paint_opts   opts;
     const pc_par   *par;
     /* path */
-    path_pt         a;            /* last raw sample */
-    path_pt         m;            /* end of the emitted path */
-    size_t          nraw;
+    path_pt         a;            /* last raw sample P(n-1) */
+    path_pt         a2, a3;       /* P(n-2), P(n-3) for the smoothing spline */
+    size_t          nraw;         /* raw samples so far (deduplicated) */
     double          carry;        /* arc length to the next dab */
     double          last_dia;
     double          box_x0, box_y0, box_x1, box_y1;   /* dab centers that matter */
@@ -789,35 +774,53 @@ static pc_status walk_piece(pc_brush *b, const path_pt *p0, const path_pt *p1)
     return PC_OK;
 }
 
-static path_pt pt_mid(const path_pt *a, const path_pt *c)
+static path_pt pt_reflect(const path_pt *a, const path_pt *b)
 {
-    path_pt m;
-    m.x = (a->x + c->x) * 0.5;
-    m.y = (a->y + c->y) * 0.5;
-    m.p = (a->p + c->p) * 0.5;
-    return m;
+    path_pt r;                     /* 2a - b, the phantom point beyond a */
+    r.x = 2.0 * a->x - b->x;
+    r.y = 2.0 * a->y - b->y;
+    r.p = a->p;
+    return r;
 }
 
-/* quadratic Bezier p0 -> p2 with control p1, flattened to ~1 px pieces */
-static pc_status walk_quad(pc_brush *b, const path_pt *p0, const path_pt *p1, const path_pt *p2)
+/* Centripetal Catmull-Rom segment p1 -> p2 (neighbors p0, p3), evaluated
+ * with the Barry-Goldman recursion and flattened into ~0.7 px pieces.
+ * Pressure is interpolated linearly in the curve parameter. */
+static pc_status walk_cr(pc_brush *b, const path_pt *p0, const path_pt *p1, const path_pt *p2,
+                         const path_pt *p3)
 {
-    double l = hypot(p1->x - p0->x, p1->y - p0->y) + hypot(p2->x - p1->x, p2->y - p1->y);
-    double nf = ceil(l);
+    double t0 = 0.0, t1, t2, t3, chord = hypot(p2->x - p1->x, p2->y - p1->y), nf;
     int32_t n;
-    path_pt prev = *p0;
+    path_pt prev = *p1;
     pc_status st = PC_OK;
-    if (!(nf >= 1.0)) nf = 1.0;
-    if (nf > (double)QUAD_MAX_SEG) nf = (double)QUAD_MAX_SEG;
+    t1 = t0 + sqrt(hypot(p1->x - p0->x, p1->y - p0->y));
+    t2 = t1 + sqrt(chord);
+    t3 = t2 + sqrt(hypot(p3->x - p2->x, p3->y - p2->y));
+    if (t1 - t0 < 1e-9) t1 = t0 + 1e-9;
+    if (t2 - t1 < 1e-9) t2 = t1 + 1e-9;
+    if (t3 - t2 < 1e-9) t3 = t2 + 1e-9;
+    nf = ceil(chord * 1.5) + 2.0;
+    if (!(nf <= (double)CR_MAX_SEG)) nf = (double)CR_MAX_SEG;
     n = (int32_t)nf;
     for (int32_t i = 1; i <= n && st == PC_OK; i++) {
-        double u = (double)i / (double)n, w0 = (1.0 - u) * (1.0 - u), w1 = 2.0 * u * (1.0 - u);
-        double w2 = u * u;
+        double f = (double)i / (double)n, t = t1 + (t2 - t1) * f;
         path_pt q;
-        if (i == n) q = *p2;
-        else {
-            q.x = w0 * p0->x + w1 * p1->x + w2 * p2->x;
-            q.y = w0 * p0->y + w1 * p1->y + w2 * p2->y;
-            q.p = w0 * p0->p + w1 * p1->p + w2 * p2->p;
+        if (i == n) {
+            q = *p2;
+        } else {
+            double a1x = ((t1 - t) * p0->x + (t - t0) * p1->x) / (t1 - t0);
+            double a1y = ((t1 - t) * p0->y + (t - t0) * p1->y) / (t1 - t0);
+            double a2x = ((t2 - t) * p1->x + (t - t1) * p2->x) / (t2 - t1);
+            double a2y = ((t2 - t) * p1->y + (t - t1) * p2->y) / (t2 - t1);
+            double a3x = ((t3 - t) * p2->x + (t - t2) * p3->x) / (t3 - t2);
+            double a3y = ((t3 - t) * p2->y + (t - t2) * p3->y) / (t3 - t2);
+            double b1x = ((t2 - t) * a1x + (t - t0) * a2x) / (t2 - t0);
+            double b1y = ((t2 - t) * a1y + (t - t0) * a2y) / (t2 - t0);
+            double b2x = ((t3 - t) * a2x + (t - t1) * a3x) / (t3 - t1);
+            double b2y = ((t3 - t) * a2y + (t - t1) * a3y) / (t3 - t1);
+            q.x = ((t2 - t) * b1x + (t - t1) * b2x) / (t2 - t1);
+            q.y = ((t2 - t) * b1y + (t - t1) * b2y) / (t2 - t1);
+            q.p = p1->p + (p2->p - p1->p) * f;
         }
         st = walk_piece(b, &prev, &q);
         prev = q;
@@ -849,30 +852,37 @@ static pc_status pencil_pixel(pc_brush *b, int32_t x, int32_t y)
     return PC_OK;
 }
 
-/* Bresenham from (x0, y0) to (x1, y1); the start pixel only when with_start. */
+/* Line from (x0, y0) to (x1, y1), the start pixel only when with_start.
+ * The rasterization is the one of Paint.NET 3.36 Utility.GetLinePoints
+ * (MIT; docs/notice/e1.md), which Paint.NET 5 still produces: the error
+ * term grows before each pixel, so pixel i has the minor offset
+ * floor((i + 1) * minor / major) (0,0 to 4,1 gives y = 0,0,0,1,1), and
+ * |dx| == |dy| is a plain diagonal. */
 static pc_status pencil_line(pc_brush *b, int32_t x0, int32_t y0, int32_t x1, int32_t y1,
                              bool with_start)
 {
     int64_t dx = (int64_t)x1 - x0, dy = (int64_t)y1 - y0;
     int64_t adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
-    int64_t sx = dx < 0 ? -1 : 1, sy = dy < 0 ? -1 : 1;
-    int64_t n = adx > ady ? adx : ady;
+    int64_t sx = dx < 0 ? -1 : (dx > 0 ? 1 : 0), sy = dy < 0 ? -1 : (dy > 0 ? 1 : 0);
+    int64_t n = adx > ady ? adx : ady, acc = 0, px = x0, py = y0;
     pc_status st = PC_OK;
-    if (n == 0) {
-        if (with_start) st = pencil_pixel(b, x0, y0);
-        if (st != PC_OK && !b->failed) { b->failed = true; b->err = st; }
-        return st;
-    }
-    for (int64_t i = with_start ? 0 : 1; i <= n && st == PC_OK; i++) {
+    for (int64_t i = 0; i <= n && st == PC_OK; i++) {
         int64_t x, y;
-        if (adx >= ady) {
+        if (adx > ady) {
+            acc += ady;
+            if (acc >= adx) { acc -= adx; py += sy; }
             x = x0 + sx * i;
-            y = y0 + sy * ((2 * i * ady + adx) / (2 * adx));
-        } else {
+            y = py;
+        } else if (adx == ady) {
+            x = x0 + sx * i;
             y = y0 + sy * i;
-            x = x0 + sx * ((2 * i * adx + ady) / (2 * ady));
+        } else {
+            acc += adx;
+            if (acc >= ady) { acc -= ady; px += sx; }
+            x = px;
+            y = y0 + sy * i;
         }
-        st = pencil_pixel(b, (int32_t)x, (int32_t)y);
+        if (i > 0 || with_start) st = pencil_pixel(b, (int32_t)x, (int32_t)y);
     }
     if (st != PC_OK && !b->failed) { b->failed = true; b->err = st; }
     return st;
@@ -958,7 +968,12 @@ pc_status pc_brush_begin(pc_brush *b, pc_txn *t, uint32_t layer_id,
     b->nchg = 0u;
     b->ndab_total = 0u;
     b->nraw = 1u;
-    half = p.width * 0.5 + 2.0;
+    half = p.width * 0.5;
+    if (p.antialias && p.tip == PC_BRUSH_TIP_ROUND) {
+        pcb_soft sw;                  /* soft dabs reach beyond R (about 1.6 R) */
+        if (pcb_soft_setup(&sw, p.width, p.hardness) && sw.cut > half) half = sw.cut;
+    }
+    half += 2.0;
     b->box_x0 = -half;
     b->box_y0 = -half;
     b->box_x1 = (double)d->w + half;
@@ -983,7 +998,8 @@ pc_status pc_brush_begin(pc_brush *b, pc_txn *t, uint32_t layer_id,
         b->carry = step_for(b, b->last_dia);
     }
     b->a = p0;
-    b->m = p0;
+    b->a2 = p0;
+    b->a3 = p0;
     return finish_call(b, st, dirty);
 }
 
@@ -1011,14 +1027,19 @@ pc_status pc_brush_add(pc_brush *b, const pc_brush_sample *s, pc_rect *dirty)
         return PC_OK;
     }
     if (b->p.smoothing) {
-        path_pt mid = pt_mid(&b->a, &q);
-        if (b->nraw == 1u) st = walk_piece(b, &b->m, &mid);
-        else st = walk_quad(b, &b->m, &b->a, &mid);
-        b->m = mid;
+        /* the segment ending at the previous sample needs this one as its
+         * next neighbor: draw P(n-2) -> P(n-1), one segment behind */
+        if (b->nraw == 2u) {
+            path_pt ph = pt_reflect(&b->a2, &b->a);
+            st = walk_cr(b, &ph, &b->a2, &b->a, &q);
+        } else if (b->nraw > 2u) {
+            st = walk_cr(b, &b->a3, &b->a2, &b->a, &q);
+        }
     } else {
         st = walk_piece(b, &b->a, &q);
-        b->m = q;
     }
+    b->a3 = b->a2;
+    b->a2 = b->a;
     b->a = q;
     b->nraw++;
     return finish_call(b, st, dirty);
@@ -1031,8 +1052,16 @@ pc_status pc_brush_end(pc_brush *b, pc_rect *dirty)
     if (!b || !b->active) return PC_ERR_STATE;
     b->dirty = pc_rect_make(0, 0, 0, 0);
     if (!b->failed) {
-        if (b->p.tip == PC_BRUSH_TIP_ROUND && b->p.smoothing && b->nraw > 1u)
-            st = walk_piece(b, &b->m, &b->a);
+        if (b->p.tip == PC_BRUSH_TIP_ROUND && b->p.smoothing && b->nraw > 1u) {
+            /* last segment, with phantom neighbors reflected at the ends */
+            path_pt ph1 = pt_reflect(&b->a, &b->a2);
+            if (b->nraw == 2u) {
+                path_pt ph0 = pt_reflect(&b->a2, &b->a);
+                st = walk_cr(b, &ph0, &b->a2, &b->a, &ph1);
+            } else {
+                st = walk_cr(b, &b->a3, &b->a2, &b->a, &ph1);
+            }
+        }
         st = finish_call(b, st, dirty);
     } else {
         st = b->err;

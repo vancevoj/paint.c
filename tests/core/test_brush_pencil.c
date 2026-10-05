@@ -1,6 +1,7 @@
-/* test_brush_pencil.c - Pencil tool (PC_BRUSH_TIP_PENCIL): exact Bresenham
- * pixels, one blend per pixel and stroke, blend modes, selection
- * clipping, tiny images, Shift+click lines, undo. */
+/* test_brush_pencil.c - Pencil tool (PC_BRUSH_TIP_PENCIL): exact line
+ * pixels of the 3.36 rule (including lines observed on Paint.NET), one
+ * blend per pixel and stroke, blend modes, selection
+ * clipping, tiny images, lines from the last point, undo. */
 #include "pc_test.h"
 #include "test_brush_util.h"
 
@@ -58,27 +59,41 @@ static void check_line(uint32_t W, uint32_t H, const double *pts, int npts, doub
 
 static void t_known_lines(void)
 {
+    /* the 3.36 rule: the minor axis steps late */
     static const double l1[] = { 0, 0, 5, 2 };
     static const int32_t w1[] = { 0, 0, 1, 0, 2, 1, 3, 1, 4, 2, 5, 2 };
     static const double l2[] = { 0, 0, 4, 1 };
-    static const int32_t w2[] = { 0, 0, 1, 0, 2, 1, 3, 1, 4, 1 };
+    static const int32_t w2[] = { 0, 0, 1, 0, 2, 0, 3, 1, 4, 1 };
     static const double l3[] = { 3, 7, 3, 2 };
     static const int32_t w3[] = { 3, 7, 3, 6, 3, 5, 3, 4, 3, 3, 3, 2 };
     static const double l4[] = { 10, 10, 6, 13 };
-    static const int32_t w4[] = { 10, 10, 9, 11, 8, 12, 7, 12, 6, 13 };
+    static const int32_t w4[] = { 10, 10, 9, 11, 8, 12, 7, 13, 6, 13 };
     static const double l5[] = { 0, 0, 3, 3 };
     static const int32_t w5[] = { 0, 0, 1, 1, 2, 2, 3, 3 };
     static const double l6[] = { 2, 1, 9, 1 };
     static const int32_t w6[] = { 2, 1, 3, 1, 4, 1, 5, 1, 6, 1, 7, 1, 8, 1, 9, 1 };
     static const double l7[] = { 1, 1, 2, 5 };       /* steep: one pixel per row */
-    static const int32_t w7[] = { 1, 1, 1, 2, 2, 3, 2, 4, 2, 5 };
-    /* polyline with a revisited pixel: painted once */
+    static const int32_t w7[] = { 1, 1, 1, 2, 1, 3, 2, 4, 2, 5 };
+    /* polyline with revisited pixels: painted once */
     static const double l8[] = { 1, 1, 5, 1, 5, 4, 1, 1 };
-    static const int32_t w8[] = { 1, 1, 2, 1, 3, 1, 4, 1, 5, 1, 5, 2, 5, 3, 5, 4,
-                                  4, 3, 3, 2, 2, 2 };
+    static const int32_t w8[] = { 1, 1, 2, 1, 3, 1, 4, 1, 5, 1, 5, 2, 5, 3, 5, 4, 4, 3, 3, 2 };
     /* a click: one pixel */
     static const double l9[] = { 7, 8 };
     static const int32_t w9[] = { 7, 8 };
+    /* lines observed on Paint.NET (shifted into the 16 x 16 test image) */
+    static const double o1[] = { 0, 0, 10, 1 };
+    static const int32_t v1[] = { 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0,
+                                  9, 1, 10, 1 };
+    static const double o2[] = { 14, 11, 10, 10 };
+    static const int32_t v2[] = { 10, 10, 11, 10, 12, 11, 13, 11, 14, 11 };
+    static const double o3[] = { 6, 13, 0, 10 };
+    static const int32_t v3[] = { 0, 10, 1, 10, 2, 11, 3, 11, 4, 12, 5, 12, 6, 13 };
+    static const double o4[] = { 1, 14, 2, 10 };
+    static const int32_t v4[] = { 2, 10, 2, 11, 1, 12, 1, 13, 1, 14 };
+    static const double o5[] = { 0, 0, 4, 3 };
+    static const int32_t v5[] = { 0, 0, 1, 1, 2, 2, 3, 3, 4, 3 };
+    static const double o6[] = { 0, 0, 6, 3 };
+    static const int32_t v6[] = { 0, 0, 1, 1, 2, 1, 3, 2, 4, 2, 5, 3, 6, 3 };
     static const double fr[3] = { 0.0, 0.5, 0.999 };
     for (int f = 0; f < 3; f++) {
         check_line(16, 16, l1, 2, fr[f], w1, 6);
@@ -88,8 +103,14 @@ static void t_known_lines(void)
         check_line(16, 16, l5, 2, fr[f], w5, 4);
         check_line(16, 16, l6, 2, fr[f], w6, 8);
         check_line(16, 16, l7, 2, fr[f], w7, 5);
-        check_line(16, 16, l8, 4, fr[f], w8, 11);
+        check_line(16, 16, l8, 4, fr[f], w8, 10);
         check_line(16, 16, l9, 1, fr[f], w9, 1);
+        check_line(16, 16, o1, 2, fr[f], v1, 11);
+        check_line(16, 16, o2, 2, fr[f], v2, 5);
+        check_line(16, 16, o3, 2, fr[f], v3, 7);
+        check_line(16, 16, o4, 2, fr[f], v4, 5);
+        check_line(16, 16, o5, 2, fr[f], v5, 5);
+        check_line(16, 16, o6, 2, fr[f], v6, 7);
     }
 }
 
@@ -124,15 +145,16 @@ static void t_random_lines(void)
                     double tt, ly;
                     cnt++;
                     row++;
-                    /* every pixel is within half a pixel of the ideal line on the minor axis */
+                    /* every pixel is less than one pixel from the ideal line on the
+                     * minor axis (the 3.36 rule rounds asymmetrically) */
                     if (adx >= ady && adx > 0) {
                         tt = (double)(x - x0) / (double)(x1 - x0);
                         ly = y0 + tt * (y1 - y0);
-                        CHECK(fabs(ly - y) <= 0.5 + 1e-9);
+                        CHECK(fabs(ly - y) < 1.0);
                     } else if (ady > 0) {
                         tt = (double)(y - y0) / (double)(y1 - y0);
                         ly = x0 + tt * (x1 - x0);
-                        CHECK(fabs(ly - x) <= 0.5 + 1e-9);
+                        CHECK(fabs(ly - x) < 1.0);
                     }
                 }
             if (ady > adx) CHECK(row <= 1);

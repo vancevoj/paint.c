@@ -1,7 +1,7 @@
 /* test_brush.c - brush stroke engine (lane E1): dab profiles, accumulation,
  * strokes against a single-buffer reference render (T-L4-02), incremental
  * application, spacing, pressure, smoothing, eraser, blend modes,
- * selection clipping, undo, Shift+click lines, off-canvas input, errors,
+ * selection clipping, undo, lines from the last point, off-canvas input, errors,
  * allocation failures and leaks. */
 #include "pc_test.h"
 #include "test_brush_util.h"
@@ -24,80 +24,106 @@ static void t_defaults(void)
     CHECK(pc_brush_diameter(&p, 0.25) == 2.0);
 }
 
+/* sum of the coverage of one dab, in pixels */
+static double dab_mass(const pc_brush_params *p, double cx, double cy, double w)
+{
+    pc_rect r = pc_brush_dab_bounds(p, cx, cy, w);
+    double sum = 0.0;
+    for (int32_t y = r.y; y < r.y + r.h; y++)
+        for (int32_t x = r.x; x < r.x + r.w; x++) sum += pc_brush_dab_value(p, cx, cy, w, x, y);
+    return sum / 255.0;
+}
+
 static void t_profile_hard(void)
 {
     pc_brush_params p = pc_brush_params_default();
     double cx = 50.5, cy = 50.5;
+    pc_rect r;
+    unsigned long partial = 0;
     p.hardness = 1.0;
-    /* width 20: full inside d <= 9.5, 0 from d >= 10.5, linear in between */
+    /* width 20: a hard disk of radius 10 with a 0.4 px Gaussian edge */
     CHECK(pc_brush_dab_value(&p, cx, cy, 20.0, 50, 50) == 255);
-    CHECK(pc_brush_dab_value(&p, cx, cy, 20.0, 59, 50) == 255);     /* d = 9 */
-    CHECK(pc_brush_dab_value(&p, cx, cy, 20.0, 60, 50) == 128);     /* d = 10: 0.5 */
-    CHECK(pc_brush_dab_value(&p, cx, cy, 20.0, 61, 50) == 0);       /* d = 11 */
-    CHECK(pc_brush_dab_value(&p, cx, cy, 20.0, 50, 40) == 128);
-    CHECK(pc_brush_dab_value(&p, cx, cy, 20.0, 40, 50) == 128);
-    /* symmetric, monotone along rays, everything inside the bounds */
-    {
-        pc_rect r = pc_brush_dab_bounds(&p, cx, cy, 20.0);
-        unsigned long partial = 0, full = 0, sum = 0;
-        for (int32_t y = r.y - 3; y < r.y + r.h + 3; y++)
-            for (int32_t x = r.x - 3; x < r.x + r.w + 3; x++) {
-                uint8_t v = pc_brush_dab_value(&p, cx, cy, 20.0, x, y);
-                double d = hypot(x + 0.5 - cx, y + 0.5 - cy);
-                if (!pc_rect_contains(r, x, y)) CHECK(v == 0);
-                CHECK(v == pc_brush_dab_value(&p, cx, cy, 20.0, 100 - x, y));
-                CHECK(v == pc_brush_dab_value(&p, cx, cy, 20.0, y, x));
-                if (d <= 9.5) CHECK(v == 255);
-                if (d >= 10.5) CHECK(v == 0);
-                if (v > 0 && v < 255) partial++;
-                if (v == 255) full++;
-                sum += v;
-            }
-        /* a 1 px ramp: area ~ pi r^2 */
-        CHECK(fabs((double)sum / 255.0 - 3.14159265 * 100.0) < 3.0);
-        CHECK(partial < 90 && partial > 40);
-        CHECK(full > 270);
-    }
+    CHECK(pc_brush_dab_value(&p, cx, cy, 20.0, 58, 50) == 255);     /* d = 8 */
+    CHECK(pc_brush_dab_value(&p, cx, cy, 20.0, 59, 50) >= 250);     /* d = 9: 99.4% */
+    CHECK(pc_brush_dab_value(&p, cx, cy, 20.0, 60, 50) >= 120);     /* d = 10: the edge */
+    CHECK(pc_brush_dab_value(&p, cx, cy, 20.0, 60, 50) <= 128);
+    CHECK(pc_brush_dab_value(&p, cx, cy, 20.0, 61, 50) <= 3);       /* d = 11 */
+    CHECK(pc_brush_dab_value(&p, cx, cy, 20.0, 62, 50) == 0);
+    r = pc_brush_dab_bounds(&p, cx, cy, 20.0);
+    for (int32_t y = r.y - 3; y < r.y + r.h + 3; y++)
+        for (int32_t x = r.x - 3; x < r.x + r.w + 3; x++) {
+            uint8_t v = pc_brush_dab_value(&p, cx, cy, 20.0, x, y);
+            double d = hypot(x + 0.5 - cx, y + 0.5 - cy);
+            if (!pc_rect_contains(r, x, y)) CHECK(v == 0);
+            CHECK(v == pc_brush_dab_value(&p, cx, cy, 20.0, 100 - x, y));
+            CHECK(v == pc_brush_dab_value(&p, cx, cy, 20.0, y, x));
+            if (d <= 8.5) CHECK(v == 255);
+            if (d >= 11.5) CHECK(v == 0);
+            if (v > 0 && v < 255) partial++;
+        }
+    CHECK(partial > 40 && partial < 200);
+    /* blurring keeps the mass: area of the disk */
+    CHECK(fabs(dab_mass(&p, cx, cy, 20.0) - 3.14159265 * 100.0) < 1.0);
+    CHECK(fabs(dab_mass(&p, 30.3, 70.8, 41.0) - 3.14159265 * 20.5 * 20.5) < 2.0);
 }
 
 static void t_profile_soft(void)
 {
     pc_brush_params p = pc_brush_params_default();
     double cx = 100.5, cy = 100.5, w = 80.0;
-    unsigned long partial_soft = 0, partial_hard = 0;
     p.hardness = 0.0;
-    CHECK(pc_brush_dab_value(&p, cx, cy, w, 100, 100) == 255);
-    /* monotone non-increasing along +x, reaching 0 at R + 0.5 */
+    /* center: 1 - exp(-rho^2 / 2), rho = r0 / sigma (closed form at d = 0) */
+    {
+        double r0 = 0.43195 * 40.0, sg = sqrt(pow(0.36482 * 40.0, 2) + 0.16);
+        double rho = r0 / sg, c = 255.0 * (1.0 - exp(-0.5 * rho * rho));
+        uint8_t v = pc_brush_dab_value(&p, cx, cy, w, 100, 100);
+        CHECK(fabs((double)v - c) <= 1.0);
+        CHECK(v >= 126 && v <= 130);                 /* about half (observed 132) */
+    }
+    /* monotone non-increasing along +x, reaching beyond the brush circle */
     {
         uint8_t prev = 255;
-        for (int32_t x = 100; x <= 145; x++) {
+        for (int32_t x = 100; x <= 170; x++) {
             uint8_t v = pc_brush_dab_value(&p, cx, cy, w, x, 100);
             CHECK(v <= prev);
             prev = v;
-            if (x - 100 >= 41) CHECK(v == 0);
         }
-        /* soft: halfway out is clearly partial, near the edge low */
-        CHECK(pc_brush_dab_value(&p, cx, cy, w, 120, 100) > 64);
-        CHECK(pc_brush_dab_value(&p, cx, cy, w, 120, 100) < 192);
-        CHECK(pc_brush_dab_value(&p, cx, cy, w, 138, 100) < 16);
+        CHECK(pc_brush_dab_value(&p, cx, cy, w, 140, 100) > 0);    /* d = R */
+        CHECK(pc_brush_dab_value(&p, cx, cy, w, 150, 100) > 0);    /* d = 1.25 R */
+        CHECK(pc_brush_dab_value(&p, cx, cy, w, 165, 100) == 0);   /* d = 1.6 R */
     }
-    for (int32_t y = 50; y < 152; y++)
-        for (int32_t x = 50; x < 152; x++) {
-            uint8_t s = pc_brush_dab_value(&p, cx, cy, w, x, y);
-            pc_brush_params ph = p;
-            uint8_t h;
-            ph.hardness = 1.0;
-            h = pc_brush_dab_value(&ph, cx, cy, w, x, y);
-            CHECK(s <= h);                       /* softer never adds coverage */
-            if (s > 0 && s < 255) partial_soft++;
-            if (h > 0 && h < 255) partial_hard++;
+    /* mass = area of the inner disk (a(0) R)^2 pi, about 19% of the circle */
+    CHECK(fabs(dab_mass(&p, cx, cy, w) / (3.14159265 * 1600.0) - 0.43195 * 0.43195) < 0.003);
+    /* observed Paint.NET values (width 121, pixels on a ray from the center) */
+    {
+        static const struct { int h, d, v, tol; } obs[] = {
+            { 0, 0, 132, 5 }, { 0, 15, 110, 3 }, { 0, 30, 66, 3 }, { 0, 45, 29, 3 },
+            { 0, 60, 9, 2 }, { 0, 75, 2, 1 }, { 25, 0, 222, 13 }, { 25, 30, 112, 3 },
+            { 25, 45, 46, 3 }, { 50, 15, 254, 7 }, { 50, 30, 196, 3 }, { 50, 45, 84, 3 },
+            { 50, 60, 12, 2 }, { 75, 45, 205, 3 }, { 75, 55, 59, 3 }, { 75, 61, 11, 2 },
+            { 100, 59, 255, 0 }, { 100, 65, 0, 0 }
+        };
+        for (size_t i = 0; i < sizeof obs / sizeof obs[0]; i++) {
+            pc_brush_params q = pc_brush_params_default();
+            uint8_t v;
+            q.hardness = obs[i].h / 100.0;
+            v = pc_brush_dab_value(&q, 200.5, 200.5, 121.0, 200 + obs[i].d, 200);
+            CHECK(abs((int)v - obs[i].v) <= obs[i].tol);
         }
-    CHECK(partial_soft > 10u * partial_hard);
-    /* hardness 0.5: full core of radius 0.5 * (R - 0.5) */
-    p.hardness = 0.5;
-    CHECK(pc_brush_dab_value(&p, cx, cy, w, 119, 100) == 255);      /* d = 19 <= 19.75 */
-    CHECK(pc_brush_dab_value(&p, cx, cy, w, 121, 100) < 255);       /* d = 21 */
+    }
+    /* hardness monotone: more hardness, more mass */
+    {
+        double prev = 0.0;
+        for (int h = 0; h <= 100; h += 5) {
+            double m;
+            p.hardness = h / 100.0;
+            m = dab_mass(&p, cx, cy, w);
+            CHECK(m > prev);
+            prev = m;
+        }
+    }
     /* aliased ignores hardness */
+    p.hardness = 0.5;
     p.antialias = false;
     CHECK(pc_brush_dab_value(&p, cx, cy, w, 139, 100) == 255);
     CHECK(pc_brush_dab_value(&p, cx, cy, w, 141, 100) == 0);
@@ -108,19 +134,16 @@ static void t_profile_small(void)
     pc_brush_params p = pc_brush_params_default();
     p.hardness = 1.0;
     for (int i = 1; i <= 8; i++) {
-        double w = 0.25 * i, cx = 10.3, cy = 10.7;
-        double sum = 0.0;
-        for (int32_t y = 5; y < 16; y++)
-            for (int32_t x = 5; x < 16; x++) sum += pc_brush_dab_value(&p, cx, cy, w, x, y);
-        /* mass follows the disk area (within the ramp approximation) */
-        double area = 3.14159265 * w * w / 4.0;
-        CHECK(fabs(sum / 255.0 - area) < 0.09 * area + 0.02);
+        double w = 0.25 * i, area = 3.14159265 * w * w / 4.0;
+        /* sub-pixel widths keep their area (the tail below 1/510 is dropped) */
+        CHECK(fabs(dab_mass(&p, 10.3, 10.7, w) - area) < 0.03 * area + 0.02);
     }
-    CHECK(pc_brush_dab_value(&p, 10.5, 10.5, 0.01, 10, 10) == 0);   /* too faint to stamp */
-    {
-        pc_rect r = pc_brush_dab_bounds(&p, 10.5, 10.5, 0.01);
-        CHECK(pc_rect_is_empty(r));
-    }
+    /* width 1 at a pixel center: most of it in that pixel */
+    CHECK(pc_brush_dab_value(&p, 10.5, 10.5, 1.0, 10, 10) > 100);
+    CHECK(pc_brush_dab_value(&p, 10.5, 10.5, 1.0, 11, 10) < 30);
+    CHECK(pc_brush_dab_value(&p, 10.5, 10.5, 3.0, 10, 10) == 255);
+    CHECK(pc_brush_dab_value(&p, 10.5, 10.5, 0.01, 10, 10) == 0);   /* too faint */
+    CHECK(pc_rect_is_empty(pc_brush_dab_bounds(&p, 10.5, 10.5, 0.0)));
 }
 
 static unsigned count_px(const pc_brush_params *p, double x, double y, double w)
@@ -138,21 +161,32 @@ static unsigned count_px(const pc_brush_params *p, double x, double y, double w)
 static void t_profile_aliased(void)
 {
     pc_brush_params p = pc_brush_params_default();
-    static const unsigned want[8] = { 0, 1, 4, 9, 12, 21, 32, 37 };
+    /* pixel counts observed on Paint.NET for widths 1..12 (9 differs by 8
+     * near-tangent pixels there, see brush.md) */
+    static const unsigned want[13] = { 0, 1, 4, 9, 12, 21, 32, 37, 52, 69, 80, 97, 112 };
     p.antialias = false;
-    for (int w = 1; w <= 7; w++) {
+    for (int w = 1; w <= 12; w++) {
         /* the count does not depend on the sub-pixel position */
         CHECK(count_px(&p, 10.5, 10.5, w) == want[w]);
         CHECK(count_px(&p, 10.2, 10.9, w) == want[w]);
         CHECK(count_px(&p, 10.0, 10.0, w) == want[w]);
-        CHECK(count_px(&p, 10.5, 10.5, w + 0.3) == want[w]);
+        CHECK(count_px(&p, 10.5, 10.5, w + 0.6) == want[w]);       /* floor */
     }
     CHECK(count_px(&p, 10.5, 10.5, 0.4) == 0);
+    CHECK(count_px(&p, 10.5, 10.5, 0.6) == 1);
+    CHECK(count_px(&p, 10.5, 10.5, 1.6) == 1);
+    CHECK(count_px(&p, 10.5, 10.5, 2.6) == 4);
     /* odd widths center on the pixel under the point, even ones on the corner */
     CHECK(pc_brush_dab_value(&p, 10.9, 10.1, 1.0, 10, 10) == 255);
     CHECK(pc_brush_dab_value(&p, 10.6, 10.6, 2.0, 11, 11) == 255);
     CHECK(pc_brush_dab_value(&p, 10.6, 10.6, 2.0, 10, 10) == 255);
     CHECK(pc_brush_dab_value(&p, 10.6, 10.6, 2.0, 9, 10) == 0);
+    /* and like Paint.NET a click at a pixel center puts even widths on the
+     * corner below right: offsets 0..1 for width 2, -1..2 for width 4 */
+    CHECK(pc_brush_dab_value(&p, 40.5, 40.5, 2.0, 41, 41) == 255);
+    CHECK(pc_brush_dab_value(&p, 40.5, 40.5, 2.0, 39, 40) == 0);
+    CHECK(pc_brush_dab_value(&p, 40.5, 40.5, 4.0, 42, 40) == 255);
+    CHECK(pc_brush_dab_value(&p, 40.5, 40.5, 4.0, 38, 40) == 0);
 }
 
 static void t_accumulate(void)
@@ -322,15 +356,12 @@ static void t_stroke_many_dabs(void)
     memset(&c, 0, sizeof c);
     c.p = pc_brush_params_default();
     c.p.width = 3.0;
-    c.p.spacing = 0.01;              /* 0.0625 px floor: ~6000 dabs */
+    c.p.spacing = 0.01;              /* 1 px floor: a dab per pixel of path */
     c.p.smoothing = true;
     pc_brush_paint_color(pxc(10, 200, 30, 140), PC_BLEND_NORMAL, true, &c.src, &c.opts);
-    c.n = 5;
-    c.s[0] = smp(10.2, 10.7, 1.0);
-    c.s[1] = smp(290.1, 30.3, 0.5);
-    c.s[2] = smp(30.5, 180.5, 1.0);
-    c.s[3] = smp(250.5, 190.5, 0.2);
-    c.s[4] = smp(150.0, 5.0, 1.0);
+    c.n = 30;                        /* zigzag of ~30 x 250 px */
+    for (int i = 0; i < c.n; i++)
+        c.s[i] = smp(10.2 + (i & 1) * 280.0 + i * 0.3, 5.7 + i * 6.3, i & 1 ? 0.5 : 1.0);
     run_case(&td, &c, NULL, b, &got, cov, true);
     CHECK(pc_brush_dab_count(b) > 4096u);
     pc_surf_free(&got);
@@ -400,7 +431,7 @@ static void t_spacing(void)
         p.width = 20.0;
         p.spacing = sp[k];
         p.smoothing = false;
-        step = sp[k] * 20.0 < 0.0625 ? 0.0625 : sp[k] * 20.0;
+        step = sp[k] * 20.0 < 1.0 ? 1.0 : sp[k] * 20.0;
         collect(b, &L);
         CHECK(pc_brush_begin(b, t, td.lid, &p, &src, &o, NULL, &s0, 0u, NULL) == PC_OK);
         CHECK(pc_brush_add(b, &s1, NULL) == PC_OK);
@@ -488,7 +519,7 @@ static void t_no_double_blend(void)
         pc_txn *t;
         pc_surf s;
         pc_px32 once = pxc(255, 255, 255, 255), blk = pxc(0, 0, 0, 128);
-        unsigned long n_once = 0;
+        unsigned long n_once = 0, n_near = 0;
         tdoc_init(&td, 200, 200, FILL_WHITE);
         pc_composite_span(&once, &blk, 1, PC_BLEND_NORMAL, 255);
         pc_brush_paint_color(blk, PC_BLEND_NORMAL, true, &src, &o);
@@ -513,8 +544,13 @@ static void t_no_double_blend(void)
                 pc_px32 v = surf_at(&s, x, y);
                 CHECK(v.r >= once.r && v.a == 255);       /* never darker than one blend */
                 if (v.r == once.r) n_once++;
+                if (v.r <= once.r + 20) n_near++;
             }
-        CHECK(n_once > 3000u);                               /* uniform where fully covered */
+        INFO("mode %d: %lu pixels at one full blend, %lu within 20", mode, n_once, n_near);
+        /* hard: uniform where fully covered; soft (peak 52% per dab): the
+         * build-up approaches one full blend along the path but never passes it */
+        if (mode == 0) CHECK(n_once > 3000u);
+        else CHECK(n_near > 1000u);
         if (mode == 0) CHECK(px_eq(surf_at(&s, 100, 100), once));
         pc_surf_free(&s);
         CHECK(pc_txn_commit(t, td.h) == PC_OK);
@@ -585,7 +621,7 @@ static void t_pressure(void)
     CHECK(L.n == (size_t)floor(260.0 / 3.0) + 1u);    /* spacing follows the diameter */
     tdoc_read(&td, t, &s);
     CHECK(surf_at(&s, 150, 50 + 9).a == 255);
-    CHECK(surf_at(&s, 150, 50 + 11).a == 0);
+    CHECK(surf_at(&s, 150, 50 + 12).a == 0);
     pc_surf_free(&s);
     pc_txn_cancel(t);
     dab_log_free(&L);
@@ -612,55 +648,116 @@ static void t_pressure(void)
     tdoc_free(&td);
 }
 
-static double path_max_dev(pc_brush *b, const tdoc *td, bool smooth, double *first_x,
-                           double *last_x)
+/* centripetal Catmull-Rom point of segment p1 -> p2 at f in [0, 1]
+ * (independent re-implementation: pairwise interpolation of the knots) */
+static void cr_point(const double *p0, const double *p1, const double *p2, const double *p3,
+                     double f, double *out)
 {
-    pc_paint_src src;
-    pc_paint_opts o;
-    pc_brush_params p = pc_brush_params_default();
-    dab_log L;
-    pc_txn *t = pc_txn_begin(td->d, "z");
-    double dev = 0.0;
-    pc_brush_paint_color(pxc(0, 0, 0, 255), PC_BLEND_NORMAL, true, &src, &o);
-    p.width = 4.0;
-    p.smoothing = smooth;
-    collect(b, &L);
-    {
-        pc_brush_sample s0 = smp(10.5, 100.5, 1);
-        CHECK(pc_brush_begin(b, t, td->lid, &p, &src, &o, NULL, &s0, 0u, NULL) == PC_OK);
-        for (int i = 1; i <= 30; i++) {
-            /* jittery horizontal input: +-6 px spikes on every other sample */
-            pc_brush_sample si = smp(10.5 + 9.0 * i, 100.5 + ((i & 1) ? 6.0 : 0.0), 1);
-            if (i == 30) si.y = 100.5;
-            CHECK(pc_brush_add(b, &si, NULL) == PC_OK);
-        }
-        CHECK(pc_brush_end(b, NULL) == PC_OK);
+    double t0 = 0.0, t1 = t0 + sqrt(hypot(p1[0] - p0[0], p1[1] - p0[1]));
+    double t2 = t1 + sqrt(hypot(p2[0] - p1[0], p2[1] - p1[1]));
+    double t3 = t2 + sqrt(hypot(p3[0] - p2[0], p3[1] - p2[1]));
+    double t = t1 + (t2 - t1) * f;
+    for (int c = 0; c < 2; c++) {
+        double a1 = (t1 - t) / (t1 - t0) * p0[c] + (t - t0) / (t1 - t0) * p1[c];
+        double a2 = (t2 - t) / (t2 - t1) * p1[c] + (t - t1) / (t2 - t1) * p2[c];
+        double a3 = (t3 - t) / (t3 - t2) * p2[c] + (t - t2) / (t3 - t2) * p3[c];
+        double b1 = (t2 - t) / (t2 - t0) * a1 + (t - t0) / (t2 - t0) * a2;
+        double b2 = (t3 - t) / (t3 - t1) * a2 + (t - t1) / (t3 - t1) * a3;
+        out[c] = (t2 - t) / (t2 - t1) * b1 + (t - t1) / (t2 - t1) * b2;
     }
-    for (size_t i = 0; i < L.n; i++) {
-        double d = fabs(L.v[3 * i + 1] - 103.5);
-        if (L.v[3 * i] > 30.0 && L.v[3 * i] < 260.0 && d > dev) dev = d;
-    }
-    *first_x = L.v[0];
-    *last_x = L.v[3 * (L.n - 1)];
-    pc_txn_cancel(t);
-    dab_log_free(&L);
-    pc_brush_set_observer(b, NULL, NULL);
-    return dev;
+}
+
+static double dist_seg(double px, double py, double ax, double ay, double bx, double by)
+{
+    double dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy, u;
+    u = l2 > 0.0 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0.0;
+    u = u < 0.0 ? 0.0 : (u > 1.0 ? 1.0 : u);
+    return hypot(px - ax - u * dx, py - ay - u * dy);
 }
 
 static void t_smoothing(void)
 {
+    enum { N = 13 };
+    double pts[N][2];
     tdoc td;
     pc_brush *b = pc_brush_create();
-    double f0, l0, f1, l1, d0, d1;
-    tdoc_init(&td, 300, 200, FILL_CLEAR);
-    d0 = path_max_dev(b, &td, false, &f0, &l0);
-    d1 = path_max_dev(b, &td, true, &f1, &l1);
-    INFO("max deviation raw %.3f smoothed %.3f, last dab x %.3f %.3f", d0, d1, l0, l1);
-    CHECK(d0 > 2.8 && d0 <= 3.0);         /* raw spikes reach +-3 around the mean */
-    CHECK(d1 < 1.6);                      /* smoothed: alternating jitter halved */
-    CHECK(f0 == 10.5 && f1 == 10.5);      /* both start on the press point */
-    CHECK(fabs(l0 - 280.5) < 0.61 && fabs(l1 - 280.5) < 0.61);   /* and reach the end */
+    pc_paint_src src;
+    pc_paint_opts o;
+    tdoc_init(&td, 400, 200, FILL_CLEAR);
+    pc_brush_paint_color(pxc(0, 0, 0, 255), PC_BLEND_NORMAL, true, &src, &o);
+    for (int i = 0; i < N; i++) {           /* irregular zigzag */
+        pts[i][0] = 10.5 + 29.0 * i + (i % 3) * 3.0;
+        pts[i][1] = 100.5 + ((i & 1) ? 35.0 : -20.0) + i;
+    }
+    for (int smooth = 0; smooth < 2; smooth++) {
+        pc_brush_params p = pc_brush_params_default();
+        dab_log L;
+        pc_txn *t = pc_txn_begin(td.d, "z");
+        double worst = 0.0;
+        p.width = 4.0;
+        p.smoothing = smooth != 0;
+        collect(b, &L);
+        {
+            pc_brush_sample s0 = smp(pts[0][0], pts[0][1], 1);
+            CHECK(pc_brush_begin(b, t, td.lid, &p, &src, &o, NULL, &s0, 0u, NULL) == PC_OK);
+            for (int i = 1; i < N; i++) {
+                pc_brush_sample si = smp(pts[i][0], pts[i][1], 1);
+                CHECK(pc_brush_add(b, &si, NULL) == PC_OK);
+                /* smoothing draws one segment behind: nothing past sample i-1 */
+                if (smooth) CHECK(L.v[3 * (L.n - 1)] <= pts[i - 1][0] + 1e-9);
+                else CHECK(fabs(L.v[3 * (L.n - 1)] - pts[i][0]) < 1.0);
+            }
+            CHECK(pc_brush_end(b, NULL) == PC_OK);
+        }
+        CHECK(L.v[0] == pts[0][0] && L.v[1] == pts[0][1]);        /* first dab on the press */
+        CHECK(hypot(L.v[3 * (L.n - 1)] - pts[N - 1][0],
+                    L.v[3 * (L.n - 1) + 1] - pts[N - 1][1]) < 1.0); /* reaches the end */
+        /* the path passes through every sample (dabs 1 px apart) */
+        for (int i = 0; i < N; i++) {
+            double best = 1e9;
+            for (size_t k = 0; k < L.n; k++)
+                best = fmin(best, hypot(L.v[3 * k] - pts[i][0], L.v[3 * k + 1] - pts[i][1]));
+            CHECK(best <= 0.55);
+        }
+        /* every dab lies on the reference curve */
+        for (size_t k = 0; k < L.n; k++) {
+            double best = 1e9;
+            for (int i = 0; i + 1 < N; i++) {
+                if (!smooth) {
+                    best = fmin(best, dist_seg(L.v[3 * k], L.v[3 * k + 1], pts[i][0], pts[i][1],
+                                               pts[i + 1][0], pts[i + 1][1]));
+                } else {
+                    double p0[2], p3[2], prev[2], cur[2];
+                    if (i == 0) {
+                        p0[0] = 2 * pts[0][0] - pts[1][0];
+                        p0[1] = 2 * pts[0][1] - pts[1][1];
+                    } else {
+                        p0[0] = pts[i - 1][0];
+                        p0[1] = pts[i - 1][1];
+                    }
+                    if (i + 2 >= N) {
+                        p3[0] = 2 * pts[N - 1][0] - pts[N - 2][0];
+                        p3[1] = 2 * pts[N - 1][1] - pts[N - 2][1];
+                    } else { p3[0] = pts[i + 2][0]; p3[1] = pts[i + 2][1]; }
+                    cr_point(p0, pts[i], pts[i + 1], p3, 0.0, prev);
+                    for (int m = 1; m <= 400; m++) {
+                        cr_point(p0, pts[i], pts[i + 1], p3, m / 400.0, cur);
+                        best = fmin(best, dist_seg(L.v[3 * k], L.v[3 * k + 1], prev[0], prev[1],
+                                                   cur[0], cur[1]));
+                        prev[0] = cur[0];
+                        prev[1] = cur[1];
+                    }
+                }
+            }
+            worst = fmax(worst, best);
+        }
+        CHECK(worst < (smooth ? 0.05 : 1e-6));
+        INFO("smoothing %d: %zu dabs, max distance to the reference curve %.4f px", smooth, L.n,
+             worst);
+        pc_txn_cancel(t);
+        dab_log_free(&L);
+    }
+    pc_brush_set_observer(b, NULL, NULL);
     pc_brush_destroy(b);
     tdoc_free(&td);
 }
@@ -841,7 +938,7 @@ static void t_selection_clip(void)
     tdoc_free(&td);
 }
 
-/* ---- history, Shift+click, off-canvas -------------------------------------------------------- */
+/* ---- history, line from the last point, off-canvas ------------------------------------------- */
 
 static void t_undo(void)
 {
@@ -1007,6 +1104,27 @@ static void t_offcanvas(void)
     }
     CHECK(pc_txn_commit(t, td.h) == PC_OK);
     CHECK(td.h->count == n0 && pc_doc_fingerprint(td.d) == f0);
+    /* a soft stroke just above the canvas still reaches it (soft dabs extend
+     * to about 1.6 R): dabs there must not be skipped */
+    t = pc_txn_begin(td.d, "near");
+    {
+        pc_brush_params q = p;
+        pc_brush_sample s0 = smp(-20.5, -60.5, 1), s1 = smp(120.5, -60.5, 1);
+        pc_surf sf;
+        q.width = 100.0;
+        q.hardness = 0.0;
+        q.smoothing = false;
+        CHECK(pc_brush_dab_value(&q, 50.5, -60.5, 100.0, 50, 0) > 0);
+        CHECK(pc_brush_begin(b, t, td.lid, &q, &src, &o, NULL, &s0, 0u, NULL) == PC_OK);
+        CHECK(pc_brush_add(b, &s1, NULL) == PC_OK);
+        CHECK(pc_brush_end(b, NULL) == PC_OK);
+        CHECK(pc_brush_dab_count(b) == 10u);        /* 141 px at 15 px steps */
+        tdoc_read(&td, t, &sf);
+        CHECK(surf_at(&sf, 50, 0).r < 255);
+        CHECK(surf_at(&sf, 50, 30).r == 255);
+        pc_surf_free(&sf);
+    }
+    pc_txn_cancel(t);
     /* huge coordinates are clamped and finish quickly; the canvas crossing paints */
     t = pc_txn_begin(td.d, "far");
     {
@@ -1069,6 +1187,7 @@ static void t_errors(void)
     p.hardness = 7.0;
     p.spacing = 0.0;
     s0 = smp(10.5, 10.5, 1);
+    p.width = 6.0;
     CHECK(pc_brush_begin(b, t, td.lid, &p, NULL, &o, NULL, &s0, 0u, NULL) == PC_OK);
     CHECK(pc_brush_begin(b, t, td.lid, &p, &src, &o, NULL, &s0, 0u, NULL) == PC_ERR_STATE);
     CHECK(pc_brush_add(b, &bad, NULL) == PC_ERR_ARG);

@@ -18,72 +18,79 @@
  * pixel under the pointer to its center so a click at 100% zoom paints
  * centered on that pixel.
  *
- * Dab profile (antialiased). For a dab of diameter D centered at c and a
- * pixel center at distance d:
- *   R = D / 2; when R < 1 the profile of R = 1 is used with its intensity
- *   scaled by R * R (sub-pixel widths keep their area, so 0.5 px lines
- *   look thin and light rather than 1 px wide).
- *   outer = R + 0.5, inner = hardness * (R - 0.5), band = outer - inner.
- *   d <= inner: 255. d >= outer: 0. Otherwise t = (outer - d) / band and
- *   f = t + (smoothstep(t) - t) * min(band - 1, 1), coverage = f * 255.
- *   Hardness 100% is therefore the plain 1 px antialiasing ramp centered
- *   on the brush circle; lower hardness widens the ramp inwards until, at
- *   0%, it spans the whole radius with a smoothstep falloff. The soft
- *   part never extends beyond the brush circle (plus the 0.5 px AA ramp),
- *   so the outline cursor of diameter D stays truthful.
- * Aliased dabs (antialiasing off, hardness ignored): the diameter is
- * rounded to an integer n >= 1 (n == 0 stamps nothing); odd n centers the
- * dab on the pixel under c, even n on the nearest pixel corner, and a
- * pixel is covered (255) when its center lies inside or on the circle of
- * radius n / 2. Width 1 is one pixel, 2 a 2 x 2 block, 3 a 3 x 3 block.
+ * Behavior marked (M) was measured black box on Paint.NET 5.2 under Wine
+ * (ADR-009: a hint, not authoritative; 5.1.12 does not start under Wine
+ * and the 5.2 notes list no brush changes). docs/core/brush.md has the
+ * data and the fit quality.
+ *
+ * Dab profile (antialiased, M). A dab of diameter D (R = D / 2) at
+ * hardness h is a disk of radius a(h) R blurred by a Gaussian of standard
+ * deviation sqrt((b(h) R)^2 + 0.4^2): a(0) = 0.43, b(0) = 0.36 (a soft
+ * dab that peaks at about 52% coverage and fades out near 1.4 R),
+ * b(h) = 0.4 (1 - h) and a(h) ~ 1 - 1.59 b(h) for h >= 45%, a(1) = 1 and
+ * b(1) = 0 (a hard disk whose edge carries 0.4 px of antialiasing). The
+ * profile scales with D, so sub-pixel widths keep their area and look
+ * thin and light. Single dabs reproduce the observed ones within 0.6 to
+ * 1.4 LSB rms. Note that the soft part reaches beyond the brush circle.
+ * Aliased dabs (antialiasing off, hardness ignored, M): the integer
+ * diameter is n = floor(D) (1 from 0.5 px up, nothing below); odd n
+ * centers the dab on the pixel under c, even n on the nearest pixel
+ * corner, and a pixel is covered (255) when its center lies inside or on
+ * the circle of radius n / 2. Width 1 is one pixel, 2 a 2 x 2 block, 3 a
+ * 3 x 3 block, 5 has 21 pixels (of the observed widths 1 to 12, 20 and
+ * 21 all match except near-tangent pixels at 9 and 20).
  *
  * Accumulation of dabs within a stroke (coverage c, dab value v):
- *   PC_BRUSH_ACCUM_BUILDUP: c' = c + v * (255 - c) / 255 (rounded), like
- *     stacking the dabs as layers of a mask. Soft brushes build up where
- *     dabs overlap, so spacing and hardness both shape the stroke. This is
- *     the default because Paint.NET 5 strokes behave this way (soft
- *     strokes depend on spacing, low spacing shows faint echoes of the AA
- *     fringe, and a 5.1.x fix for segments processed twice "making them
- *     darker" only makes sense for an accumulating mask).
- *   PC_BRUSH_ACCUM_MAX: c' = max(c, v). Spacing-independent, soft strokes
- *     look like one long smooth dab (Paint.NET 4.x look).
+ *   PC_BRUSH_ACCUM_BUILDUP (default, M): c' = c + v * (255 - c) / 255
+ *     (rounded), like stacking the dabs as layers of a mask. Soft strokes
+ *     build up where dabs overlap, so lower spacing makes them darker; the
+ *     observed strokes match within 1 to 3 LSB rms. A semi-transparent
+ *     color is still applied once: a stroke crossing itself does not get
+ *     darker (M), separate strokes do.
+ *   PC_BRUSH_ACCUM_MAX: c' = max(c, v). Spacing-independent; soft strokes
+ *     look like one long smooth dab.
  *   Either way coverage never exceeds 255, so a 50% color gives at most a
  *   50% result and a hard stroke is uniform where dabs overlap.
  *
- * Spacing. Dab centers are placed along the path at arc-length steps of
- * spacing * D (D at the previous dab, so pressure changes adapt), with a
- * floor of 1/16 px; the first dab sits on the press point. The remaining
+ * Spacing (M). Dab centers are placed along the path at arc-length steps
+ * of spacing * D (D at the previous dab, so pressure changes adapt) but at
+ * least 1 px apart; the first dab sits on the press point. 100% spacing
+ * makes touching dabs, 200% leaves one diameter of gap. The remaining
  * distance carries over between input events, so a stroke does not depend
  * on how its input was split into events.
  *
- * Smoothing (on by default). The path through the raw samples p0..pn is a
- * quadratic B-spline: a line from p0 to mid(p0, p1), then for each inner
- * sample p_k a quadratic Bezier from mid(p_k-1, p_k) to mid(p_k, p_k+1)
- * with control point p_k, then a line from mid(p_n-1, p_n) to p_n. It has
- * no corners (polyline kinks and the staircase of integer mouse positions
- * become curves), evens out jitter (alternating jitter is halved, a
- * one-sample spike loses a quarter of its height) and starts and ends
- * exactly on the press and release points.
- * The part after the last midpoint is drawn by the next event or by
- * pc_brush_end, so the drawn stroke lags half an input segment behind the
- * pointer. Without smoothing the path is the polyline through the samples.
- * Pressure is interpolated along the path the same way.
+ * Smoothing (on by default, M). The path through the raw samples p0..pn is
+ * a centripetal Catmull-Rom spline (the toolbar tooltip names it; the
+ * observed curves lie within 0.4 px of it) with phantom end points
+ * reflected through the first and last samples (2 p0 - p1, 2 pn - pn-1). It
+ * passes through every sample and removes the corners between them. The
+ * segment from p(k-1) to p(k) needs p(k+1), so the drawn stroke lags one
+ * input segment behind the pointer until pc_brush_end draws the last one.
+ * Without smoothing the path is the polyline through the samples.
+ * Pressure is interpolated linearly along each segment.
  *
  * Pressure. With params.pressure on, the diameter is width * pressure
  * (pressure clamped to 0..1; mice pass 1). Pressure does not change the
- * opacity.
+ * opacity. The linear curve is inferred (no pen was available).
  *
- * Pencil (PC_BRUSH_TIP_PENCIL). Each sample selects pixel (floor(x),
- * floor(y)); consecutive pixels are joined by Bresenham lines (8-connected,
- * exactly one pixel per step of the major axis, ties rounded towards the
- * end point). Width, hardness, spacing, antialiasing, smoothing and
- * pressure are ignored. Coverage is 255 per hit pixel, so a pixel crossed
- * twice in one stroke is painted once.
+ * Pencil (PC_BRUSH_TIP_PENCIL, M). Each sample selects pixel (floor(x),
+ * floor(y)); consecutive pixels are joined by the line rasterization of
+ * Paint.NET 3.36 (Utility.GetLinePoints, MIT), which Paint.NET 5 still
+ * produces: one pixel per step of the major axis; pixel i (counted from
+ * the start) has the minor offset floor((i + 1) * minor / major), so
+ * (0,0) to (4,1) gives y = 0, 0, 0, 1, 1 and (0,0) to (10,1) steps at
+ * x = 9; |dx| == |dy| is a plain diagonal. Width, hardness,
+ * spacing, antialiasing, smoothing and pressure are ignored. Coverage is
+ * 255 per hit pixel, so a pixel crossed twice in one stroke is painted
+ * once.
  *
- * Shift+click (PC_BRUSH_FROM_LAST). pc_brush_begin can start with a
- * straight, unsmoothed segment from the last point of the previous stroke
- * (pc_brush_last_point) to the press point. The dab (or pencil pixel) at
- * that last point is not stamped again, so the joint does not darken.
+ * Line from the last point (PC_BRUSH_FROM_LAST). pc_brush_begin can start
+ * with a straight, unsmoothed segment from the last point of the previous
+ * stroke (pc_brush_last_point) to the press point. The dab (or pencil
+ * pixel) at that last point is not stamped again, so the joint does not
+ * darken. This is a paint.c extension, not Paint.NET behavior: Shift+click
+ * in Paint.NET 5.2 just stamps another dab (M), so the tools should only
+ * offer it as an explicit option.
  *
  * Usage (one History item per stroke; the caller owns the transaction):
  *   pc_txn *t = pc_txn_begin(doc, "Paintbrush");
@@ -141,9 +148,9 @@ typedef struct pc_brush_params {
     pc_brush_accum accum;
 } pc_brush_params;
 
-/* Toolbar defaults: round tip, width 2, hardness 0.75, spacing 0.15,
- * antialiased, smoothing on, pressure on, antialiased selection clipping,
- * build-up accumulation. Any thread. */
+/* Toolbar defaults: round tip, width 2, hardness 0.75 (observed), spacing
+ * 0.15, antialiased, smoothing on, pressure on, antialiased selection
+ * clipping, build-up accumulation. Any thread. */
 pc_brush_params pc_brush_params_default(void);
 
 typedef struct pc_brush_sample {
@@ -152,7 +159,7 @@ typedef struct pc_brush_sample {
 } pc_brush_sample;
 
 /* pc_brush_begin flags */
-#define PC_BRUSH_FROM_LAST 1u    /* Shift+click: line from the last stroke's end */
+#define PC_BRUSH_FROM_LAST 1u    /* line from the last stroke's end (extension) */
 
 typedef struct pc_brush pc_brush;
 
@@ -192,7 +199,7 @@ void      pc_brush_abort(pc_brush *b);
 
 bool      pc_brush_is_active(const pc_brush *b);
 
-/* Last raw sample of the previous completed stroke (for the Shift+click
+/* Last raw sample of the previous completed stroke (for the line-from-last
  * preview line). False when there is none. */
 bool      pc_brush_last_point(const pc_brush *b, pc_brush_sample *out);
 /* Forget the last point (active layer or document changed). */
