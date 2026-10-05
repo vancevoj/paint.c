@@ -290,7 +290,10 @@ int main(int argc, char **argv)
         free((void *)c.files);
         return 1;
     }
-    if (interactive && !c.headless) (void)pal_single_instance(APP_ID, 0, NULL, forwarded, a);
+    if (interactive && !c.headless) {
+        (void)pal_single_instance(APP_ID, 0, NULL, forwarded, a);
+        app_wake_poll(a, 200u);        /* forwarded opens arrive while idle */
+    }
     configure_autosave(a, &c, interactive, primary);
     if (c.reset_windows) app_panels_reset_all(a);
     app_open_paths(a, c.files, c.nfiles);

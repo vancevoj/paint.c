@@ -652,6 +652,7 @@ bool app_quitting(const app *a) { return a->quit_req || a->quit_done; }
 /* ---- events -------------------------------------------------------------------------- */
 void app_event(app *a, const SDL_Event *e)
 {
+    if (app_io_event(a, e)) return;    /* lane I: file drops, event loop wake-ups */
     switch (e->type) {
     case SDL_EVENT_QUIT:
         app_quit(a);
@@ -685,10 +686,8 @@ void app_event(app *a, const SDL_Event *e)
         for (int32_t i = 0; i < a->ndocs; i++) app_thumbs_free(a->docs[i]);
         app_request_frame(a);
         break;
-    case SDL_EVENT_DROP_BEGIN:      /* lane I: drop dialog, OS document opens */
     case SDL_EVENT_DROP_FILE:
-    case SDL_EVENT_DROP_COMPLETE:
-        app_drop_event(a, e);
+        if (e->drop.data) (void)app_open_path(a, e->drop.data);
         break;
     default:
         break;

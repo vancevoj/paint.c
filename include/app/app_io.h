@@ -98,6 +98,13 @@ void  app_drop_files(app *a, const char *const *paths, int n, app_drop_action ac
  * to fit larger images (anchored top left). false on OOM. */
 bool  app_import_layers(app *a, app_doc *d, const char *const *paths, int n);
 
+/* ---- event loop wake-ups (src/app/io/wake.c) --------------------------------------------- */
+/* Wake the idle event loop every ms milliseconds (0 stops) so pal delivers
+ * forwarded opens (single instance) and dialog results without user input;
+ * a wake-up draws nothing unless something arrived. The editor's main()
+ * turns it on; one app per process. */
+void  app_wake_poll(app *a, uint32_t ms);
+
 /* ---- window icon (src/app/io/icon.c) --------------------------------------------------- */
 /* The paint.c icon as straight RGBA (size x size, 32, 64 or 256 px, others
  * resampled from 256). Owned: free(). NULL on OOM. Any thread. */

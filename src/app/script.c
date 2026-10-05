@@ -40,6 +40,7 @@
  *   discard [all|I]           delete them
  *   drop open|layers|ask PATH a file dropped on the window
  *   select N                  make image N (0 based) active
+ *   wheel X Y DY              mouse wheel at window coordinates (DY > 0: away)
  *   expect autosaved N        images whose current state is autosaved
  *   expect recovery N         images found by a recovery scan
  *   expect recent N | dialogs N | name NAME | path PATH | layername I NAME
@@ -236,6 +237,21 @@ static int run_line(app *a, char **tok, int n, int ln, char *err, size_t cap)
         path = pbuf;
         app_drop_files(a, &path, 1, act);
         settle(a, 3);
+    } else if (strcmp(c, "wheel") == 0 && n >= 4) {
+        SDL_Event e;
+        float sx = (float)atof(tok[1]), sy = (float)atof(tok[2]);
+        mouse_event(a, SDL_EVENT_MOUSE_MOTION, sx, sy, 0);
+        settle(a, 1);
+        memset(&e, 0, sizeof e);
+        e.type = SDL_EVENT_MOUSE_WHEEL;
+        e.wheel.x = 0.0f;
+        e.wheel.y = (float)atof(tok[3]);
+        e.wheel.mouse_x = sx;
+        e.wheel.mouse_y = sy;
+        e.wheel.which = 1;
+        e.wheel.timestamp = SDL_GetTicksNS();
+        app_event(a, &e);
+        settle(a, 2);
     } else if (strcmp(c, "select") == 0 && n >= 2) {
         app_doc *sd = app_doc_at(a, atoi(tok[1]));
         if (!sd) return fail(err, cap, ln, "no such image");

@@ -40,6 +40,10 @@ uint64_t io_hash(const char *s);
 pc_status io_thumb_write(const char *path, const uint8_t *rgba, int32_t w, int32_t h);
 uint8_t *io_thumb_read(const char *path, int32_t max, int32_t *w, int32_t *h);
 
+/* ---- drop.c --------------------------------------------------------------------------- */
+/* SDL drop events (files dropped on the window, documents the OS opens). */
+void     app_drop_event(app *a, const SDL_Event *e);
+
 /* ---- recent.c ------------------------------------------------------------------------- */
 /* A fresh thumbnail for path (opened or saved just now). rgba ownership
  * moves to the recent list (may be NULL: forget the old one). */

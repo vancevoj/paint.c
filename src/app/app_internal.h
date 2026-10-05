@@ -354,8 +354,8 @@ bool     app_quit_unsaved(app *a);
 /* io/recent.c: the File > Open Recent submenu items (thumbnails, path
  * tooltips, Clear List); called inside the open submenu. */
 void     app_recent_menu_items(app *a);
-/* io/drop.c: SDL drop events (files dropped on the window, documents
- * opened by the OS). */
-void     app_drop_event(app *a, const SDL_Event *e);
+/* io/wake.c: events lane I consumes before everything else (file drops,
+ * the loop wake-ups that deliver forwarded opens); true when consumed. */
+bool     app_io_event(app *a, const SDL_Event *e);
 
 #endif /* APP_INTERNAL_H */
