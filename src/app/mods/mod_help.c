@@ -31,75 +31,26 @@
 #define M_URL_SEARCH   M_URL_HOME "/search"
 #define M_URL_FEEDBACK M_URL_HOME "/issues/new"
 
-/* The NOTICE file of the source tree, line by line (keep in sync; the
- * test_m_help test compares the two). */
-static const char *const k_notice[] = {
-    "paint.c (formerly the PortableCanvas working name)",
-    "",
-    "This product contains code derived from Paint.NET 3.36. The blend formulas and the",
-    "integer compositing semantics in src/pc_blend.c re-implement, in C, the UserBlendOps of",
-    "Paint.NET 3.36, which were released under the MIT License reproduced below.",
-    "",
-    "Paint.NET",
-    "Copyright (C) dotPDN LLC, Rick Brewster, Chris Crosetto, Tom Jackson, Michael Kelsey,",
-    "Brandon Ortiz, Craig Taylor, Chris Trevino, and Luke Walker.",
-    "Portions Copyright (C) Microsoft Corporation. All Rights Reserved.",
-    "",
-    "Permission is hereby granted, free of charge, to any person obtaining a copy of this",
-    "software and associated documentation files (the \"Software\"), to deal in the Software",
-    "without restriction, including without limitation the rights to use, copy, modify,",
-    "merge, publish, distribute, sublicense, and/or sell copies of the Software, and to",
-    "permit persons to whom the Software is furnished to do so, subject to the following",
-    "conditions:",
-    "",
-    "The above copyright notice and this permission notice shall be included in all copies",
-    "or substantial portions of the Software.",
-    "",
-    "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,",
-    "INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A",
-    "PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT",
-    "HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF",
-    "CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE",
-    "OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
-    "",
-    "The Paint.NET 3.36 license excludes its logo and icon artwork, its resource assets",
-    "(.resources, .resx and .png files, menu and status text) and the GPC library from the",
-    "MIT grant. None of that material is used here, and it must never be added.",
-    "",
-    "----------------------------------------------------------------------------------------",
-    "Additional Paint.NET 3.36 derived algorithms",
-    "",
-    "Several adjustments and effects (src/fx/adjust, src/fx/blur, src/fx/noise, src/fx/photo,",
-    "src/fx/artistic, src/fx/distort, src/fx/render, src/fx/stylize) and a few codec and core",
-    "behaviors re-implement algorithms from the MIT-licensed Paint.NET 3.36 source under the",
-    "license reproduced above. The save pipeline of the BMP, GIF, TGA, TIFF and PNG codecs",
-    "(src/codec/quant.c: Auto-detect bit depth, flattening onto white, transparency threshold,",
-    "dithering level) follows Paint.NET 3.36's InternalFileType and Quantizer classes. Per-file",
-    "details are in docs/notice/*.md. Some of those 3.36",
-    "files carry an additional notice, also under the MIT License reproduced above:",
-    "",
-    "    Copyright (c) 2006-2008 Ed Harvey",
-    "    (Posterize tables, WarpEffectBase, Polar Inversion, Dents, PerlinNoise2D)",
-    "",
-    "----------------------------------------------------------------------------------------",
-    "Third-party components (full license texts ship in licenses/ with every binary package)",
-    "",
-    "    SDL 3.4.18                 zlib license          https://libsdl.org",
-    "    zlib 1.3.2                 zlib license          https://zlib.net",
-    "    libspng 0.7.4              BSD 2-Clause          https://libspng.org",
-    "    libjpeg-turbo 3.2.0        IJG, BSD 3-Clause and zlib licenses",
-    ("    libwebp 1.6.0              BSD 3-Clause         "
-     " https://chromium.googlesource.com/webm/libwebp"),
-    "    Little-CMS 2.19.1          MIT                   https://littlecms.com",
-    "    bcdec, stb_dxt, bc7enc     MIT or public domain  (see third_party/*/LICENSE*)",
-    "    stb_truetype 1.26          MIT or public domain, Copyright (c) 2017 Sean Barrett",
-    "    Inter 4.1 (UI font)        SIL OFL 1.1, Copyright 2016 The Inter Project Authors",
-    "                               (assets/fonts/OFL.txt)",
-    "    Test fixtures only: subsets of Inter and Noto Sans CJK JP (SIL OFL 1.1, Copyright",
-    "    2014-2021 Adobe, Reserved Font Name 'Source'), see tests/ui/data/README.md",
-    "",
-    "This software is based in part on the work of the Independent JPEG Group.",
-};
+/* The NOTICE file of the source tree, embedded at build time by
+ * cmake/PcEmbed.cmake (src/app/CMakeLists.txt), so About can never drift from
+ * it; test_m_help compares the two. */
+extern const unsigned char pc_notice_txt[];
+extern const size_t pc_notice_txt_size;
+
+/* Next line of the embedded NOTICE starting at *pos into out (CR stripped).
+ * Returns false at the end. */
+static bool notice_line(size_t *pos, char *out, size_t cap)
+{
+    size_t p = *pos, n = 0;
+    if (p >= pc_notice_txt_size) return false;
+    while (p < pc_notice_txt_size && pc_notice_txt[p] != '\n') {
+        if (pc_notice_txt[p] != '\r' && n + 1u < cap) out[n++] = (char)pc_notice_txt[p];
+        p++;
+    }
+    out[n] = '\0';
+    *pos = p < pc_notice_txt_size ? p + 1u : p;
+    return true;
+}
 
 /* ---- About ---------------------------------------------------------------------- */
 static void build_line(app *a, char *out, size_t cap)
@@ -134,7 +85,11 @@ size_t m_about_text(app *a, char *out, size_t cap)
     if (cap) out[0] = '\0';
     ADD(APP_NAME);
     ADD(line);
-    for (size_t i = 0; i < sizeof k_notice / sizeof k_notice[0]; i++) ADD(k_notice[i]);
+    {
+        size_t pos = 0;
+        char nl[512];
+        while (notice_line(&pos, nl, sizeof nl)) ADD(nl);
+    }
 #undef ADD
     return k;
 }
@@ -163,10 +118,13 @@ static bool about_frame(app *a, void *st)
     ui_scroll_begin(ui, "##about_credits", box, 0);
     ui_layout_push(ui, ui_layout_content(ui), 8.0f);
     ui_layout_set_spacing(ui, 0.0f);
-    for (size_t i = 0; i < sizeof k_notice / sizeof k_notice[0]; i++) {
-        const char *s = k_notice[i];
-        if (!s[0]) ui_layout_space(ui, 6.0f);
-        else ui_text_wrapped(ui, s, UI_LABEL_SMALL);
+    {
+        size_t pos = 0;
+        char nl[512];
+        while (notice_line(&pos, nl, sizeof nl)) {
+            if (!nl[0]) ui_layout_space(ui, 6.0f);
+            else ui_text_wrapped(ui, nl, UI_LABEL_SMALL);
+        }
     }
     ui_layout_pop(ui);
     ui_scroll_end(ui);

@@ -34,7 +34,10 @@ foreach(_n ${_names})
 endforeach()
 file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/gen/app_mod_list.inc CONTENT "${_list}")
 
-add_library(pc_app STATIC ${PC_APP_SRCS})
+# NOTICE embedded for the About dialog (regenerated when NOTICE changes).
+include(PcEmbed)
+pc_embed_file(PC_APP_EMBED ${PROJECT_SOURCE_DIR}/NOTICE pc_notice_txt)
+add_library(pc_app STATIC ${PC_APP_SRCS} ${PC_APP_EMBED})
 target_include_directories(pc_app PUBLIC ${PROJECT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}
                            PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen)
 target_link_libraries(pc_app PUBLIC pc_gfx pc_ui pc_pal pc_codec pc_fx pc_core SDL3::SDL3)
