@@ -630,6 +630,82 @@ static void t_huge_errors_history(void)
     e3_doc_free(&e);
 }
 
+/* ---- extreme but valid backend answers -------------------------------------------------------- */
+
+static int g_mode;
+static pc_px32 g_px4[4];
+
+static size_t x_layers(void *ud, uint32_t gid, pc_font_color_layer *out, size_t cap)
+{
+    (void)ud;
+    if (gid != 10u || g_mode != 0) return 0u;
+    /* more layers than the engine draws, glyphs the face does not have */
+    for (size_t i = 0; i < cap; i++) {
+        memset(&out[i], 0, sizeof out[i]);
+        out[i].gid = i % 3u == 0u ? 20u : 0xFFFFFFu;
+        out[i].color = e3_px(9, 9, 9, 255);
+    }
+    return PC_TEXT_MAX_COLOR_LAYERS + 5u;
+}
+
+static pc_status x_bitmap(void *ud, uint32_t gid, double em, pc_font_bitmap *out)
+{
+    (void)ud;
+    (void)em;
+    if (gid != 11u) return PC_ERR_UNSUPPORTED;
+    for (int i = 0; i < 4; i++) g_px4[i] = e3_px(200, 10, 10, 255);
+    out->px = g_px4;
+    out->w = 2;
+    out->h = 2;
+    out->left = 0.0;
+    out->top = -10.0;
+    switch (g_mode) {
+    case 1: out->scale = 1e-4; break;                      /* vanishing */
+    case 2: out->scale = 1500.0; break;                    /* 3000 px image */
+    case 3: out->scale = 1.0; out->left = 1e6; break;      /* far outside */
+    case 4: out->scale = (double)NAN; break;              /* NaN: rejected */
+    default: out->scale = 4.0; break;
+    }
+    return PC_OK;
+}
+
+static void t_extreme_backend(void)
+{
+    pc_font_face xf = g_c;
+    const pc_font_face *faces[2] = { &g_m, &xf };
+    e3_doc e = e3_doc_make(400, 300, e3_px(0, 0, 0, 0));
+    pc_vdraw_opts o = pc_vdraw_opts_default();
+    pc_paint_src src = e3_solid(e3_px(0, 0, 0, 255));
+    xf.color_layers = x_layers;
+    xf.color_bitmap = x_bitmap;
+    for (g_mode = 0; g_mode < 5; g_mode++) {
+        pc_text *t = pc_text_create();
+        pc_vrender *vr = pc_vrender_create();
+        pc_text_style st;
+        pc_txn *x;
+        pc_status rs;
+        pc_text_style_default(&st);
+        st.anchor = PC_TEXT_ANCHOR_BASELINE;
+        CHECK(t && vr && pc_text_set_fonts(t, faces, 2) == PC_OK);
+        CHECK(pc_text_set_style(t, &st) == PC_OK);
+        pc_text_set_origin(t, pc_pt_make(20, 200));
+        CHECK(pc_text_set_utf8(t, "\xf0\x9f\x98\x80\xf0\x9f\x98\x81", 8) == PC_OK);
+        x = pc_txn_begin(e.d, "Text");
+        rs = pc_text_render(t, vr, x, e.layer, &src, &o, NULL, NULL);
+        CHECK(rs == PC_OK);
+        INFO("mode %d: %s", g_mode, pc_status_str(rs));
+        if (g_mode == 2) {
+            pc_px32 p;
+            CHECK(pc_txn_read_rect(x, e.layer, pc_rect_make(200, 250, 1, 1), &p, 1) == PC_OK);
+            CHECK(p.r == 200u && p.a == 255u);              /* the upscaled bitmap */
+        }
+        pc_txn_cancel(x);
+        pc_vrender_destroy(vr);
+        pc_text_destroy(t);
+    }
+    e3_doc_free(&e);
+}
+
 /* Random edits with color glyphs keep the layout invariants. */
 static void t_random(void)
 {
@@ -685,6 +761,7 @@ int main(int argc, char **argv)
     RUN(t_render_bitmap);
     RUN(t_render_mixed);
     RUN(t_huge_errors_history);
+    RUN(t_extreme_backend);
     RUN(t_random);
     pc_tile_stats(&t1, &b1);
     CHECK(t0 == t1 && b0 == b1);

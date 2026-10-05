@@ -554,8 +554,10 @@ static void bm_texel(const pc_font_bitmap *b, int64_t x, int64_t y, double w, do
     o[3] += a;
 }
 
-/* Bitmap strike resampled to the image: box filter when shrinking,
- * bilinear when enlarging; synthetic italic shears the sampling. */
+/* Bitmap strike resampled to the image: an area average when shrinking
+ * (outside the bitmap counts as transparent, so its edges are
+ * antialiased), bilinear when enlarging (edge texels repeat up to the
+ * bitmap's box); synthetic italic shears the sampling. */
 static pc_status make_bitmap(pc_text *t, pc_text_cimg *c, size_t max_px)
 {
     const pc_font_face *f = t->faces[c->face];
@@ -609,17 +611,22 @@ static pc_status make_bitmap(pc_text *t, pc_text_cimg *c, size_t max_px)
                     }
                 }
             } else {
+                /* bilinear, edge texels repeated inside the bitmap's box */
                 double px = sx - 0.5, py = sy - 0.5, fx, fy;
-                int64_t ix, iy;
-                if (px < -1.0 || py < -1.0 || px > (double)b.w || py > (double)b.h) continue;
+                int64_t ix, iy, ix1, iy1;
+                if (sx < 0.0 || sy < 0.0 || sx >= (double)b.w || sy >= (double)b.h) continue;
                 ix = (int64_t)floor(px);
                 iy = (int64_t)floor(py);
                 fx = px - (double)ix;
                 fy = py - (double)iy;
+                ix1 = ix + 1 < b.w ? ix + 1 : b.w - 1;
+                iy1 = iy + 1 < b.h ? iy + 1 : b.h - 1;
+                if (ix < 0) ix = 0;
+                if (iy < 0) iy = 0;
                 bm_texel(&b, ix, iy, (1.0 - fx) * (1.0 - fy), o);
-                bm_texel(&b, ix + 1, iy, fx * (1.0 - fy), o);
-                bm_texel(&b, ix, iy + 1, (1.0 - fx) * fy, o);
-                bm_texel(&b, ix + 1, iy + 1, fx * fy, o);
+                bm_texel(&b, ix1, iy, fx * (1.0 - fy), o);
+                bm_texel(&b, ix, iy1, (1.0 - fx) * fy, o);
+                bm_texel(&b, ix1, iy1, fx * fy, o);
             }
         }
     }
