@@ -77,7 +77,7 @@ static void ref_weights(pc_resample m, uint32_t n_in, uint32_t n_out, uint32_t o
         double fs = (widen && n_out < n_in) ? (double)n_out / n_in : 1.0;
         double c = (o + 0.5) * ratio;
         for (int64_t j = (int64_t)floor(c) - 400; j <= (int64_t)ceil(c) + 400; j++) {
-            double v = ref_k(k, (j + 0.5 - c) * fs);
+            double v = ref_k(k, ((double)j + 0.5 - c) * fs);
             int64_t jj = j < 0 ? 0 : (j >= (int64_t)n_in ? (int64_t)n_in - 1 : j);
             w[jj] += v;
         }
