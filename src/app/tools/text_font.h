@@ -35,6 +35,7 @@
 
 #include "app/app.h"
 #include "pc/pc_text.h"
+#include "ui/ui_font.h"
 
 typedef struct text_fonts text_fonts;
 
@@ -72,6 +73,14 @@ const char *text_fonts_family(const text_fonts *tf, int32_t i);
 int32_t     text_fonts_find_family(const text_fonts *tf, const char *name);  /* -1 */
 /* Generation of the family list (changes when a scan finishes). */
 uint32_t    text_fonts_gen(const text_fonts *tf);
+
+/* A face to draw family i's name in its own font in the font list
+ * (TOOLS.md 3.3: dropdown with previews). Faces load on demand, at most a
+ * couple per frame (frame = ui_frame_count) and only for files up to 8 MiB;
+ * NULL until loaded, or when the family cannot preview (the caller then
+ * uses the UI font). At most 96 preview faces stay loaded; the least
+ * recently drawn ones are released, never ones drawn in this frame. */
+ui_font    *text_fonts_preview(text_fonts *tf, int32_t i, uint32_t frame);
 
 /* The default family: "Inter", paint.c's own UI face (TOOLS.md 3.3: the
  * platform's sans UI font). */

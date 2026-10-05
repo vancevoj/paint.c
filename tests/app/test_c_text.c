@@ -211,6 +211,15 @@ static void t_backend(void)
         CHECK(p.n_verbs == 0u);
         pc_path_free(&p);
     }
+    /* list previews load on demand, a couple per frame, and stay cached */
+    {
+        ui_font *pf = NULL;
+        int32_t fi = text_fonts_find_family(tf, "Inter");
+        for (uint32_t frame = 1; frame < 4 && !pf; frame++) pf = text_fonts_preview(tf, fi, frame);
+        CHECK(pf != NULL);
+        CHECK(text_fonts_preview(tf, fi, 9u) == pf);
+        CHECK(text_fonts_preview(tf, -1, 9u) == NULL);
+    }
     /* bold resolves to the SemiBold face (no synthesis), unknown families to Inter */
     CHECK(text_fonts_faces(tf, "Inter", true, false, &faces, &n) == PC_OK && n >= 1u);
     if (n >= 1u) CHECK(faces[0]->bold && !faces[0]->italic);
@@ -352,6 +361,12 @@ static void t_typing(void)
     CHECK(text_is(a, "Xelo\n2"));
     k = ink_in(a, 30, 40, 200, 80);
     CHECK(k.y1 > 70);                         /* the second line is below */
+    /* Tab types nothing and keeps the keyboard in the text */
+    key(a, SDLK_TAB, SDL_KMOD_NONE);
+    type(a, "!");
+    CHECK(text_is(a, "Xelo\n2!"));
+    CHECK(ui_focus_id(app_ui(a)) == 0);
+    key(a, SDLK_BACKSPACE, SDL_KMOD_NONE);
     /* Esc commits one step */
     key(a, SDLK_ESCAPE, SDL_KMOD_NONE);
     CHECK(!app_tool_live(a));

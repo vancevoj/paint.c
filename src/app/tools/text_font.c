@@ -37,7 +37,20 @@ typedef struct tf_set {
     size_t              n;
 } tf_set;
 
+#define TF_PREVIEWS 96
+#define TF_PREVIEW_MAX_FILE ((uint64_t)8u << 20)
+#define TF_PREVIEW_LOADS_PER_FRAME 2
+
+typedef struct tf_preview {
+    char     family[96];
+    ui_font *f;                 /* owned, NULL = cannot preview */
+    uint32_t last;              /* frame of the last use */
+} tf_preview;
+
 struct text_fonts {
+    tf_preview      prev[TF_PREVIEWS];
+    int32_t         nprev;
+    uint32_t        prev_frame, prev_loads;
     app            *a;
     text_face_info *sys;        /* scanned faces (owned) */
     size_t          nsys;
@@ -373,6 +386,64 @@ pc_status text_fonts_faces(text_fonts *tf, const char *family, bool bold, bool i
     return PC_OK;
 }
 
+/* ---- previews ---------------------------------------------------------------------------- */
+static bool shows_own_name(const ui_font *f, const char *name)
+{
+    size_t n = strlen(name), i = 0;
+    while (i < n) {
+        uint32_t cp = ui_utf8_decode(name, n, &i);
+        if (cp > 0x20u && !ui_font_has_glyph(f, cp)) return false;   /* symbol fonts */
+    }
+    return true;
+}
+
+ui_font *text_fonts_preview(text_fonts *tf, int32_t i, uint32_t frame)
+{
+    const char *fam;
+    const text_face_info *fi;
+    tf_preview *slot = NULL;
+    uint8_t *data = NULL;
+    size_t len = 0;
+    if (!tf || i < 0 || i >= tf->nfam) return NULL;
+    fam = tf->fam[i];
+    if (tf->prev_frame != frame) {
+        tf->prev_frame = frame;
+        tf->prev_loads = 0;
+    }
+    for (int32_t k = 0; k < tf->nprev; k++)
+        if (strcmp(tf->prev[k].family, fam) == 0) {
+            tf->prev[k].last = frame;
+            return tf->prev[k].f;
+        }
+    if (tf->prev_loads >= TF_PREVIEW_LOADS_PER_FRAME) return NULL;
+    tf->prev_loads++;
+    if (tf->nprev < TF_PREVIEWS) {
+        slot = &tf->prev[tf->nprev++];
+    } else {
+        /* evict the least recently drawn face (not one drawn this frame) */
+        for (int32_t k = 0; k < tf->nprev; k++)
+            if (tf->prev[k].last != frame && (!slot || tf->prev[k].last < slot->last))
+                slot = &tf->prev[k];
+        if (!slot) return NULL;
+        ui_font_free(slot->f);
+    }
+    memset(slot, 0, sizeof *slot);
+    app_copy_str(slot->family, sizeof slot->family, fam);
+    slot->last = frame;
+    if (ci_cmp(fam, TEXT_DEFAULT_FAMILY) == 0) {
+        slot->f = ui_font_load_builtin(UI_FONT_REGULAR);
+    } else if ((fi = pick(tf, fam, false, false)) != NULL &&
+               pal_read_file(fi->path, TF_PREVIEW_MAX_FILE, &data, &len) == PC_OK) {
+        if (ui_font_load_mem(data, len, fi->index, UI_FONT_COPY, &slot->f) != PC_OK) slot->f = NULL;
+        free(data);
+    }
+    if (slot->f && !shows_own_name(slot->f, fam)) {
+        ui_font_free(slot->f);
+        slot->f = NULL;
+    }
+    return slot->f;
+}
+
 /* ---- scanning --------------------------------------------------------------------------- */
 static bool font_ext(const char *name)
 {
@@ -681,6 +752,7 @@ static void tf_destroy(void *p)
 {
     text_fonts *tf = (text_fonts *)p;
     if (!tf) return;
+    for (int32_t i = 0; i < tf->nprev; i++) ui_font_free(tf->prev[i].f);
     for (size_t i = 0; i < tf->nfaces; i++) {
         ui_font_free(tf->faces[i]->f);
         free(tf->faces[i]);

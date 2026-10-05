@@ -21,6 +21,7 @@
 #include "vec_ui.h"
 #include "../app_internal.h"
 
+#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,6 +43,10 @@ typedef struct text_state {
     bool        dirty;          /* re-render due */
     bool        follow;         /* keep the caret in view after the next render */
     char        comp[256];      /* IME composition */
+    bool        typing;         /* the text had the keyboard in the last frame */
+    char        filter[96];     /* font list search */
+    uint32_t    font_pop_frame; /* last frame the font list was open */
+    bool        font_pop_new;   /* focus the search field once */
     /* pointer */
     int         drag;
     int         button;
@@ -461,7 +466,16 @@ static void process_input(app *a, text_state *s, app_overlay *o)
     const ui_key_press *k;
     pc_box cb;
     double sx0, sy0, sx1, sy1;
-    if (!s->editing || app_dialog_active(a) || ui_focus_id(ui) != 0) return;
+    if (!s->editing || app_dialog_active(a)) return;
+    k = ui_key_presses(ui, &nk);
+    for (int i = 0; i < nk && s->typing; i++)
+        if (k[i].key == SDLK_TAB && ui_focus_id(ui) != 0) {
+            /* the toolkit moved the focus from the text to the options bar
+             * on Tab: typing stays in the text (Tab types nothing, 3.36) */
+            ui_set_focus(ui, 0);
+        }
+    s->typing = ui_focus_id(ui) == 0;
+    if (!s->typing) return;
     pc_text_caret_box(s->t, pc_text_caret(s->t), &cb);
     app_ov_to_screen(o, cb.x0, cb.y0, &sx0, &sy0);
     app_ov_to_screen(o, cb.x1, cb.y1, &sx1, &sy1);
@@ -511,6 +525,127 @@ static bool opt_toggle(app *a, const char *id, ui_icon icon, bool *v, const char
     return false;
 }
 
+/* ---- font list with previews ------------------------------------------------------------ */
+typedef struct font_rows {
+    app        *a;
+    text_fonts *tf;
+    int32_t    *map;            /* family indices matching the filter */
+    uint32_t    frame;
+} font_rows;
+
+static void font_row(ui_ctx *ui, void *ud, int32_t index, ui_rect row, uint32_t state)
+{
+    font_rows *fr = (font_rows *)ud;
+    int32_t fam = fr->map[index];
+    const char *name = text_fonts_family(fr->tf, fam);
+    ui_font *f = text_fonts_preview(fr->tf, fam, fr->frame);
+    ui_color c = (state & UI_ROW_SELECTED) ? ui_pal(ui)->selection_text : ui_pal(ui)->text;
+    float fs = ui_font_px(ui) * 1.15f;
+    ui_rect r = ui_rect_make(row.x + ui_px(ui, 8.0f), row.y, row.w - ui_px(ui, 12.0f), row.h);
+    ui_draw_text_box(ui, f ? f : ui_font_regular(ui), fs, r, UI_ALIGN_LEFT, UI_TEXT_ELLIPSIS, c,
+                     name, strlen(name));
+}
+
+static bool ci_contains(const char *hay, const char *needle)
+{
+    size_t n = strlen(needle);
+    if (!n) return true;
+    for (; *hay; hay++) {
+        size_t k = 0;
+        while (k < n && hay[k] && tolower((unsigned char)hay[k]) == tolower((unsigned char)needle[k]))
+            k++;
+        if (k == n) return true;
+    }
+    return false;
+}
+
+/* Font button and popup: a search field and the families, each drawn in
+ * its own face (TOOLS.md 3.3). Arrow keys preview fonts on the live text,
+ * a click or Enter picks one. */
+static bool font_picker(app *a, text_state *s, text_fonts *tf)
+{
+    ui_ctx *ui = app_ui(a);
+    const ui_palette *p = ui_pal(ui);
+    ui_rect r = app_opt_next(a, 170.0f);
+    ui_interaction in = ui_interact(ui, ui_get_id(ui, "##text_font"), r,
+                                    UI_INTERACT_KEEP_FOCUS | UI_INTERACT_PRESS);
+    bool changed = false, open = ui_popup_is_open(ui, "##text_font_pop");
+    float rad = (float)ui_px(ui, ui_get_theme(ui)->m.radius);
+    int32_t aw = ui_px(ui, 16.0f);
+    ui_draw_rrect(ui, r, rad, open || in.held ? p->raised_active : in.hovered ? p->raised_hover
+                                                                         : p->raised);
+    ui_draw_rrect_outline(ui, r, rad, ui_px_line(ui, 1.0f), in.hovered ? p->border_strong : p->border);
+    ui_draw_text_box(ui, ui_font_regular(ui), ui_font_px(ui),
+                     ui_rect_make(r.x + ui_px(ui, 8.0f), r.y, r.w - aw - ui_px(ui, 10.0f), r.h),
+                     UI_ALIGN_LEFT, UI_TEXT_ELLIPSIS, p->text, s->family, strlen(s->family));
+    ui_draw_icon(ui, UI_ICON_CHEVRON_DOWN, ui_rect_make(r.x + r.w - aw, r.y, aw, r.h),
+                 ui_px(ui, 10.0f), p->text_dim, p->icon_accent);
+    ui_tooltip(ui, text_fonts_scanning(tf) ? "Font (looking for installed fonts...)" : "Font");
+    if (in.clicked) {
+        if (open) {
+            ui_popup_close(ui);
+        } else if (s->font_pop_frame + 1u < ui_frame_count(ui)) {
+            s->filter[0] = '\0';
+            s->font_pop_new = true;
+            ui_popup_open(ui, "##text_font_pop", r, UI_POPUP_BELOW);
+        }
+    }
+    if (ui_popup_begin(ui, "##text_font_pop")) {
+        int32_t n = text_fonts_family_count(tf), nm = 0, sel = -1, old;
+        ui_size cell = ui_size_px(280.0f);
+        font_rows fr;
+        ui_list_result lr;
+        s->font_pop_frame = ui_frame_count(ui);
+        uint32_t er;
+        ui_id fid = ui_get_id(ui, "##text_font_filter");
+        if (s->font_pop_new) {
+            /* type to search right away (the popup's first, measuring frame
+             * may drop the focus, so ask until it sticks) */
+            if (ui_focus_id(ui) == fid) s->font_pop_new = false;
+            else ui_set_focus(ui, fid);
+        }
+        ui_layout_row(ui, 0.0f, 1, &cell);
+        er = ui_text_field_ex(ui, "##text_font_filter", s->filter, sizeof s->filter, 0,
+                              "Search fonts");
+        fr.a = a;
+        fr.tf = tf;
+        fr.frame = ui_frame_count(ui);
+        fr.map = n > 0 ? (int32_t *)malloc((size_t)n * sizeof *fr.map) : NULL;
+        for (int32_t i = 0; i < n && fr.map; i++) {
+            const char *name = text_fonts_family(tf, i);
+            if (!ci_contains(name, s->filter)) continue;
+            if (strcmp(name, s->family) == 0) sel = nm;
+            fr.map[nm++] = i;
+        }
+        old = sel;
+        if (fr.map) {
+            ui_rect lrect;
+            ui_layout_row(ui, 0.0f, 1, &cell);
+            lrect = ui_layout_next(ui, ui_px(ui, 280.0f), ui_px(ui, 330.0f));
+            lr = ui_list(ui, "##text_font_list", lrect, nm, 28.0f, &sel, 0, font_row, &fr);
+            bool close = lr.activated;
+            if (sel != old && sel >= 0 && sel < nm) {
+                app_copy_str(s->family, sizeof s->family, text_fonts_family(tf, fr.map[sel]));
+                changed = true;
+                close = close || ui_mouse_down(ui, UI_MOUSE_LEFT);
+            }
+            /* Enter in the search field picks the first match */
+            if (nm > 0 && (er & UI_EDIT_SUBMIT)) {
+                app_copy_str(s->family, sizeof s->family, text_fonts_family(tf, fr.map[0]));
+                changed = true;
+                close = true;
+            }
+            if (close) {
+                ui_popup_close(ui);
+                ui_set_focus(ui, 0);      /* typing goes back to the text */
+            }
+            free(fr.map);
+        }
+        ui_popup_end(ui);
+    }
+    return changed;
+}
+
 static void text_options(app *a, void *st)
 {
     text_state *s = (text_state *)st;
@@ -520,29 +655,7 @@ static void text_options(app *a, void *st)
     validate(a, s);
     /* Font */
     app_opt_label(a, "Font:");
-    if (tf) {
-        int32_t n = text_fonts_family_count(tf);
-        const char **names = n > 0 ? (const char **)malloc((size_t)n * sizeof *names) : NULL;
-        int cur = text_fonts_find_family(tf, s->family);
-        if (names) {
-            for (int32_t i = 0; i < n; i++) names[i] = text_fonts_family(tf, i);
-            (void)app_opt_next(a, 170.0f);
-            if (cur < 0) {
-                /* a family that is not installed (yet): show it, keep it */
-                ui_label_ex(ui, s->family, UI_LABEL_DIM);
-            } else {
-                int v = cur;
-                if (ui_combo(ui, "##text_font", &v, names, (int)n) && v != cur) {
-                    app_copy_str(s->family, sizeof s->family, names[v]);
-                    ch = true;
-                    ui_set_focus(ui, 0);
-                }
-            }
-            ui_tooltip(ui, text_fonts_scanning(tf) ? "Font (looking for installed fonts...)"
-                                                   : "Font");
-            free(names);
-        }
-    }
+    if (tf && font_picker(a, s, tf)) ch = true;
     /* Size, presets, - and + (R 5.1.8) */
     {
         double v = s->size;
