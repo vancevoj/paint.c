@@ -127,7 +127,7 @@ static uint8_t resize_mix(m_icc_builtin profile, bool tagged)
     if (tagged) set_profile(d, profile);
     CHECK(app_cmd_exec(a, "image.resize"));
     at_frames(a, 3);
-    f_key(a, SDLK_A, SDL_KMOD_LCTRL);
+    f_key(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "1");
     f_key(a, SDLK_RETURN, SDL_KMOD_NONE);
     at_frames(a, 2);

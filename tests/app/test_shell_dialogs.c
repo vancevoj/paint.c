@@ -111,24 +111,24 @@ static void t_new_image(void)
     CHECK(app_dialog_active(a));
     CHECK(ui_text_input_active(a->ui));              /* O-UI-FOCUS: the Width box */
     /* 0: OK disabled, Enter does nothing */
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "0");
     tap(a, SDLK_TAB, SDL_KMOD_NONE);
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     CHECK(app_dialog_active(a) && app_doc_count(a) == 0);
     /* back to the Width box: 99999 is above paint.c's limit: still disabled */
     tap(a, SDLK_TAB, SDL_KMOD_LSHIFT);
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "99999");
     tap(a, SDLK_TAB, SDL_KMOD_NONE);
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     CHECK(app_dialog_active(a) && app_doc_count(a) == 0);
     /* a valid width typed then Tab: exactly that size */
     tap(a, SDLK_TAB, SDL_KMOD_LSHIFT);
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "640");
     tap(a, SDLK_TAB, SDL_KMOD_NONE);
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "123");
     tap(a, SDLK_TAB, SDL_KMOD_NONE);
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
@@ -171,7 +171,7 @@ static void t_clamp_focus(void)
     at_frames(a, 4);
     CHECK(app_dialog_active(a));
     CHECK(ui_text_input_active(a->ui));              /* the Radius box has the focus */
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "99999");
     tap(a, SDLK_TAB, SDL_KMOD_NONE);                  /* commits, clamped to 300 */
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
