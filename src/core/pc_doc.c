@@ -29,7 +29,7 @@ pc_doc *pc_doc_create(uint32_t w, uint32_t h)
 void pc_doc_destroy(pc_doc *d)
 {
     if (!d) return;
-    pc_sel__forget(d);      /* drop cached selection data keyed by d */
+    pc_sel_doc_destroyed(d);      /* drop cached selection data keyed by d */
     for (uint32_t i = 0; i < d->n_layers; i++) pc_layer_destroy(d->stack[i]);
     if (d->sel_grid) {
         size_t n = (size_t)d->tiles_x * d->tiles_y;

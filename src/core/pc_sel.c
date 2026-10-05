@@ -121,7 +121,7 @@ static size_t bc_slot(const pc_doc *d)
     return (size_t)(v % BC_N);
 }
 
-void pc_sel__forget(const pc_doc *d)
+void pc_sel_doc_destroyed(const pc_doc *d)
 {
     uint32_t t = bc_lock();
     for (size_t i = 0; i < BC_N; i++)

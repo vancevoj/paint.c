@@ -288,16 +288,17 @@ static void piece(row_ctx *c, double xa, double xb, double h)
     }
     if (xl >= c->w) return;                 /* entirely right: invisible */
     dx = xr - xl;
-    if (xl < 0.0) {
-        double hl = h * (-xl / dx);
-        c->a[0] += hl;
-        touch(c, 0u);
-        h -= hl;
-        xl = 0.0;
-    }
-    if (xr > c->w) {
-        h -= h * ((xr - c->w) / dx);
-        xr = c->w;
+    {
+        /* both clipped parts are fractions of the whole piece */
+        double hl = xl < 0.0 ? h * (-xl / dx) : 0.0;
+        double hr = xr > c->w ? h * ((xr - c->w) / dx) : 0.0;
+        if (xl < 0.0) {
+            c->a[0] += hl;            /* left of the window: full cover */
+            touch(c, 0u);
+            xl = 0.0;
+        }
+        if (xr > c->w) xr = c->w;     /* right of the window: invisible */
+        h -= hl + hr;
     }
     c0 = (size_t)xl;
     c1 = (size_t)xr;

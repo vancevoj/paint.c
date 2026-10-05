@@ -107,6 +107,22 @@ static void t_accuracy(void)
                 if (ref > 0.0 && ref < 1.0) { sum_err += e; edge_px++; }
             }
         pc_mask_free(&m);
+        /* a random window clipping the polygon on any side */
+        {
+            pc_rect wnd = pc_rect_make(b.x + (int32_t)rndu((uint32_t)b.w) - b.w / 2,
+                                       b.y + (int32_t)rndu((uint32_t)b.h) - b.h / 2,
+                                       1 + (int32_t)rndu((uint32_t)b.w),
+                                       1 + (int32_t)rndu((uint32_t)b.h));
+            CHECK(pc_mask_alloc(&m, wnd) == PC_OK);
+            CHECK(pc_raster_fill(r, &m, PC_FILL_NONZERO, true) == PC_OK);
+            for (int y = 0; y < m.h; y++)
+                for (int x = 0; x < m.w; x++) {
+                    double e = fabs((double)m.px[y * m.stride + x] / 255.0 -
+                                    pixel_area(pts, n, m.x + x, m.y + y));
+                    if (e > max_err) max_err = e;
+                }
+            pc_mask_free(&m);
+        }
     }
     pc_raster_destroy(r);
     INFO("edge pixels %ld, mean error %.4f/255, max error %.4f/255", edge_px,
@@ -114,6 +130,45 @@ static void t_accuracy(void)
     CHECK(edge_px > 1000);
     CHECK(sum_err / (double)edge_px <= 1.0 / 255.0);
     CHECK(max_err <= 2.0 / 255.0);
+}
+
+static int winding(const pc_pt *p, int n, double x, double y);
+
+/* Huge triangles crossing a small window: the left-of-window projection
+ * and right-of-window drop must keep exact areas. */
+static void t_far_clipping(void)
+{
+    int polys = g_quick ? 200 : 2000, bad_alias = 0;
+    double max_err = 0.0;
+    pc_raster *r = pc_raster_create();
+    pc_mask m;
+    CHECK(pc_mask_alloc(&m, pc_rect_make(-8, -8, 24, 24)) == PC_OK);
+    for (int k = 0; k < polys; k++) {
+        pc_pt pts[3];
+        double span = k % 3 == 0 ? 1e5 : (k % 3 == 1 ? 300.0 : 30.0);
+        for (int i = 0; i < 3; i++)
+            pts[i] = pc_pt_make((frand() * 2 - 1) * span, (frand() * 2 - 1) * span);
+        pc_raster_reset(r);
+        CHECK(pc_raster_add_contour(r, pts, 3, NULL) == PC_OK);
+        CHECK(pc_raster_fill(r, &m, PC_FILL_NONZERO, true) == PC_OK);
+        for (int y = 0; y < m.h; y++)
+            for (int x = 0; x < m.w; x++) {
+                double e = fabs((double)m.px[y * m.stride + x] / 255.0 -
+                                pixel_area(pts, 3, m.x + x, m.y + y));
+                if (e > max_err) max_err = e;
+            }
+        CHECK(pc_raster_fill(r, &m, PC_FILL_EVENODD, false) == PC_OK);
+        for (int y = 0; y < m.h; y++)
+            for (int x = 0; x < m.w; x++) {
+                int w = winding(pts, 3, m.x + x + 0.5, m.y + y + 0.5);
+                if (m.px[y * m.stride + x] != (w ? 255 : 0)) bad_alias++;
+            }
+    }
+    INFO("far clipping: max error %.4f/255, aliased mismatches %d", max_err * 255.0, bad_alias);
+    CHECK(max_err <= 1.0 / 255.0);
+    CHECK(bad_alias == 0);
+    pc_mask_free(&m);
+    pc_raster_destroy(r);
 }
 
 /* Winding number of point (x, y) for a closed polygon. */
@@ -394,6 +449,7 @@ int main(int argc, char **argv)
     pc_test_init(argc, argv);
     (void)&rnd8;
     RUN(t_accuracy);
+    RUN(t_far_clipping);
     RUN(t_aliased);
     RUN(t_fill_rules);
     RUN(t_clip_windows);

@@ -227,7 +227,8 @@ pc_status pc_sel_copy_text(const pc_doc *d, char **out, size_t *len);
 pc_status pc_sel_paste_text(pc_hist *h, const char *text, size_t n, bool antialias,
                             pc_sel_mode mode, const char *label);
 
-/* Internal hook for pc_doc_destroy: drops cached data of d. */
-void      pc_sel__forget(const pc_doc *d);
+/* Called by pc_doc_destroy (any thread that destroys a document): drops
+ * cached data keyed by d. Not for other callers. */
+void      pc_sel_doc_destroyed(const pc_doc *d);
 
 #endif /* PC_SEL_H */
