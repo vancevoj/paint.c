@@ -13,7 +13,7 @@
  *                                         reload an image; exit code 0 on success
  *   options: --headless --size WxH --scale S --frames N --theme light|dark
  *            --software --no-vsync --config-dir DIR --reset-windows
- *            --diagnostics
+ *            --diagnostics --disable-plugins (lane F: no effect plugins)
  */
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>   /* UTF-8 argv on Windows */
@@ -26,6 +26,7 @@
 typedef struct cli {
     const char  *screenshot, *script, *config_dir;
     bool         headless, self_test, software, no_vsync, reset_windows, diagnostics, help;
+    bool         no_plugins;    /* lane F: --disable-plugins (K-CLI-NOPLUGINS) */
     int          w, h, frames, theme;
     float        scale;
     const char **files;
@@ -40,7 +41,7 @@ static void usage(const char *argv0)
             "       %s --script file.txt [--headless] [files...]\n"
             "       %s --self-test [--headless]\n"
             "options: --theme light|dark --software --no-vsync --frames N --config-dir DIR\n"
-            "         --reset-windows --diagnostics\n",
+            "         --reset-windows --diagnostics --disable-plugins\n",
             argv0, argv0, argv0, argv0);
 }
 
@@ -64,6 +65,7 @@ static bool parse(int argc, char **argv, cli *c)
         else if (strcmp(s, "--no-vsync") == 0) c->no_vsync = true;
         else if (strcmp(s, "--reset-windows") == 0) c->reset_windows = true;
         else if (strcmp(s, "--diagnostics") == 0) c->diagnostics = true;
+        else if (strcmp(s, "--disable-plugins") == 0) c->no_plugins = true;   /* lane F */
         else if (strcmp(s, "--frames") == 0 && more) c->frames = atoi(argv[++i]);
         else if (strcmp(s, "--scale") == 0 && more) c->scale = (float)atof(argv[++i]);
         else if (strcmp(s, "--theme") == 0 && more) {
@@ -226,6 +228,7 @@ int main(int argc, char **argv)
     o.software = c.software;
     o.no_vsync = c.no_vsync || !interactive;
     o.config_dir = c.config_dir;
+    o.disable_plugins = c.no_plugins;              /* lane F */
     /* scripted runs start empty and never touch the user's settings */
     if (!interactive) {
         o.no_default_doc = c.nfiles > 0 || c.self_test || c.script;

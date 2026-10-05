@@ -61,6 +61,7 @@ typedef struct app_opts {
     bool        no_vsync;
     bool        software;    /* window mode: force the "software" renderer */
     bool        no_default_doc;  /* do not open the startup "Untitled" image */
+    bool        disable_plugins; /* lane F: skip effect plugin folders (--disable-plugins) */
 } app_opts;
 
 /* Defaults: window 1440 x 900, settings from PAL_DIR_CONFIG, theme from
