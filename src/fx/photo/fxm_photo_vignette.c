@@ -20,11 +20,11 @@ typedef struct vignette_params {
 } vignette_params;
 
 static const fx_prop k_props[] = {
-    { "center", "Center", FXP_POINT, offsetof(vignette_params, center),
+    { "center", "Center", FXP_POINT, (uint32_t)offsetof(vignette_params, center),
       -1.0, 1.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "radius", "Radius", FXP_REAL, offsetof(vignette_params, radius),
+    { "radius", "Radius", FXP_REAL, (uint32_t)offsetof(vignette_params, radius),
       0.1, 4.0, 0.5, 0.01, NULL, NULL, 0, FXP_F_SLIDER_LOG, NULL },
-    { "strength", "Strength", FXP_REAL, offsetof(vignette_params, strength),
+    { "strength", "Strength", FXP_REAL, (uint32_t)offsetof(vignette_params, strength),
       0.0, 1.0, 1.0, 0.01, NULL, NULL, 0, 0, NULL },
 };
 

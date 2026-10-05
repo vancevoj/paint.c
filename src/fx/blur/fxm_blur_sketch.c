@@ -24,11 +24,11 @@ typedef struct sketch_params {
 } sketch_params;
 
 static const fx_prop k_props[] = {
-    { "radius", "Radius", FXP_REAL, offsetof(sketch_params, radius),
+    { "radius", "Radius", FXP_REAL, (uint32_t)offsetof(sketch_params, radius),
       0.0, 100.0, 25.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "percentile", "Percentile", FXP_INT, offsetof(sketch_params, percentile),
+    { "percentile", "Percentile", FXP_INT, (uint32_t)offsetof(sketch_params, percentile),
       0.0, 100.0, 50.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "smoothness", "Smoothness", FXP_INT, offsetof(sketch_params, smoothness),
+    { "smoothness", "Smoothness", FXP_INT, (uint32_t)offsetof(sketch_params, smoothness),
       1.0, 16.0, 3.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 

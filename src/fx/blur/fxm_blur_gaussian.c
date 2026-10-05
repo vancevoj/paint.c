@@ -19,11 +19,11 @@ typedef struct gauss_params {
 } gauss_params;
 
 static const fx_prop k_props[] = {
-    { "radius", "Radius", FXP_REAL, offsetof(gauss_params, radius),
+    { "radius", "Radius", FXP_REAL, (uint32_t)offsetof(gauss_params, radius),
       0.0, 300.0, 2.0, 0.1, NULL, NULL, 0, FXP_F_SLIDER_LOG, NULL },
-    { "gamma_boost", "Gamma Boost", FXP_REAL, offsetof(gauss_params, gamma_boost),
+    { "gamma_boost", "Gamma Boost", FXP_REAL, (uint32_t)offsetof(gauss_params, gamma_boost),
       -1.0, 2.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "quality", "Quality", FXP_INT, offsetof(gauss_params, quality),
+    { "quality", "Quality", FXP_INT, (uint32_t)offsetof(gauss_params, quality),
       1.0, 4.0, 4.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 

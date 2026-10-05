@@ -18,9 +18,9 @@ typedef struct reduce_params {
 } reduce_params;
 
 static const fx_prop k_props[] = {
-    { "radius", "Radius", FXP_INT, offsetof(reduce_params, radius),
+    { "radius", "Radius", FXP_INT, (uint32_t)offsetof(reduce_params, radius),
       0.0, 200.0, 10.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "strength", "Strength", FXP_REAL, offsetof(reduce_params, strength),
+    { "strength", "Strength", FXP_REAL, (uint32_t)offsetof(reduce_params, strength),
       0.0, 1.0, 0.4, 0.01, NULL, NULL, 0, 0, NULL },
 };
 

@@ -20,13 +20,13 @@ typedef struct zoom_params {
 } zoom_params;
 
 static const fx_prop k_props[] = {
-    { "distance", "Distance", FXP_REAL, offsetof(zoom_params, distance),
+    { "distance", "Distance", FXP_REAL, (uint32_t)offsetof(zoom_params, distance),
       0.0, 5.0, 1.25, 0.01, NULL, NULL, 0, 0, NULL },
-    { "focus", "Focus", FXP_REAL, offsetof(zoom_params, focus),
+    { "focus", "Focus", FXP_REAL, (uint32_t)offsetof(zoom_params, focus),
       0.0, 6.0, 2.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "center", "Center", FXP_POINT, offsetof(zoom_params, center),
+    { "center", "Center", FXP_POINT, (uint32_t)offsetof(zoom_params, center),
       -2.0, 2.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "quality", "Quality", FXP_INT, offsetof(zoom_params, quality),
+    { "quality", "Quality", FXP_INT, (uint32_t)offsetof(zoom_params, quality),
       1.0, 8.0, 2.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 

@@ -18,11 +18,11 @@ typedef struct glow_params {
 } glow_params;
 
 static const fx_prop k_props[] = {
-    { "radius", "Radius", FXP_REAL, offsetof(glow_params, radius),
+    { "radius", "Radius", FXP_REAL, (uint32_t)offsetof(glow_params, radius),
       1.0, 20.0, 6.0, 0.1, NULL, NULL, 0, 0, NULL },
-    { "brightness", "Brightness", FXP_INT, offsetof(glow_params, brightness),
+    { "brightness", "Brightness", FXP_INT, (uint32_t)offsetof(glow_params, brightness),
       -100.0, 100.0, 10.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "contrast", "Contrast", FXP_INT, offsetof(glow_params, contrast),
+    { "contrast", "Contrast", FXP_INT, (uint32_t)offsetof(glow_params, contrast),
       -100.0, 100.0, 10.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 

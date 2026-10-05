@@ -26,13 +26,13 @@ typedef struct motion_params {
 static const char *const k_edges[] = { "Clamp", "Wrap", "Mirror", "Transparent", NULL };
 
 static const fx_prop k_props[] = {
-    { "angle", "Angle", FXP_ANGLE, offsetof(motion_params, angle),
+    { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(motion_params, angle),
       -180.0, 180.0, 25.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "distance", "Distance", FXP_INT, offsetof(motion_params, distance),
+    { "distance", "Distance", FXP_INT, (uint32_t)offsetof(motion_params, distance),
       1.0, 200.0, 10.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "centered", "Centered", FXP_BOOL, offsetof(motion_params, centered),
+    { "centered", "Centered", FXP_BOOL, (uint32_t)offsetof(motion_params, centered),
       0.0, 1.0, 1.0, 0.0, NULL, NULL, 0, 0, NULL },
-    { "edge_behavior", "Edge Behavior", FXP_CHOICE, offsetof(motion_params, edge),
+    { "edge_behavior", "Edge Behavior", FXP_CHOICE, (uint32_t)offsetof(motion_params, edge),
       0.0, 3.0, 0.0, 0.0, k_edges, NULL, 0, 0, NULL },
 };
 

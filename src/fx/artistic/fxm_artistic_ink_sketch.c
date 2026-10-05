@@ -18,9 +18,9 @@ typedef struct ink_params {
 } ink_params;
 
 static const fx_prop k_props[] = {
-    { "ink_outline", "Ink Outline", FXP_INT, offsetof(ink_params, outline),
+    { "ink_outline", "Ink Outline", FXP_INT, (uint32_t)offsetof(ink_params, outline),
       0.0, 99.0, 50.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "coloring", "Coloring", FXP_INT, offsetof(ink_params, coloring),
+    { "coloring", "Coloring", FXP_INT, (uint32_t)offsetof(ink_params, coloring),
       0.0, 100.0, 50.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 

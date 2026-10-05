@@ -24,13 +24,13 @@ typedef struct noise_params {
 } noise_params;
 
 static const fx_prop k_props[] = {
-    { "intensity", "Intensity", FXP_INT, offsetof(noise_params, intensity),
+    { "intensity", "Intensity", FXP_INT, (uint32_t)offsetof(noise_params, intensity),
       0.0, 100.0, 64.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "color_saturation", "Color Saturation", FXP_INT, offsetof(noise_params, saturation),
+    { "color_saturation", "Color Saturation", FXP_INT, (uint32_t)offsetof(noise_params, saturation),
       0.0, 400.0, 100.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "coverage", "Coverage", FXP_INT, offsetof(noise_params, coverage),
+    { "coverage", "Coverage", FXP_INT, (uint32_t)offsetof(noise_params, coverage),
       0.0, 100.0, 100.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "seed", "Randomize", FXP_SEED, offsetof(noise_params, seed),
+    { "seed", "Randomize", FXP_SEED, (uint32_t)offsetof(noise_params, seed),
       0.0, 2147483647.0, 0.0, 0.0, NULL, NULL, 0, 0, NULL },
 };
 

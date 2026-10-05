@@ -28,11 +28,11 @@ typedef struct bokeh_params {
 } bokeh_params;
 
 static const fx_prop k_props[] = {
-    { "radius", "Radius", FXP_REAL, offsetof(bokeh_params, radius),
+    { "radius", "Radius", FXP_REAL, (uint32_t)offsetof(bokeh_params, radius),
       0.0, 300.0, 25.0, 0.1, NULL, NULL, 0, FXP_F_SLIDER_LOG, NULL },
-    { "gamma_boost", "Gamma Boost", FXP_REAL, offsetof(bokeh_params, gamma_boost),
+    { "gamma_boost", "Gamma Boost", FXP_REAL, (uint32_t)offsetof(bokeh_params, gamma_boost),
       -1.0, 2.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "quality", "Quality", FXP_INT, offsetof(bokeh_params, quality),
+    { "quality", "Quality", FXP_INT, (uint32_t)offsetof(bokeh_params, quality),
       1.0, 10.0, 3.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 

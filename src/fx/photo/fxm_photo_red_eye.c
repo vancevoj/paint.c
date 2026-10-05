@@ -19,7 +19,7 @@ typedef struct redeye_params {
 } redeye_params;
 
 static const fx_prop k_props[] = {
-    { "strength", "Strength", FXP_INT, offsetof(redeye_params, strength),
+    { "strength", "Strength", FXP_INT, (uint32_t)offsetof(redeye_params, strength),
       0.0, 6.0, 3.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 

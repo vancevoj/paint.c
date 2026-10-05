@@ -17,9 +17,9 @@ typedef struct square_params {
 } square_params;
 
 static const fx_prop k_props[] = {
-    { "radius", "Radius", FXP_REAL, offsetof(square_params, radius),
+    { "radius", "Radius", FXP_REAL, (uint32_t)offsetof(square_params, radius),
       0.0, 300.0, 6.0, 0.1, NULL, NULL, 0, FXP_F_SLIDER_LOG, NULL },
-    { "gamma_boost", "Gamma Boost", FXP_REAL, offsetof(square_params, gamma_boost),
+    { "gamma_boost", "Gamma Boost", FXP_REAL, (uint32_t)offsetof(square_params, gamma_boost),
       -1.0, 2.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
 };
 

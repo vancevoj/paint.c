@@ -17,9 +17,9 @@ typedef struct pencil_params {
 } pencil_params;
 
 static const fx_prop k_props[] = {
-    { "pencil_tip_size", "Pencil tip size", FXP_REAL, offsetof(pencil_params, tip),
+    { "pencil_tip_size", "Pencil tip size", FXP_REAL, (uint32_t)offsetof(pencil_params, tip),
       1.0, 20.0, 2.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "range", "Range", FXP_REAL, offsetof(pencil_params, range),
+    { "range", "Range", FXP_REAL, (uint32_t)offsetof(pencil_params, range),
       -20.0, 20.0, 0.0, 0.1, NULL, NULL, 0, 0, NULL },
 };
 

@@ -18,11 +18,11 @@ typedef struct soften_params {
 } soften_params;
 
 static const fx_prop k_props[] = {
-    { "softness", "Softness", FXP_REAL, offsetof(soften_params, softness),
+    { "softness", "Softness", FXP_REAL, (uint32_t)offsetof(soften_params, softness),
       0.0, 10.0, 5.0, 0.1, NULL, NULL, 0, 0, NULL },
-    { "lighting", "Lighting", FXP_INT, offsetof(soften_params, lighting),
+    { "lighting", "Lighting", FXP_INT, (uint32_t)offsetof(soften_params, lighting),
       -20.0, 20.0, 0.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "warmth", "Warmth", FXP_INT, offsetof(soften_params, warmth),
+    { "warmth", "Warmth", FXP_INT, (uint32_t)offsetof(soften_params, warmth),
       0.0, 20.0, 10.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 

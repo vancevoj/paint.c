@@ -18,9 +18,9 @@ typedef struct surface_params {
 } surface_params;
 
 static const fx_prop k_props[] = {
-    { "radius", "Radius", FXP_INT, offsetof(surface_params, radius),
+    { "radius", "Radius", FXP_INT, (uint32_t)offsetof(surface_params, radius),
       1.0, 100.0, 6.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "threshold", "Threshold", FXP_INT, offsetof(surface_params, threshold),
+    { "threshold", "Threshold", FXP_INT, (uint32_t)offsetof(surface_params, threshold),
       1.0, 100.0, 15.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 

@@ -21,9 +21,9 @@ typedef struct oil_params {
 } oil_params;
 
 static const fx_prop k_props[] = {
-    { "brush_size", "Brush size", FXP_INT, offsetof(oil_params, brush),
+    { "brush_size", "Brush size", FXP_INT, (uint32_t)offsetof(oil_params, brush),
       1.0, 8.0, 3.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "coarseness", "Coarseness", FXP_INT, offsetof(oil_params, coarseness),
+    { "coarseness", "Coarseness", FXP_INT, (uint32_t)offsetof(oil_params, coarseness),
       3.0, 255.0, 50.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 

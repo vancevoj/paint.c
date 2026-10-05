@@ -19,11 +19,11 @@ typedef struct median_params {
 } median_params;
 
 static const fx_prop k_props[] = {
-    { "radius", "Radius", FXP_INT, offsetof(median_params, radius),
+    { "radius", "Radius", FXP_INT, (uint32_t)offsetof(median_params, radius),
       1.0, 100.0, 10.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "percentile", "Percentile", FXP_INT, offsetof(median_params, percentile),
+    { "percentile", "Percentile", FXP_INT, (uint32_t)offsetof(median_params, percentile),
       0.0, 100.0, 50.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "quality", "Quality", FXP_INT, offsetof(median_params, quality),
+    { "quality", "Quality", FXP_INT, (uint32_t)offsetof(median_params, quality),
       1.0, 9.0, 8.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 

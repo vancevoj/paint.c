@@ -22,9 +22,9 @@ typedef struct straighten_params {
 static const char *const k_sampling[] = { "Nearest Neighbor", "Bilinear", "Bicubic", NULL };
 
 static const fx_prop k_props[] = {
-    { "angle", "Angle", FXP_ANGLE, offsetof(straighten_params, angle),
+    { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(straighten_params, angle),
       -45.0, 45.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "sampling", "Sampling", FXP_CHOICE, offsetof(straighten_params, sampling),
+    { "sampling", "Sampling", FXP_CHOICE, (uint32_t)offsetof(straighten_params, sampling),
       0.0, 2.0, 2.0, 0.0, k_sampling, NULL, 0, 0, NULL },
 };
 

@@ -27,11 +27,11 @@ typedef struct frag_state {
 } frag_state;
 
 static const fx_prop k_props[] = {
-    { "fragment_count", "Fragment Count", FXP_INT, offsetof(frag_params, count),
+    { "fragment_count", "Fragment Count", FXP_INT, (uint32_t)offsetof(frag_params, count),
       2.0, 50.0, 4.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "distance", "Distance", FXP_INT, offsetof(frag_params, distance),
+    { "distance", "Distance", FXP_INT, (uint32_t)offsetof(frag_params, distance),
       0.0, 100.0, 8.0, 1.0, NULL, NULL, 0, 0, NULL },
-    { "rotation", "Rotation", FXP_ANGLE, offsetof(frag_params, rotation),
+    { "rotation", "Rotation", FXP_ANGLE, (uint32_t)offsetof(frag_params, rotation),
       0.0, 360.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
 };
 

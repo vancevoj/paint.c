@@ -18,9 +18,9 @@ typedef struct sharpen_params {
 } sharpen_params;
 
 static const fx_prop k_props[] = {
-    { "amount", "Amount", FXP_REAL, offsetof(sharpen_params, amount),
+    { "amount", "Amount", FXP_REAL, (uint32_t)offsetof(sharpen_params, amount),
       0.0, 10.0, 2.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "threshold", "Threshold", FXP_REAL, offsetof(sharpen_params, threshold),
+    { "threshold", "Threshold", FXP_REAL, (uint32_t)offsetof(sharpen_params, threshold),
       0.0, 1.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
 };
 

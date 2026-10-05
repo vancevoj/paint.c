@@ -19,11 +19,11 @@ typedef struct radial_params {
 } radial_params;
 
 static const fx_prop k_props[] = {
-    { "angle", "Angle", FXP_ANGLE, offsetof(radial_params, angle),
+    { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(radial_params, angle),
       0.0, 360.0, 2.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "center", "Center", FXP_POINT, offsetof(radial_params, center),
+    { "center", "Center", FXP_POINT, (uint32_t)offsetof(radial_params, center),
       -2.0, 2.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
-    { "quality", "Quality", FXP_INT, offsetof(radial_params, quality),
+    { "quality", "Quality", FXP_INT, (uint32_t)offsetof(radial_params, quality),
       1.0, 8.0, 2.0, 1.0, NULL, NULL, 0, 0, NULL },
 };
 
