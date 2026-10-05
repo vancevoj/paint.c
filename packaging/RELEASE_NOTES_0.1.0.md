@@ -15,8 +15,8 @@ attributed in NOTICE. No later Paint.NET code and no Paint.NET assets,
 icons or texts are used.
 
 This is the first release. Parity with Paint.NET 5.1.12 is tracked row by
-row in docs/inventory/PARITY.md (1469 rows: 1447 done, 2 partial, 20 not
-applicable); see Known gaps below.
+row in docs/inventory/PARITY.md (1469 rows: 1449 done, 20 not
+applicable, none partial or open); see Known gaps below.
 
 ## Downloads
 
@@ -86,7 +86,7 @@ applicable); see Known gaps below.
     Exif and XMP metadata, HDR (PQ, HLG) images tone mapped to 8 bits.
   * PNG, JPEG, BMP, GIF, TIFF, WebP, TGA, DDS (BC1 to BC7) and OpenRaster
     (.ora) read and write; Save Configuration dialog with a live preview
-    and the file size.
+    and the file size (with a computing percentage).
   * ICC profiles are converted on import and kept on export.
   * Autosave and crash recovery, recent files, drag and drop, single
     instance (files opened later go to the running window).
@@ -103,7 +103,7 @@ GitHub Actions was unavailable for the final builds (billing), so every
 package of this release was built and checked locally.
 
 * **Linux** (built in an Ubuntu 20.04 container, glibc 2.31, GCC 13;
-  `packaging/linux/build-appimage-docker.sh`): all 176 tests passed
+  `packaging/linux/build-appimage-docker.sh`): all 183 tests passed
   inside the container; `objdump` shows no symbol newer than GLIBC_2.29
   (the floor is 2.31) and the executable needs only glibc (libstdc++ and
   libgcc are linked statically, SDL3 and the codecs are built in). The
@@ -115,7 +115,7 @@ package of this release was built and checked locally.
   decorations through the system libdecor), and a normal start with a .pdn
   on both.
 * **Windows** (cross built with mingw-w64 GCC 14 against the Universal
-  CRT; `packaging/windows/build-mingw-release.sh`): all 176 tests passed
+  CRT; `packaging/windows/build-mingw-release.sh`): all 183 tests passed
   under Wine 10; the installer was run silently (`/S`) in a clean Wine
   prefix and its files, Start menu entry and registry entries checked; the
   installed `paintc.exe` and the one from the portable zip passed
@@ -136,10 +136,6 @@ package of this release was built and checked locally.
 
 ## Known gaps
 
-* **Partial (WIP in PARITY.md)**: the Save Configuration dialog shows the
-  file size but no percentage while computing, and an encoder error appears
-  only in its label instead of an error dialog; the DDS "BC7 speed" combo
-  box overflows into the preview column.
 * **Not applicable (N/A in PARITY.md)**:
   * maximum image size is 65535 pixels per side (Paint.NET: 262144;
     ADR-014), also in Resize and Canvas Size;
