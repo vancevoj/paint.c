@@ -111,11 +111,19 @@ face lacks the glyphs of its own name are shown in the UI font.
 
 `*.xaml` files in the Shapes folder (`<config-dir>/Shapes` when a settings
 folder is given, else the per-user data folder) appear in a Custom group of
-the shape picker, sorted by name, with the file in the tooltip. The reader
-takes the root `Geometry`, `PathGeometry Figures`, `Path Data`,
-`EllipseGeometry` and `RectangleGeometry` elements and `FillRule` / `F0`
-`F1`; verbose `PathFigure` segment elements are not read. Files are capped
-at 1 MiB and 256 per folder; parsers are bounded and fuzzed in the tests.
+the shape picker, sorted by name without regard to case (lane TOOLS, wave
+4), with the file in the tooltip. The reader takes the root `Geometry`,
+`PathGeometry` (`Figures` path data or `PathFigure` elements with every WPF
+segment kind), `Path Data`, `EllipseGeometry`, `RectangleGeometry`,
+`LineGeometry`, `GeometryGroup`, `CombinedGeometry` with its
+`GeometryCombineMode` (Union, Intersect, Xor, Exclude; the operands are
+combined on a 2048-cell raster and traced back to polygons), transforms
+(attribute matrices and the Translate, Scale, Rotate, Skew, Matrix and
+group elements) and `FillRule` / `F0` `F1` (EvenOdd by default, as in
+WPF). The tree is read with an explicit stack (48 levels) and at most 32
+`CombinedGeometry` elements per file. Files are capped at 1 MiB and 256 per
+folder; parsers are bounded and fuzzed in the tests (test_c_custom,
+test_tools_shapes).
 
 ## Known gaps
 
