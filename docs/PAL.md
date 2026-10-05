@@ -68,8 +68,11 @@ extension owned by lane L0.
   descriptor, then the folder is fsynced. Saving through a symlink writes
   the link target. Windows: `CREATE_NEW`, `FlushFileBuffers`, then
   `ReplaceFileW` for existing files (keeps attributes and ACL), else
-  `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`. Not preserved: hard
-  links, extended attributes and POSIX ACLs of the old file.
+  `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`; sharing errors (virus
+  scanners) are retried for about 300 ms, so a read-only file fails with
+  `PC_ERR_IO` after that delay. On POSIX the folder's permissions decide,
+  as for every rename-based save. Not preserved: hard links, extended
+  attributes and POSIX ACLs of the old file.
 - `pal_file_exists` is true for any existing entry (file or folder).
   `pal_remove` removes a file or an empty folder (Windows clears the
   read-only attribute first, like `unlink`). `pal_mkdirs` returns true when

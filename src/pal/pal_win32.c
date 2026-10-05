@@ -331,16 +331,26 @@ pc_status pal_write_file_atomic(const char *path, const void *data, size_t len)
     h = INVALID_HANDLE_VALUE;
     /* ReplaceFileW keeps the identity, attributes and ACL of an existing
      * file; MoveFileExW covers new files and file systems where
-     * ReplaceFileW fails. */
-    if (attr != INVALID_FILE_ATTRIBUTES &&
-        ReplaceFileW(wt, wtmp, NULL,
-                     REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS, NULL, NULL)) {
-        rc = PC_OK;
-        goto done;
-    }
-    if (MoveFileExW(wtmp, wt, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        rc = PC_OK;
-        goto done;
+     * ReplaceFileW fails. Virus scanners and indexers often hold a fresh
+     * file for a moment, so sharing errors are retried briefly. */
+    for (int attempt = 0; attempt < 5; attempt++) {
+        DWORD err;
+        if (attempt > 0) Sleep(10u << attempt);            /* 20 .. 160 ms */
+        if (attr != INVALID_FILE_ATTRIBUTES && GetFileAttributesW(wt) != INVALID_FILE_ATTRIBUTES &&
+            ReplaceFileW(wt, wtmp, NULL,
+                         REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS,
+                         NULL, NULL)) {
+            rc = PC_OK;
+            goto done;
+        }
+        if (MoveFileExW(wtmp, wt, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            rc = PC_OK;
+            goto done;
+        }
+        err = GetLastError();
+        if (err != ERROR_SHARING_VIOLATION && err != ERROR_ACCESS_DENIED &&
+            err != ERROR_LOCK_VIOLATION)
+            break;
     }
     if (attr != INVALID_FILE_ATTRIBUTES && GetFileAttributesW(wt) == INVALID_FILE_ATTRIBUTES) {
         /* ReplaceFileW removed the original but the rename failed: the

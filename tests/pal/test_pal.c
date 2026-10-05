@@ -27,6 +27,9 @@
 #  include <sys/stat.h>
 #  include <sys/types.h>
 #  include <unistd.h>
+#else
+#  include <io.h>                    /* _chmod */
+#  include <sys/stat.h>
 #endif
 
 #if defined(_WIN32)
@@ -436,7 +439,17 @@ static void t_atomic_write(void)
     CHECK(pal_is_dir(bad));
     CHECK(pal_remove(bad));
     CHECK(count_entries(dir) == 1);
-#if !defined(_WIN32)
+#if defined(_WIN32)
+    {
+        /* a read-only file is not replaced (after the brief retries) */
+        CHECK(write_str(path, "locked"));
+        CHECK(_chmod(path, _S_IREAD) == 0);
+        CHECK(pal_write_file_atomic(path, "new", 3u) == PC_ERR_IO);
+        CHECK(file_equals(path, "locked", 6u));
+        CHECK(count_entries(dir) == 1);
+        CHECK(_chmod(path, _S_IREAD | _S_IWRITE) == 0);
+    }
+#else
     {
         struct stat st;
         char link[1200], fresh[1200];
