@@ -77,6 +77,10 @@ typedef enum app_cursor {
     APP_CURSOR_MOVE,
     APP_CURSOR_NOT_ALLOWED,
     APP_CURSOR_HIDDEN,
+    /* lane A (selection and move tools) */
+    APP_CURSOR_ROTATE,       /* curved arrow: the move tools' rotation corridor */
+    APP_CURSOR_LASSO,        /* Lasso Select, hotspot at the rope's end */
+    APP_CURSOR_WAND,         /* Magic Wand, hotspot at the sparkle */
     APP_CURSOR_COUNT
 } app_cursor;
 

@@ -135,6 +135,14 @@ const pc_poly *app_doc_ants(app_doc *d);
 /* Composite options for displaying the document (txn preview included). */
 pc_comp_opts app_doc_comp_opts(const app_doc *d);
 
+/* Lane A: live outline preview. Show p (document coordinates, copied) as
+ * the marching ants of d instead of the selection's own outline, until the
+ * selection changes (sel_gen) or the preview is dropped with p == NULL.
+ * Selection tools use it while a marquee is dragged and the move tools
+ * while an outline is transformed. PC_ERR_NOMEM falls back to the
+ * selection outline. Main thread. */
+pc_status app_doc_ants_preview(app_doc *d, const pc_poly *p);
+
 #ifdef __cplusplus
 }
 #endif

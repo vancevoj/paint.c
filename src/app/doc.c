@@ -387,3 +387,21 @@ pc_comp_opts app_doc_comp_opts(const app_doc *d)
     if (d) o.txn = d->txn;
     return o;
 }
+
+/* ---- lane A: outline preview ------------------------------------------------------------- */
+pc_status app_doc_ants_preview(app_doc *d, const pc_poly *p)
+{
+    pc_status st;
+    if (!d) return PC_ERR_ARG;
+    pc_poly_clear(&d->ants);
+    d->ants_valid = false;
+    if (!p) return PC_OK;
+    st = pc_poly_append(&d->ants, p, NULL);
+    if (st != PC_OK) {
+        pc_poly_clear(&d->ants);
+        return st;
+    }
+    d->ants_gen = d->doc->sel_gen;
+    d->ants_valid = true;
+    return PC_OK;
+}

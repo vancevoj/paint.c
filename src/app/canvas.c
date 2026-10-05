@@ -232,6 +232,18 @@ static SDL_Cursor *cursor_for(app *a, app_cursor k)
     case APP_CURSOR_BUCKET:
         a->cv.cursors[k] = make_icon_cursor(UI_ICON_TOOL_PAINT_BUCKET, size, 2, size - 3);
         break;
+    /* lane A: selection and move tool cursors */
+    case APP_CURSOR_ROTATE:
+        a->cv.cursors[k] = make_icon_cursor(UI_ICON_ROTATE_CW, size, size / 2, size / 2);
+        break;
+    case APP_CURSOR_LASSO:
+        a->cv.cursors[k] = make_icon_cursor(UI_ICON_TOOL_LASSO_SELECT, size, size * 2 / 16,
+                                            size * 15 / 16 - 1);
+        break;
+    case APP_CURSOR_WAND:
+        a->cv.cursors[k] = make_icon_cursor(UI_ICON_TOOL_MAGIC_WAND, size, size * 12 / 16,
+                                            size * 4 / 16);
+        break;
     case APP_CURSOR_ARROW:
         a->cv.cursors[k] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT);
         break;
