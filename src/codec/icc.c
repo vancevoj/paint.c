@@ -458,6 +458,46 @@ bool pc_icc_meta_validate(pc_image_meta *meta, const pc_doc *d)
     return true;
 }
 
+struct pc_icc_xform {
+    icc_xf x;
+};
+
+pc_status pc_icc_xform_create(const uint8_t *icc, size_t len, pc_icc_xform **out,
+                              bool *is_identity)
+{
+    pc_icc_xform *t;
+    pc_status st;
+    if (!out) return PC_ERR_ARG;
+    *out = NULL;
+    if (is_identity) *is_identity = false;
+    t = (pc_icc_xform *)calloc(1u, sizeof *t);
+    if (!t) return PC_ERR_NOMEM;
+    st = icc_xf_make(&t->x, icc, len);
+    if (st != PC_OK) { free(t); return st; }
+    if (is_identity) *is_identity = icc_xf_is_identity(&t->x);
+    *out = t;
+    return PC_OK;
+}
+
+void pc_icc_xform_run(const pc_icc_xform *x, pc_px32 *px, size_t n)
+{
+    uint8_t scratch[256 * 4];
+    if (!x || !px) return;
+    while (n) {
+        size_t k = n < 256u ? n : 256u;
+        icc_xf_run(&x->x, px, k, scratch);
+        px += k;
+        n -= k;
+    }
+}
+
+void pc_icc_xform_destroy(pc_icc_xform *x)
+{
+    if (!x) return;
+    icc_xf_free(&x->x);
+    free(x);
+}
+
 pc_status pc_icc_meta_set_srgb(pc_image_meta *meta)
 {
     uint8_t *p;

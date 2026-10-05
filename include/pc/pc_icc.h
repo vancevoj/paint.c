@@ -97,4 +97,23 @@ pc_status pc_icc_adobe_rgb_profile(uint8_t **out, size_t *len);
  * the profile was dropped. Any thread; d must not change during the call. */
 bool      pc_icc_meta_validate(pc_image_meta *meta, const pc_doc *d);
 
+/* A prepared conversion from an image's RGB or gray profile to sRGB, for
+ * display color management (the view converts tile pixels before upload;
+ * the document keeps its values). Creating it parses the profile once;
+ * running it is cheap. */
+typedef struct pc_icc_xform pc_icc_xform;
+
+/* *out (owned by the caller, free with pc_icc_xform_destroy) converts from
+ * the profile icc/len (borrowed, only read during the call) to sRGB,
+ * perceptual intent. PC_ERR_ARG, PC_ERR_LIMIT, PC_ERR_FORMAT,
+ * PC_ERR_UNSUPPORTED (CMYK and other spaces), PC_ERR_NOMEM. *is_identity
+ * (may be NULL) is set when the profile is sRGB within one code value, so
+ * the caller can skip the conversion. */
+pc_status pc_icc_xform_create(const uint8_t *icc, size_t len, pc_icc_xform **out,
+                              bool *is_identity);
+/* Convert n straight-alpha pixels in place (alpha kept, alpha 0 stays all
+ * zero). Thread-safe: one xform may run on many threads at once. */
+void      pc_icc_xform_run(const pc_icc_xform *x, pc_px32 *px, size_t n);
+void      pc_icc_xform_destroy(pc_icc_xform *x);                   /* NULL-safe */
+
 #endif /* PC_ICC_H */

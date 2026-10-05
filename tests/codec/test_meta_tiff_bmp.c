@@ -499,6 +499,35 @@ static void t_validate(void)
         free(a);
         free(b);
     }
+    {   /* the display transform: same pixels as pc_icc_to_srgb_px, reusable */
+        uint8_t *a = NULL, *sr, *cm;
+        size_t an = 0, sn = 0, cn = 0;
+        pc_icc_xform *x = NULL;
+        bool ident = true;
+        pc_px32 p1[300], p2[300];
+        CHECK(pc_icc_adobe_rgb_profile(&a, &an) == PC_OK);
+        for (int i = 0; i < 300; i++)
+            p1[i] = tu_px((uint8_t)(i * 7), (uint8_t)(i * 13 + 5), (uint8_t)(255 - i), (uint8_t)(i % 4 ? 255 : 0));
+        memcpy(p2, p1, sizeof p1);
+        CHECK(pc_icc_xform_create(a, an, &x, &ident) == PC_OK && x && !ident);
+        pc_icc_xform_run(x, p1, 300);
+        pc_icc_xform_run(x, p1 + 300, 0);
+        CHECK(pc_icc_to_srgb_px(a, an, p2, 300, 1, 300) == PC_OK);
+        CHECK(tu_diff(p1, p2, 300) == 0);
+        for (int i = 0; i < 300; i += 4) CHECK(p1[i].a == 0 && p1[i].r == 0 && p1[i].g == 0);
+        pc_icc_xform_destroy(x);
+        sr = make_srgb(&sn);
+        CHECK(pc_icc_xform_create(sr, sn, &x, &ident) == PC_OK && ident);
+        pc_icc_xform_destroy(x);
+        cm = make_cmyk(&cn);
+        x = (pc_icc_xform *)(uintptr_t)1;
+        CHECK(pc_icc_xform_create(cm, cn, &x, NULL) == PC_ERR_UNSUPPORTED && x == NULL);
+        CHECK(pc_icc_xform_create(cm, 100, &x, NULL) == PC_ERR_FORMAT);
+        pc_icc_xform_destroy(NULL);
+        free(a);
+        free(sr);
+        free(cm);
+    }
     pc_doc_destroy(color);
     pc_doc_destroy(gray);
 }
