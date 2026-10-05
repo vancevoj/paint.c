@@ -545,6 +545,7 @@ bool vec_opt_corner(app *a, double *corner, bool enabled)
     ui_ctx *ui = app_ui(a);
     double v = *corner;
     double step = v < 10.0 ? 1.0 : v < 50.0 ? 5.0 : v < 200.0 ? 25.0 : v < 500.0 ? 50.0 : 100.0;
+    if (ui_mods(ui) & (UI_MOD_CTRL | UI_MOD_GUI)) step = 5.0;      /* K-SHAPE-CORNER5 */
     bool changed;
     app_opt_label(a, "Radius:");
     (void)app_opt_next(a, 76.0f);

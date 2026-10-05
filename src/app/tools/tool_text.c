@@ -344,7 +344,17 @@ static bool edit_key(app *a, text_state *s, int32_t key, uint32_t mods)
 {
     bool ctrl = (mods & (UI_MOD_CTRL | UI_MOD_GUI)) != 0, shift = (mods & UI_MOD_SHIFT) != 0;
     bool text_changed = true;
-    if (mods & UI_MOD_ALT) return false;     /* AltGr text arrives as text input */
+    if (mods & UI_MOD_ALT) {
+        /* T-TEXT-EDIT: AltGr (Ctrl+Alt) characters, and Option characters on
+         * macOS, arrive as text input; their key presses must not run
+         * shortcuts such as Ctrl+Alt+I or menu mnemonics */
+        bool printable = key >= 0x20 && key < 0x7F;
+#if defined(__APPLE__)
+        return printable && !(mods & (UI_MOD_CTRL | UI_MOD_GUI));
+#else
+        return printable && (mods & UI_MOD_CTRL) != 0;
+#endif
+    }
     if (s->drag == TDRAG_HANDLE) {
         /* arrows move the block while the handle is held */
         pc_pt o = pc_text_origin(s->t);

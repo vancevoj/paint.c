@@ -138,24 +138,33 @@ static uint64_t fp(app *a)
 
 typedef struct ink { int n, x0, y0, x1, y1, partial; } ink;
 
-/* Non-white pixels inside r. */
+/* Non-white pixels inside r (one composite of the region, txn included). */
 static ink ink_in(app *a, int rx, int ry, int rw, int rh)
 {
+    app_doc *d = app_active_doc(a);
+    pc_comp_opts o = app_doc_comp_opts(d);
+    pc_px32 *buf = (pc_px32 *)calloc((size_t)rw * (size_t)rh, sizeof *buf);
     ink k;
     memset(&k, 0, sizeof k);
     k.x0 = k.y0 = 1 << 30;
     k.x1 = k.y1 = -1;
-    for (int y = ry; y < ry + rh; y++)
-        for (int x = rx; x < rx + rw; x++) {
-            pc_px32 p = live_px(a, x, y);
+    if (!buf) return k;
+    if (pc_comp_rect_ex(d->doc, pc_rect_make(rx, ry, rw, rh), buf, (size_t)rw, &o) != PC_OK) {
+        free(buf);
+        return k;
+    }
+    for (int y = 0; y < rh; y++)
+        for (int x = 0; x < rw; x++) {
+            pc_px32 p = buf[(size_t)y * (size_t)rw + (size_t)x];
             if (p.r == 255 && p.g == 255 && p.b == 255) continue;
             k.n++;
             k.partial += p.r != 0;
-            if (x < k.x0) k.x0 = x;
-            if (y < k.y0) k.y0 = y;
-            if (x > k.x1) k.x1 = x;
-            if (y > k.y1) k.y1 = y;
+            if (rx + x < k.x0) k.x0 = rx + x;
+            if (ry + y < k.y0) k.y0 = ry + y;
+            if (rx + x > k.x1) k.x1 = rx + x;
+            if (ry + y > k.y1) k.y1 = ry + y;
         }
+    free(buf);
     return k;
 }
 
