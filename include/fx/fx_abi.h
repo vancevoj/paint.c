@@ -91,6 +91,10 @@ typedef struct fx_env {
     int32_t  doc_w, doc_h;
     fx_rect  sel;                  /* selection bounds, or the whole document */
     uint32_t primary, secondary;   /* palette colors, 0xAARRGGBB */
+    /* Added in v1.1 (check size >= offsetof(fx_env, sel_mask) + sizeof):
+     * the selection coverage over sel (A8, 255 = selected), or NULL when
+     * nothing is selected. Read-only; for statistics such as Auto-Level. */
+    const fx_img *sel_mask;
 } fx_env;
 
 /* ---- host services ------------------------------------------------------ */
@@ -111,6 +115,10 @@ typedef struct fx_host {
 #define FX_FLAG_NO_DIALOG      8u  /* runs immediately with default params
                                       (Invert Colors, Black and White, ...) */
 #define FX_FLAG_ADJUSTMENT    16u  /* listed in the Adjustments menu */
+#define FX_FLAG_NO_SEL_CLIP   32u  /* v1.1: the host renders ROIs over the whole
+                                      layer and does not clip the result to the
+                                      selection (Drop Shadow, object effects);
+                                      env->sel still describes the selection */
 
 typedef struct fx_effect {
     uint32_t       size;           /* sizeof(fx_effect) the plugin was built with */

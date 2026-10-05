@@ -192,7 +192,43 @@ void pc_meta_free(pc_image_meta *m)
 {
     if (!m) return;
     free(m->icc);
+    for (size_t i = 0; i < m->n_items; i++) { free(m->items[i].key); free(m->items[i].value); }
+    free(m->items);
     memset(m, 0, sizeof *m);
+}
+
+static char *dup_str(const char *s)
+{
+    size_t n = strlen(s) + 1u;
+    char *p = (char *)malloc(n);
+    if (p) memcpy(p, s, n);
+    return p;
+}
+
+pc_status pc_meta_add(pc_image_meta *m, const char *key, const char *value)
+{
+    pc_meta_item *v;
+    char *k, *val;
+    size_t bytes;
+    if (!m || !key || !value) return PC_ERR_ARG;
+    if (!pc_mul_size(m->n_items + 1u, sizeof *v, &bytes)) return PC_ERR_LIMIT;
+    k = dup_str(key);
+    val = dup_str(value);
+    v = (k && val) ? (pc_meta_item *)realloc(m->items, bytes) : NULL;
+    if (!v) { free(k); free(val); return PC_ERR_NOMEM; }
+    m->items = v;
+    m->items[m->n_items].key = k;
+    m->items[m->n_items].value = val;
+    m->n_items++;
+    return PC_OK;
+}
+
+const char *pc_meta_get(const pc_image_meta *m, const char *key)
+{
+    if (!m || !key) return NULL;
+    for (size_t i = 0; i < m->n_items; i++)
+        if (strcmp(m->items[i].key, key) == 0) return m->items[i].value;
+    return NULL;
 }
 
 /* ---- buffers --------------------------------------------------------------- */

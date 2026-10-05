@@ -77,6 +77,14 @@ pc_status pc_codec_check_size(const pc_codec_limits *l, uint64_t w, uint64_t h,
                               uint32_t layers);
 
 /* ---- metadata carried alongside the pixels -------------------------------- */
+/* Free-form metadata entry (EXIF/XMP packets, .pdn user metadata). Both
+ * strings are malloc'ed UTF-8 (binary values base64-encoded by the codec
+ * that produced them) and freed by pc_meta_free. */
+typedef struct pc_meta_item {
+    char *key;                  /* namespaced: "pdn.user.<name>", "exif", "xmp" */
+    char *value;
+} pc_meta_item;
+
 typedef struct pc_image_meta {
     double   dpi_x, dpi_y;      /* pixels per inch, 0 = unknown (UI shows 96) */
     uint8_t *icc;               /* embedded ICC profile (malloc), or NULL */
@@ -84,9 +92,16 @@ typedef struct pc_image_meta {
     uint32_t src_bits;          /* bits per channel in the file, informational */
     bool     had_alpha;         /* file carried an alpha channel */
     char     note[128];         /* optional decoder remark for the UI, UTF-8 */
+    pc_meta_item *items;        /* malloc'ed array, or NULL */
+    size_t   n_items;
 } pc_image_meta;
 
-void pc_meta_free(pc_image_meta *m);    /* frees icc, zeroes *m */
+/* Append a copy of key/value to m->items. PC_ERR_NOMEM leaves m unchanged. */
+pc_status pc_meta_add(pc_image_meta *m, const char *key, const char *value);
+/* First value for key, or NULL. Borrowed. */
+const char *pc_meta_get(const pc_image_meta *m, const char *key);
+
+void pc_meta_free(pc_image_meta *m);    /* frees icc and items, zeroes *m */
 
 /* ---- codec descriptor ----------------------------------------------------- */
 #define PC_CODEC_LOAD     1u    /* has load() */
