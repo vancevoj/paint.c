@@ -27,3 +27,4 @@
 - 2026-10-05 W2-FXP merged: effect parameter parity per ADR-016 (docs/fx/parity.md), 5.2 golden test tests/golden (27 items within pre-written tolerances; Invert, Brightness/Contrast, Posterize exact).
 - 2026-10-05 W15-E1 (brush, pencil, eraser, clone, recolor) and W15-E2 (53 patterns, 7 gradients, wand/bucket regions) merged; pc_paint gains clip_pixelated. 71 CTest executables pass.
 - 2026-10-05 W2A merged: paintc editor shell, gate G2 passes (open PNG, paint, undo, redo, save) on X11, Wayland and headless; docs/app/ARCHITECTURE.md. 80 CTest entries pass.
+- 2026-10-05 ci/fix2 merged: MSVC warnings, macOS Cmd shortcuts in app tests, -ffp-contract=off, STREAMING UI atlas (SDL RLE rounding); CI 8/9 green, last red was the timing check on macos-15-intel, now report-only on CI (ADR-017).

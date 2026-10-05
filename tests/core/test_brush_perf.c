@@ -75,8 +75,12 @@ static void run_perf(const char *name, double width, double hardness, double spa
          name, events, ms[events / 2], ms[(events * 95) / 100], ms[events - 1],
          total / events, pc_brush_dab_count(b));
 #if defined(PERF_ENFORCE)
-    /* p95 (events that stamp dabs), 2x headroom for other jobs on the machine */
-    CHECK(ms[(events * 95) / 100] < 2.0 * limit_ms);
+    /* p95 (events that stamp dabs), 2x headroom for other jobs on the machine.
+     * ADR-017: shared CI runners (CI set in the environment) only report. */
+    if (getenv("CI") == NULL) CHECK(ms[(events * 95) / 100] < 2.0 * limit_ms);
+    else if (ms[(events * 95) / 100] >= 2.0 * limit_ms)
+        INFO("%s: p95 above the %.1f ms target on this CI runner (reported only, ADR-017)",
+             name, 2.0 * limit_ms);
 #else
     (void)limit_ms;
 #endif
