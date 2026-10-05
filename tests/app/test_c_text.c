@@ -201,7 +201,7 @@ static void t_backend(void)
         pc_path_init(&p);
         CHECK(f->outline(f->ud, ga, 100.0, PC_TEXT_SMOOTH, &p) == PC_OK);
         {
-            pc_pt mn, mx;
+            pc_pt mn = {0.0, 0.0}, mx = {0.0, 0.0};
             CHECK(p.n_verbs > 3u && pc_path_bounds(&p, &mn, &mx));
             /* y down: the glyph sits above the baseline */
             CHECK(mx.y <= 1.0 && mn.y < -50.0 && mn.x >= -2.0 && mx.x < 90.0);

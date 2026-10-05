@@ -275,7 +275,7 @@ static void import_cb(void *ud, const char *const *paths, int n, int filter)
     (void)filter;
     if (paths && n > 0) {
         icc_blob *b = (icc_blob *)calloc(1u, sizeof *b);
-        pc_icc_info info;
+        pc_icc_info info = {0};
         pc_status st = b ? pal_read_file(paths[0], PC_ICC_MAX_BYTES, &b->p, &b->n) : PC_ERR_NOMEM;
         if (st == PC_OK) st = pc_icc_inspect(b->p, b->n, &info);
         if (st == PC_OK && info.space != PC_ICC_SPACE_RGB) st = PC_ERR_UNSUPPORTED;
