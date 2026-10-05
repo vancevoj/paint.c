@@ -21,6 +21,7 @@ option(PC_TSAN        "Build with ThreadSanitizer (GCC/Clang)" OFF)
 option(PC_HEADLESS    "Build only the headless libraries and tests (no SDL)" OFF)
 option(PC_VENDOR_SDL  "Build the pinned SDL3 3.4.18 from source (default; OFF accepts a system SDL3 >= 3.4)" ON)
 option(PC_BUILD_TESTS "Build test executables" ON)
+option(PC_BUILD_PLUGINS "Build the optional effect plugins in plugins/" ON)
 
 include(PcCommon)     # pc_warnings(), sanitizer flags
 include(PcDeps)       # pinned third-party dependencies (FetchContent)
@@ -39,6 +40,10 @@ if(NOT PC_HEADLESS)
       add_subdirectory(src/${lane})
     endif()
   endforeach()
+endif()
+
+if(PC_BUILD_PLUGINS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/plugins/CMakeLists.txt)
+  add_subdirectory(plugins)
 endif()
 
 if(PC_BUILD_TESTS)
