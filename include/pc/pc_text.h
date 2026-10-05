@@ -172,7 +172,8 @@ pc_status pc_text_set_fonts(pc_text *t, const pc_font_face *const *faces, size_t
  * of range (the style is then unchanged). Re-lays the text out. */
 pc_status pc_text_set_style(pc_text *t, const pc_text_style *st);
 const pc_text_style *pc_text_get_style(const pc_text *t);
-void      pc_text_set_origin(pc_text *t, pc_pt origin);   /* moving the text block */
+/* Move the text block (T-TEXT-NUB); non-finite points are ignored. */
+void      pc_text_set_origin(pc_text *t, pc_pt origin);
 pc_pt     pc_text_origin(const pc_text *t);
 
 /* Replace the whole text (normalized like pc_text_insert); caret at the

@@ -883,6 +883,169 @@ static void t_render_random(void)
     pc_vrender_destroy(vr2);
 }
 
+/* jobs in reverse order with rotating worker ids: results must not depend
+ * on the order */
+static void rev_run(void *self, pc_job_fn fn, void *ud, uint32_t count)
+{
+    (void)self;
+    for (uint32_t i = 0; i < count; i++) fn(ud, count - 1u - i, i % 3u);
+}
+
+static void checker_row(void *ud, int32_t x, int32_t y, int32_t n, pc_px32 *out)
+{
+    const pc_px32 *c = (const pc_px32 *)ud;
+    for (int32_t i = 0; i < n; i++) out[i] = c[((x + i) / 3 + y / 3) & 1];
+}
+
+static void stripe_row(void *ud, int32_t x, int32_t y, int32_t n, pc_px32 *out)
+{
+    const pc_px32 *c = (const pc_px32 *)ud;
+    (void)x;
+    for (int32_t i = 0; i < n; i++) out[i] = c[(y / 2) & 1];
+}
+
+static void premul(pc_px32 p, double *o)
+{
+    double a = p.a / 255.0;
+    o[0] = p.b * a; o[1] = p.g * a; o[2] = p.r * a; o[3] = a * 255.0;
+}
+
+/* Up to four stacked layers against a double-precision model of drawing
+ * them one by one on a temporary layer (BLEND Normal) or lerping them in
+ * turn (OVERWRITE), plus pattern sources and a reordering pool. */
+static void t_vrender_layers(void)
+{
+    int iters = g_quick ? 40 : 300;
+    pc_vrender *vr = pc_vrender_create(), *vr2 = pc_vrender_create();
+    pc_par rev = { rev_run, NULL, 3 };
+    int worst = 0;
+    for (int it = 0; it < iters; it++) {
+        pc_px32 bg = rnd_px(true);
+        e3_doc e = e3_doc_make(70, 50, bg);
+        pc_poly polys[PC_VLAYER_MAX];
+        pc_paint_src srcs[PC_VLAYER_MAX];
+        pc_vlayer l[PC_VLAYER_MAX];
+        pc_mask cov[PC_VLAYER_MAX];
+        size_t n = 1u + rndu(PC_VLAYER_MAX);
+        pc_vdraw_opts o = pc_vdraw_opts_default();
+        pc_txn *t, *t2;
+        pc_surf a, b, base;
+        bool ow = rndu(2) == 0u;
+        o.paint.mode = ow ? PC_PAINT_OVERWRITE : PC_PAINT_BLEND;
+        for (size_t i = 0; i < n; i++) {
+            double x0 = (double)rndu(400) / 10.0, y0 = (double)rndu(300) / 10.0;
+            double x1 = x0 + 5.0 + (double)rndu(300) / 10.0;
+            double y1 = y0 + 5.0 + (double)rndu(200) / 10.0;
+            pc_poly_init(&polys[i]);
+            CHECK(pc_poly_add(&polys[i], pc_pt_make(x0, y0), 0u) == PC_OK);
+            CHECK(pc_poly_add(&polys[i], pc_pt_make(x1, y0), 0u) == PC_OK);
+            CHECK(pc_poly_add(&polys[i], pc_pt_make(x1, y1), 0u) == PC_OK);
+            CHECK(pc_poly_add(&polys[i], pc_pt_make(x0, y1), 0u) == PC_OK);
+            CHECK(pc_poly_end(&polys[i], true) == PC_OK);
+            srcs[i] = e3_solid(rnd_px(true));
+            l[i].fill = &polys[i];
+            l[i].rule = PC_FILL_NONZERO;
+            l[i].thin = NULL;
+            l[i].src = &srcs[i];
+            CHECK(e3_coverage(&l[i], 1, true, pc_doc_rect(e.d), &cov[i]) == PC_OK);
+        }
+        base = e3_read(&e, NULL);
+        t = pc_txn_begin(e.d, "a");
+        CHECK(pc_vrender_draw(vr, t, e.layer, l, n, &o, &rev, NULL) == PC_OK);
+        a = e3_read(&e, t);
+        pc_txn_cancel(t);
+        pc_vrender_reset(vr);
+        t2 = pc_txn_begin(e.d, "b");
+        CHECK(pc_vrender_draw(vr2, t2, e.layer, l, n, &o, NULL, NULL) == PC_OK);
+        b = e3_read(&e, t2);
+        pc_txn_cancel(t2);
+        pc_vrender_reset(vr2);
+        CHECK(e3_same(&a, &b));
+        for (int32_t y = 0; y < a.h; y++)
+            for (int32_t x = 0; x < a.w; x++) {
+                double ref[4], got[4], tmp[4] = { 0, 0, 0, 0 };
+                premul(e3_at(&base, x, y), ref);
+                for (size_t i = 0; i < n; i++) {
+                    double k = pc_mask_at(&cov[i], x, y) / 255.0, pp[4];
+                    premul(srcs[i].solid, pp);
+                    for (int c = 0; c < 4; c++) {
+                        if (ow) ref[c] = ref[c] * (1.0 - k) + pp[c] * k;
+                        else tmp[c] = tmp[c] * (1.0 - pp[3] / 255.0 * k) + pp[c] * k;
+                    }
+                }
+                if (!ow)
+                    for (int c = 0; c < 4; c++) ref[c] = tmp[c] + ref[c] * (1.0 - tmp[3] / 255.0);
+                premul(e3_at(&a, x, y), got);
+                for (int c = 0; c < 4; c++) {
+                    int d = (int)fabs(got[c] - ref[c]);
+                    if (d > worst) worst = d;
+                    CHECK(d <= 2);
+                }
+            }
+        for (size_t i = 0; i < n; i++) {
+            pc_poly_free(&polys[i]);
+            pc_mask_free(&cov[i]);
+        }
+        pc_surf_free(&a);
+        pc_surf_free(&b);
+        pc_surf_free(&base);
+        e3_doc_free(&e);
+    }
+    INFO("worst premultiplied difference against the model: %d", worst);
+    pc_vrender_destroy(vr);
+    pc_vrender_destroy(vr2);
+
+    /* pattern sources get document coordinates, in single and stacked use */
+    {
+        e3_doc e = e3_doc_make(80, 60, e3_px(0, 0, 0, 0));
+        pc_px32 ck[2], sp[2];
+        pc_paint_src fill, line;
+        pc_shape s;
+        pc_vdraw_opts o = pc_vdraw_opts_default();
+        pc_vrender *v = pc_vrender_create();
+        pc_txn *t;
+        pc_surf a;
+        size_t bad = 0;
+        ck[0] = e3_px(255, 0, 0, 255); ck[1] = e3_px(0, 255, 0, 255);
+        sp[0] = e3_px(0, 0, 255, 255); sp[1] = e3_px(255, 255, 0, 255);
+        memset(&fill, 0, sizeof fill);
+        fill.row = checker_row;
+        fill.ud = ck;
+        line = fill;
+        line.row = stripe_row;
+        line.ud = sp;
+        pc_shape_init(&s, PC_SHAPE_RECTANGLE, NULL);
+        s.style.draw = PC_SHAPE_DRAW_FILLED_OUTLINE;
+        s.style.width = 4.0;
+        pc_shape_from_drag(&s, pc_pt_make(10, 10), pc_pt_make(70, 50), 0u);
+        t = pc_txn_begin(e.d, "Shapes");
+        CHECK(pc_shape_render(&s, v, t, e.layer, &line, &fill, &o, &rev, NULL) == PC_OK);
+        a = e3_read(&e, t);
+        for (int32_t y = 0; y < a.h; y++)
+            for (int32_t x = 0; x < a.w; x++) {
+                pc_px32 p = e3_at(&a, x, y), want;
+                bool in_fill = x >= 12 && x < 68 && y >= 12 && y < 48;
+                bool in_line = x >= 8 && x < 72 && y >= 8 && y < 52 && !in_fill;
+                if (in_fill) want = ck[(x / 3 + y / 3) & 1];
+                else if (in_line) want = sp[(y / 2) & 1];
+                else want = e3_px(0, 0, 0, 0);
+                if (!e3_eq(p, want)) bad++;
+            }
+        CHECK(bad == 0u);
+        pc_surf_free(&a);
+        s.style.draw = PC_SHAPE_DRAW_FILLED;
+        CHECK(pc_shape_render(&s, v, t, e.layer, &line, &fill, &o, NULL, NULL) == PC_OK);
+        a = e3_read(&e, t);
+        CHECK(e3_eq(e3_at(&a, 10, 10), ck[(10 / 3 + 10 / 3) & 1]));
+        CHECK(e3_eq(e3_at(&a, 13, 10), ck[(13 / 3 + 10 / 3) & 1]));
+        CHECK(e3_at(&a, 9, 10).a == 0u);
+        pc_surf_free(&a);
+        pc_txn_cancel(t);
+        pc_vrender_destroy(v);
+        e3_doc_free(&e);
+    }
+}
+
 static void t_render_oom(void)
 {
     e3_doc e = e3_doc_make(300, 200, e3_px(9, 9, 9, 255));
@@ -933,6 +1096,7 @@ int main(int argc, char **argv)
     RUN(t_render_bands);
     RUN(t_render_selection);
     RUN(t_render_random);
+    RUN(t_vrender_layers);
     RUN(t_render_oom);
     pc_tile_stats(&t1, &b1);
     CHECK(t0 == t1 && b0 == b1);

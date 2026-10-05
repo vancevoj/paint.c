@@ -210,7 +210,8 @@ static void t_normalize(void)
     CHECK(t != NULL);
     CHECK(pc_text_set_utf8(t, in, sizeof in - 1u) == PC_OK);
     CHECK(same_str(t, "a\nb\nc defg"));
-    CHECK(pc_text_set_utf8(t, "\xff" "A" "\xc0\xaf" "\xed\xa0\x80" "\xf0\x9f\x98\x80", 11) == PC_OK);
+    CHECK(pc_text_set_utf8(t, "\xff" "A" "\xc0\xaf" "\xed\xa0\x80" "\xf0\x9f\x98\x80", 11) ==
+          PC_OK);
     CHECK(same_str(t, "\xef\xbf\xbd" "A" "\xef\xbf\xbd\xef\xbf\xbd"
                       "\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd" "\xf0\x9f\x98\x80"));
     CHECK(pc_text_set_utf8(t, "\xe2\x82", 2) == PC_OK);     /* truncated sequence */
@@ -249,7 +250,8 @@ static void t_layout(void)
     g = pc_text_glyphs(t, &ng);
     CHECK(n == 2u && ng == 3u);
     CHECK(e3_near(pc_text_line_height(t), 22.0, 1e-12));
-    CHECK(L[0].byte_start == 0u && L[0].byte_end == 2u && L[1].byte_start == 3u && L[1].byte_end == 4u);
+    CHECK(L[0].byte_start == 0u && L[0].byte_end == 2u);
+    CHECK(L[1].byte_start == 3u && L[1].byte_end == 4u);
     CHECK(e3_near(L[0].x, 100.0, 1e-12) && e3_near(L[0].width, 24.0, 1e-12));
     CHECK(e3_near(L[0].top, 50.0, 1e-12) && e3_near(L[0].baseline, 66.0, 1e-12));
     CHECK(e3_near(L[0].bottom, 72.0, 1e-12) && e3_near(L[1].baseline, 88.0, 1e-12));
@@ -478,7 +480,8 @@ static void t_editing(void)
     }
     pc_text_set_caret(t, 11, false);
     CHECK(pc_text_backspace(t, true) == PC_OK && same_str(t, "hello , foo\nbar"));
-    CHECK(pc_text_backspace(t, true) == PC_OK && same_str(t, ", foo\nbar") && pc_text_caret(t) == 0u);
+    CHECK(pc_text_backspace(t, true) == PC_OK && same_str(t, ", foo\nbar"));
+    CHECK(pc_text_caret(t) == 0u);
     CHECK(pc_text_delete(t, true) == PC_OK && same_str(t, "foo\nbar"));
     CHECK(pc_text_delete(t, true) == PC_OK && same_str(t, "\nbar"));
     CHECK(pc_text_delete(t, true) == PC_OK && same_str(t, "bar"));
@@ -545,7 +548,8 @@ static void t_geometry(void)
     st.bold = true;
     CHECK(pc_text_set_style(t, &st) == PC_OK);
     {
-        double w = 20.0 / 24.0, want = (2.0 + w) * (14.0 + w) - (4.0 - 3.14159265358979) * w * w / 4.0;
+        double w = 20.0 / 24.0;
+        double want = (2.0 + w) * (14.0 + w) - (4.0 - 3.14159265358979) * w * w / 4.0;
         bold_a = build_area(t, r, NULL, NULL, NULL);
         CHECK(e3_near(bold_a, want, 0.1));
     }
