@@ -55,11 +55,15 @@ typedef pc_status (*lc_rows_src)(void *ud, int32_t y0, int32_t n, pc_px32 *dst);
 /* Consume rows [y0, y0 + n) (w * n pixels, stride w, borrowed). */
 typedef pc_status (*lc_rows_sink)(void *ud, int32_t y0, int32_t n, const pc_px32 *rows);
 
-/* Source that flattens a document with pc_comp_rect (ud = lc_flat *). */
+/* Source that flattens a document with pc_comp_rect (ud = lc_flat *).
+ * With prog set, every band adds its rows to the current phase and the
+ * source returns PC_ERR_CANCELLED once the observer cancelled. */
+struct cp_prog;
 typedef struct lc_flat {
-    const pc_doc *d;
-    const pc_par *par;
-    bool          over_white;   /* composite onto opaque white afterwards */
+    const pc_doc   *d;
+    const pc_par   *par;
+    bool            over_white; /* composite onto opaque white afterwards */
+    struct cp_prog *prog;       /* may be NULL (codec_prog.h) */
 } lc_flat;
 pc_status lc_src_flatten(void *ud, int32_t y0, int32_t n, pc_px32 *dst);
 

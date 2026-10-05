@@ -22,6 +22,7 @@
  * Threads: reentrant.
  */
 #include "lib_codec.h"
+#include "codec_prog.h"
 #include "zip.h"
 
 #include <stdlib.h>
@@ -652,6 +653,7 @@ typedef struct ora_layer_src {
     const pc_doc   *d;
     const pc_layer *l;
     pc_rect         r;
+    cp_prog        *prog;      /* the rows count toward its phase */
 } ora_layer_src;
 
 static pc_status ora_src_layer(void *ud, int32_t y0, int32_t n, pc_px32 *dst)
@@ -659,7 +661,7 @@ static pc_status ora_src_layer(void *ud, int32_t y0, int32_t n, pc_px32 *dst)
     const ora_layer_src *s = (const ora_layer_src *)ud;
     pc_layer_read_rect(s->d, s->l, pc_rect_make(s->r.x, s->r.y + y0, s->r.w, n), dst,
                        (size_t)s->r.w);
-    return PC_OK;
+    return cp_add(s->prog, (uint64_t)n);
 }
 
 static void layer_file(char *buf, size_t cap, uint32_t index)
@@ -674,8 +676,10 @@ static void layer_file(char *buf, size_t cap, uint32_t index)
     memcpy(buf + pre + (sizeof num - k - 1u), ".png", 5u);
 }
 
-static pc_status ora_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
-                          const pc_par *par, pc_buf *out)
+/* W4-SAVECFG (ADR-023): progress phases are the layer PNGs (their rows),
+ * the merged image and the thumbnail (rows of the composite). */
+static pc_status ora_save_ex(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                             const pc_par *par, const pc_codec_progress *prog, pc_buf *out)
 {
     pc_zipw zw;
     pc_buf xml, png;
@@ -684,7 +688,10 @@ static pc_status ora_save(const pc_doc *d, const pc_image_meta *meta, const void
     lc_png_opts po;
     size_t n0;
     int64_t dpi_x, dpi_y;
+    cp_prog g;
+    uint64_t layer_rows = 0;
     (void)params;
+    cp_init(&g, prog);
     if (!d || !out || d->n_layers == 0) return PC_ERR_ARG;
     memset(&xml, 0, sizeof xml);
     memset(&png, 0, sizeof png);
@@ -694,7 +701,10 @@ static pc_status ora_save(const pc_doc *d, const pc_image_meta *meta, const void
     n0 = out->n;
     rects = (pc_rect *)malloc((size_t)d->n_layers * sizeof *rects);
     if (!rects) return PC_ERR_NOMEM;
-    for (uint32_t i = 0; i < d->n_layers; i++) rects[i] = layer_bounds(d, d->stack[i]);
+    for (uint32_t i = 0; i < d->n_layers; i++) {
+        rects[i] = layer_bounds(d, d->stack[i]);
+        layer_rows += (uint64_t)rects[i].h;
+    }
     dpi_x = meta && meta->dpi_x > 0.0 ? (int64_t)(meta->dpi_x + 0.5) : 96;
     dpi_y = meta && meta->dpi_y > 0.0 ? (int64_t)(meta->dpi_y + 0.5) : 96;
     if (dpi_x < 1) dpi_x = 1;
@@ -734,7 +744,8 @@ static pc_status ora_save(const pc_doc *d, const pc_image_meta *meta, const void
     if (st != PC_OK) goto done;
 
     pc_zipw_init(&zw, out);
-    st = pc_zipw_add(&zw, "mimetype", ORA_MIME, sizeof ORA_MIME - 1u, false);
+    st = cp_phase(&g, 0.0, 0.6, layer_rows);
+    if (st == PC_OK) st = pc_zipw_add(&zw, "mimetype", ORA_MIME, sizeof ORA_MIME - 1u, false);
     if (st == PC_OK) st = pc_zipw_add(&zw, "stack.xml", xml.p, xml.n, true);
     for (uint32_t k = 0; k < d->n_layers && st == PC_OK; k++) {
         ora_layer_src s;
@@ -742,6 +753,7 @@ static pc_status ora_save(const pc_doc *d, const pc_image_meta *meta, const void
         s.d = d;
         s.l = d->stack[k];
         s.r = rects[k];
+        s.prog = &g;
         layer_file(file, sizeof file, k);
         png.n = 0;
         st = lc_png_encode(&png, (uint32_t)s.r.w, (uint32_t)s.r.h, ora_src_layer, &s, &po);
@@ -749,9 +761,10 @@ static pc_status ora_save(const pc_doc *d, const pc_image_meta *meta, const void
     }
     if (st == PC_OK) {                                   /* full composite */
         lc_flat f;
-        f.d = d; f.par = par; f.over_white = false;
+        f.d = d; f.par = par; f.over_white = false; f.prog = &g;
         png.n = 0;
-        st = lc_png_encode(&png, d->w, d->h, lc_src_flatten, &f, &po);
+        st = cp_phase(&g, 0.6, 0.85, d->h);
+        if (st == PC_OK) st = lc_png_encode(&png, d->w, d->h, lc_src_flatten, &f, &po);
         if (st == PC_OK) st = pc_zipw_add(&zw, "mergedimage.png", png.p, png.n, false);
     }
     if (st == PC_OK) {                                   /* thumbnail, at most 256 x 256 */
@@ -769,8 +782,9 @@ static pc_status ora_save(const pc_doc *d, const pc_image_meta *meta, const void
             if (tw < 1) tw = 1;
             if (tht < 1) tht = 1;
         }
-        f.d = d; f.par = par; f.over_white = false;
-        st = pc_surf_alloc(&th, tw, tht);
+        f.d = d; f.par = par; f.over_white = false; f.prog = &g;
+        st = cp_phase(&g, 0.85, 1.0, d->h);
+        if (st == PC_OK) st = pc_surf_alloc(&th, tw, tht);
         if (st == PC_OK) {
             st = lc_resample((int32_t)d->w, (int32_t)d->h, lc_src_flatten, &f, th.px, tw, tht,
                              (size_t)th.stride, LC_FILTER_FANT, false);
@@ -791,9 +805,15 @@ done:
     return st;
 }
 
+static pc_status ora_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                          const pc_par *par, pc_buf *out)
+{
+    return ora_save_ex(d, meta, params, par, NULL, out);
+}
+
 const pc_codec pc_codec_ora = {
     "ora", "OpenRaster", "ora", PC_CODEC_LOAD | PC_CODEC_SAVE | PC_CODEC_LAYERED,
     ora_sniff, ora_load,
     NULL, 0, 0,
-    ora_save
+    ora_save, ora_save_ex
 };

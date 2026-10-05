@@ -1022,10 +1022,20 @@ static pc_status pdn_save(const pc_doc *d, const pc_image_meta *meta, const void
     return pdn_save_ex(d, meta, NULL, par, out);
 }
 
+static pc_status pdn_save_prog(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                               const pc_par *par, const pc_codec_progress *prog, pc_buf *out)
+{
+    pdn_save_opts o;
+    (void)params;
+    pdn_save_opts_default(&o);
+    o.progress = prog;
+    return pdn_save_ex(d, meta, &o, par, out);
+}
+
 const pc_codec pc_codec_pdn = {
     "pdn", "Paint.NET image", "pdn",
     PC_CODEC_LOAD | PC_CODEC_SAVE | PC_CODEC_LAYERED,
     pdn_sniff, pdn_load,
     NULL, 0u, 0u,
-    pdn_save
+    pdn_save, pdn_save_prog
 };

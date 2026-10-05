@@ -27,6 +27,7 @@
  * Threading: load and save are reentrant (no global state).
  */
 #include "quant.h"
+#include "codec_prog.h"
 #include "pc/pc_icc.h"
 
 #include <stddef.h>
@@ -484,8 +485,10 @@ static uint32_t dpi_to_ppm(double dpi)
     return (uint32_t)(dpi / 0.0254 + 0.5);
 }
 
-static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
-                          const pc_par *par, pc_buf *out)
+/* W4-SAVECFG (ADR-023): the passes over fl (Auto-detect statistics,
+ * palette, rows) are the progress phases; fl counts their rows. */
+static pc_status bmp_save_ex(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                             const pc_par *par, const pc_codec_progress *prog, pc_buf *out)
 {
     bmp_params prm;
     pc_flat fl;
@@ -500,6 +503,9 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
     pc_icc_embed icc;
     pc_status st;
     size_t base;
+    cp_prog g;
+    double lo = 0.0;
+    cp_init(&g, prog);
     memset(&icc, 0, sizeof icc);
     if (!d || !out) return PC_ERR_ARG;
     if (params) memcpy(&prm, params, sizeof prm);
@@ -510,6 +516,7 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
     w = d->w; h = d->h;
     st = pc_flat_init(&fl, d, par);
     if (st != PC_OK) return st;
+    fl.prog = &g;
     tmp = (pc_px32 *)malloc((size_t)w * sizeof *tmp);
     line = (uint8_t *)malloc((size_t)w * 4u + 4u);
     idx = (uint8_t *)malloc(w);
@@ -523,16 +530,21 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
         pc_quant_stats *s = (pc_quant_stats *)malloc(sizeof *s);
         if (!s) { st = PC_ERR_NOMEM; goto done; }
         pc_quant_stats_init(s);
-        for (uint32_t y = 0; y < h; y++) {
+        st = cp_phase(&g, 0.0, 0.2, h);
+        for (uint32_t y = 0; y < h && st == PC_OK; y++) {
             const pc_px32 *r = pc_flat_row(&fl, y);
             if (!r) { free(s); st = fl.err; goto done; }
             pc_quant_stats_add(s, r, w);
         }
         depth = pc_quant_choose_depth(s, PC_QD_1 | PC_QD_4 | PC_QD_8 | PC_QD_24 | PC_QD_32);
         free(s);
+        if (st != PC_OK) goto done;
+        lo = 0.2;
     }
     if (depth <= 8u) {
-        st = pc_quant_create(&q);
+        st = cp_phase(&g, lo, lo + (1.0 - lo) * 0.4, h);
+        lo += (1.0 - lo) * 0.45;
+        if (st == PC_OK) st = pc_quant_create(&q);
         for (uint32_t y = 0; y < h && st == PC_OK; y++) {
             const pc_px32 *r = pc_flat_row(&fl, y);
             if (!r) { st = fl.err; break; }
@@ -590,7 +602,8 @@ static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void
             put_le32(hdr + 14 + 116, (uint32_t)icc_n);
         }
     }
-    st = pc_buf_append(out, hdr, 14u + hsize);
+    st = cp_phase(&g, lo, 1.0, h);
+    if (st == PC_OK) st = pc_buf_append(out, hdr, 14u + hsize);
     for (uint32_t i = 0; i < npal && st == PC_OK; i++) {
         uint8_t e[4] = { pal[i].b, pal[i].g, pal[i].r, 0 };
         st = pc_buf_append(out, e, 4u);
@@ -629,9 +642,15 @@ done:
     return st;
 }
 
+static pc_status bmp_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                          const pc_par *par, pc_buf *out)
+{
+    return bmp_save_ex(d, meta, params, par, NULL, out);
+}
+
 const pc_codec pc_codec_bmp = {
     "bmp", "BMP", "bmp;dib;rle", PC_CODEC_LOAD | PC_CODEC_SAVE,
     bmp_sniff, bmp_load,
     k_props, (uint32_t)(sizeof k_props / sizeof k_props[0]), (uint32_t)sizeof(bmp_params),
-    bmp_save
+    bmp_save, bmp_save_ex
 };

@@ -103,6 +103,21 @@ const char *pc_meta_get(const pc_image_meta *m, const char *key);
 
 void pc_meta_free(pc_image_meta *m);    /* frees icc and items, zeroes *m */
 
+/* ---- encode progress and cancellation (ADR-023, additive) ----------------- */
+/* Observer of one encode (pc_codec_save_ex). report() receives the finished
+ * fraction of the encode in [0, 1]: non-decreasing, in steps of at least
+ * 0.1 %, 0 before any work and 1 after a successful encode. It runs on the
+ * thread that called pc_codec_save_ex, never concurrently with itself, and
+ * must be cheap. Returning false cancels: the encoder stops at its next
+ * step (a row band, a block row, a chunk batch or a library callback),
+ * frees its work memory and returns PC_ERR_CANCELLED; report() is not
+ * called again. Library encoders without hooks (the AVIF encode, the JPEG
+ * XL stages between runner calls) report and cancel only between stages. */
+typedef struct pc_codec_progress {
+    bool (*report)(void *ud, double done);
+    void  *ud;
+} pc_codec_progress;
+
 /* ---- codec descriptor ----------------------------------------------------- */
 #define PC_CODEC_LOAD     1u    /* has load() */
 #define PC_CODEC_SAVE     2u    /* has save() */
@@ -135,6 +150,13 @@ typedef struct pc_codec {
      * Any thread, while no one mutates d. */
     pc_status    (*save)(const pc_doc *d, const pc_image_meta *meta,
                          const void *params, const pc_par *par, pc_buf *out);
+
+    /* Optional (ADR-023): save() with progress and cancellation; prog may be
+     * NULL (the bytes never depend on prog). NULL in codecs without it.
+     * Callers use pc_codec_save_ex, which picks this or save(). */
+    pc_status    (*save_ex)(const pc_doc *d, const pc_image_meta *meta,
+                            const void *params, const pc_par *par,
+                            const pc_codec_progress *prog, pc_buf *out);
 } pc_codec;
 
 /* ---- registry (generated from src/codec/fmt_*.c) -------------------------- */
@@ -145,6 +167,16 @@ const pc_codec *pc_codec_sniff(const uint8_t *p, size_t n);
 
 /* Write the defaults of c's save options into params (params_size bytes). */
 void pc_codec_default_params(const pc_codec *c, void *params);
+
+/* Encode d with c, reporting to prog (may be NULL; see pc_codec_progress).
+ * Uses c->save_ex when the codec has one, else c->save between a report of
+ * 0 and one of 1 (a cancel then only takes effect before the encode). On
+ * failure (cancelled included) out keeps its previous length. Errors:
+ * PC_ERR_ARG (no codec, document or buffer), PC_ERR_UNSUPPORTED (c cannot
+ * save), PC_ERR_CANCELLED, and whatever the codec returns. Any thread. */
+pc_status pc_codec_save_ex(const pc_codec *c, const pc_doc *d, const pc_image_meta *meta,
+                           const void *params, const pc_par *par,
+                           const pc_codec_progress *prog, pc_buf *out);
 
 /* Sniff first; fall back to the extension of path_hint (may be NULL). */
 pc_status pc_codec_load_any(const uint8_t *p, size_t n, const char *path_hint,

@@ -21,6 +21,7 @@
  */
 #include "lib_codec.h"
 #include "cmeta.h"
+#include "codec_prog.h"
 #include "pc/pc_icc.h"
 
 #include <stddef.h>
@@ -214,8 +215,15 @@ static pc_status enc_err(WebPEncodingError e)
     }
 }
 
-static pc_status webp_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
-                           const pc_par *par, pc_buf *out)
+/* W4-SAVECFG (ADR-023): libwebp's progress hook (percent of the encode);
+ * returning 0 aborts it with VP8_ENC_ERROR_USER_ABORT. */
+static int webp_hook(int percent, const WebPPicture *pic)
+{
+    return cp_set((cp_prog *)pic->user_data, percent < 0 ? 0u : (uint64_t)percent) == PC_OK;
+}
+
+static pc_status webp_save_ex(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                              const pc_par *par, const pc_codec_progress *prog, pc_buf *out)
 {
     webp_params prm;
     WebPConfig cfg;
@@ -224,7 +232,9 @@ static pc_status webp_save(const pc_doc *d, const pc_image_meta *meta, const voi
     pc_px32 *band = NULL;
     pc_status st = PC_OK;
     lc_flat flat;
+    cp_prog g;
     if (!d || !out) return PC_ERR_ARG;
+    cp_init(&g, prog);
     if (d->w > WEBP_MAX_SIDE || d->h > WEBP_MAX_SIDE) return PC_ERR_LIMIT;
     prm.preset = WEBP_PRESET_PHOTO;
     prm.quality = 95;
@@ -253,6 +263,8 @@ static pc_status webp_save(const pc_doc *d, const pc_image_meta *meta, const voi
     flat.d = d;
     flat.par = par;
     flat.over_white = false;
+    flat.prog = &g;
+    st = cp_phase(&g, 0.0, 0.15, d->h);
     for (int32_t y0 = 0; y0 < (int32_t)d->h && st == PC_OK; y0 += LC_BAND) {
         int32_t nb = (int32_t)d->h - y0 < LC_BAND ? (int32_t)d->h - y0 : LC_BAND;
         st = lc_src_flatten(&flat, y0, nb, band);
@@ -269,6 +281,12 @@ static pc_status webp_save(const pc_doc *d, const pc_image_meta *meta, const voi
     memset(&bits, 0, sizeof bits);
     pic.writer = webp_writer;
     pic.custom_ptr = &bits;
+    if (prog) {
+        st = cp_phase(&g, 0.15, 0.97, 100u);
+        if (st != PC_OK) { WebPPictureFree(&pic); return st; }
+        pic.progress_hook = webp_hook;
+        pic.user_data = &g;
+    }
     if (!WebPEncode(&cfg, &pic)) {
         st = enc_err(pic.error_code);
         WebPPictureFree(&pic);
@@ -276,6 +294,8 @@ static pc_status webp_save(const pc_doc *d, const pc_image_meta *meta, const voi
         return st;
     }
     WebPPictureFree(&pic);
+    st = cp_phase(&g, 0.97, 1.0, 0u);
+    if (st != PC_OK) { pc_buf_free(&bits); return st; }
     {
         uint8_t *ex = NULL;
         size_t ex_n = 0, xmp_n = 0;
@@ -333,10 +353,16 @@ static pc_status webp_save(const pc_doc *d, const pc_image_meta *meta, const voi
     return st;
 }
 
+static pc_status webp_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                           const pc_par *par, pc_buf *out)
+{
+    return webp_save_ex(d, meta, params, par, NULL, out);
+}
+
 const pc_codec pc_codec_webp = {
     "webp", "WebP", "webp", PC_CODEC_LOAD | PC_CODEC_SAVE,
     webp_sniff, webp_load,
     k_webp_props, (uint32_t)(sizeof k_webp_props / sizeof k_webp_props[0]),
     (uint32_t)sizeof(webp_params),
-    webp_save
+    webp_save, webp_save_ex
 };

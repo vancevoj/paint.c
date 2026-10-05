@@ -39,6 +39,7 @@
  */
 #include "quant.h"
 #include "cmeta.h"
+#include "codec_prog.h"
 #include "lib_codec.h"
 #include "pc/pc_icc.h"
 
@@ -1602,8 +1603,10 @@ static pc_status put_u16s(pc_buf *b, const uint16_t *v, uint32_t n)
     return st;
 }
 
-static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
-                           const pc_par *par, pc_buf *out)
+/* W4-SAVECFG (ADR-023): the passes over fl (Auto-detect statistics,
+ * palette, strips) are the progress phases; fl counts their rows. */
+static pc_status tiff_save_ex(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                              const pc_par *par, const pc_codec_progress *prog, pc_buf *out)
 {
     tiff_params prm;
     pc_flat fl;
@@ -1620,6 +1623,9 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
     tiff_md md;
     pc_icc_embed icc;
     uint32_t ne = 0;
+    cp_prog g;
+    double lo = 0.0;
+    cp_init(&g, prog);
     memset(&md, 0, sizeof md);
     memset(&icc, 0, sizeof icc);
     cm_exif_init(&md.e);
@@ -1633,6 +1639,7 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
     base = out->n;
     st = pc_flat_init(&fl, d, par);
     if (st != PC_OK) return st;
+    fl.prog = &g;
     tmp = (pc_px32 *)malloc((size_t)w * sizeof *tmp);
     idx = (uint8_t *)malloc(w);
     lz = (tlzw *)malloc(sizeof *lz);
@@ -1650,7 +1657,8 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
         pc_quant_stats *s = (pc_quant_stats *)malloc(sizeof *s);
         if (!s) { st = PC_ERR_NOMEM; goto done; }
         pc_quant_stats_init(s);
-        for (uint32_t y = 0; y < h; y++) {
+        st = cp_phase(&g, 0.0, 0.2, h);
+        for (uint32_t y = 0; y < h && st == PC_OK; y++) {
             const pc_px32 *r = pc_flat_row(&fl, y);
             if (!r) { free(s); st = fl.err; goto done; }
             pc_quant_stats_add(s, r, w);
@@ -1658,9 +1666,13 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
         depth = pc_quant_choose_depth(s, PC_QD_1 | PC_QD_2 | PC_QD_4 | PC_QD_8 | PC_QD_24 |
                                              PC_QD_32);
         free(s);
+        if (st != PC_OK) goto done;
+        lo = 0.2;
     }
     if (depth <= 8u) {
-        st = pc_quant_create(&q);
+        st = cp_phase(&g, lo, lo + (1.0 - lo) * 0.4, h);
+        lo += (1.0 - lo) * 0.45;
+        if (st == PC_OK) st = pc_quant_create(&q);
         for (uint32_t y = 0; y < h && st == PC_OK; y++) {
             const pc_px32 *r = pc_flat_row(&fl, y);
             if (!r) { st = fl.err; break; }
@@ -1689,7 +1701,8 @@ static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const voi
 
     {   /* header; the IFD offset is patched at the end */
         uint8_t hdr[8] = { 'I', 'I', 42, 0, 0, 0, 0, 0 };
-        st = pc_buf_append(out, hdr, sizeof hdr);
+        st = cp_phase(&g, lo, 1.0, h);
+        if (st == PC_OK) st = pc_buf_append(out, hdr, sizeof hdr);
     }
     for (uint32_t si = 0; si < nstrips && st == PC_OK; si++) {
         uint32_t y0 = si * rps, rows = h - y0 < rps ? h - y0 : rps;
@@ -1858,9 +1871,15 @@ done:
     return st;
 }
 
+static pc_status tiff_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                           const pc_par *par, pc_buf *out)
+{
+    return tiff_save_ex(d, meta, params, par, NULL, out);
+}
+
 const pc_codec pc_codec_tiff = {
     "tiff", "TIFF", "tif;tiff", PC_CODEC_LOAD | PC_CODEC_SAVE,
     tiff_sniff, tiff_load,
     k_props, (uint32_t)(sizeof k_props / sizeof k_props[0]), (uint32_t)sizeof(tiff_params),
-    tiff_save
+    tiff_save, tiff_save_ex
 };

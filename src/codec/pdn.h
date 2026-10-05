@@ -63,14 +63,17 @@ typedef struct pdn_save_opts {
     uint32_t    list_capacity;  /* LayerList item array length; 0 = ArrayList growth
                                    (4, 8, 16, ...); smaller than the layer count is
                                    an error */
+    const pc_codec_progress *progress;  /* W4-SAVECFG (ADR-023): observer, NULL by
+                                   default; phases are the thumbnail and the layer
+                                   blocks (per chunk batch) */
 } pdn_save_opts;
 
 void pdn_save_opts_default(pdn_save_opts *o);
 
 /* Encode d as .pdn into out (appending). meta may be NULL (96 dpi, no ICC).
  * o may be NULL (defaults). par may be NULL. Errors: PC_ERR_ARG (no layers,
- * bad options), PC_ERR_LIMIT, PC_ERR_NOMEM. On error out may hold a partial
- * file; the caller discards it. */
+ * bad options), PC_ERR_LIMIT, PC_ERR_NOMEM, PC_ERR_CANCELLED (o->progress).
+ * On error out may hold a partial file; the caller discards it. */
 pc_status pdn_save_ex(const pc_doc *d, const pc_image_meta *meta, const pdn_save_opts *o,
                       const pc_par *par, pc_buf *out);
 

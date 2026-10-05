@@ -166,6 +166,8 @@ void pc_quant_prepare_row(pc_px32 *row, size_t n, int32_t threshold);
 
 /* ==== 3. band flattener for encoders ====================================== */
 
+struct cp_prog;
+
 /* Rows of the flattened document, composited 64 rows (one tile row) at a
  * time with pc_comp_rect. d and par are borrowed and must outlive f; d must
  * not change while f is in use. */
@@ -175,6 +177,9 @@ typedef struct pc_flat {
     pc_px32      *band;     /* owned, d->w * 64 pixels */
     int32_t       y0;       /* first row in band, -1 = none */
     pc_status     err;      /* why the last pc_flat_row returned NULL */
+    struct cp_prog *prog;   /* NULL after init; set by an encoder, each newly
+                               composited band adds its rows to the current
+                               phase (codec_prog.h) */
 } pc_flat;
 
 /* Allocates the band (PC_ERR_NOMEM, PC_ERR_LIMIT) for a document with at
@@ -183,8 +188,9 @@ typedef struct pc_flat {
 pc_status pc_flat_init(pc_flat *f, const pc_doc *d, const pc_par *par);
 /* Pointer to row y (0 <= y < d->h, straight BGRA, d->w pixels), owned by f.
  * The caller may modify it; the row stays valid until a call for a row in
- * another band. NULL when y is out of range (f->err = PC_ERR_ARG) or when
- * compositing the band failed (f->err = the pc_comp_rect status). */
+ * another band. NULL when y is out of range (f->err = PC_ERR_ARG), when
+ * compositing the band failed (f->err = the pc_comp_rect status) or when
+ * f->prog was cancelled (f->err = PC_ERR_CANCELLED). */
 pc_px32  *pc_flat_row(pc_flat *f, uint32_t y);
 void      pc_flat_free(pc_flat *f);                  /* NULL-safe */
 

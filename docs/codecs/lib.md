@@ -18,6 +18,23 @@ Dependencies and their pins: docs/DEPENDENCIES.md. Attribution: docs/notice/l6b.
 - Threads: load and save are reentrant on any thread. Each call owns its
   library context. The BC7 encoder tables are built once behind an atomic
   flag. Little-CMS runs with a private context per call.
+- Progress and cancellation (W4-SAVECFG, ADR-023): every codec that saves
+  also has save_ex, reached through pc_codec_save_ex(c, d, meta, params,
+  par, prog, out). The observer gets the finished fraction (0 first, 1
+  last, strictly rising thousandths) on the encoding thread and cancels by
+  returning false; the encoder then returns PC_ERR_CANCELLED at its next
+  step and out keeps its old length. The bytes never depend on the
+  observer. Encoders declare phases (src/codec/codec_prog.h: cp_phase,
+  cp_add); lc_flat and pc_flat count the rows they composite toward the
+  current phase, so band encoders report per 64-row band. Steps per codec:
+  PNG, TIFF, BMP, TGA, GIF and ORA per band of every pass (Auto-detect
+  scans, palette, encode); JPEG through libjpeg's progress monitor (rows,
+  then the Huffman optimization and output passes); WebP through libwebp's
+  progress hook after the flatten; DDS per batch of block rows of every
+  mip level and cube face (about 64 batches per level); .pdn per batch of
+  layer chunks; AVIF per band of the scan and the RGB to YUV conversion,
+  then the libavif encode as one step (no hook); JPEG XL per band of the
+  flatten, then an estimate per libjxl runner call, which also cancels.
 
 ## PNG (id "png", libspng 0.7.4)
 Load: image limits (spng_set_image_limits) and chunk limits (16 MiB per
@@ -305,8 +322,10 @@ Wave 4 additions (lane CODEC):
    layers, profile conversion) as an info bar.
 3. Save: pc_codec_default_params, let the dialog edit the blob through the
    fx_prop list (enabled_if strings: "key", "key=N" or "key=N|M|..."), then
-   codec->save with the image's meta (dpi, icc, items). Formats without
-   PC_CODEC_LAYERED flatten. DDS uses par when one is passed.
+   codec->save (or pc_codec_save_ex with an observer, as the Save
+   Configuration preview does) with the image's meta (dpi, icc, items).
+   Formats without PC_CODEC_LAYERED flatten. DDS uses par when one is
+   passed.
 4. ORA keeps layers; PNG/JPEG/WebP/DDS flatten; DDS and WebP need the whole
    flattened image in memory.
 

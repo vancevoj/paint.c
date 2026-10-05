@@ -19,6 +19,7 @@
  * source; see docs/notice/l6a.md. The code is original.
  */
 #include "quant.h"
+#include "codec_prog.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -1090,6 +1091,7 @@ pc_px32 *pc_flat_row(pc_flat *f, uint32_t y)
         if (rows > PC_TILE_DIM) rows = PC_TILE_DIM;
         st = pc_comp_rect(f->d, pc_rect_make(0, by, (int32_t)f->d->w, (int32_t)rows), f->band,
                           f->d->w, f->par);
+        if (st == PC_OK) st = cp_add(f->prog, rows);
         if (st != PC_OK) {
             f->y0 = -1;                     /* the band holds partial data */
             f->err = st;

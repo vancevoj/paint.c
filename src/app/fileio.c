@@ -658,7 +658,16 @@ typedef struct cfg_dlg {
     bool          panning;
     float         pan_x, pan_y;
     pc_status     err_shown;           /* lane SHELL: last encode error raised as a dialog */
+    /* W4-SAVECFG: the running preview job (NULL when none; owned by the
+     * task until cfg_done) and the last frame's columns (io_savecfg_probe) */
+    struct cfg_job *job;
+    ui_rect       opt_rect, box_rect, dlg_rect;
 } cfg_dlg;
+
+/* W4-SAVECFG (F-DLG-SAVECFG-FILESIZE): the worker publishes its progress
+ * in thousandths (the encode is 0..900, the decode of the preview the
+ * rest) and stops at the next codec step once cancel is set. */
+#define CFG_ENCODE_SHARE 900u
 
 typedef struct cfg_job {
     cfg_dlg        *dlg;
@@ -672,6 +681,8 @@ typedef struct cfg_job {
     uint8_t        *rgba;              /* owned preview, tw x th */
     int32_t         tw, th;
     uint32_t        img_w, img_h;
+    pc_atomic_u32   permille;          /* worker writes, main thread reads */
+    pc_atomic_u32   cancel;            /* main thread writes, worker reads */
 } cfg_job;
 
 static void cfg_free(void *p)
@@ -730,21 +741,34 @@ static uint8_t *preview_rgba(const pc_doc *d, int32_t *tw, int32_t *th)
     return out;
 }
 
+/* pc_codec_progress of the preview encode (worker thread). */
+static bool cfg_report(void *ud, double done)
+{
+    cfg_job *j = (cfg_job *)ud;
+    pc_atomic_store(&j->permille, (uint32_t)(done * (double)CFG_ENCODE_SHARE + 0.5));
+    return pc_atomic_load(&j->cancel) == 0u;
+}
+
 static void cfg_work(void *ud)
 {
     cfg_job *j = (cfg_job *)ud;
     pc_buf out;
+    pc_codec_progress prog;
     memset(&out, 0, sizeof out);
-    j->st = j->codec->save(j->snap, j->meta, j->params, NULL, &out);
+    prog.report = cfg_report;
+    prog.ud = j;
+    j->st = pc_codec_save_ex(j->codec, j->snap, j->meta, j->params, NULL, &prog, &out);
     if (j->st == PC_OK) {
         j->bytes = out.n;
-        if ((j->codec->flags & PC_CODEC_LOAD) && j->codec->load) {
+        pc_atomic_store(&j->permille, CFG_ENCODE_SHARE);
+        if ((j->codec->flags & PC_CODEC_LOAD) && j->codec->load && !pc_atomic_load(&j->cancel)) {
             pc_doc *back = NULL;
             pc_image_meta m;
             /* lane CODEC (FL-BIG): the limits of File > Open, so every image
              * that saves also gets its preview */
             if (app_load_bytes(out.p, out.n, NULL, j->codec, &back, &m, NULL, NULL) == PC_OK &&
                 back) {
+                pc_atomic_store(&j->permille, (CFG_ENCODE_SHARE + 1000u) / 2u);
                 j->rgba = preview_rgba(back, &j->tw, &j->th);
                 j->img_w = back->w;
                 j->img_h = back->h;
@@ -772,6 +796,7 @@ static void cfg_done(app *a, void *ud)
     cfg_job *j = (cfg_job *)ud;
     cfg_dlg *c = j->dlg;
     c->running = false;
+    c->job = NULL;
     if (c->ended) {
         free(j->params);
         free(j->rgba);
@@ -784,6 +809,9 @@ static void cfg_done(app *a, void *ud)
             char sz[48];
             format_size((double)j->bytes, sz, sizeof sz);
             snprintf(c->info, sizeof c->info, "File size: %s", sz);
+            c->err_shown = PC_OK;          /* W4-SAVECFG: a later failure is raised again */
+        } else if (j->st == PC_ERR_CANCELLED) {
+            c->dirty = true;               /* not asked for by a change: compute again */
         } else {
             snprintf(c->info, sizeof c->info, "File size: error (%s)", pc_status_str(j->st));
             /* lane SHELL (F-DLG-SAVECFG-FILESIZE): the standard error dialog,
@@ -837,9 +865,12 @@ static void cfg_start(app *a, cfg_dlg *c)
         if (!j->params) { free(j); return; }
         memcpy(j->params, c->params, codec->params_size);
     }
-    snprintf(c->info, sizeof c->info, "File size: computing...");
+    pc_atomic_store(&j->permille, 0u);
+    pc_atomic_store(&j->cancel, 0u);
+    snprintf(c->info, sizeof c->info, "File size: computing (0%%)");
     if (app_task(a, cfg_work, cfg_done, j)) {
         c->running = true;
+        c->job = j;
     } else {
         free(j->params);
         free(j);
@@ -849,8 +880,13 @@ static void cfg_start(app *a, cfg_dlg *c)
 static void cfg_changed(app *a, cfg_dlg *c)
 {
     c->gen++;
-    if (c->running) c->dirty = true;
-    else cfg_start(a, c);
+    if (c->running) {
+        c->dirty = true;
+        /* W4-SAVECFG: the stale encode stops at its next step */
+        if (c->job) pc_atomic_store(&c->job->cancel, 1u);
+    } else {
+        cfg_start(a, c);
+    }
 }
 
 /* Fit zoom of the preview box (never above 100 %). */
@@ -942,21 +978,46 @@ static void cfg_preview(app *a, cfg_dlg *c, ui_rect box)
     if (in.hovered) ui_set_cursor(ui, c->zoom > 0.0 ? UI_CURSOR_MOVE : UI_CURSOR_DEFAULT);
 }
 
+/* W4-SAVECFG (F-FILE-DDS-SAVE-BC7SPEED): the options column is as wide as
+ * its rows need (app_props_width, CFG_OPT_MIN..CFG_OPT_MAX DIP) and the
+ * dialog grows with it; a window too narrow for that shrinks the preview
+ * to CFG_PREVIEW_MIN first, then the options (drop-downs move below their
+ * labels). The preview fills the rest; an empty CFG_GUTTER cell keeps the
+ * widest rows off the preview. */
+#define CFG_OPT_MIN     300.0f
+#define CFG_OPT_MAX     480.0f
+#define CFG_OPT_FLOOR   160.0f
+#define CFG_GUTTER      8.0f
+#define CFG_PREVIEW_W   420.0f
+#define CFG_PREVIEW_MIN 200.0f
+#define CFG_DLG_PAD     32.0f         /* ui_dialog_begin: 16 DIP on both sides */
+
 static bool cfg_frame(app *a, void *st)
 {
     cfg_dlg *c = (cfg_dlg *)st;
     ui_ctx *ui = a->ui;
     const pc_codec *codec = c->flow->codec;
-    ui_size cells[2];
+    ui_size cells[3];
     app_props_ctx pctx;
     uint32_t r;
     bool ok = false, cancel = false, enter;
-    ui_dialog_begin(ui, c->title, 760.0f, 0.0f);
+    float sc = ui_scale(ui) > 0.0f ? ui_scale(ui) : 1.0f, sp = ui_get_theme(ui)->m.spacing;
+    float gap = 2.0f * sp + CFG_GUTTER;
+    float opt = (float)app_props_width(a, codec->props, codec->n_props) / sc;
+    int32_t opt_px, room;
+    if (opt < CFG_OPT_MIN) opt = CFG_OPT_MIN;
+    if (opt > CFG_OPT_MAX) opt = CFG_OPT_MAX;
+    ui_dialog_begin(ui, c->title, opt + gap + CFG_PREVIEW_W + CFG_DLG_PAD, 0.0f);
     enter = app_dialog_take_enter(a);
-    cells[0] = ui_size_fr(1.0f);
-    cells[1] = ui_size_px(420.0f);
-    ui_layout_row(ui, 0.0f, 2, cells);
-    ui_layout_begin(ui, 0.0f);
+    c->dlg_rect = ui_layout_content(ui);
+    opt_px = ui_px(ui, opt);
+    room = c->dlg_rect.w - 2 * ui_px(ui, sp) - ui_px(ui, CFG_GUTTER) - ui_px(ui, CFG_PREVIEW_MIN);
+    if (opt_px > room) opt_px = room > ui_px(ui, CFG_OPT_FLOOR) ? room : ui_px(ui, CFG_OPT_FLOOR);
+    cells[0] = ui_size_px((float)opt_px / sc);
+    cells[1] = ui_size_px(CFG_GUTTER);
+    cells[2] = ui_size_fr(1.0f);
+    ui_layout_row(ui, 0.0f, 3, cells);
+    c->opt_rect = ui_layout_begin(ui, 0.0f);
     memset(&pctx, 0, sizeof pctx);
     pctx.id = "##saveopts";
     if (app_props_ui(a, codec->props, codec->n_props, c->params, &pctx) & APP_PROPS_CHANGED)
@@ -967,10 +1028,17 @@ static bool cfg_frame(app *a, void *st)
         cfg_changed(a, c);
     }
     ui_layout_end(ui);
+    (void)ui_layout_next(ui, 0, 0);     /* the gutter */
     ui_layout_begin(ui, 0.0f);
     {
-        ui_rect box = ui_layout_next(ui, ui_px(ui, 412.0f), ui_px(ui, 300.0f));
+        ui_rect box = ui_layout_next(ui, 0, ui_px(ui, 300.0f));
         char zl[48];
+        c->box_rect = box;
+        if (c->running && c->job) {     /* W4-SAVECFG: "computing (p%)" */
+            uint32_t pm = c->job->gen == c->gen ? pc_atomic_load(&c->job->permille) : 0u;
+            snprintf(c->info, sizeof c->info, "File size: computing (%u%%)",
+                     (unsigned)(pm > 1000u ? 100u : pm / 10u));
+        }
         cfg_preview(a, c, box);
         ui_label_ex(ui, c->info, UI_LABEL_DIM);
         if (c->have_result) {
@@ -988,6 +1056,7 @@ static bool cfg_frame(app *a, void *st)
     if (r == UI_DLG_OK) ok = true;
     else if (r) cancel = true;
     if (!ok && !cancel) return true;
+    if (c->job) pc_atomic_store(&c->job->cancel, 1u);  /* W4-SAVECFG: nobody needs it now */
     if (ok) {
         memcpy(c->flow->params, c->params, codec->params_size);
         io_params_store(a, codec, c->params);         /* last used options per type */
@@ -1001,6 +1070,27 @@ static bool cfg_frame(app *a, void *st)
 }
 
 static uint32_t cfg_seq;
+
+bool io_savecfg_probe(app *a, io_savecfg_info *out)
+{
+    for (int32_t i = a->ndialogs; i-- > 0;) {
+        const cfg_dlg *c;
+        if (a->dialogs[i].fn != cfg_frame) continue;
+        c = (const cfg_dlg *)a->dialogs[i].st;
+        memset(out, 0, sizeof *out);
+        snprintf(out->info, sizeof out->info, "%s", c->info);
+        out->running = c->running;
+        out->permille = c->job ? pc_atomic_load(&c->job->permille) : 0u;
+        out->have_result = c->have_result;
+        out->codec = c->flow ? c->flow->codec : NULL;
+        out->params = c->params;
+        out->dialog = c->dlg_rect;
+        out->options = c->opt_rect;
+        out->preview = c->box_rect;
+        return true;
+    }
+    return false;
+}
 
 static void step_config(app *a, save_flow *f)
 {

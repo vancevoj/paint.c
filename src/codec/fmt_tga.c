@@ -19,6 +19,7 @@
  * Threading: load and save are reentrant (no global state).
  */
 #include "quant.h"
+#include "codec_prog.h"
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -324,8 +325,10 @@ static pc_status write_rle_row(pc_buf *b, const pc_px32 *r, uint32_t w, uint32_t
     return st;
 }
 
-static pc_status tga_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
-                          const pc_par *par, pc_buf *out)
+/* W4-SAVECFG (ADR-023): the Auto-detect statistics and the rows are the
+ * progress phases; fl counts their rows. */
+static pc_status tga_save_ex(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                             const pc_par *par, const pc_codec_progress *prog, pc_buf *out)
 {
     tga_params prm;
     pc_flat fl;
@@ -334,7 +337,10 @@ static pc_status tga_save(const pc_doc *d, const pc_image_meta *meta, const void
     uint32_t depth, bytes, w, h;
     size_t base, ext_off = 0;
     pc_status st;
+    cp_prog g;
+    double lo = 0.0;
     (void)meta;
+    cp_init(&g, prog);
     if (!d || !out) return PC_ERR_ARG;
     if (params) memcpy(&prm, params, sizeof prm);
     else { prm.depth = 0; prm.rle = 1; }
@@ -342,6 +348,7 @@ static pc_status tga_save(const pc_doc *d, const pc_image_meta *meta, const void
     w = d->w; h = d->h;
     st = pc_flat_init(&fl, d, par);
     if (st != PC_OK) return st;
+    fl.prog = &g;
     tmp = (pc_px32 *)malloc((size_t)w * sizeof *tmp);
     if (!tmp) { pc_flat_free(&fl); return PC_ERR_NOMEM; }
     depth = prm.depth == 1 ? 32u : (prm.depth == 2 ? 24u : 0u);
@@ -349,13 +356,16 @@ static pc_status tga_save(const pc_doc *d, const pc_image_meta *meta, const void
         pc_quant_stats *s = (pc_quant_stats *)malloc(sizeof *s);
         if (!s) { st = PC_ERR_NOMEM; goto done; }
         pc_quant_stats_init(s);
-        for (uint32_t y = 0; y < h; y++) {
+        st = cp_phase(&g, 0.0, 0.3, h);
+        for (uint32_t y = 0; y < h && st == PC_OK; y++) {
             const pc_px32 *r = pc_flat_row(&fl, y);
             if (!r) { free(s); st = fl.err; goto done; }
             pc_quant_stats_add(s, r, w);
         }
         depth = pc_quant_choose_depth(s, PC_QD_24 | PC_QD_32);
         free(s);
+        if (st != PC_OK) goto done;
+        lo = 0.3;
     }
     bytes = depth / 8u;
     base = out->n;
@@ -365,7 +375,8 @@ static pc_status tga_save(const pc_doc *d, const pc_image_meta *meta, const void
     hdr[14] = (uint8_t)h; hdr[15] = (uint8_t)(h >> 8);
     hdr[16] = (uint8_t)depth;
     hdr[17] = depth == 32u ? 8u : 0u;            /* bottom-up, 8 alpha bits */
-    st = pc_buf_append(out, hdr, sizeof hdr);
+    st = cp_phase(&g, lo, 1.0, h);
+    if (st == PC_OK) st = pc_buf_append(out, hdr, sizeof hdr);
     if (st == PC_OK && !prm.rle) {
         uint64_t total = (uint64_t)w * h * bytes + 18u + TGA_EXT_SIZE + 26u;
         if (total > (uint64_t)SIZE_MAX) st = PC_ERR_LIMIT;
@@ -412,9 +423,15 @@ done:
     return st;
 }
 
+static pc_status tga_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
+                          const pc_par *par, pc_buf *out)
+{
+    return tga_save_ex(d, meta, params, par, NULL, out);
+}
+
 const pc_codec pc_codec_tga = {
     "tga", "TGA", "tga", PC_CODEC_LOAD | PC_CODEC_SAVE,
     tga_sniff, tga_load,
     k_props, (uint32_t)(sizeof k_props / sizeof k_props[0]), (uint32_t)sizeof(tga_params),
-    tga_save
+    tga_save, tga_save_ex
 };

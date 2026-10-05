@@ -101,6 +101,10 @@ typedef struct app_props_ctx {
  * hint, else they are hidden. */
 uint32_t app_props_ui(app *a, const fx_prop *props, uint32_t n, void *params,
                       const app_props_ctx *ctx);
+/* W4-SAVECFG: the narrowest layout width (px, current UI scale) at which
+ * app_props_ui keeps every check box and "Label:" drop-down row on one line
+ * (narrower layouts move drop-downs below their labels). */
+int32_t  app_props_width(app *a, const fx_prop *props, uint32_t n);
 
 /* Custom widget for FXP_CUSTOM props with a given hint ("curves",
  * "levels"): edits the blob at value (p->size bytes); returns true when it
