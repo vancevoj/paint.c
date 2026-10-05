@@ -53,3 +53,13 @@ in its final report.
 - L6b: src/codec/lib_codec.c/.h, tests/codec/lib_test_util.h, third_party/bc7enc/, docs/DEPENDENCIES.md.
 - L6c: src/codec/pdn_*.c, pdn.h, tests/codec/pdn_util.h, tests/codec/pdn_pypdn_check.py, docs/codecs/pdn.md.
 - Every lane: docs/notice/<lane>.md.
+
+## Wave 2 ownership (recorded at the wave 2b merge)
+- W2A shell: src/app core files (app.c, app_internal.h, cmd.c, menu.c, doc.c, canvas.c, overlay.c, tool.c, dlg.c), src/gfx, include/app, docs/app/ARCHITECTURE.md (shared after wave 2b: small additive changes marked by lane).
+- W2B-P panels: src/app/panels/, panels.c, shell.c, thumbs.c, docs/app/panels.md.
+- W2B-M menus and dialogs: src/app/mods/mod_edit.c, mod_view.c, mod_image*.c, mod_layers.c, mod_help.c, src/app/edit/.
+- W2B-F effects UI: src/app/mods/mod_effects.c, propdlg.c, src/app/fx/, tests/plugins/, docs/app/EFFECTS.md.
+- W2B-A selection and move tools: src/app/tools/tool_{rect,lasso,ellipse}_select.c, tool_magic_wand.c, tool_move_*.c, sel_*, include/app/app_float.h.
+- W2B-B painting tools: src/app/tools/tool_{paintbrush,pencil,eraser,clone_stamp,recolor,paint_bucket,gradient,color_picker}.c, stroke.*, paint_*.
+- W2B-C vector tools: src/app/tools/tool_{line_curve,shapes,text}.c, vec_*, text_*.
+- W2B-I integration: src/app/main.c, fileio.c, settings.c, script.c, platform/, src/app/io/, include/app/app_io.h, packaging/, assets/icons/, LICENSE, docs/PACKAGING.md, docs/app/io.md.

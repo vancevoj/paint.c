@@ -160,6 +160,14 @@ typedef struct fx_effect {
 typedef int (*fx_entry_fn)(const fx_host *host, int (*reg)(const fx_effect *fx));
 #define FX_ENTRY_NAME "fx_entry"
 
+/* Optional plugin exports the host's loader understands (v1.1):
+ *   FX_ABI_VERSION_NAME  uint32_t (*)(void), must return FX_ABI_VERSION;
+ *                        a mismatch rejects the library before fx_entry runs.
+ *   FX_INFO_NAME         const char *(*)(const char *key), keys "author" and
+ *                        "version" (UTF-8, static strings), shown in About. */
+#define FX_ABI_VERSION_NAME "fx_abi_version"
+#define FX_INFO_NAME        "fx_plugin_info"
+
 #if defined(_WIN32)
 #  define FX_EXPORT __declspec(dllexport)
 #else

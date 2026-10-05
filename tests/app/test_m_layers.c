@@ -308,11 +308,11 @@ static void t_properties(void)
     if (!a) return;
     d = app_active_doc(a);
     c = app_cmd_find(a, "layers.properties");
-    CHECK(c && (c->flags & APP_CMD_WEAK));       /* the Layers window lane may replace it */
+    CHECK(c != NULL);    /* lane M's weak stand-in or lane P's real dialog (after merge) */
     tap(a, SDLK_F4, SDL_KMOD_NONE);
     at_frames(a, 2);
     CHECK(app_dialog_active(a));
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
+    tap(a, SDLK_A, AT_KMOD_PRIMARY);
     text_ev(a, "Sky");
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     CHECK(!app_dialog_active(a) && strcmp(lname(d, 0), "Sky") == 0);

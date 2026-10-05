@@ -46,11 +46,14 @@ files carry an additional notice, also under the MIT License reproduced above:
     (Posterize tables, WarpEffectBase, Polar Inversion, Dents, PerlinNoise2D)
 
 ----------------------------------------------------------------------------------------
-Third-party components (full license texts ship in licenses/ with every binary package)
+Third-party components (full license texts ship in licenses/ with every binary package;
+sources in packaging/licenses)
 
     SDL 3.4.18                 zlib license          https://libsdl.org
     zlib 1.3.2                 zlib license          https://zlib.net
     libspng 0.7.4              BSD 2-Clause          https://libspng.org
+                               (contains code derived from libpng, PNG Reference Library
+                               License version 2; packaging/licenses/libspng-libpng-2.0.txt)
     libjpeg-turbo 3.2.0        IJG, BSD 3-Clause and zlib licenses
     libwebp 1.6.0              BSD 3-Clause          https://chromium.googlesource.com/webm/libwebp
     Little-CMS 2.19.1          MIT                   https://littlecms.com

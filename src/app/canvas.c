@@ -897,8 +897,14 @@ void app_canvas_frame(app *a, ui_rect area)
         if (x1 - x0 < 1e7 && y1 - y0 < 1e7 && !a->m_cv_no_shadow) {   /* lane M: setting */
             ui_rect ir = ui_rect_make((int32_t)x0, (int32_t)y0, (int32_t)(x1 - x0),
                                       (int32_t)(y1 - y0));
-            ui_draw_shadow(ui, ir, 0.0f, (float)ui_px(ui, 14.0f),
-                           ui_rgba(0, 0, 0, a->dark ? 170 : 96));
+            float blur = (float)ui_px(ui, 14.0f);
+            /* Only the image edges near the view cast visible shadow: clip the
+             * rect to the view grown by twice the blur so huge zoomed images do
+             * not rasterize a document-sized shadow every frame. */
+            int32_t grow = (int32_t)(2.0f * blur) + 2;
+            ir = ui_rect_intersect(ir, ui_rect_inset(c->view, -grow, -grow));
+            if (ir.w > 0 && ir.h > 0)
+                ui_draw_shadow(ui, ir, 0.0f, blur, ui_rgba(0, 0, 0, a->dark ? 170 : 96));
         }
         g_draw.a = a;
         g_draw.v = v;

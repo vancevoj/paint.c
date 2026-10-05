@@ -51,3 +51,9 @@ licenses below are permissive and compatible with the project's MIT license
 - Little-CMS is compiled with -fwrapv (GCC, Clang): malformed profiles can push
   its fixed-point math into signed overflow, which then wraps instead of being
   undefined behavior.
+
+## Packaging-time components (shipped inside packages, not linked)
+| Name | Version | SHA-256 | License | Where |
+|---|---|---|---|---|
+| linuxdeploy (x86_64 AppImage) | 1-alpha-20251107-1 | c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d | MIT | puts AppRun and the AppImage runtime (MIT) into the AppImage |
+| NSIS | 3.x (CI image) | n/a (system package) | zlib/libpng style | installer stub inside the Windows setup.exe |

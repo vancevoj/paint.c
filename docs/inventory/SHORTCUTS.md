@@ -198,7 +198,7 @@ Pixel Grid and Rulers have no default accelerator (D lists none). paint.c may ad
 | ID | Command | Keys | Src | Notes |
 |---|---|---|---|---|
 | K-FX-MENU | Open Effects menu | Alt + C | D | |
-| K-FX-REPEAT | Repeat last effect or adjustment | Ctrl + F | D | Re-runs with the same parameters, no dialog. Disabled until something was run (I). |
+| K-FX-REPEAT | Repeat last effect | Ctrl + F | D | Re-runs with the same parameters, no dialog. Disabled until something was run (I). |
 
 ## Colors
 
