@@ -131,7 +131,9 @@ app_doc *sel_active_doc_if(const app *a, uint32_t id)
 }
 
 /* ---- combine modes ----------------------------------------------------------------------- */
-bool sel_mods_ctrl(uint32_t mods) { return (mods & ui_mod_primary()) != 0u; }
+/* lane KEYS (F-KEY-OS-1, K-OS-1): Ctrl and Cmd both work as the tool
+ * modifier, as in the other tools (paint_ctrl) */
+bool sel_mods_ctrl(uint32_t mods) { return (mods & (UI_MOD_CTRL | UI_MOD_GUI)) != 0u; }
 bool sel_mods_alt(uint32_t mods) { return (mods & UI_MOD_ALT) != 0u; }
 
 pc_sel_mode sel_mode_for(const app *a, int button, uint32_t mods)

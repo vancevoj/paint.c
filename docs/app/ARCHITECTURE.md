@@ -96,18 +96,27 @@ Helper files must not use these prefixes (for example `tools/stroke.c`).
   their documented shortcut; a lane that implements e.g. Image > Resize only
   registers `image.resize`. `app_menu_extra` appends items that are not in
   MENUS.md (plugins, paint.c extras).
-* Key dispatch (`app_key_press`), for presses no widget used: the active
-  tool's `key` callback, then command shortcuts, then tool letters
-  (K-TOOLSEL-CYCLE: the 3.36 algorithm, 1 s window, Shift reverses, swallowed
-  while a mouse button is down), then Enter / Esc (finish or cancel the live
-  tool, else Deselect). Letters, digits and editing keys without Ctrl, Alt or
-  Cmd go to a focused text field instead.
-* Alt plus a menu letter (F, E, V, I, L, A, C) opens that menu through the
-  toolkit's keyboard menu navigation (F10, then one Right per frame).
+* Key dispatch (`app_key_press_ex`, lane KEYS), for presses no widget
+  used: nothing while a menu owns the keyboard (`ui_menu_keyboard`) except
+  Alt+H (Help menu) and Alt+T (tool dropdown); Space + arrows pan; the
+  active tool's `key` callback, then command shortcuts (bindings on
+  [ ] , . / match the typed character of the press, K-OS-3), then tool
+  letters (K-TOOLSEL-CYCLE: the 3.36 algorithm, 1 s window, Shift reverses,
+  swallowed while a mouse button is down), then Enter / Esc (finish or
+  cancel the live tool, else Deselect), then arrows nudge the pointer over
+  the canvas (K-NAV-TOOLMOVE). Home / End pressed again at the edge go to
+  the corner. Letters, digits and editing keys without Ctrl, Alt or Cmd go
+  to a focused text field instead.
+* Menu access keys (lane KEYS): menu.c marks them with '&' (titles F, E,
+  V, I, L, A, C; every item) and the toolkit handles Alt + letter, item
+  letters in open menus, the lone Alt press that focuses the menu bar,
+  underlines and scrolling of menus taller than the window
+  (src/ui/README.md).
 * Provisional commands carry `APP_CMD_WEAK`: a later registration of the
   same id replaces them, whatever the module order. Wave 2a registers
-  `edit.paste`, `edit.paste_layer` (paste as a new layer or a pixel copy,
-  no floating move), `image.resize` and `image.canvas_size`
+  `edit.paste`, `edit.paste_layer` (since wave 3b the pasted pixels float
+  in Move Selected Pixels, app_float_paste), `image.resize` and
+  `image.canvas_size`
   (`mods/mod_image_size.c`) this way, so the lanes that own those features
   only add their own `mod_*.c` with a normal registration.
 

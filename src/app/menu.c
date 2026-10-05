@@ -5,6 +5,7 @@
  * Adjustments and Effects menus are generated from the effect registry
  * (menu paths), Open Recent from the recent file list. */
 #include "app_internal.h"
+#include "app/app_io.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,117 +31,118 @@ typedef struct menu_item {
 } menu_item;
 
 typedef struct menu_def {
-    const char      *title;
+    const char      *title;          /* plain title (app_menu_extra menu names) */
+    const char      *label;          /* displayed title with its access key */
     const menu_item *items;
 } menu_def;
 
 /* ---- the table (MENUS.md) --------------------------------------------------------- */
 static const menu_item k_file[] = {
-    { MI_CMD, "file.new", "New..." },
-    { MI_CMD, "file.open", "Open..." },
-    { MI_RECENT, NULL, "Open Recent" },
-    { MI_SUB_OPT, NULL, "Acquire" },
-    { MI_CMD, "file.acquire.scanner", "From Scanner or Camera..." },
+    { MI_CMD, "file.new", "&New..." },
+    { MI_CMD, "file.open", "&Open..." },
+    { MI_RECENT, NULL, "Open &Recent" },
+    { MI_SUB_OPT, NULL, "Ac&quire" },
+    { MI_CMD, "file.acquire.scanner", "From &Scanner or Camera..." },
     { MI_SUB_END, NULL, NULL },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "file.save", "Save" },
-    { MI_CMD, "file.save_as", "Save As..." },
-    { MI_CMD, "file.save_all", "Save All" },
+    { MI_CMD, "file.save", "&Save" },
+    { MI_CMD, "file.save_as", "Save &As..." },
+    { MI_CMD, "file.save_all", "Save A&ll" },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "file.print", "Print..." },
+    { MI_CMD, "file.print", "&Print..." },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "file.close", "Close" },
-    { MI_CMD, "file.exit", "Exit" },
+    { MI_CMD, "file.close", "&Close" },
+    { MI_CMD, "file.exit", "E&xit" },
     { MI_END, NULL, NULL }
 };
 
 static const menu_item k_edit[] = {
-    { MI_CMD, "edit.undo", "Undo" },
-    { MI_CMD, "edit.redo", "Redo" },
+    { MI_CMD, "edit.undo", "&Undo" },
+    { MI_CMD, "edit.redo", "&Redo" },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "edit.cut", "Cut" },
-    { MI_CMD, "edit.copy", "Copy" },
-    { MI_CMD, "edit.copy_merged", "Copy Merged" },
-    { MI_CMD, "edit.paste", "Paste" },
-    { MI_CMD, "edit.paste_layer", "Paste into New Layer" },
-    { MI_CMD, "edit.paste_image", "Paste into New Image" },
+    { MI_CMD, "edit.cut", "Cu&t" },
+    { MI_CMD, "edit.copy", "&Copy" },
+    { MI_CMD, "edit.copy_merged", "Copy &Merged" },
+    { MI_CMD, "edit.paste", "&Paste" },
+    { MI_CMD, "edit.paste_layer", "Paste into New &Layer" },
+    { MI_CMD, "edit.paste_image", "Paste into New &Image" },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "edit.copy_selection", "Copy Selection" },
-    { MI_SUB, NULL, "Paste Selection" },
-    { MI_CMD, "edit.paste_selection.replace", "Replace" },
-    { MI_CMD, "edit.paste_selection.union", "Add (union)" },
-    { MI_CMD, "edit.paste_selection.exclude", "Subtract" },
-    { MI_CMD, "edit.paste_selection.intersect", "Intersect" },
-    { MI_CMD, "edit.paste_selection.xor", "Invert (xor)" },
+    { MI_CMD, "edit.copy_selection", "Copy &Selection" },
+    { MI_SUB, NULL, "Paste Selectio&n" },
+    { MI_CMD, "edit.paste_selection.replace", "&Replace" },
+    { MI_CMD, "edit.paste_selection.union", "A&dd (union)" },
+    { MI_CMD, "edit.paste_selection.exclude", "&Subtract" },
+    { MI_CMD, "edit.paste_selection.intersect", "&Intersect" },
+    { MI_CMD, "edit.paste_selection.xor", "In&vert (xor)" },
     { MI_SUB_END, NULL, NULL },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "edit.erase_selection", "Erase Selection" },
-    { MI_CMD, "edit.fill_selection", "Fill Selection" },
-    { MI_CMD, "edit.invert_selection", "Invert Selection" },
-    { MI_CMD, "edit.select_all", "Select All" },
-    { MI_CMD, "edit.deselect", "Deselect" },
+    { MI_CMD, "edit.erase_selection", "&Erase Selection" },
+    { MI_CMD, "edit.fill_selection", "&Fill Selection" },
+    { MI_CMD, "edit.invert_selection", "In&vert Selection" },
+    { MI_CMD, "edit.select_all", "Select &All" },
+    { MI_CMD, "edit.deselect", "&Deselect" },
     { MI_END, NULL, NULL }
 };
 
 static const menu_item k_view[] = {
-    { MI_CMD, "view.zoom_in", "Zoom In" },
-    { MI_CMD, "view.zoom_out", "Zoom Out" },
-    { MI_CMD, "view.zoom_window", "Zoom to Window" },
-    { MI_CMD, "view.zoom_selection", "Zoom to Selection" },
-    { MI_CMD, "view.actual_size", "Actual Size" },
+    { MI_CMD, "view.zoom_in", "Zoom &In" },
+    { MI_CMD, "view.zoom_out", "Zoom &Out" },
+    { MI_CMD, "view.zoom_window", "Zoom to &Window" },
+    { MI_CMD, "view.zoom_selection", "Zoom to &Selection" },
+    { MI_CMD, "view.actual_size", "&Actual Size" },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "view.pixel_grid", "Pixel Grid" },
-    { MI_CMD, "view.rulers", "Rulers" },
+    { MI_CMD, "view.pixel_grid", "Pixel &Grid" },
+    { MI_CMD, "view.rulers", "&Rulers" },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "view.units.px", "Pixels" },
-    { MI_CMD, "view.units.in", "Inches" },
-    { MI_CMD, "view.units.cm", "Centimeters" },
+    { MI_CMD, "view.units.px", "&Pixels" },
+    { MI_CMD, "view.units.in", "I&nches" },
+    { MI_CMD, "view.units.cm", "&Centimeters" },
     { MI_END, NULL, NULL }
 };
 
 static const menu_item k_image[] = {
-    { MI_CMD, "image.crop_to_selection", "Crop to Selection" },
-    { MI_CMD, "image.resize", "Resize..." },
-    { MI_CMD, "image.canvas_size", "Canvas Size..." },
+    { MI_CMD, "image.crop_to_selection", "&Crop to Selection" },
+    { MI_CMD, "image.resize", "&Resize..." },
+    { MI_CMD, "image.canvas_size", "Canvas &Size..." },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "image.flip_h", "Flip Horizontal" },
-    { MI_CMD, "image.flip_v", "Flip Vertical" },
+    { MI_CMD, "image.flip_h", "Flip &Horizontal" },
+    { MI_CMD, "image.flip_v", "Flip &Vertical" },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "image.rotate_cw", "Rotate 90\xC2\xB0 Clockwise" },
-    { MI_CMD, "image.rotate_ccw", "Rotate 90\xC2\xB0 Counter-clockwise" },
-    { MI_CMD, "image.rotate_180", "Rotate 180\xC2\xB0" },
+    { MI_CMD, "image.rotate_cw", "Rotate 90\xC2\xB0 Clock&wise" },
+    { MI_CMD, "image.rotate_ccw", "Rotate 90\xC2\xB0 Counter-cl&ockwise" },
+    { MI_CMD, "image.rotate_180", "Rotate &180\xC2\xB0" },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "image.color_profile", "Color Profile..." },
+    { MI_CMD, "image.color_profile", "Color &Profile..." },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "image.flatten", "Flatten" },
+    { MI_CMD, "image.flatten", "&Flatten" },
     { MI_END, NULL, NULL }
 };
 
 /* Separators after items 6, 10, 14 and 18 (MENUS.md Layers note). */
 static const menu_item k_layers[] = {
-    { MI_CMD, "layers.add_new", "Add New Layer" },
-    { MI_CMD, "layers.delete", "Delete Layer" },
-    { MI_CMD, "layers.duplicate", "Duplicate Layer" },
-    { MI_CMD, "layers.merge_down", "Merge Layer Down" },
-    { MI_CMD, "layers.toggle_visibility", "Toggle Layer Visibility" },
-    { MI_CMD, "layers.import", "Import From File..." },
+    { MI_CMD, "layers.add_new", "&Add New Layer" },
+    { MI_CMD, "layers.delete", "&Delete Layer" },
+    { MI_CMD, "layers.duplicate", "D&uplicate Layer" },
+    { MI_CMD, "layers.merge_down", "&Merge Layer Down" },
+    { MI_CMD, "layers.toggle_visibility", "&Toggle Layer Visibility" },
+    { MI_CMD, "layers.import", "&Import From File..." },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "layers.flip_h", "Flip Horizontal" },
-    { MI_CMD, "layers.flip_v", "Flip Vertical" },
-    { MI_CMD, "layers.rotate_180", "Rotate 180\xC2\xB0" },
-    { MI_CMD, "layers.rotate_zoom", "Rotate / Zoom..." },
+    { MI_CMD, "layers.flip_h", "Flip &Horizontal" },
+    { MI_CMD, "layers.flip_v", "Flip &Vertical" },
+    { MI_CMD, "layers.rotate_180", "Rotate &180\xC2\xB0" },
+    { MI_CMD, "layers.rotate_zoom", "Rotate / &Zoom..." },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "layers.go_top", "Go to Top Layer" },
-    { MI_CMD, "layers.go_up", "Go to Layer Above" },
-    { MI_CMD, "layers.go_down", "Go to Layer Below" },
-    { MI_CMD, "layers.go_bottom", "Go to Bottom Layer" },
+    { MI_CMD, "layers.go_top", "Go to To&p Layer" },
+    { MI_CMD, "layers.go_up", "Go to Layer A&bove" },
+    { MI_CMD, "layers.go_down", "Go to Layer Be&low" },
+    { MI_CMD, "layers.go_bottom", "Go to B&ottom Layer" },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "layers.move_top", "Move Layer to Top" },
-    { MI_CMD, "layers.move_up", "Move Layer Up" },
-    { MI_CMD, "layers.move_down", "Move Layer Down" },
-    { MI_CMD, "layers.move_bottom", "Move Layer to Bottom" },
+    { MI_CMD, "layers.move_top", "Mov&e Layer to Top" },
+    { MI_CMD, "layers.move_up", "Move La&yer Up" },
+    { MI_CMD, "layers.move_down", "Move Layer Do&wn" },
+    { MI_CMD, "layers.move_bottom", "Move Laye&r to Bottom" },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "layers.properties", "Layer Properties..." },
+    { MI_CMD, "layers.properties", "Layer Propertie&s..." },
     { MI_END, NULL, NULL }
 };
 
@@ -154,25 +156,31 @@ static const menu_item k_effects[] = {
     { MI_END, NULL, NULL }
 };
 
+/* Access keys (lane KEYS, K-UI-MENU-MNEMONIC): the titles F, E, V, I, L, A,
+ * C (MENUS.md); items use paint.c's own letters, unique within a menu, with
+ * the documented Alt+F, R (Open Recent), Alt+F, Q (Acquire) and Alt+F, X
+ * (Exit). Generated items (adjustments, effects, recent files, plugins)
+ * have none: their first character works instead (ui.h). */
 static const menu_def k_menus[] = {
-    { "File", k_file },     { "Edit", k_edit },         { "View", k_view },
-    { "Image", k_image },   { "Layers", k_layers },     { "Adjustments", k_adjust },
-    { "Effects", k_effects }
+    { "File", "&File", k_file },         { "Edit", "&Edit", k_edit },
+    { "View", "&View", k_view },         { "Image", "&Image", k_image },
+    { "Layers", "&Layers", k_layers },   { "Adjustments", "&Adjustments", k_adjust },
+    { "Effects", "Effe&cts", k_effects }
 };
 
 /* The Help menu behind the "?" button on the right of the menu bar. */
 static const menu_item k_help[] = {
-    { MI_CMD, "help.docs", "Documentation" },
-    { MI_CMD, "help.website", "Website" },
-    { MI_CMD, "help.search", "Search" },
-    { MI_OPT, "help.donate", "Donate" },
-    { MI_OPT, "help.forum", "Forum" },
-    { MI_OPT, "help.tutorials", "Tutorials" },
-    { MI_OPT, "help.plugins", "Plugins" },
+    { MI_CMD, "help.docs", "&Documentation" },
+    { MI_CMD, "help.website", "&Website" },
+    { MI_CMD, "help.search", "&Search" },
+    { MI_OPT, "help.donate", "D&onate" },
+    { MI_OPT, "help.forum", "&Forum" },
+    { MI_OPT, "help.tutorials", "&Tutorials" },
+    { MI_OPT, "help.plugins", "&Plugins" },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "help.feedback", "Send Feedback or Bug Report" },
+    { MI_CMD, "help.feedback", "Send Feedback or &Bug Report" },
     { MI_SEP, NULL, NULL },
-    { MI_CMD, "help.about", "About" },
+    { MI_CMD, "help.about", "&About" },
     { MI_END, NULL, NULL }
 };
 
@@ -199,11 +207,15 @@ static void cmd_item(app *a, const char *id, const char *label)
     if (chosen) (void)app_cmd_exec(a, id);
 }
 
-static void recent_menu(app *a)
+/* Open Recent is enabled only while the list has entries (MENUS.md File 3,
+ * F-MENU-FILE-RECENT); the file names are never parsed for access keys. */
+static void recent_menu(app *a, const char *label)
 {
     ui_ctx *ui = a->ui;
-    if (!ui_menu_begin(ui, "Open Recent")) return;
+    if (!ui_menu_begin_ex(ui, label, app_recent_count(a) > 0)) return;
+    ui_menu_mnemonics(ui, false);
     app_recent_menu_items(a);           /* lane I (io/recent.c): thumbnails, tooltips */
+    ui_menu_mnemonics(ui, true);
     ui_menu_end(ui);
 }
 
@@ -301,6 +313,7 @@ static void effect_items(app *a)
 static void extras(app *a, const char *menu)
 {
     bool sep = false;
+    ui_menu_mnemonics(a->ui, false);        /* labels from other modules are not parsed */
     for (int32_t i = 0; i < a->nmextra; i++) {
         const app_menu_extra_rec *e = &a->mextra[i];
         const app_cmd *c;
@@ -309,6 +322,7 @@ static void extras(app *a, const char *menu)
         if (!sep) { ui_menu_separator(a->ui); sep = true; }
         cmd_item(a, e->cmd, e->label ? e->label : (c ? c->label : e->cmd));
     }
+    ui_menu_mnemonics(a->ui, true);
 }
 
 static const menu_item *items(app *a, const menu_item *it);
@@ -344,9 +358,17 @@ static const menu_item *items(app *a, const menu_item *it)
             break;
         }
         case MI_SUB_END: return it;
-        case MI_RECENT: recent_menu(a); break;
-        case MI_ADJUST: adjust_items(a); break;
-        case MI_EFFECTS: effect_items(a); break;
+        case MI_RECENT: recent_menu(a, it->label); break;
+        case MI_ADJUST:
+            ui_menu_mnemonics(ui, false);          /* effect names are not parsed */
+            adjust_items(a);
+            ui_menu_mnemonics(ui, true);
+            break;
+        case MI_EFFECTS:
+            ui_menu_mnemonics(ui, false);
+            effect_items(a);
+            ui_menu_mnemonics(ui, true);
+            break;
         default: break;
         }
     }
@@ -358,24 +380,28 @@ void app_menubar(app *a, ui_rect bar, int32_t *end_x)
     ui_ctx *ui = a->ui;
     int32_t x = bar.x + ui_px(ui, 4.0f);
     ui_menubar_begin(ui, bar);
+    ui_menu_mnemonics(ui, true);
     for (size_t m = 0; m < sizeof k_menus / sizeof k_menus[0]; m++) {
         const char *t = k_menus[m].title;
         x += (int32_t)(ui_text_width(ui_font_regular(ui), ui_font_px(ui), t, strlen(t)) + 0.999f) +
              ui_px(ui, 20.0f);
-        if (ui_menu_begin(ui, t)) {
+        if (ui_menu_begin(ui, k_menus[m].label)) {
             (void)items(a, k_menus[m].items);
             extras(a, t);
             ui_menu_end(ui);
         }
     }
+    ui_menu_mnemonics(ui, false);
     ui_menubar_end(ui);
     if (end_x) *end_x = x;
 }
 
 void app_help_menu(app *a)
 {
+    ui_menu_mnemonics(a->ui, true);
     (void)items(a, k_help);
     extras(a, "Help");
+    ui_menu_mnemonics(a->ui, false);
 }
 
 size_t app_menu_ids(const char **out, size_t cap)

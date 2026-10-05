@@ -5,9 +5,11 @@
  * Help items open the project's pages in the browser (paint.c's own
  * project, never Paint.NET's): Documentation (F1; a bundled docs/index.html
  * next to the executable when present), Website, Search (Ctrl+E, the
- * project search), Send Feedback or Bug Report (a new issue prefilled with
- * a template and the Diagnostics text) and About. Donate, Forum, Tutorials
- * and Plugins have no paint.c counterpart yet and stay hidden. The links
+ * project search), Forum (the project's discussions), Tutorials and
+ * Plugins (the project wiki pages for tutorials and for the plugin index,
+ * lane KEYS: F-MENU-HELP-FORUM, -TUTORIALS, -PLUGINS), Send Feedback or Bug
+ * Report (a new issue prefilled with a template and the Diagnostics text)
+ * and About. Donate has no paint.c counterpart and stays hidden. The links
  * are defined once below (M_URL_*). Headless apps only record the URL
  * (m_last_url) so tests never start a browser.
  *
@@ -30,6 +32,9 @@
 #define M_URL_DOCS     M_URL_HOME "#readme"
 #define M_URL_SEARCH   M_URL_HOME "/search"
 #define M_URL_FEEDBACK M_URL_HOME "/issues/new"
+#define M_URL_FORUM     M_URL_HOME "/discussions"
+#define M_URL_TUTORIALS M_URL_HOME "/wiki/Tutorials"
+#define M_URL_PLUGINS   M_URL_HOME "/wiki/Plugins"
 
 /* The NOTICE file of the source tree, embedded at build time by
  * cmake/PcEmbed.cmake (src/app/CMakeLists.txt), so About can never drift from
@@ -177,7 +182,10 @@ static void cmd_docs(app *a, const app_cmd *c)
 
 static void cmd_link(app *a, const app_cmd *c)
 {
-    m_open_url(a, c->arg == 0 ? M_URL_HOME : M_URL_SEARCH);
+    static const char *const urls[] = { M_URL_HOME, M_URL_SEARCH, M_URL_FORUM, M_URL_TUTORIALS,
+                                        M_URL_PLUGINS };
+    size_t i = (size_t)c->arg;
+    m_open_url(a, i < sizeof urls / sizeof urls[0] ? urls[i] : M_URL_HOME);
 }
 
 static void cmd_feedback(app *a, const app_cmd *c)
@@ -238,6 +246,9 @@ void mod_help(app *a)
     reg(a, "help.docs", "Documentation", UI_ICON_HELP, nc, cmd_docs, NULL, 0);
     reg(a, "help.website", "Website", UI_ICON_NONE, nc, cmd_link, NULL, 0);
     reg(a, "help.search", "Search", UI_ICON_NONE, nc, cmd_link, NULL, 1);
+    reg(a, "help.forum", "Forum", UI_ICON_NONE, nc, cmd_link, NULL, 2);         /* lane KEYS */
+    reg(a, "help.tutorials", "Tutorials", UI_ICON_NONE, nc, cmd_link, NULL, 3);
+    reg(a, "help.plugins", "Plugins", UI_ICON_NONE, nc, cmd_link, NULL, 4);
     reg(a, "help.feedback", "Send Feedback or Bug Report", UI_ICON_NONE, nc, cmd_feedback, NULL,
         0);
     reg(a, "help.about", "About", UI_ICON_INFO, nc, cmd_about, NULL, 0);

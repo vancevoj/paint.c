@@ -167,7 +167,8 @@ static void globe(app *a, rz_dlg *g, float size_dip)
             g->v.angle = floor(ang * 100.0 + 0.5) / 100.0;
         } else {
             double dist = sqrt(dx * dx + dy * dy), t = dist / (double)ri * 90.0;
-            g->v.roll = floor(atan2(dy, dx) * 180.0 / M_PI_VALUE * 100.0 + 0.5) / 100.0;
+            /* lane KEYS (K-DLG-ANGLE-SHIFT): Shift snaps the roll to 15 degrees */
+            g->v.roll = m_rz_roll_from_drag(dx, dy, (ui_mods(ui) & UI_MOD_SHIFT) != 0u);
             g->v.tilt = floor((t > 90.0 ? 90.0 : t) * 100.0 + 0.5) / 100.0;
         }
         ui_set_cursor(ui, UI_CURSOR_CROSSHAIR);

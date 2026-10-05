@@ -172,6 +172,62 @@ static uint32_t norm_mods(SDL_Keymod m)
     return r;
 }
 
+/* lane KEYS (K-OS-3): the character a key press types with the active
+ * layout and its Shift / AltGr state (and Option on macOS, the only
+ * platform whose SDL keymaps have Alt levels), so shortcuts on characters
+ * such as [ ] , . / work on layouts where those need Shift or AltGr.
+ * Returns 0 when unknown (no scancode, not printable); *rest receives the
+ * UI_MOD_* state without the modifiers the layout used for the character
+ * (AltGr never counts as Alt). Windows reports AltGr as left Ctrl + right
+ * Alt, so that combination is also tried as the AltGr level there. */
+static bool printable_key(SDL_Keycode k)
+{
+    return k > 0x20u && k != 0x7Fu && !(k & SDLK_SCANCODE_MASK);
+}
+
+static SDL_Keymod layout_mods(SDL_Keymod m)
+{
+#if defined(__APPLE__)
+    return (SDL_Keymod)(m & (SDL_KMOD_SHIFT | SDL_KMOD_CAPS | SDL_KMOD_ALT | SDL_KMOD_MODE |
+                             SDL_KMOD_LEVEL5));
+#else
+    return (SDL_Keymod)(m & (SDL_KMOD_SHIFT | SDL_KMOD_CAPS | SDL_KMOD_MODE | SDL_KMOD_LEVEL5));
+#endif
+}
+
+static int32_t typed_sym(const SDL_KeyboardEvent *k, uint32_t *rest)
+{
+    SDL_Keymod m = k->mod, lm = layout_mods(k->mod);
+    SDL_Keycode t;
+    uint32_t mods = norm_mods(m);
+    if (m & SDL_KMOD_MODE) mods &= ~UI_MOD_ALT;          /* AltGr held as right Alt */
+    *rest = mods;
+    if (k->scancode == SDL_SCANCODE_UNKNOWN) return 0;
+    t = SDL_GetKeyFromScancode(k->scancode, lm, false);
+#if defined(_WIN32)
+    if ((m & SDL_KMOD_RALT) && (m & SDL_KMOD_CTRL) && !(m & SDL_KMOD_MODE)) {
+        SDL_Keycode tg = SDL_GetKeyFromScancode(k->scancode, (SDL_Keymod)(lm | SDL_KMOD_MODE),
+                                                false);
+        if (printable_key(tg)) {
+            t = tg;
+            lm = (SDL_Keymod)(lm | SDL_KMOD_MODE);
+            mods &= ~(UI_MOD_CTRL | UI_MOD_ALT);
+        }
+    }
+#endif
+    if (!printable_key(t)) return 0;
+    if ((lm & SDL_KMOD_SHIFT) &&
+        SDL_GetKeyFromScancode(k->scancode, (SDL_Keymod)(lm & ~SDL_KMOD_SHIFT), false) != t)
+        mods &= ~UI_MOD_SHIFT;
+#if defined(__APPLE__)
+    if ((lm & SDL_KMOD_ALT) &&
+        SDL_GetKeyFromScancode(k->scancode, (SDL_Keymod)(lm & ~SDL_KMOD_ALT), false) != t)
+        mods &= ~UI_MOD_ALT;
+#endif
+    *rest = mods;
+    return (int32_t)t;
+}
+
 static int map_button(Uint8 b)
 {
     if (b == SDL_BUTTON_LEFT) return UI_MOUSE_LEFT;
@@ -214,6 +270,7 @@ bool ui_event(ui_ctx *ctx, const SDL_Event *e)
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP:
+        if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN) ctx->alt_armed = false;   /* lane KEYS */
         set_pos(ctx, e->button.x, e->button.y);
         button(ctx, map_button(e->button.button), e->type == SDL_EVENT_MOUSE_BUTTON_DOWN,
                e->button.clicks);
@@ -222,6 +279,7 @@ bool ui_event(ui_ctx *ctx, const SDL_Event *e)
     case SDL_EVENT_MOUSE_WHEEL: {
         float x = e->wheel.x, y = e->wheel.y;
         if (e->wheel.direction == SDL_MOUSEWHEEL_FLIPPED) { x = -x; y = -y; }
+        ctx->alt_armed = false;                         /* lane KEYS: Alt + wheel */
         ctx->in.wheel_x += x;
         ctx->in.wheel_y += y;
         mouse = true;
@@ -247,6 +305,8 @@ bool ui_event(ui_ctx *ctx, const SDL_Event *e)
         if (ctx->in.down) ctx->in.released |= ctx->in.down;
         ctx->in.down = 0;
         ctx->in.mods = 0;
+        ctx->alt_armed = false;                         /* lane KEYS */
+        ctx->mb_focus = false;
         break;
     case SDL_EVENT_KEY_DOWN:
         ctx->in.mods = norm_mods(e->key.mod);
@@ -256,11 +316,25 @@ bool ui_event(ui_ctx *ctx, const SDL_Event *e)
             k->mods = norm_mods(e->key.mod);
             k->repeat = e->key.repeat;
             k->used = false;
+            k->sym = typed_sym(&e->key, &k->sym_mods);   /* lane KEYS */
+        }
+        /* lane KEYS (K-OS-2): a lone Alt press and release focuses the menu
+         * bar (Windows and Linux; AltGr and macOS Option never do) */
+        if ((e->key.key == SDLK_LALT || e->key.key == SDLK_RALT) &&
+            !(e->key.mod & SDL_KMOD_MODE)) {
+#if !defined(__APPLE__)
+            if (!e->key.repeat) ctx->alt_armed = (norm_mods(e->key.mod) & ~UI_MOD_ALT) == 0u;
+#endif
+        } else {
+            ctx->alt_armed = false;
         }
         kb = true;
         break;
     case SDL_EVENT_KEY_UP:
         ctx->in.mods = norm_mods(e->key.mod);
+        if ((e->key.key == SDLK_LALT || e->key.key == SDLK_RALT) && ctx->alt_armed)
+            ctx->alt_taps++;                            /* lane KEYS */
+        ctx->alt_armed = false;
         kb = true;
         break;
     case SDL_EVENT_TEXT_INPUT: {
@@ -332,7 +406,7 @@ bool ui_wants_mouse(const ui_ctx *ctx)
 
 bool ui_wants_keyboard(const ui_ctx *ctx)
 {
-    return ctx->focus != 0 || ctx->npopups > 0 || ctx->top_modal != 0;
+    return ctx->focus != 0 || ctx->npopups > 0 || ctx->top_modal != 0 || ctx->mb_focus;
 }
 
 bool ui_text_input_active(const ui_ctx *ctx) { return ctx->text_input_on; }

@@ -165,7 +165,8 @@ static int32_t wrap360(int32_t h)
 
 pnl_hsv pnl_wheel_constrain(pnl_hsv picked, pnl_hsv start, uint32_t mods)
 {
-    bool ctrl = (mods & UI_MOD_CTRL) != 0, shift = (mods & UI_MOD_SHIFT) != 0;
+    /* lane KEYS (F-KEY-OS-1): Cmd works like Ctrl on macOS */
+    bool ctrl = (mods & (UI_MOD_CTRL | UI_MOD_GUI)) != 0, shift = (mods & UI_MOD_SHIFT) != 0;
     bool alt = (mods & UI_MOD_ALT) != 0;
     pnl_hsv o = picked;
     if (ctrl && shift) {

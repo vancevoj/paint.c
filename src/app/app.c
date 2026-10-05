@@ -766,7 +766,8 @@ static void handle_keys(app *a)
     int n = 0;
     const ui_key_press *k = ui_key_presses(a->ui, &n);
     for (int i = 0; i < n; i++)
-        if (!k[i].used) (void)app_key_press(a, k[i].key, k[i].mods, k[i].repeat);
+        if (!k[i].used)   /* lane KEYS: typed characters (K-OS-3) */
+            (void)app_key_press_ex(a, k[i].key, k[i].sym, k[i].sym_mods, k[i].mods, k[i].repeat);
 }
 
 static void update_thumbs(app *a)

@@ -28,4 +28,10 @@ void         m_rz_to_rotzoom(const m_rz_values *v, pc_rotzoom *rz);
  * OOM. Borrowed. */
 m_rz_values *m_rotzoom_memory(app *a);
 
+/* lane KEYS (K-DLG-ANGLE-SHIFT): the roll direction set by dragging the
+ * inner globe, from the drag vector (pixels from the globe center, y
+ * down): degrees in -180..180 rounded to 0.01; snap (Shift held) rounds to
+ * 15 degree steps like the angle ring. Pure (edit/m_keys.c). */
+double       m_rz_roll_from_drag(double dx, double dy, bool snap);
+
 #endif /* M_ROTZOOM_H */

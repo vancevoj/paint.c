@@ -583,6 +583,18 @@ static bool font_picker(app *a, text_state *s, text_fonts *tf)
     ui_draw_icon(ui, UI_ICON_CHEVRON_DOWN, ui_rect_make(r.x + r.w - aw, r.y, aw, r.h),
                  ui_px(ui, 10.0f), p->text_dim, p->icon_accent);
     ui_tooltip(ui, text_fonts_scanning(tf) ? "Font (looking for installed fonts...)" : "Font");
+    if (!open) {
+        /* lane KEYS (K-TB-WHEEL): the wheel over the closed font button steps
+         * through the families like the other toolbar dropdowns */
+        ui_vec2 wh = ui_wheel_take(ui, r);
+        int32_t n = text_fonts_family_count(tf), cur = -1, step = wh.y > 0.0f ? -1 : 1;
+        for (int32_t i = 0; i < n && wh.y != 0.0f && cur < 0; i++)
+            if (strcmp(text_fonts_family(tf, i), s->family) == 0) cur = i;
+        if (wh.y != 0.0f && n > 0 && cur + step >= 0 && cur + step < n) {
+            app_copy_str(s->family, sizeof s->family, text_fonts_family(tf, cur + step));
+            changed = true;
+        }
+    }
     if (in.clicked) {
         if (open) {
             ui_popup_close(ui);

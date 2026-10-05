@@ -3,6 +3,7 @@
 #include "app_internal.h"
 
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -99,6 +100,7 @@ static const keymap_entry k_keymap[] = {
     { "app.settings", "Alt+X" },
     { "help.docs", "F1" },
     { "help.search", "Ctrl+E" },
+    { "app.diag_cleanup", "Ctrl+Alt+Shift+Grave" },      /* K-UI-DIAG (lane KEYS) */
     /* Image list (K-IMG-*) */
     { "docs.next", "Ctrl+Tab, Ctrl+PgDn" },
     { "docs.prev", "Ctrl+Shift+Tab, Ctrl+PgUp" },
@@ -540,29 +542,11 @@ static bool plain_char_key(int32_t key)
            key == SDLK_LEFT || key == SDLK_RIGHT || key == SDLK_UP || key == SDLK_DOWN;
 }
 
-/* Menu mnemonics (K-UI-MENU-MNEMONIC: Alt+F, E, V, I, L, A, C): F10 opens
- * the first menu for keyboard navigation and Right moves to the wanted one
- * in the next frame, so the toolkit's own menu keyboard handling applies. */
-static bool mnemonic(app *a, int32_t key)
-{
-    static const char letters[] = "fevilac";
-    const char *p = key > 0 && key < 128 ? strchr(letters, (int)key) : NULL;
-    SDL_Event e;
-    if (!p || !*p) return false;
-    memset(&e, 0, sizeof e);
-    e.type = SDL_EVENT_KEY_DOWN;
-    e.key.key = SDLK_F10;
-    e.key.down = true;
-    (void)ui_event(a->ui, &e);
-    e.type = SDL_EVENT_KEY_UP;
-    e.key.down = false;
-    (void)ui_event(a->ui, &e);
-    a->menu_rights = (int32_t)(p - letters);
-    a->menu_delay = 1;          /* the next frame opens the menu (F10) */
-    app_request_frame(a);
-    return true;
-}
-
+/* ---- lane KEYS: menus, typed characters, view keys, pointer nudge ------------------ */
+/* Menu access keys live in the toolkit (ui.h "menu keyboard"; menu.c marks
+ * them): Alt + F, E, V, I, L, A, C open the menus, letters choose items,
+ * a lone Alt focuses the menu bar. app_menu_rights is kept for app.c and
+ * does nothing unless something sets menu_rights. */
 void app_menu_rights(app *a)
 {
     SDL_Event e;
@@ -572,7 +556,6 @@ void app_menu_rights(app *a)
         app_request_frame(a);
         return;
     }
-    /* the menu bar moves one menu per frame */
     memset(&e, 0, sizeof e);
     e.type = SDL_EVENT_KEY_DOWN;
     e.key.key = SDLK_RIGHT;
@@ -585,29 +568,172 @@ void app_menu_rights(app *a)
     app_request_frame(a);
 }
 
+/* Alt+H opens the Help menu behind the "?" button (K-UI-HELPMENU), Alt+T
+ * the tool dropdown of the toolbar (K-UI-TOOLDROP); with the menu bar
+ * focused by a lone Alt, H and T alone do the same. Any other press is
+ * swallowed while a menu owns the keyboard (F-KEY-UI-MENU-MNEMONIC). */
+static bool menu_keys(app *a, int32_t key, uint32_t mods)
+{
+    ui_ctx *ui = a->ui;
+    uint32_t m = mods & ~UI_MOD_SHIFT;
+    bool focused = ui_menubar_focused(ui);
+    if ((key == 'h' || key == 't') && (m == UI_MOD_ALT || (focused && m == 0u))) {
+        ui_menubar_unfocus(ui);
+        ui_popup_close(ui);                 /* outside a popup: closes every popup */
+        ui_open_request(ui, key == 'h' ? "##help_menu" : "##tool_choice");
+        app_request_frame(a);
+        return true;
+    }
+    return ui_menu_keyboard(ui);
+}
+
+/* K-OS-3: bindings on these characters match the typed character. */
+static bool char_binding(int32_t k)
+{
+    return k == SDLK_LEFTBRACKET || k == SDLK_RIGHTBRACKET || k == SDLK_COMMA ||
+           k == SDLK_PERIOD || k == SDLK_SLASH;
+}
+
+/* pass 0: the typed character against the character bindings (only when
+ * it differs from the keycode); pass 1: the keycode as before. */
+static bool binding_matches(app_key b, int pass, int32_t key, uint32_t mods, int32_t ck,
+                            uint32_t cm)
+{
+    if (pass == 0)
+        return char_binding(b.key) && ck == b.key &&
+               (cm & (UI_MOD_CTRL | UI_MOD_SHIFT | UI_MOD_ALT | UI_MOD_GUI)) == b.mods;
+    return app_key_matches(b, key, mods);
+}
+
+static bool is_arrow(int32_t key)
+{
+    return key == SDLK_LEFT || key == SDLK_RIGHT || key == SDLK_UP || key == SDLK_DOWN;
+}
+
+static void arrow_dir(int32_t key, int *dx, int *dy)
+{
+    *dx = key == SDLK_LEFT ? -1 : (key == SDLK_RIGHT ? 1 : 0);
+    *dy = key == SDLK_UP ? -1 : (key == SDLK_DOWN ? 1 : 0);
+}
+
+/* K-NAV-PAN-SPACE-ARROWS(-10): with Space held, arrows scroll the view by
+ * 10 screen pixels (100 with Ctrl), so the step in image pixels shrinks as
+ * the zoom grows (sub-pixel above 1000 %). The arrow names the direction
+ * the view moves over the image. */
+static bool space_pan(app *a, int32_t key, uint32_t mods)
+{
+    app_doc *d = app_active_doc(a);
+    uint32_t m = mods & ~UI_MOD_SHIFT;
+    double step;
+    int dx, dy;
+    if (!a->cv.space_down || !is_arrow(key) || !d) return false;
+    if (m != 0u && m != UI_MOD_CTRL && m != UI_MOD_GUI) return false;
+    step = (double)ui_px(a->ui, 10.0f) * (m ? 10.0 : 1.0);
+    arrow_dir(key, &dx, &dy);
+    app_view_pan_px(a, d, -(double)dx * step, -(double)dy * step);
+    app_request_frame(a);
+    return true;
+}
+
+/* K-NAV-HOME2 / K-NAV-END2 (the 3.36 rule): Home scrolls to the left edge
+ * and, when that changes nothing, to the top left; End likewise to the
+ * right edge, then the bottom right. */
+static bool edge_key(app *a, const app_cmd *c)
+{
+    const char *next = strcmp(c->id, "view.home") == 0  ? "view.home_top_left"
+                       : strcmp(c->id, "view.end") == 0 ? "view.end_bottom_right"
+                                                        : NULL;
+    app_doc *d = app_active_doc(a);
+    gfx_view v0, v1;
+    if (!next || !d) return false;
+    v0 = app_doc_gview(a, d);
+    (void)app_cmd_exec(a, c->id);
+    v1 = app_doc_gview(a, d);
+    if (fabs(v1.cx - v0.cx) < 1e-9 && fabs(v1.cy - v0.cy) < 1e-9) (void)app_cmd_exec(a, next);
+    return true;
+}
+
+/* K-NAV-TOOLMOVE(-10), K-PAN-DRAG: arrows that no tool or command used
+ * move the pointer over the canvas by one image pixel (ten with Ctrl), at
+ * least one screen pixel, like 3.36. The tool sees an ordinary pointer
+ * motion (a held button keeps dragging: Pan pans), and the system cursor
+ * follows where the platform allows warping. */
+static bool nudge_pointer(app *a, int32_t key, uint32_t mods)
+{
+    app_doc *d = app_active_doc(a);
+    uint32_t m = mods & (UI_MOD_CTRL | UI_MOD_ALT | UI_MOD_GUI);
+    float ppp = a->fi.px_per_point > 0.0f ? a->fi.px_per_point : 1.0f;
+    gfx_view v;
+    double off;
+    int dx, dy;
+    SDL_Event e;
+    if (!is_arrow(key) || !d || (m != 0u && m != UI_MOD_CTRL && m != UI_MOD_GUI)) return false;
+    if (!a->cv.captured && !(a->cv.hovered && a->cv.mouse_in)) return false;
+    v = app_doc_gview(a, d);
+    off = ceil(v.zoom - 1e-9);
+    if (off < 1.0) off = 1.0;
+    if (m) off *= 10.0;
+    arrow_dir(key, &dx, &dy);
+    memset(&e, 0, sizeof e);
+    e.type = SDL_EVENT_MOUSE_MOTION;
+    e.motion.x = (a->cv.mx + (float)((double)dx * off)) / ppp;
+    e.motion.y = (a->cv.my + (float)((double)dy * off)) / ppp;
+    e.motion.xrel = (float)((double)dx * off) / ppp;
+    e.motion.yrel = (float)((double)dy * off) / ppp;
+    e.motion.timestamp = SDL_GetTicksNS();
+    if (a->win) {
+        e.motion.windowID = SDL_GetWindowID(a->win);
+        e.motion.state = SDL_GetMouseState(NULL, NULL);
+    }
+    app_event(a, &e);
+    if (a->win && SDL_GetMouseFocus() == a->win)
+        SDL_WarpMouseInWindow(a->win, e.motion.x, e.motion.y);
+    app_request_frame(a);
+    return true;
+}
+
 bool app_key_press(app *a, int32_t key, uint32_t mods, bool repeat)
+{
+    return app_key_press_ex(a, key, 0, mods, mods, repeat);
+}
+
+bool app_key_press_ex(app *a, int32_t key, int32_t sym, uint32_t sym_mods, uint32_t mods,
+                      bool repeat)
 {
     const app_tool *t = app_tool_current(a);
     bool editing = ui_text_input_active(a->ui);
     bool chord = (mods & (UI_MOD_CTRL | UI_MOD_ALT | UI_MOD_GUI)) != 0;
+    int32_t ck = key;
+    uint32_t cm = mods;
     if (app_dialog_active(a)) return false;
+    if (menu_keys(a, key, mods)) return true;
     /* letters and editing keys belong to a focused text field */
     if (editing && !chord && plain_char_key(key)) return false;
-    if (t && t->key && t->key(a, app_tool_state(a, t), key, mods, true)) {
-        app_request_frame(a);
-        return true;
+    if (!editing && space_pan(a, key, mods)) return true;
+    /* K-OS-3: the typed character for [ ] , . / */
+    if (sym > 0 && sym != key && char_binding(sym)) {
+        ck = sym;
+        cm = sym_mods;
     }
-    for (int32_t i = 0; i < a->ncmds; i++) {
-        const app_cmd *c = a->cmds[i];
-        for (int k = 0; k < c->nkeys; k++) {
-            if (!app_key_matches(c->keys[k], key, mods)) continue;
-            if (editing && !(c->flags & APP_CMD_IN_TEXT) && !chord) return false;
-            if (repeat && !(c->flags & APP_CMD_REPEAT)) return true;
-            (void)app_cmd_exec(a, c->id);
+    if (t && t->key) {
+        void *st = app_tool_state(a, t);
+        if ((ck != key && t->key(a, st, ck, cm, true)) || t->key(a, st, key, mods, true)) {
+            app_request_frame(a);
             return true;
         }
     }
-    if (mods == UI_MOD_ALT && !repeat && mnemonic(a, key)) return true;
+    for (int pass = ck != key ? 0 : 1; pass < 2; pass++) {
+        for (int32_t i = 0; i < a->ncmds; i++) {
+            const app_cmd *c = a->cmds[i];
+            for (int k = 0; k < c->nkeys; k++) {
+                if (!binding_matches(c->keys[k], pass, key, mods, ck, cm)) continue;
+                if (editing && !(c->flags & APP_CMD_IN_TEXT) && !chord) return false;
+                if (repeat && !(c->flags & APP_CMD_REPEAT)) return true;
+                if (!edge_key(a, c)) (void)app_cmd_exec(a, c->id);
+                return true;
+            }
+        }
+    }
     if (!chord && !repeat && app_tool_letter(a, key, mods)) return true;
     if ((key == SDLK_RETURN || key == SDLK_KP_ENTER || key == SDLK_ESCAPE) && !chord && !repeat) {
         /* K-UI-FINISH / K-UI-DESELECT */
@@ -619,5 +745,6 @@ bool app_key_press(app *a, int32_t key, uint32_t mods, bool repeat)
         }
         return app_cmd_exec(a, "edit.deselect");
     }
+    if (!editing && nudge_pointer(a, key, mods)) return true;
     return false;
 }

@@ -102,6 +102,21 @@ items, context menus, modal dialogs and message boxes, floating panels.
 from the GPU renderer. `tests/ui/test_ui_gallery` writes every scene in both
 themes to `<build>/ui_gallery_*.bmp`.
 
+## Menu keyboard (lane KEYS)
+
+`ui_menu_mnemonics(ctx, true)` makes '&' in the following menu labels an
+access key ("&&" is a literal ampersand); it is off at the start of every
+frame, so file and plugin names are never parsed. Alt + a title's key
+opens that menu, letters choose items in an open menu (unmarked items by
+their first character), a lone Alt press focuses the menu bar (not on
+macOS, not AltGr), and the keys are underlined while Alt is held or the
+menu is used from the keyboard. `ui_menu_keyboard` tells the app that a
+menu owns the keys; `ui_open_request` opens a popup or combo by id for the
+keyboard (Alt+H, Alt+T in the app). Menus taller than the window scroll
+(wheel, arrow bands, keyboard). The wheel over a closed combo steps through
+its items (except inside scrolled areas). `ui_key_press.sym` is the
+character a press types with the layout's Shift / AltGr state.
+
 ## Implementation notes
 
 * Draw calls append triangles to per-layer draw lists (base, panels,

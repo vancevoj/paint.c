@@ -869,7 +869,7 @@ void app_canvas_frame(app *a, ui_rect area)
         ui_vec2 w = ui_wheel_take(ui, c->view);
         uint32_t m = ui_mods(ui);
         if (w.x != 0.0f || w.y != 0.0f) {
-            if (m & ui_mod_primary()) {
+            if (m & (UI_MOD_CTRL | UI_MOD_GUI)) {      /* lane KEYS: Ctrl or Cmd (K-OS-1) */
                 c->wheel_zoom_acc += (double)w.y;
                 while (c->wheel_zoom_acc >= 1.0) {
                     app_view_zoom_step(a, d, 1, true, (double)c->mx, (double)c->my);

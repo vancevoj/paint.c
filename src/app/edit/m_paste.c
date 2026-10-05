@@ -3,7 +3,9 @@
 #include "m_paste.h"
 
 #include "../app_internal.h"
+#include "app/app_float.h"
 #include "m_hist.h"
+#include "m_icc.h"
 #include "pc/pc_geom.h"
 #include "pc/pc_icc.h"
 #include "pc/pc_layerops.h"
@@ -276,6 +278,8 @@ typedef struct paste_job {
     int             kind;           /* 0 paste, 1 new layer, 2 new image */
     uint32_t        doc_id;
     bool            to_srgb;        /* convert an embedded profile to sRGB */
+    uint8_t        *dst_icc;        /* lane KEYS: profile of the target image (owned copy) */
+    size_t          dst_icc_len;
     uint8_t        *data;           /* encoded bytes (owned) or NULL */
     size_t          len;
     char           *path;           /* or a file to read (owned) */
@@ -288,6 +292,7 @@ static void job_free(paste_job *j)
 {
     if (!j) return;
     free(j->data);
+    free(j->dst_icc);
     free(j->path);
     pc_doc_destroy(j->img);
     pc_meta_free(&j->meta);
@@ -299,6 +304,69 @@ static app_doc *doc_by_id(app *a, uint32_t id)
     for (int32_t i = 0; i < app_doc_count(a); i++)
         if (app_doc_at(a, i)->id == id) return app_doc_at(a, i);
     return NULL;
+}
+
+/* Convert every layer of the decoded image from the matrix/TRC profile src
+ * to dst (m_icc.h, relative colorimetric). Row bands bound the scratch
+ * memory (P-08). Worker thread, touches only img. */
+static void convert_layers(pc_doc *img, const m_icc_rgb *src, const m_icc_rgb *dst)
+{
+    const int32_t rows = 64;
+    size_t band_px = 0;
+    m_icc_xform *x = (m_icc_xform *)malloc(sizeof *x);
+    pc_px32 *buf;
+    if (!x) return;
+    if (!m_icc_xform_init(x, src, dst) || !pc_mul_size(img->w, (size_t)rows, &band_px)) {
+        free(x);
+        return;
+    }
+    buf = (pc_px32 *)malloc(band_px * sizeof *buf);
+    if (!buf) {
+        free(x);
+        return;
+    }
+    for (uint32_t li = 0; li < img->n_layers; li++) {
+        pc_layer *l = img->stack[li];
+        for (int32_t y0 = 0; y0 < (int32_t)img->h; y0 += rows) {
+            int32_t n = (int32_t)img->h - y0 < rows ? (int32_t)img->h - y0 : rows;
+            pc_rect r = pc_rect_make(0, y0, (int32_t)img->w, n);
+            pc_layer_read_rect(img, l, r, buf, (size_t)img->w);
+            m_icc_xform_px(x, buf, (size_t)img->w * (size_t)n);
+            if (pc_layer_store_rect(img, l, r, buf, (size_t)img->w) != PC_OK) break;
+        }
+    }
+    free(buf);
+    free(x);
+}
+
+/* lane KEYS (F-CLIP-PROFILE): the pasted pixels in the target image's
+ * profile. The same profile (a copy within paint.c) needs nothing; a
+ * matrix/TRC clipboard profile converts directly (no detour through the
+ * sRGB gamut); any other clipboard profile goes to sRGB first (Little-CMS,
+ * pc_icc_import); untagged pixels are sRGB. Targets that are sRGB-like or
+ * not matrix/TRC profiles keep the sRGB pixels. Worker thread. */
+static void to_target_profile(paste_job *j)
+{
+    pc_icc_info info;
+    m_icc_rgb src, dst;
+    bool dst_srgb = pc_icc_inspect(j->dst_icc, j->dst_icc_len, &info) != PC_OK || info.is_srgb;
+    bool dst_ok = !dst_srgb && m_icc_parse(j->dst_icc, j->dst_icc_len, &dst) == PC_OK;
+    if (j->meta.icc && j->meta.icc_len == j->dst_icc_len &&
+        memcmp(j->meta.icc, j->dst_icc, j->dst_icc_len) == 0)
+        return;
+    if (j->meta.icc && dst_ok && m_icc_parse(j->meta.icc, j->meta.icc_len, &src) == PC_OK) {
+        convert_layers(j->img, &src, &dst);
+        return;
+    }
+    if (j->meta.icc) (void)pc_icc_import(j->img, &j->meta, NULL);
+    if (!dst_ok) {
+        if (!dst_srgb)
+            pal_log(PAL_LOG_INFO, "paste: the image profile is not a matrix profile; "
+                                  "pixels stay sRGB");
+        return;
+    }
+    m_icc_builtin_rgb(M_ICC_SRGB, &src);
+    convert_layers(j->img, &src, &dst);
 }
 
 /* Worker: read (file), decode and convert the color profile. Touches no
@@ -323,7 +391,8 @@ static void decode_work(void *ud)
     }
     /* CB-PROFILE: pixels for an sRGB image are converted to sRGB (failures
      * keep the unconverted pixels, as File > Open does) */
-    if (j->to_srgb && j->meta.icc) (void)pc_icc_import(j->img, &j->meta, NULL);
+    if (j->dst_icc) to_target_profile(j);
+    else if (j->to_srgb && j->meta.icc) (void)pc_icc_import(j->img, &j->meta, NULL);
 }
 
 /* The flattened clipboard image as one surface. */
@@ -415,7 +484,13 @@ static pc_status write_and_select(app *a, app_doc *d, uint32_t layer_id, const p
     return pc_sel_apply_rect(d->hist, vis, PC_SEL_REPLACE, label);
 }
 
-/* Place the decoded pixels into d (after the Expand Canvas question). */
+/* Place the decoded pixels into d (after the Expand Canvas question).
+ * Lane KEYS (F-CLIP-PASTE-FLOAT, F-MENU-EDIT-PASTE, F-CLIP-PASTE-LARGER):
+ * without an installed hook the pixels become a floating selection of
+ * Move Selected Pixels (app_float_paste, include/app/app_float.h), so
+ * moving them restores what they covered and the part outside the canvas
+ * (Keep canvas size) stays movable until Finish. The old commit-and-select
+ * path remains the fallback when the tool is not available. */
 static void place(app *a, paste_job *j, bool expand)
 {
     app_doc *d = doc_by_id(a, j->doc_id);
@@ -453,6 +528,22 @@ static void place(app *a, paste_job *j, bool expand)
         d->view.need_fit = true;
     } else {
         m_paste_position(a, d, s.w, s.h, &x, &y);
+    }
+    if (!hook) {
+        /* the floating paste records its own History item (and the new
+         * layer for Paste into New Layer) and activates Move Selected
+         * Pixels; app_float_paste copies the pixels */
+        st = app_float_paste(a, d, &s, x, y, j->kind == 1);
+        if (st != PC_ERR_STATE) {
+            pc_surf_free(&s);
+            report(a, label, st);
+            return;
+        }
+        if (d->txn) {
+            pc_surf_free(&s);
+            app_error(a, "%s failed: the image is busy.", label);
+            return;
+        }
     }
     base = m_hist_mark(d->hist);
     layer_id = d->layer_id;
@@ -655,7 +746,16 @@ static void decode_done(app *a, void *ud)
 static void start_job(app *a, paste_job *j)
 {
     app_doc *d = doc_by_id(a, j->doc_id);
-    j->to_srgb = j->kind != 2 && !(d && d->meta.icc);
+    /* lane KEYS: images with a profile convert through sRGB into it */
+    j->to_srgb = j->kind != 2;
+    if (j->kind != 2 && d && d->meta.icc && d->meta.icc_len > 0u &&
+        d->meta.icc_len <= PC_ICC_MAX_BYTES) {
+        j->dst_icc = (uint8_t *)malloc(d->meta.icc_len);
+        if (j->dst_icc) {
+            memcpy(j->dst_icc, d->meta.icc, d->meta.icc_len);
+            j->dst_icc_len = d->meta.icc_len;
+        }
+    }
     if (!app_task(a, decode_work, decode_done, j)) {
         report(a, "Paste", PC_ERR_NOMEM);
         job_free(j);
