@@ -57,6 +57,9 @@ ctest --test-dir build-tsan/tests/pal && ctest --test-dir build-tsan/tests/core
 
 On kernels with high ASLR entropy TSan aborts with "unexpected memory
 mapping"; `sudo sysctl vm.mmap_rnd_bits=28` fixes that (CI does it).
+`tests/pal/tsan.supp` silences a lock-order report inside libdbus (taken
+during `SDL_Init`/`SDL_Quit`); CTest applies it to `test_pal` automatically
+when `PC_TSAN` is on.
 
 ## Windows
 

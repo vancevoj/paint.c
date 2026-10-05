@@ -5,6 +5,12 @@ pc_add_tests(pc_pal SDL3::SDL3)
 target_include_directories(test_pal PRIVATE ${PROJECT_SOURCE_DIR}/src/pal)
 # main() goes through SDL_main.h for UTF-8 arguments on Windows.
 pc_sdl_main(test_pal)
+if(PC_TSAN)
+  # Known lock-order report inside libdbus (see tsan.supp); the child
+  # process of the single-instance test inherits the setting.
+  set_tests_properties(test_pal PROPERTIES ENVIRONMENT
+    "TSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/tsan.supp:halt_on_error=1:second_deadlock_stack=1")
+endif()
 
 # Plugin fixture for pal_lib_*: a module next to the test executable, named
 # like the plugins the app will load (no "lib" prefix, pal_lib_suffix()).
