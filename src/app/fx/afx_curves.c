@@ -188,7 +188,7 @@ void afx_curve_release(afx_curve_edit *e)
 typedef struct curves_ui {
     afx_curve_edit e;
     const void    *owner;        /* blob being edited; the editor resets when it changes */
-    ui_rect        graph;
+    ui_rect        graph, reset;
 } curves_ui;
 
 static curves_ui *ui_state(app *a)
@@ -210,6 +210,12 @@ ui_rect afx_curves_graph_rect(app *a)
 {
     curves_ui *c = (curves_ui *)app_ext_get(a, "afx.curves");
     return c ? c->graph : ui_rect_make(0, 0, 0, 0);
+}
+
+ui_rect afx_curves_reset_rect(app *a)
+{
+    curves_ui *c = (curves_ui *)app_ext_get(a, "afx.curves");
+    return c ? c->reset : ui_rect_make(0, 0, 0, 0);
 }
 
 static ui_color slot_color(const ui_palette *p, const fx_curves *c, int slot)
@@ -400,6 +406,7 @@ static bool curves_widget(app *a, const fx_prop *prop, void *value, void *ud)
         afx_curve_edit_init(&st->e);
         changed = true;
     }
+    st->reset = ui_last_rect(ui);
     return changed;
 }
 

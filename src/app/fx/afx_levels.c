@@ -30,6 +30,7 @@ typedef struct levels_ui {
     int           drag;                 /* H_* handle being dragged */
     int           pick;                 /* P_* point the color popup edits */
     ui_color_edit ce;
+    float         axis_top, axis_bot;   /* value axis of the last frame */
 } levels_ui;
 
 static levels_ui *ui_state(app *a)
@@ -44,6 +45,15 @@ static levels_ui *ui_state(app *a)
         }
     }
     return l;
+}
+
+bool afx_levels_axis(app *a, float *top, float *bottom)
+{
+    levels_ui *l = (levels_ui *)app_ext_get(a, "afx.levels");
+    if (!l || !(l->axis_bot > l->axis_top)) return false;
+    *top = l->axis_top;
+    *bottom = l->axis_bot;
+    return true;
 }
 
 ui_rect afx_levels_rect(app *a, int what)
@@ -104,38 +114,82 @@ static double y_to_v(vmap m, float y)
     return v < 0.0 ? 0.0 : (v > 255.0 ? 255.0 : v);
 }
 
+/* Histogram with the value axis vertical (255 at the top) and counts as
+ * horizontal bars anchored at the side facing the bars (square-root scale
+ * so small counts stay visible). Where the edited channels agree the bar is
+ * neutral, where they differ the extra length shows in the channel colors
+ * (two channels mixed, then the largest alone); unedited channels are
+ * drawn faintly behind. */
 static void draw_hist(ui_ctx *ui, ui_rect r, const uint64_t *h, uint8_t mask, bool anchor_right,
                       vmap m)
 {
     const ui_palette *p = ui_pal(ui);
     static const uint8_t k_rgb[3][3] = { { 40, 90, 230 }, { 30, 170, 60 }, { 220, 40, 40 } };
     uint64_t maxc = 0;
+    int32_t y0, y1, span = r.w - 2;
+    ui_color neutral = ui_color_fade(p->text_dim, 0.75f);
     ui_draw_rect(ui, r, p->field);
     ui_draw_rect_outline(ui, r, 1, p->border);
     if (!h) return;
     for (int c = 0; c < 3; c++)
         for (int v = 0; v < 256; v++)
             if (h[c * 256 + v] > maxc) maxc = h[c * 256 + v];
-    if (maxc == 0u) return;
+    if (maxc == 0u || span <= 0) return;
     ui_push_clip(ui, ui_rect_inset(r, 1, 1));
-    for (int c = 0; c < 3; c++) {
-        bool on = (mask & (1u << c)) != 0u;
-        ui_color col = ui_rgba(k_rgb[c][0], k_rgb[c][1], k_rgb[c][2], on ? 120 : 40);
-        int32_t y0 = (int32_t)floorf(m.top), y1 = (int32_t)ceilf(m.bot);
-        for (int32_t y = y0; y < y1; y++) {
-            int v0 = (int)floor(y_to_v(m, (float)y + 1.0f)), v1 = (int)ceil(y_to_v(m, (float)y));
+    y0 = (int32_t)floorf(m.top);
+    y1 = (int32_t)ceilf(m.bot);
+    for (int32_t y = y0; y < y1; y++) {
+        int v0 = (int)floor(y_to_v(m, (float)y + 1.0f)), v1 = (int)ceil(y_to_v(m, (float)y));
+        int32_t len[3], order[3], nm = 0;
+        if (v0 < 0) v0 = 0;
+        if (v1 > 255) v1 = 255;
+        for (int c = 0; c < 3; c++) {
             uint64_t cnt = 0;
-            float len;
-            int32_t w;
-            if (v0 < 0) v0 = 0;
-            if (v1 > 255) v1 = 255;
             for (int v = v0; v <= v1; v++)
                 if (h[c * 256 + v] > cnt) cnt = h[c * 256 + v];
-            if (!cnt) continue;
-            len = sqrtf((float)((double)cnt / (double)maxc));
-            w = (int32_t)(len * (float)(r.w - 2) + 0.5f);
-            if (w < 1) w = 1;
-            ui_draw_rect(ui, ui_rect_make(anchor_right ? r.x + r.w - 1 - w : r.x + 1, y, w, 1), col);
+            len[c] = cnt ? (int32_t)(sqrtf((float)((double)cnt / (double)maxc)) * (float)span +
+                                     0.5f)
+                         : 0;
+            if (cnt && len[c] < 1) len[c] = 1;
+        }
+        /* unedited channels: faint, behind */
+        for (int c = 0; c < 3; c++) {
+            if ((mask & (1u << c)) || !len[c]) continue;
+            ui_draw_rect(ui, ui_rect_make(anchor_right ? r.x + r.w - 1 - len[c] : r.x + 1, y,
+                                          len[c], 1),
+                         ui_rgba(k_rgb[c][0], k_rgb[c][1], k_rgb[c][2], 45));
+        }
+        for (int c = 0; c < 3; c++)
+            if (mask & (1u << c)) order[nm++] = c;
+        /* sort the edited channels by length, longest last */
+        for (int i = 1; i < nm; i++)
+            for (int k = i; k > 0 && len[order[k - 1]] > len[order[k]]; k--) {
+                int t = order[k];
+                order[k] = order[k - 1];
+                order[k - 1] = t;
+            }
+        {
+            int32_t from = 0;
+            for (int i = 0; i < nm; i++) {
+                int32_t to = len[order[i]];
+                ui_color col;
+                if (to <= from) continue;
+                /* channels order[i .. nm-1] reach this far */
+                if (nm - i >= 3) {
+                    col = neutral;
+                } else if (nm - i == 2) {
+                    int ca = order[i], cb = order[i + 1];
+                    col = ui_rgba((uint8_t)((k_rgb[ca][0] + k_rgb[cb][0]) / 2),
+                                  (uint8_t)((k_rgb[ca][1] + k_rgb[cb][1]) / 2),
+                                  (uint8_t)((k_rgb[ca][2] + k_rgb[cb][2]) / 2), 170);
+                } else {
+                    int cc = order[i];
+                    col = ui_rgba(k_rgb[cc][0], k_rgb[cc][1], k_rgb[cc][2], 170);
+                }
+                ui_draw_rect(ui, ui_rect_make(anchor_right ? r.x + r.w - 1 - to : r.x + 1 + from,
+                                              y, to - from, 1), col);
+                from = to;
+            }
         }
     }
     ui_pop_clip(ui);
@@ -251,6 +305,8 @@ bool afx_levels_widget_fn(app *a, const fx_prop *prop, void *value, void *ud)
     st->rects[AFX_LV_OUT_HIST] = r_hout;
     m.top = (float)r_hin.y + (float)ch * 0.5f;
     m.bot = (float)(r_hin.y + r_hin.h) - (float)ch * 0.5f;
+    st->axis_top = m.top;
+    st->axis_bot = m.bot;
     /* histograms */
     draw_hist(ui, r_hin, hist, lv->mask, true, m);
     if (hist) fx_levels_map_histogram(lv, hist, hout);
@@ -425,6 +481,7 @@ bool afx_levels_widget_fn(app *a, const fx_prop *prop, void *value, void *ud)
             uint8_t bit = (uint8_t)(1u << (unsigned)k_ch[i]);
             bool on = (lv->mask & bit) != 0u, old = on;
             ui_checkbox(ui, k_names[i], &on);
+            st->rects[AFX_LV_CHECK_R + i] = ui_last_rect(ui);
             if (on != old) {
                 lv->mask = (uint8_t)(on ? (lv->mask | bit) : (lv->mask & ~bit));
                 changed = true;

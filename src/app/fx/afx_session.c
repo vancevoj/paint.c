@@ -38,8 +38,10 @@
 #include <string.h>
 
 #define AFX_MAX_HELPERS      63
-#define AFX_BLEND_BUDGET_NS  6000000ull   /* main-thread blending per frame */
-#define AFX_BULK_ROIS        192u         /* pending ROIs above which one parallel blend wins */
+#define AFX_BUDGET_PREVIEW   6000000ull   /* ns of main-thread blending per frame */
+#define AFX_BUDGET_APPLY     25000000ull  /* the same while applying (modal) */
+#define AFX_BULK_ROIS        192u         /* pending ROIs above which bands win */
+#define AFX_BAND_ROWS        256          /* rows per parallel band */
 #define AFX_BIG_ROI_PX       (64 * 64 * 16)
 #define AFX_PROGRESS_DELAY   300u         /* ms before the apply progress box shows */
 #define AFX_THUMB_MAX        192
@@ -224,6 +226,8 @@ struct afx_session {
     float            shown_progress; /* last value sent to the status bar */
     uint32_t         runs;           /* jobs started */
     uint32_t         taken;          /* ROIs of `run` blended into the preview */
+    int32_t          bulk_y;         /* next band row in band mode, -1 = per ROI */
+    bool             commit_ready;   /* applying and the final job is done */
     uint64_t         t_apply;        /* when APPLYING began (ms) */
     SDL_Texture     *thumb;          /* selection thumbnail for the pan pad */
     int32_t          tab;            /* dialog tab (Clouds: settings / colors) */
@@ -327,6 +331,7 @@ static void run_work(void *ud)
 
 static void session_fail(app *a, afx_session *s, const char *msg);
 static void session_commit(app *a, afx_session *s);
+static void try_commit(app *a, afx_session *s);
 static void start_run(app *a, afx_session *s);
 static void set_progress(app *a, afx_session *s, float v);
 
@@ -360,7 +365,10 @@ static void run_done(app *a, void *ud)
         session_fail(a, s, msg);
         return;
     }
-    if (s->state == AFX_APPLYING && r->gen == s->gen) session_commit(a, s);
+    if (s->state == AFX_APPLYING && r->gen == s->gen) {
+        s->commit_ready = true;
+        try_commit(a, s);
+    }
 }
 
 /* Start a render of the current parameters, or schedule one when a job is
@@ -383,6 +391,8 @@ static void start_run(app *a, afx_session *s)
     s->run = NULL;
     s->restart = false;
     s->taken = 0;
+    s->bulk_y = -1;
+    s->commit_ready = false;
     r = (afx_run *)calloc(1u, sizeof *r);
     if (!r) {
         session_fail(a, s, "Not enough memory to run the effect.");
@@ -451,39 +461,58 @@ static bool blend_rect(app *a, afx_session *s, app_doc *d, fx_rect fr, const pc_
     return true;
 }
 
-/* Blend finished ROIs of the current run. all: everything that is done
- * (commit); otherwise within the per-frame budget. */
-static void take_results(app *a, afx_session *s, bool all)
+/* Blend finished ROIs of the current run into the transaction: one by one
+ * within the frame budget while the job renders (viewport first), then, if
+ * many are left when it is done, in parallel bands of AFX_BAND_ROWS rows.
+ * all: no budget (commit). Returns true when every ROI of a finished job
+ * is blended. */
+static bool take_results(app *a, afx_session *s, bool all)
 {
     afx_run *r = s->run;
     app_doc *d;
     uint32_t done = 0, total = 0, n;
     fx_job_state_t js;
     fx_rect rects[16];
-    uint64_t t0;
-    if (!r || !r->job || s->restart || r->pgen != s->pgen) return;
+    uint64_t t0, budget;
+    if (!r || !r->job || s->restart || r->pgen != s->pgen) return false;
     d = doc_by_id(a, s->doc_id);
-    if (!d || d->txn_owner != s || !d->txn) return;
+    if (!d || d->txn_owner != s || !d->txn) return false;
     js = fx_job_state(r->job);
-    if (js == FX_JOB_CANCELLED || js == FX_JOB_FAILED) return;
+    if (js == FX_JOB_CANCELLED || js == FX_JOB_FAILED) return false;
     fx_job_progress(r->job, &done, &total);
-    if (done <= s->taken) return;
-    if (js == FX_JOB_DONE && (all || done - s->taken > AFX_BULK_ROIS)) {
-        /* everything is rendered: one parallel pass over the whole area */
-        while (fx_job_take_done(r->job, rects, 16u) > 0u) {}
-        s->taken = total;
-        (void)blend_rect(a, s, d, fx_job_area(r->job), &a->par);
-        app_request_frame(a);
-        return;
-    }
+    if (s->taken >= total) return js == FX_JOB_DONE;
+    budget = all ? UINT64_MAX : (s->state == AFX_APPLYING ? AFX_BUDGET_APPLY : AFX_BUDGET_PREVIEW);
     t0 = SDL_GetTicksNS();
+    if (js == FX_JOB_DONE && (s->bulk_y >= 0 || done - s->taken > AFX_BULK_ROIS)) {
+        fx_rect area = fx_job_area(r->job);
+        int32_t end = area.y + area.h;
+        if (s->bulk_y < 0) {
+            while (fx_job_take_done(r->job, rects, 16u) > 0u) {}
+            s->bulk_y = area.y;
+        }
+        while (s->bulk_y < end) {
+            fx_rect band = area;
+            band.y = s->bulk_y;
+            band.h = end - s->bulk_y < AFX_BAND_ROWS ? end - s->bulk_y : AFX_BAND_ROWS;
+            if (!blend_rect(a, s, d, band, &a->par)) return false;
+            s->bulk_y += band.h;
+            if (SDL_GetTicksNS() - t0 > budget) break;
+        }
+        if (s->bulk_y >= end) {
+            s->taken = total;
+            s->bulk_y = -1;
+        }
+        app_request_frame(a);
+        return s->taken >= total;
+    }
     while ((n = fx_job_take_done(r->job, rects, 16u)) > 0u) {
         for (uint32_t i = 0; i < n; i++)
-            if (!blend_rect(a, s, d, rects[i], NULL)) return;
+            if (!blend_rect(a, s, d, rects[i], NULL)) return false;
         s->taken += n;
-        if (!all && SDL_GetTicksNS() - t0 > AFX_BLEND_BUDGET_NS) break;
+        if (SDL_GetTicksNS() - t0 > budget) break;
     }
     app_request_frame(a);
+    return js == FX_JOB_DONE && s->taken >= total;
 }
 
 /* ---- commit, fail, cancel ------------------------------------------------------------------- */
@@ -502,7 +531,7 @@ static void session_commit(app *a, afx_session *s)
         s->state = AFX_FINISHED;
         return;
     }
-    take_results(a, s, true);
+    (void)take_results(a, s, true);              /* normally nothing is left */
     if (s->state == AFX_FINISHED) return;        /* blending failed */
     seq = d->hist->cur->seq;
     st = app_doc_txn_commit(a, d);
@@ -538,6 +567,14 @@ static void session_commit(app *a, afx_session *s)
         }
     }
     app_request_frame(a);
+}
+
+/* Commit once the final job is done and blended; large images finish the
+ * blending over a few frames (session_frame calls this again). */
+static void try_commit(app *a, afx_session *s)
+{
+    if (s->state != AFX_APPLYING || !s->commit_ready) return;
+    if (take_results(a, s, false)) session_commit(a, s);
 }
 
 static void session_fail(app *a, afx_session *s, const char *msg)
@@ -577,8 +614,12 @@ bool afx_session_ok(app *a, afx_session *s)
         start_run(a, s);
     } else if (s->run->finished) {
         fx_job_state_t js = fx_job_state(s->run->job);
-        if (js == FX_JOB_DONE) session_commit(a, s);
-        else start_run(a, s);
+        if (js == FX_JOB_DONE) {
+            s->commit_ready = true;
+            try_commit(a, s);
+        } else {
+            start_run(a, s);
+        }
     }
     return true;
 }
@@ -843,6 +884,7 @@ static afx_session *session_start(app *a, const fx_effect *fx, bool dialog, cons
     s->state = dialog ? AFX_LOADING : AFX_APPLYING;
     s->t_apply = a->now;
     s->shown_progress = 2.0f;
+    s->bulk_y = -1;
     afx_effect_name(fx, s->name, sizeof s->name);
     snprintf(s->title, sizeof s->title, "%s##afx_%s", s->name, fx->id);
     b->refs = 1;
@@ -1115,7 +1157,8 @@ static bool session_frame(app *a, void *st)
         backdrop_restore(a);
         return false;
     }
-    take_results(a, s, false);
+    (void)take_results(a, s, false);
+    if (s->commit_ready) try_commit(a, s);
     if (s->state == AFX_FINISHED) {
         backdrop_restore(a);
         return false;

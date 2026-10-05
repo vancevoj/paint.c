@@ -148,9 +148,13 @@ int  afx_curve_unit_y(float py, int32_t h);
 /* Rectangles of the editors from the last frame (tests aim synthetic mouse
  * events at them); empty when not shown. */
 ui_rect afx_curves_graph_rect(app *a);
+ui_rect afx_curves_reset_rect(app *a);
 ui_rect afx_levels_rect(app *a, int what);
 enum { AFX_LV_IN_HIST = 0, AFX_LV_IN_BAR, AFX_LV_OUT_BAR, AFX_LV_OUT_HIST, AFX_LV_AUTO,
-       AFX_LV_RESET, AFX_LV_RECT_COUNT };
+       AFX_LV_RESET, AFX_LV_CHECK_R, AFX_LV_CHECK_G, AFX_LV_CHECK_B, AFX_LV_RECT_COUNT };
+/* The value axis of the Levels bars and histograms in window pixels (value
+ * 255 at top, 0 at bottom) from the last frame; false when not shown. */
+bool    afx_levels_axis(app *a, float *top, float *bottom);
 
 /* The Levels input histogram of a BGRA image over pixels whose selection
  * coverage (sel, may be NULL = all of r) is at least 128, clipped to r.
