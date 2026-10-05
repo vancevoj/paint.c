@@ -20,10 +20,13 @@ Gervautz and Purgathofer algorithm; the median cut is the variance-based
 variant described by Wan, Wong and Prusinkiewicz; the TGA, BMP, GIF and TIFF
 parsers follow the public format specifications (Truevision TGA 2.0,
 Microsoft BITMAPINFOHEADER/V4/V5 documentation, GIF89a, TIFF 6.0 and the
-Adobe Deflate and PackBits technical notes). The libtiff conventions mirrored
-(RGB with four samples and no ExtraSamples tag is associated alpha; color
-maps whose values all fit in 8 bits are 8-bit; predictor ignored without LZW
-or Deflate) are documented behavior, no libtiff code was used.
+Adobe Deflate and PackBits technical notes, Adobe Photoshop TIFF Technical
+Note 3 for the floating point predictor, ITU-T T.4 and T.6 for CCITT). The
+libtiff conventions mirrored (RGB with four samples and no ExtraSamples tag
+is associated alpha; color maps whose values all fit in 8 bits are 8-bit;
+predictor ignored without LZW or Deflate; fill order 2 applies to every
+compression) are documented or observable behavior; no libtiff code was
+used.
 
 Paint.NET 4.x and 5.x code was never consulted (P-01, ADR-002). Paint.NET 5.1
 behavior came from the official documentation and release notes only.
