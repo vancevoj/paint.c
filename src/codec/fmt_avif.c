@@ -55,18 +55,24 @@
 #define AVIF_MAX_SIDE 65535u
 
 /* ---- sniffing (no library needed) -------------------------------------------------- */
-/* An ISO BMFF 'ftyp' box whose major or compatible brands name avif/avis. */
-static bool avif_sniff(const uint8_t *p, size_t n)
+/* True when the ISO BMFF 'ftyp' box at the start names brand (major or
+ * compatible). */
+static bool ftyp_has(const uint8_t *p, size_t n, const char *brand)
 {
     uint32_t size;
     if (!p || n < 16u || memcmp(p + 4, "ftyp", 4u) != 0) return false;
     size = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
     if (size < 16u) return false;
     if ((size_t)size > n) size = (uint32_t)n;
-    if (memcmp(p + 8, "avif", 4u) == 0 || memcmp(p + 8, "avis", 4u) == 0) return true;
+    if (memcmp(p + 8, brand, 4u) == 0) return true;
     for (uint32_t o = 16u; o + 4u <= size; o += 4u)
-        if (memcmp(p + o, "avif", 4u) == 0 || memcmp(p + o, "avis", 4u) == 0) return true;
+        if (memcmp(p + o, brand, 4u) == 0) return true;
     return false;
+}
+
+static bool avif_sniff(const uint8_t *p, size_t n)
+{
+    return ftyp_has(p, n, "avif") || ftyp_has(p, n, "avis");
 }
 
 /* ---- save options --------------------------------------------------------------------- */
@@ -240,7 +246,7 @@ static uint32_t rd_sized(pc_rd *r, uint32_t bytes)
 static bool bmff_grid_layout(const uint8_t *p, size_t n, avif_grid *g)
 {
     pc_rd r = pc_rd_make(p, n);
-    size_t pos = 0, meta_end = 0, mpos;
+    size_t pos = 0, meta_end = 0, mpos = 0;
     bmff_box b, m;
     uint32_t primary = 0, tile0 = 0, grid_off = 0, grid_len = 0;
     uint32_t prop_idx[32], n_prop = 0, out_w = 0, out_h = 0;
@@ -681,8 +687,8 @@ static pc_status avif_load(const uint8_t *p, size_t n, const pc_codec_limits *li
     avif_dec_ctx c;
     pc_status st;
     bool sequence = false;
-    uint64_t need, yuv;
-    uint32_t w, h, bps;
+    uint64_t need = 0, yuv = 0;
+    uint32_t w = 0, h = 0, bps = 1;
     if (out) *out = NULL;
     if (!p || !out || !meta) return PC_ERR_ARG;
     memset(meta, 0, sizeof *meta);
@@ -705,7 +711,7 @@ static pc_status avif_load(const uint8_t *p, size_t n, const pc_codec_limits *li
         if (ar == AVIF_RESULT_OK) ar = avifDecoderSetIOMemory(dec, p, n);
         if (ar == AVIF_RESULT_OK) ar = avifDecoderParse(dec);
         if (ar == AVIF_RESULT_OK) {
-            sequence = attempt == 1 || dec->imageCount > 1;
+            sequence = attempt == 1 || dec->imageCount > 1 || ftyp_has(p, n, "avis");
 #if AVIF_VERSION >= 1010000
             if (dec->imageSequenceTrackPresent) sequence = true;
 #endif
@@ -855,7 +861,7 @@ static pc_status avif_save(const pc_doc *d, const pc_image_meta *meta, const voi
 {
     avif_params prm;
     avif_scan sc;
-    avif_grid grid;
+    avif_grid grid = { 0u, 0u, 0u, 0u };
     bool use_grid = false, use_icc = false;
     avifPixelFormat fmt;
     avifImage *img = NULL, *view = NULL;

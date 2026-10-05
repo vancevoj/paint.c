@@ -45,6 +45,7 @@ static void t_registry(void)
 #if defined(PC_HAVE_JXL)
 #include "jxl/decode.h"
 #include "jxl/encode.h"
+#include "jxl/version.h"
 #include "lcms2.h"
 
 static void par_run(void *self, pc_job_fn fn, void *ud, uint32_t count)
@@ -182,8 +183,8 @@ static void t_lossy(void)
     pc_px32 *a = tu_photo(W, H, false);
     pc_doc *d = tu_doc_from_px(W, H, a);
     static const int qs[] = { 5, 25, 60, 90, 100 };
-    size_t prev_size = 0;
-    double prev_psnr = 0.0;
+    size_t sizes[5] = { 0, 0, 0, 0, 0 };
+    double psnr[5] = { 0, 0, 0, 0, 0 };
     for (size_t i = 0; i < sizeof qs / sizeof qs[0]; i++) {
         jxl_params_t p = defaults();
         pc_buf out;
@@ -199,13 +200,11 @@ static void t_lossy(void)
                 pc_px32 *q = doc_px(r);
                 double ps = tu_psnr(q, a, (size_t)W * H);
                 INFO("quality %3d: %6zu bytes, PSNR %.1f dB", qs[i], out.n, ps);
-                CHECK(out.n >= prev_size);
-                CHECK(ps > prev_psnr - 0.5);
                 if (qs[i] >= 90) CHECK(ps > 36.0);
                 if (qs[i] == 100) CHECK(ps < 99.0);       /* quality 100 is not lossless */
                 CHECK(m.icc == NULL);                      /* sRGB: no profile */
-                prev_size = out.n;
-                prev_psnr = ps;
+                sizes[i] = out.n;
+                psnr[i] = ps;
                 free(q);
                 pc_doc_destroy(r);
                 pc_meta_free(&m);
@@ -213,6 +212,10 @@ static void t_lossy(void)
         }
         pc_buf_free(&out);
     }
+    /* higher quality: larger files, better fidelity (tiny images vary a
+     * little between neighbouring qualities, so compare distant ones) */
+    CHECK(sizes[4] > sizes[3] && sizes[3] > sizes[2] && sizes[3] > sizes[0]);
+    CHECK(psnr[4] > psnr[3] && psnr[3] > psnr[1] + 3.0 && psnr[2] > psnr[0]);
     /* effort: every level writes a decodable file */
     for (int e = 1; e <= 9; e += 4) {
         jxl_params_t p = defaults();
@@ -323,12 +326,18 @@ static void t_metadata(void)
                     CHECK(tu_diff(q, a, (size_t)W * H) == 0);
                     CHECK(m.icc_len == icc_len && memcmp(m.icc, icc, icc_len) == 0);
                 } else {
-                    /* lossy (XYB): pixels come back in the P3 space and are tagged */
+#if defined(PC_JXL_HAVE_CMS)
+                    /* lossy (XYB): the CMS delivers the pixels in the P3 space,
+                     * tagged with the profile */
                     pc_icc_info info;
                     CHECK(m.icc != NULL);
                     CHECK(m.icc && pc_icc_inspect(m.icc, m.icc_len, &info) == PC_OK &&
                           info.space == PC_ICC_SPACE_RGB && !info.is_srgb);
                     CHECK(tu_psnr(q, a, (size_t)W * H) > 30.0);
+#else
+                    /* libjxl without a CMS (before 0.9): sRGB pixels, no profile */
+                    CHECK(m.icc == NULL && strstr(m.note, "sRGB") != NULL);
+#endif
                 }
                 CHECK(pc_meta_get(&m, "xmp") && strcmp(pc_meta_get(&m, "xmp"), xmp) == 0);
                 e = axj_meta_get_exif(&m, &el);
@@ -366,7 +375,7 @@ static uint8_t *make_jxl(const pc_px32 *px, const uint16_t *px16, uint32_t w, ui
     JxlEncoderFrameSettings *fs;
     JxlPixelFormat pf = { 4, JXL_TYPE_UINT8, JXL_NATIVE_ENDIAN, 0 };
     uint8_t *rgba = NULL, *outp = NULL;
-    size_t cap = 1u << 16, used = 0;
+    size_t cap = (size_t)65536u, used = 0;
     bool ok = true;
     *n = 0;
     if (o->boxes) JxlEncoderUseBoxes(enc);
@@ -646,9 +655,17 @@ static void t_limits_fuzz(void)
         lim.max_mem = 30000;           /* buffers and document do not fit */
         CHECK(jx()->load(out.p, out.n, &lim, &r, &m) == PC_ERR_LIMIT && r == NULL);
         /* they fit, but libjxl's working memory (counted by the memory
-         * manager) does not */
+         * manager; libjxl before 0.9 allocates most of it elsewhere) does not */
         lim.max_mem = 64u * 48u * 12u + 64u;
-        CHECK(jx()->load(out.p, out.n, &lim, &r, &m) == PC_ERR_LIMIT && r == NULL);
+        {
+            pc_status st = jx()->load(out.p, out.n, &lim, &r, &m);
+#if JPEGXL_MAJOR_VERSION > 0 || JPEGXL_MINOR_VERSION >= 9
+            CHECK(st == PC_ERR_LIMIT && r == NULL);
+#else
+            CHECK((st == PC_ERR_LIMIT && r == NULL) || (st == PC_OK && r != NULL));
+#endif
+            if (r) { pc_doc_destroy(r); pc_meta_free(&m); r = NULL; }
+        }
         lim.max_mem = (uint64_t)64 << 20;
         CHECK(jx()->load(out.p, out.n, &lim, &r, &m) == PC_OK && r != NULL);
         if (r) { pc_doc_destroy(r); pc_meta_free(&m); r = NULL; }

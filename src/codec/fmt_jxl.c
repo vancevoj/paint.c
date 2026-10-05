@@ -281,19 +281,34 @@ static pc_status jxl_color(JxlDecoder *dec, jxl_dec_state *s, pc_image_meta *met
     }
     if (xyb && have_orig) {
         (void)JxlDecoderSetPreferredColorProfile(dec, &orig);
-    }
+    } else if (xyb) {
+        /* the original profile is an ICC profile */
+        bool in_icc = false;
 #if defined(PC_JXL_HAVE_CMS) && AXJ_JXL_VER >= 900
-    else if (xyb && JXL_ICC_SIZE(dec, JXL_COLOR_PROFILE_TARGET_ORIGINAL, &sz) == JXL_DEC_SUCCESS &&
-             sz > 0u && sz <= ((size_t)64 << 20)) {
-        /* original is an ICC profile: let the CMS deliver pixels in it */
-        uint8_t *icc = (uint8_t *)malloc(sz);
-        if (!icc) return PC_ERR_NOMEM;
-        if (JXL_ICC_GET(dec, JXL_COLOR_PROFILE_TARGET_ORIGINAL, icc, sz) == JXL_DEC_SUCCESS &&
-            JxlDecoderSetCms(dec, *JxlGetDefaultCms()) == JXL_DEC_SUCCESS)
-            (void)JxlDecoderSetOutputColorProfile(dec, NULL, icc, sz);
-        free(icc);
-    }
+        if (JXL_ICC_SIZE(dec, JXL_COLOR_PROFILE_TARGET_ORIGINAL, &sz) == JXL_DEC_SUCCESS &&
+            sz > 0u && sz <= ((size_t)64 << 20)) {
+            /* let the CMS deliver the pixels in that profile */
+            uint8_t *icc = (uint8_t *)malloc(sz);
+            if (!icc) return PC_ERR_NOMEM;
+            in_icc = JXL_ICC_GET(dec, JXL_COLOR_PROFILE_TARGET_ORIGINAL, icc, sz) ==
+                         JXL_DEC_SUCCESS &&
+                     JxlDecoderSetCms(dec, *JxlGetDefaultCms()) == JXL_DEC_SUCCESS &&
+                     JxlDecoderSetOutputColorProfile(dec, NULL, icc, sz) == JXL_DEC_SUCCESS;
+            free(icc);
+        }
 #endif
+        if (!in_icc) {
+            /* Without a color management system libjxl delivers lossy (XYB)
+             * pixels only in a structured encoding: take sRGB, no profile. */
+            JxlColorEncoding srgb;
+            JxlColorEncodingSetToSRGB(&srgb, s->info.num_color_channels == 1u ? JXL_TRUE
+                                                                               : JXL_FALSE);
+            if (JxlDecoderSetPreferredColorProfile(dec, &srgb) == JXL_DEC_SUCCESS) {
+                lc_note(meta, "Lossy JPEG XL with an ICC profile: converted to sRGB");
+                return PC_OK;
+            }
+        }
+    }
     /* the profile of the delivered pixels */
     if (JXL_GET_ENCODED(dec, JXL_COLOR_PROFILE_TARGET_DATA, &data) == JXL_DEC_SUCCESS &&
         enc_is_srgb(&data))
@@ -682,7 +697,7 @@ static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void
         uint8_t *next;
         size_t avail;
         JxlEncoderStatus es;
-        st = pc_buf_reserve(out, 1u << 16);
+        st = pc_buf_reserve(out, (size_t)65536u);
         if (st != PC_OK) break;
         next = out->p + out->n;
         avail = out->cap - out->n;
