@@ -293,6 +293,81 @@ static bool face_has(const pc_font_face *f, uint32_t cp)
     return f->glyph(f->ud, cp) != 0u;
 }
 
+/* ---- presentation and ignorables (lane TOOLB) ---------------------------------------------- */
+
+/* Unicode 15.1 Emoji_Presentation=Yes (emoji-data.txt), merged ranges. */
+static const uint32_t k_emoji_pres[][2] = {
+    { 0x231Au, 0x231Bu }, { 0x23E9u, 0x23ECu }, { 0x23F0u, 0x23F0u }, { 0x23F3u, 0x23F3u },
+    { 0x25FDu, 0x25FEu }, { 0x2614u, 0x2615u }, { 0x2648u, 0x2653u }, { 0x267Fu, 0x267Fu },
+    { 0x2693u, 0x2693u }, { 0x26A1u, 0x26A1u }, { 0x26AAu, 0x26ABu }, { 0x26BDu, 0x26BEu },
+    { 0x26C4u, 0x26C5u }, { 0x26CEu, 0x26CEu }, { 0x26D4u, 0x26D4u }, { 0x26EAu, 0x26EAu },
+    { 0x26F2u, 0x26F3u }, { 0x26F5u, 0x26F5u }, { 0x26FAu, 0x26FAu }, { 0x26FDu, 0x26FDu },
+    { 0x2705u, 0x2705u }, { 0x270Au, 0x270Bu }, { 0x2728u, 0x2728u }, { 0x274Cu, 0x274Cu },
+    { 0x274Eu, 0x274Eu }, { 0x2753u, 0x2755u }, { 0x2757u, 0x2757u }, { 0x2795u, 0x2797u },
+    { 0x27B0u, 0x27B0u }, { 0x27BFu, 0x27BFu }, { 0x2B1Bu, 0x2B1Cu }, { 0x2B50u, 0x2B50u },
+    { 0x2B55u, 0x2B55u }, { 0x1F004u, 0x1F004u }, { 0x1F0CFu, 0x1F0CFu },
+    { 0x1F18Eu, 0x1F18Eu }, { 0x1F191u, 0x1F19Au }, { 0x1F1E6u, 0x1F1FFu },
+    { 0x1F201u, 0x1F201u }, { 0x1F21Au, 0x1F21Au }, { 0x1F22Fu, 0x1F22Fu },
+    { 0x1F232u, 0x1F236u }, { 0x1F238u, 0x1F23Au }, { 0x1F250u, 0x1F251u },
+    { 0x1F300u, 0x1F320u }, { 0x1F32Du, 0x1F335u }, { 0x1F337u, 0x1F37Cu },
+    { 0x1F37Eu, 0x1F393u }, { 0x1F3A0u, 0x1F3CAu }, { 0x1F3CFu, 0x1F3D3u },
+    { 0x1F3E0u, 0x1F3F0u }, { 0x1F3F4u, 0x1F3F4u }, { 0x1F3F8u, 0x1F43Eu },
+    { 0x1F440u, 0x1F440u }, { 0x1F442u, 0x1F4FCu }, { 0x1F4FFu, 0x1F53Du },
+    { 0x1F54Bu, 0x1F54Eu }, { 0x1F550u, 0x1F567u }, { 0x1F57Au, 0x1F57Au },
+    { 0x1F595u, 0x1F596u }, { 0x1F5A4u, 0x1F5A4u }, { 0x1F5FBu, 0x1F64Fu },
+    { 0x1F680u, 0x1F6C5u }, { 0x1F6CCu, 0x1F6CCu }, { 0x1F6D0u, 0x1F6D2u },
+    { 0x1F6D5u, 0x1F6D7u }, { 0x1F6DCu, 0x1F6DFu }, { 0x1F6EBu, 0x1F6ECu },
+    { 0x1F6F4u, 0x1F6FCu }, { 0x1F7E0u, 0x1F7EBu }, { 0x1F7F0u, 0x1F7F0u },
+    { 0x1F90Cu, 0x1F93Au }, { 0x1F93Cu, 0x1F945u }, { 0x1F947u, 0x1F9FFu },
+    { 0x1FA70u, 0x1FA7Cu }, { 0x1FA80u, 0x1FA88u }, { 0x1FA90u, 0x1FABDu },
+    { 0x1FABFu, 0x1FAC5u }, { 0x1FACEu, 0x1FADBu }, { 0x1FAE0u, 0x1FAE8u },
+    { 0x1FAF0u, 0x1FAF8u }
+};
+
+static bool is_emoji_pres(uint32_t c)
+{
+    size_t lo = 0, hi = sizeof k_emoji_pres / sizeof k_emoji_pres[0];
+    if (c < 0x231Au) return false;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2u;
+        if (c < k_emoji_pres[mid][0]) hi = mid;
+        else if (c > k_emoji_pres[mid][1]) lo = mid + 1u;
+        else return true;
+    }
+    return false;
+}
+
+/* Unicode Default_Ignorable_Code_Point (DerivedCoreProperties.txt). */
+static bool is_ignorable(uint32_t c)
+{
+    if (c < 0x00ADu) return false;
+    return c == 0x00ADu || c == 0x034Fu || c == 0x061Cu || c == 0x115Fu || c == 0x1160u ||
+           c == 0x17B4u || c == 0x17B5u || (c >= 0x180Bu && c <= 0x180Fu) ||
+           (c >= 0x200Bu && c <= 0x200Fu) || (c >= 0x202Au && c <= 0x202Eu) ||
+           (c >= 0x2060u && c <= 0x206Fu) || c == 0x3164u || (c >= 0xFE00u && c <= 0xFE0Fu) ||
+           c == 0xFEFFu || c == 0xFFA0u || (c >= 0xFFF0u && c <= 0xFFF8u) ||
+           (c >= 0x1BCA0u && c <= 0x1BCA3u) || (c >= 0x1D173u && c <= 0x1D17Au) ||
+           (c >= 0xE0000u && c <= 0xE0FFFu);
+}
+
+/* Face for cp. Emoji presentation: the first color face that has it
+ * (the primary face included), else the primary face, else any fallback.
+ * Text presentation: the primary face, else the first monochrome
+ * fallback, else any fallback. Nothing: the primary face (its .notdef). */
+static uint32_t pick_face(const pc_text *t, uint32_t cp, bool want_color)
+{
+    if (want_color)
+        for (size_t f = 0; f < t->n_faces; f++)
+            if (t->faces[f]->color && face_has(t->faces[f], cp)) return (uint32_t)f;
+    if (face_has(t->faces[0], cp)) return 0u;
+    for (int pass = 0; pass < 2; pass++)
+        for (size_t f = 1; f < t->n_faces; f++) {
+            if (pass == 0 && t->faces[f]->color) continue;
+            if (face_has(t->faces[f], cp)) return (uint32_t)f;
+        }
+    return 0u;
+}
+
 static void resolve_metrics(pc_text *t)
 {
     pc_font_metrics m;
@@ -347,6 +422,106 @@ static double sharpen(pc_text *t, size_t g0, size_t g1)
     return floor(acc + 0.5);
 }
 
+/* Kerning state of a line: the previous visible glyph. */
+typedef struct kern_state {
+    bool   have;
+    size_t idx;
+} kern_state;
+
+#define CLUSTER_MAX 32u          /* code points of a cluster that can ligate */
+
+/* Glyphs of the cluster [i, cend) appended at *pen (one per code point;
+ * see the color font notes in pc_text.h for faces, presentation,
+ * ignorables and ligatures). Never allocates. */
+static void layout_cluster(pc_text *t, size_t i, size_t cend, double *pen, kern_state *ks)
+{
+    uint32_t base_cp, fb = 0;
+    bool want_color = false, vs15 = false, vs16 = false, lig_ok = true;
+    size_t g0 = t->n_glyphs, nvis = 0;
+    uint32_t gids[CLUSTER_MAX];
+    size_t slot[CLUSTER_MAX];
+    base_cp = dec(t->buf, t->len, i, NULL);
+    for (size_t j = i; j < cend;) {
+        size_t nx;
+        uint32_t c = dec(t->buf, t->len, j, &nx);
+        if (c == 0xFE0Eu) vs15 = true;
+        if (c == 0xFE0Fu) vs16 = true;
+        j = nx;
+    }
+    want_color = vs16 || (is_emoji_pres(base_cp) && !vs15);
+    if (t->n_faces) fb = pick_face(t, base_cp, want_color);
+    /* faces and glyphs per code point */
+    for (size_t j = i; j < cend;) {
+        size_t nx;
+        uint32_t cp = dec(t->buf, t->len, j, &nx), face = fb, gid = 0;
+        pc_text_glyph *g = &t->glyphs[t->n_glyphs++];
+        bool hidden = false;
+        if (t->n_faces) {
+            if (j != i && !face_has(t->faces[fb], cp))
+                face = is_ignorable(cp) ? fb : pick_face(t, cp, want_color);
+            if (is_ignorable(cp) && !face_has(t->faces[face], cp)) hidden = true;
+            else gid = t->faces[face]->glyph(t->faces[face]->ud, cp);
+        } else {
+            hidden = is_ignorable(cp);
+        }
+        memset(g, 0, sizeof *g);
+        g->cp = cp;
+        g->gid = gid;
+        g->face = face;
+        g->cluster_start = j == i;
+        g->byte = j;
+        g->hidden = hidden;
+        if (!hidden) {
+            if (face != fb || nvis >= CLUSTER_MAX) lig_ok = false;
+            else {
+                gids[nvis] = gid;
+                slot[nvis] = t->n_glyphs - 1u;
+                nvis++;
+            }
+        }
+        j = nx;
+    }
+    /* ligatures of the cluster (all its visible glyphs from one face) */
+    if (t->n_faces && lig_ok && nvis >= 2u && t->faces[fb]->substitute) {
+        uint32_t sub[CLUSTER_MAX];
+        size_t m;
+        memcpy(sub, gids, nvis * sizeof sub[0]);
+        m = t->faces[fb]->substitute(t->faces[fb]->ud, sub, nvis);
+        if (m >= 1u && m <= nvis) {
+            for (size_t k = 0; k < nvis; k++) {
+                pc_text_glyph *g = &t->glyphs[slot[k]];
+                if (k < m) g->gid = sub[k];
+                else g->hidden = true;
+            }
+        }
+    }
+    /* advances and kerning */
+    for (size_t k = g0; k < t->n_glyphs; k++) {
+        pc_text_glyph *g = &t->glyphs[k];
+        const pc_font_face *f;
+        double adv;
+        g->x = *pen;                       /* made absolute by the caller */
+        g->advance = 0.0;
+        if (g->hidden || !t->n_faces) continue;
+        f = t->faces[g->face];
+        adv = f->advance(f->ud, g->gid, t->em, t->style.mode);
+        if (!isfinite(adv)) adv = 0.0;
+        if (adv > 0.0 && t->style.bold && !f->bold) adv += t->em * PC_TEXT_BOLD_FRAC;
+        if (ks->have && t->glyphs[ks->idx].face == g->face && f->kerning) {
+            double kv = f->kerning(f->ud, t->glyphs[ks->idx].gid, g->gid, t->em);
+            if (isfinite(kv)) {
+                t->glyphs[ks->idx].advance += kv;
+                *pen += kv;
+                g->x = *pen;
+            }
+        }
+        g->advance = adv;
+        *pen += adv;
+        ks->have = true;
+        ks->idx = k;
+    }
+}
+
 /* Recompute lines and glyphs. Never allocates: the arrays were reserved
  * for the current text by reserve_layout. */
 static void layout(pc_text *t)
@@ -365,49 +540,15 @@ static void layout(pc_text *t)
     for (;;) {
         pc_text_line *L = &t->lines[t->n_lines++];
         double pen = 0.0, base;
-        uint32_t prev_gid = 0, prev_face = 0;
-        bool have_prev = false;
-        size_t stop = i;
+        kern_state ks;
+        ks.have = false;
+        ks.idx = 0;
         L->byte_start = i;
         L->glyph_start = t->n_glyphs;
         while (i < t->len && t->buf[i] != '\n') {
-            size_t nx;
-            uint32_t cp = dec(t->buf, t->len, i, &nx), face = 0, gid = 0;
-            pc_text_glyph *g = &t->glyphs[t->n_glyphs++];
-            double adv = 0.0;
-            bool start = i == stop;
-            if (start) stop = next_stop(t, i);
-            if (t->n_faces) {
-                size_t f;
-                for (f = 0; f < t->n_faces; f++)
-                    if (face_has(t->faces[f], cp)) break;
-                if (f == t->n_faces) f = 0;
-                face = (uint32_t)f;
-                gid = t->faces[f]->glyph(t->faces[f]->ud, cp);
-                adv = t->faces[f]->advance(t->faces[f]->ud, gid, t->em, t->style.mode);
-                if (!isfinite(adv)) adv = 0.0;
-                if (adv > 0.0 && t->style.bold && !t->faces[f]->bold)
-                    adv += t->em * PC_TEXT_BOLD_FRAC;
-                if (have_prev && prev_face == face && t->faces[f]->kerning) {
-                    double k = t->faces[f]->kerning(t->faces[f]->ud, prev_gid, gid, t->em);
-                    if (isfinite(k)) {
-                        t->glyphs[t->n_glyphs - 2u].advance += k;
-                        pen += k;
-                    }
-                }
-            }
-            g->cp = cp;
-            g->gid = gid;
-            g->face = face;
-            g->cluster_start = start;
-            g->byte = i;
-            g->x = pen;                    /* made absolute below */
-            g->advance = adv;
-            pen += adv;
-            prev_gid = gid;
-            prev_face = face;
-            have_prev = true;
-            i = nx;
+            size_t cend = next_stop(t, i);
+            layout_cluster(t, i, cend, &pen, &ks);
+            i = cend;
         }
         L->byte_end = i;
         L->glyph_end = t->n_glyphs;

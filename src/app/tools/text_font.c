@@ -6,8 +6,10 @@
  * stb_truetype outline of glyphs that passed validation); ui.h has no
  * glyph-level API yet (requested in the lane C report). */
 #include "text_font.h"
+#include "text_sfnt.h"
 #include "../app_internal.h"
 
+#include "pc/pc_codec.h"
 #include "../../ui/ui_font_internal.h"
 
 #include <ctype.h>
@@ -21,6 +23,17 @@
 #define TF_MAX_FALLBACKS 15u
 
 /* ---- loaded faces -------------------------------------------------------------------- */
+/* Decoded color bitmaps of a face (lane TOOLB). */
+#define TF_BMP_CACHE_ENTRIES 512u
+#define TF_BMP_CACHE_BYTES ((size_t)48u << 20)
+#define TF_BMP_MAX_SIDE 2048u
+
+typedef struct tf_bmp {
+    const uint8_t *key;         /* the encoded image inside the font bytes */
+    pc_px32       *px;          /* owned, NULL when the image could not be decoded */
+    int32_t        w, h;
+} tf_bmp;
+
 typedef struct tf_face {
     pc_font_face pf;            /* pf.ud points at this record */
     ui_font     *f;             /* owned; NULL until loaded */
@@ -28,6 +41,14 @@ typedef struct tf_face {
     int32_t      index;
     bool         builtin;
     bool         tried;         /* a load was attempted */
+    /* color tables (lane TOOLB): over f's bytes, or over own bytes for
+     * fonts without outlines (sfnt_only) */
+    text_sfnt    cs;
+    bool         has_cs;
+    bool         sfnt_only;
+    uint8_t     *bytes;         /* owned file bytes of an sfnt_only face */
+    tf_bmp      *bmp;           /* decoded bitmaps (owned) */
+    size_t       nbmp, capbmp, bmp_bytes;
 } tf_face;
 
 typedef struct tf_set {
@@ -66,15 +87,56 @@ struct text_fonts {
     char            cache_path[1024];
 };
 
+/* Fonts the toolkit rejects for lack of outlines may still be bitmap color
+ * fonts: read them with text_sfnt alone (lane TOOLB). */
+static bool load_sfnt_only(tf_face *t)
+{
+    size_t len = 0;
+    if (t->builtin || pal_read_file(t->path, UI_FONT_MAX_FILE, &t->bytes, &len) != PC_OK)
+        return false;
+    if (text_sfnt_open(&t->cs, t->bytes, len, t->index) == PC_OK &&
+        text_sfnt_has_bitmaps(&t->cs) && !text_sfnt_has_outlines(&t->cs)) {
+        t->has_cs = true;
+        t->sfnt_only = true;
+        return true;
+    }
+    text_sfnt_close(&t->cs);
+    free(t->bytes);
+    t->bytes = NULL;
+    return false;
+}
+
 static bool ensure(tf_face *t)
 {
-    if (t->f) return true;
+    if (t->f || t->sfnt_only) return true;
     if (t->tried) return false;
     t->tried = true;
-    if (t->builtin) t->f = ui_font_load_builtin((ui_font_builtin)t->index);
-    else if (ui_font_load_file(t->path, t->index, &t->f) != PC_OK) t->f = NULL;
+    if (t->builtin) {
+        t->f = ui_font_load_builtin((ui_font_builtin)t->index);
+    } else if (ui_font_load_file(t->path, t->index, &t->f) != PC_OK) {
+        t->f = NULL;
+        if (load_sfnt_only(t)) {
+            t->pf.color = true;
+            return true;
+        }
+    }
+    if (t->f && !t->builtin && text_sfnt_open(&t->cs, t->f->s.d, t->f->s.n, t->index) == PC_OK) {
+        t->has_cs = text_sfnt_has_color(&t->cs);
+        if (!t->has_cs) text_sfnt_close(&t->cs);
+        else t->pf.color = true;
+    }
     if (!t->f) pal_log(PAL_LOG_WARN, "text: cannot load font %s (%d)", t->path, (int)t->index);
     return t->f != NULL;
+}
+
+static void face_free(tf_face *t)
+{
+    for (size_t i = 0; i < t->nbmp; i++) free(t->bmp[i].px);
+    free(t->bmp);
+    text_sfnt_close(&t->cs);
+    ui_font_free(t->f);
+    free(t->bytes);
+    free(t);
 }
 
 static double scale_of(const ui_font *f, double em)
@@ -82,16 +144,24 @@ static double scale_of(const ui_font *f, double em)
     return f->upem > 0.0f ? em / (double)f->upem : em / 1000.0;
 }
 
+static double face_scale(const tf_face *t, double em)
+{
+    if (t->sfnt_only) return t->cs.upem ? em / (double)t->cs.upem : em / 1000.0;
+    return scale_of(t->f, em);
+}
+
 static uint32_t cb_glyph(void *ud, uint32_t cp)
 {
     tf_face *t = (tf_face *)ud;
-    return ensure(t) ? ui_font_cmap(t->f, cp) : 0u;
+    if (!ensure(t)) return 0u;
+    return t->sfnt_only ? text_sfnt_cmap(&t->cs, cp) : ui_font_cmap(t->f, cp);
 }
 
 static bool cb_has(void *ud, uint32_t cp)
 {
     tf_face *t = (tf_face *)ud;
-    return ensure(t) && ui_font_has_glyph(t->f, cp);
+    if (!ensure(t)) return false;
+    return t->sfnt_only ? text_sfnt_cmap(&t->cs, cp) != 0u : ui_font_has_glyph(t->f, cp);
 }
 
 static void cb_metrics(void *ud, double em, pc_font_metrics *o)
@@ -100,7 +170,15 @@ static void cb_metrics(void *ud, double em, pc_font_metrics *o)
     double s;
     memset(o, 0, sizeof *o);
     if (!ensure(t)) return;
-    s = scale_of(t->f, em);
+    s = face_scale(t, em);
+    if (t->sfnt_only) {
+        o->ascent = (double)t->cs.ascent * s;
+        o->descent = (double)t->cs.descent * s;
+        o->line_gap = (double)t->cs.line_gap * s;
+        o->x_height = (double)t->cs.x_height * s;
+        o->cap_height = (double)t->cs.cap_height * s;
+        return;
+    }
     o->ascent = (double)t->f->ascent * s;
     o->descent = (double)t->f->descent * s;
     o->line_gap = (double)t->f->line_gap * s;
@@ -114,6 +192,9 @@ static void cb_metrics(void *ud, double em, pc_font_metrics *o)
         o->strike_offset = -(double)t->f->st_pos * s;
         o->strike_thickness = (double)t->f->st_size * s;
     }
+    /* alignment zones for the Sharp modes (lane TOOLB) */
+    if (t->f->x_height > 0) o->x_height = (double)t->f->x_height * s;
+    if (t->f->cap_height > 0) o->cap_height = (double)t->f->cap_height * s;
 }
 
 static double cb_advance(void *ud, uint32_t gid, double em, pc_text_mode mode)
@@ -121,33 +202,33 @@ static double cb_advance(void *ud, uint32_t gid, double em, pc_text_mode mode)
     tf_face *t = (tf_face *)ud;
     (void)mode;
     if (!ensure(t)) return em * 0.5;
+    if (t->sfnt_only) return (double)text_sfnt_advance(&t->cs, gid) * face_scale(t, em);
     return (double)ui_font_advance(t->f, gid) * scale_of(t->f, em);
 }
 
 static double cb_kerning(void *ud, uint32_t l, uint32_t r, double em)
 {
     tf_face *t = (tf_face *)ud;
-    if (!ensure(t) || !l || !r) return 0.0;
+    if (!ensure(t) || t->sfnt_only || !l || !r) return 0.0;
     return (double)ui_kern_cached(t->f, l, r) * scale_of(t->f, em);
 }
 
+/* The outline in pixels, y down, unhinted (the engine grid-fits the Sharp
+ * modes itself, pc_text_hint_outline). */
 static pc_status cb_outline(void *ud, uint32_t gid, double em, pc_text_mode mode, pc_path *out)
 {
     tf_face *t = (tf_face *)ud;
     stbtt_vertex *v = NULL;
-    ui_ymap ym;
     double s;
     int n;
     bool open = false;
     pc_status st = PC_OK;
-    if (!ensure(t) || !ui_font_glyph_ok(t->f, gid)) return PC_OK;
+    (void)mode;
+    if (!ensure(t) || t->sfnt_only || !ui_font_glyph_ok(t->f, gid)) return PC_OK;
     s = scale_of(t->f, em);
-    /* Sharp modes: snap the vertical zones to whole pixels at text sizes
-     * where that matters (natural or GDI-like hinting stand-in) */
-    ui_ymap_init(&ym, t->f, (float)s, mode != PC_TEXT_SMOOTH && em <= 96.0);
     n = stbtt_GetGlyphShape(&t->f->info, (int)gid, &v);
     for (int i = 0; i < n && st == PC_OK; i++) {
-        double x = (double)v[i].x * s, y = -(double)ui_ymap_apply(&ym, (float)v[i].y);
+        double x = (double)v[i].x * s, y = -(double)v[i].y * s;
         switch (v[i].type) {
         case STBTT_vmove:
             if (open) st = pc_path_close(out);
@@ -158,14 +239,11 @@ static pc_status cb_outline(void *ud, uint32_t gid, double em, pc_text_mode mode
             st = pc_path_line_to(out, x, y);
             break;
         case STBTT_vcurve:
-            st = pc_path_quad_to(out, (double)v[i].cx * s,
-                                 -(double)ui_ymap_apply(&ym, (float)v[i].cy), x, y);
+            st = pc_path_quad_to(out, (double)v[i].cx * s, -(double)v[i].cy * s, x, y);
             break;
         case STBTT_vcubic:
-            st = pc_path_cubic_to(out, (double)v[i].cx * s,
-                                  -(double)ui_ymap_apply(&ym, (float)v[i].cy),
-                                  (double)v[i].cx1 * s,
-                                  -(double)ui_ymap_apply(&ym, (float)v[i].cy1), x, y);
+            st = pc_path_cubic_to(out, (double)v[i].cx * s, -(double)v[i].cy * s,
+                                  (double)v[i].cx1 * s, -(double)v[i].cy1 * s, x, y);
             break;
         default:
             break;
@@ -176,8 +254,114 @@ static pc_status cb_outline(void *ud, uint32_t gid, double em, pc_text_mode mode
     return st;
 }
 
+/* ---- color glyphs (lane TOOLB) ------------------------------------------------------------ */
+static size_t cb_color_layers(void *ud, uint32_t gid, pc_font_color_layer *out, size_t cap)
+{
+    tf_face *t = (tf_face *)ud;
+    if (!ensure(t) || !t->has_cs) return 0u;
+    return text_sfnt_colr_layers(&t->cs, gid, out, cap);
+}
+
+/* Decode an embedded image (PNG, or JPEG for sbix) to straight BGRA.
+ * Bounded by TF_BMP_MAX_SIDE before anything is allocated (P-08). */
+static pc_px32 *decode_image(const text_sfnt_image *im, int32_t *w, int32_t *h)
+{
+    const pc_codec *c = NULL;
+    pc_codec_limits lim;
+    pc_image_meta meta;
+    pc_doc *doc = NULL;
+    pc_px32 *px = NULL;
+    size_t n;
+    if (memcmp(im->type, "png ", 4) == 0) c = pc_codec_by_id("png");
+    else if (memcmp(im->type, "jpg ", 4) == 0) c = pc_codec_by_id("jpeg");
+    if (!c || !c->load || !c->sniff || !c->sniff(im->data, im->len)) return NULL;
+    pc_codec_limits_default(&lim);
+    lim.max_w = TF_BMP_MAX_SIDE;
+    lim.max_h = TF_BMP_MAX_SIDE;
+    lim.max_pixels = (uint64_t)TF_BMP_MAX_SIDE * TF_BMP_MAX_SIDE;
+    lim.max_mem = (uint64_t)64u << 20;
+    lim.max_layers = 1u;
+    memset(&meta, 0, sizeof meta);
+    if (c->load(im->data, im->len, &lim, &doc, &meta) != PC_OK || !doc) {
+        pc_meta_free(&meta);
+        return NULL;
+    }
+    pc_meta_free(&meta);
+    if (doc->n_layers >= 1u && doc->w >= 1u && doc->h >= 1u && doc->w <= TF_BMP_MAX_SIDE &&
+        doc->h <= TF_BMP_MAX_SIDE && pc_mul_size((size_t)doc->w, (size_t)doc->h, &n)) {
+        px = (pc_px32 *)malloc(n * sizeof *px);
+        if (px) {
+            pc_layer_read_rect(doc, doc->stack[0], pc_doc_rect(doc), px, (size_t)doc->w);
+            *w = (int32_t)doc->w;
+            *h = (int32_t)doc->h;
+        }
+    }
+    pc_doc_destroy(doc);
+    return px;
+}
+
+static const tf_bmp *bitmap_of(tf_face *t, const text_sfnt_image *im)
+{
+    tf_bmp *b;
+    size_t bytes = 0;
+    for (size_t i = 0; i < t->nbmp; i++)
+        if (t->bmp[i].key == im->data) return &t->bmp[i];
+    if (t->nbmp >= TF_BMP_CACHE_ENTRIES || t->bmp_bytes > TF_BMP_CACHE_BYTES) {
+        /* full: start over (callers copy what they need right away) */
+        for (size_t i = 0; i < t->nbmp; i++) free(t->bmp[i].px);
+        t->nbmp = 0;
+        t->bmp_bytes = 0;
+    }
+    if (t->nbmp == t->capbmp) {
+        size_t nc = t->capbmp ? t->capbmp * 2u : 16u;
+        tf_bmp *nb = (tf_bmp *)realloc(t->bmp, nc * sizeof *nb);
+        if (!nb) return NULL;
+        t->bmp = nb;
+        t->capbmp = nc;
+    }
+    b = &t->bmp[t->nbmp];
+    memset(b, 0, sizeof *b);
+    b->key = im->data;
+    b->px = decode_image(im, &b->w, &b->h);
+    if (b->px) bytes = (size_t)b->w * (size_t)b->h * sizeof *b->px;
+    t->bmp_bytes += bytes;
+    t->nbmp++;
+    return b;
+}
+
+static pc_status cb_color_bitmap(void *ud, uint32_t gid, double em, pc_font_bitmap *out)
+{
+    tf_face *t = (tf_face *)ud;
+    text_sfnt_image im;
+    const tf_bmp *b;
+    double k;
+    if (!ensure(t) || !t->has_cs || !text_sfnt_has_bitmaps(&t->cs)) return PC_ERR_UNSUPPORTED;
+    if (!text_sfnt_image_of(&t->cs, gid, em, &im) || !(im.ppem > 0.0)) return PC_ERR_UNSUPPORTED;
+    b = bitmap_of(t, &im);
+    if (!b) return PC_ERR_NOMEM;
+    if (!b->px) return PC_ERR_UNSUPPORTED;            /* undecodable: the outline */
+    k = em / im.ppem;
+    out->px = b->px;
+    out->w = b->w;
+    out->h = b->h;
+    out->scale = k;
+    out->left = im.x * k;
+    /* CBDT: bearing to the top edge; sbix: origin offset of the bottom edge */
+    out->top = im.bottom_origin ? -(im.y * k) - (double)b->h * k : -(im.y * k);
+    return PC_OK;
+}
+
+static size_t cb_substitute(void *ud, uint32_t *gids, size_t n)
+{
+    tf_face *t = (tf_face *)ud;
+    /* only color faces ligate clusters: emoji sequences (text faces keep
+     * the one-glyph-per-character model of ADR-004) */
+    if (!ensure(t) || !t->has_cs || !t->pf.color) return n;
+    return text_sfnt_ligate(&t->cs, gids, n);
+}
+
 static tf_face *face_record(text_fonts *tf, const char *path, int32_t index, bool builtin,
-                            uint16_t weight, bool italic)
+                            uint16_t weight, bool italic, bool color)
 {
     tf_face *t;
     for (size_t i = 0; i < tf->nfaces; i++) {
@@ -205,6 +389,10 @@ static tf_face *face_record(text_fonts *tf, const char *path, int32_t index, boo
     t->pf.outline = cb_outline;
     t->pf.bold = weight >= 600u;
     t->pf.italic = italic;
+    t->pf.color = color;
+    t->pf.color_layers = cb_color_layers;
+    t->pf.color_bitmap = cb_color_bitmap;
+    t->pf.substitute = cb_substitute;
     tf->faces[tf->nfaces++] = t;
     return t;
 }
@@ -303,6 +491,9 @@ int32_t text_fonts_find_family(const text_fonts *tf, const char *name)
 /* ---- face sets ----------------------------------------------------------------------- */
 static const char *const k_fallback_families[] = {
     "DejaVu Sans", "Noto Sans", "Segoe UI", "Arial", "Helvetica Neue", "Liberation Sans",
+    /* color emoji (lane TOOLB): preferred for emoji presentation */
+    "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Twemoji", "Twemoji Mozilla",
+    "JoyPixels", "EmojiOne Color",
     "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC",
     "Noto Sans Symbols", "Noto Sans Symbols 2", "Segoe UI Symbol", "Apple Symbols",
 };
@@ -329,7 +520,7 @@ static const text_face_info *pick(const text_fonts *tf, const char *family, bool
 static tf_face *builtin_face(text_fonts *tf, bool bold)
 {
     return face_record(tf, "", bold ? (int32_t)UI_FONT_SEMIBOLD : (int32_t)UI_FONT_REGULAR, true,
-                       bold ? 600u : 400u, false);
+                       bold ? 600u : 400u, false, false);
 }
 
 pc_status text_fonts_faces(text_fonts *tf, const char *family, bool bold, bool italic,
@@ -355,7 +546,7 @@ pc_status text_fonts_faces(text_fonts *tf, const char *family, bool bold, bool i
     }
     fi = ci_cmp(family, TEXT_DEFAULT_FAMILY) == 0 ? NULL : pick(tf, family, bold, italic);
     if (fi) {
-        prim = face_record(tf, fi->path, fi->index, false, fi->weight, fi->italic);
+        prim = face_record(tf, fi->path, fi->index, false, fi->weight, fi->italic, fi->color);
         if (prim && !ensure(prim)) prim = NULL;
     }
     if (!prim) {
@@ -378,7 +569,7 @@ pc_status text_fonts_faces(text_fonts *tf, const char *family, bool bold, bool i
         const text_face_info *ff = pick(tf, k_fallback_families[k], false, false);
         tf_face *t;
         if (!ff || ci_cmp(k_fallback_families[k], family) == 0) continue;
-        t = face_record(tf, ff->path, ff->index, false, ff->weight, ff->italic);
+        t = face_record(tf, ff->path, ff->index, false, ff->weight, ff->italic, ff->color);
         if (t) s->faces[s->n++] = &t->pf;
     }
     tf->nsets++;
@@ -513,6 +704,13 @@ static pc_status describe_file(const char *path, uint64_t mtime, tf_vec *out)
         app_copy_str(fi.style, sizeof fi.style, d.style);
         fi.weight = d.weight;
         fi.italic = d.italic;
+        {
+            text_sfnt cs;
+            if (text_sfnt_open(&cs, data, len, k) == PC_OK) {
+                fi.color = text_sfnt_has_color(&cs);
+                text_sfnt_close(&cs);
+            }
+        }
         st = vec_push(out, &fi);
     }
     free(data);
@@ -623,15 +821,15 @@ pc_status text_fonts_cache_write(const char *path, const text_face_info *f, size
     }
     buf = (char *)malloc(cap);
     if (!buf) return PC_ERR_NOMEM;
-    len += (size_t)snprintf(buf, cap, "paintc-fonts 1\n");
+    len += (size_t)snprintf(buf, cap, "paintc-fonts 2\n");
     for (size_t i = 0; i < n; i++) {
         int w;
         if (strpbrk(f[i].path, "\t\n\r") || strpbrk(f[i].family, "\t\n\r") ||
             strpbrk(f[i].style, "\t\n\r"))
             continue;
-        w = snprintf(buf + len, cap - len, "%s\t%d\t%llu\t%u\t%d\t%s\t%s\n", f[i].path,
+        w = snprintf(buf + len, cap - len, "%s\t%d\t%llu\t%u\t%d\t%s\t%s\t%d\n", f[i].path,
                      (int)f[i].index, (unsigned long long)f[i].mtime, (unsigned)f[i].weight,
-                     f[i].italic ? 1 : 0, f[i].family, f[i].style);
+                     f[i].italic ? 1 : 0, f[i].family, f[i].style, f[i].color ? 1 : 0);
         if (w < 0 || (size_t)w >= cap - len) break;
         len += (size_t)w;
     }
@@ -669,14 +867,16 @@ pc_status text_fonts_cache_read(const char *path, text_face_info **out, size_t *
     memset(&v, 0, sizeof v);
     p = (char *)data;
     end = p + len;
-    if (len < 15u || memcmp(p, "paintc-fonts 1\n", 15u) != 0) {
+    /* version 2 added the color field (lane TOOLB); version 1 caches are
+     * rescanned */
+    if (len < 15u || memcmp(p, "paintc-fonts 2\n", 15u) != 0) {
         free(data);
         return PC_ERR_FORMAT;
     }
     p += 15;
     while (p < end && st == PC_OK && v.n < (size_t)TEXT_SCAN_MAX_FILES * 4u) {
         char *nl = memchr(p, '\n', (size_t)(end - p)), *line = p, *cur;
-        char *fp, *fi, *fm, *fw, *fit, *ff, *fs;
+        char *fp, *fi, *fm, *fw, *fit, *ff, *fs, *fc;
         text_face_info info;
         if (!nl) break;
         *nl = '\0';
@@ -689,7 +889,8 @@ pc_status text_fonts_cache_read(const char *path, text_face_info **out, size_t *
         fit = field(&cur);
         ff = field(&cur);
         fs = field(&cur);
-        if (!fp || !fi || !fm || !fw || !fit || !ff || !fs || !*fp || !*ff) continue;
+        fc = field(&cur);
+        if (!fp || !fi || !fm || !fw || !fit || !ff || !fs || !fc || !*fp || !*ff) continue;
         if (strlen(fp) >= sizeof info.path || strlen(ff) >= sizeof info.family ||
             strlen(fs) >= sizeof info.style)
             continue;
@@ -704,6 +905,7 @@ pc_status text_fonts_cache_read(const char *path, text_face_info **out, size_t *
             info.weight = (uint16_t)(w < 1 ? 400 : w > 1000 ? 1000 : w);
         }
         info.italic = fit[0] == '1';
+        info.color = fc[0] == '1';
         if (info.index < 0 || info.index >= TF_MAX_FACES_PER_FILE) continue;
         st = vec_push(&v, &info);
     }
@@ -765,10 +967,7 @@ static void tf_destroy(void *p)
     text_fonts *tf = (text_fonts *)p;
     if (!tf) return;
     for (int32_t i = 0; i < tf->nprev; i++) ui_font_free(tf->prev[i].f);
-    for (size_t i = 0; i < tf->nfaces; i++) {
-        ui_font_free(tf->faces[i]->f);
-        free(tf->faces[i]);
-    }
+    for (size_t i = 0; i < tf->nfaces; i++) face_free(tf->faces[i]);
     free(tf->faces);
     free(tf->sets);
     free_fams(tf);
