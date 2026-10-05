@@ -390,7 +390,7 @@ static void t_first_shown(void)
     if (!a) return;
     at_frames(a, 1);
     app_canvas_set_first_budget(a, 1000000u);       /* 1 ms: the first frames must wait */
-    d = app_doc_new_image(a, 6000, 4000, app_px_make(30, 120, 200, 255));
+    d = app_doc_new_image(a, 2400, 1600, app_px_make(30, 120, 200, 255));
     CHECK(d && app_add_doc(a, d));
     if (!d) {
         app_destroy(a);
