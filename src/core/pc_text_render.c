@@ -708,7 +708,9 @@ static pc_status cimg_make(pc_text *t, crender *r, const pc_text_cimg *key, uint
         return st;
     }
     r->made += c->bytes;
-    if (t->n_cimg < CIMG_MAX_ENTRIES && t->cimg_bytes + c->bytes <= 2u * CIMG_BUDGET) {
+    /* reduced-budget images are not kept: the next render may afford more */
+    if (max_px == CIMG_MAX_PX && t->n_cimg < CIMG_MAX_ENTRIES &&
+        t->cimg_bytes + c->bytes <= 2u * CIMG_BUDGET) {
         if (t->n_cimg == t->cap_cimg) {
             size_t nc = t->cap_cimg ? t->cap_cimg * 2u : 16u;
             pc_text_cimg **nv = (pc_text_cimg **)realloc((void *)t->cimg, nc * sizeof *nv);
