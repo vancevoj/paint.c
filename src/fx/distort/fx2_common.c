@@ -77,6 +77,16 @@ fx_px fx2_average(fx_pxf sum, int n)
     return fx_unpremul(q);
 }
 
+fx_px fx2_average_lin(fx_pxf sum, int n)
+{
+    fx_pxf q;
+    float k;
+    if (n <= 0) return fx_px_make(0, 0, 0, 0);
+    k = 1.0f / (float)n;
+    q.b = sum.b * k; q.g = sum.g * k; q.r = sum.r * k; q.a = sum.a * k;
+    return fxl_unpremul(q);
+}
+
 /* ---- sampling ---------------------------------------------------------------- */
 /* Maps a continuous coordinate (pixel centers at i + 0.5) into a range where
  * floor() is safe, according to the edge mode. Returns 0 when the sample is

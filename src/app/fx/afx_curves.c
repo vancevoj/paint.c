@@ -414,35 +414,8 @@ static bool curves_widget(app *a, const fx_prop *prop, void *value, void *ud)
 void afx_levels_histogram(const fx_img *src, const fx_img *sel, fx_rect r,
                           uint64_t hist[FX_LEVELS_HIST_LEN])
 {
-    int32_t x0, y0, x1, y1;
-    memset(hist, 0, sizeof(uint64_t) * FX_LEVELS_HIST_LEN);
-    if (!src || !src->px || src->chans != 4) return;
-    x0 = r.x > src->r.x ? r.x : src->r.x;
-    y0 = r.y > src->r.y ? r.y : src->r.y;
-    {
-        int64_t ex = (int64_t)r.x + r.w, sx = (int64_t)src->r.x + src->r.w;
-        int64_t ey = (int64_t)r.y + r.h, sy = (int64_t)src->r.y + src->r.h;
-        x1 = (int32_t)(ex < sx ? ex : sx);
-        y1 = (int32_t)(ey < sy ? ey : sy);
-    }
-    for (int32_t y = y0; y < y1; y++) {
-        const uint8_t *row = src->px + (size_t)(y - src->r.y) * (size_t)src->stride;
-        const uint8_t *mrow = NULL;
-        if (sel && sel->px && y >= sel->r.y && y < sel->r.y + sel->r.h)
-            mrow = sel->px + (size_t)(y - sel->r.y) * (size_t)sel->stride;
-        else if (sel && sel->px)
-            continue;                                   /* row outside the mask: unselected */
-        for (int32_t x = x0; x < x1; x++) {
-            const uint8_t *px = row + (size_t)(x - src->r.x) * 4u;
-            if (mrow) {
-                if (x < sel->r.x || x >= sel->r.x + sel->r.w) continue;
-                if (mrow[x - sel->r.x] < 128u) continue;
-            }
-            hist[FX_CH_B * 256 + px[0]]++;
-            hist[FX_CH_G * 256 + px[1]]++;
-            hist[FX_CH_R * 256 + px[2]]++;
-        }
-    }
+    /* W3B-FXCORE: one implementation for the Auto button and Auto-Level */
+    fx_levels_histogram_masked(src, r, sel, hist);
 }
 
 /* ==== registration ============================================================== */

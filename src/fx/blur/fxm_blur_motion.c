@@ -10,6 +10,8 @@
  * the image. Samples are spaced at most one pixel apart and read
  * bilinearly in premultiplied space. Distance is a real 1..500 as the
  * Paint.NET 5.2 dialog shows (3.36: integer 1..200).
+ * W3B-FXCORE: samples are averaged in linear light (fx1_acc_*_lin), as
+ * Paint.NET 5.0.4 lists this effect among those rendering with linear gamma.
  *
  * Thread rules: prepare builds the sample table; render is reentrant.
  */
@@ -30,7 +32,7 @@ static const fx_prop k_props[] = {
     { "angle", "Angle", FXP_ANGLE, (uint32_t)offsetof(motion_params, angle),
       -180.0, 180.0, 25.0, 0.01, NULL, NULL, 0, 0, NULL },
     { "distance", "Distance", FXP_REAL, (uint32_t)offsetof(motion_params, distance),
-      1.0, 500.0, 10.0, 0.01, NULL, NULL, 0, 0, NULL },
+      1.0, 500.0, 10.0, 0.01, NULL, NULL, 0, FXP_F_SLIDER_LOG, NULL },  /* O-UI-NONLIN */
     { "centered", "Centered", FXP_BOOL, (uint32_t)offsetof(motion_params, centered),
       0.0, 1.0, 1.0, 0.0, NULL, NULL, 0, 0, NULL },
     { "edge_behavior", "Edge Behavior", FXP_CHOICE, (uint32_t)offsetof(motion_params, edge),
@@ -110,9 +112,9 @@ static int motion_render(const void *params, const void *state, const fx_img *sr
             fx1_acc acc;
             fx1_acc_zero(&acc);
             for (i = 0; i < st->n; i++)
-                fx1_acc_bilinear(&acc, src, (double)x + st->dx[i], (double)y + st->dy[i],
-                                 st->w[i], st->edge);
-            d[x] = fx1_acc_get(&acc);
+                fx1_acc_bilinear_lin(&acc, src, (double)x + st->dx[i], (double)y + st->dy[i],
+                                     st->w[i], st->edge);
+            d[x] = fx1_acc_get_lin(&acc);
         }
     }
     return FX_OK;

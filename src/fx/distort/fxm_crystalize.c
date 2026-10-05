@@ -8,8 +8,11 @@
  * Quality supersamples cell borders (Quality^2 subsamples per pixel).
  * Randomize changes the sites and therefore both cell shapes and colors.
  * Sites are computed on the fly from the hash, so any ROI renders the same.
+ * W3B-FXCORE: border subsamples are averaged in linear light (Paint.NET 5.0.4
+ * lists Crystalize among the effects rendering with linear gamma).
  */
 #include "fx2_common.h"
+#include "../fx_srgb.h"
 
 typedef struct crys_params {
     int32_t cell;            /* 2 .. 250 */
@@ -80,9 +83,9 @@ static int crys_render(const void *params, const void *state, const fx_img *src,
                 }
                 if (first < 0) first = bi;
                 else if (bi != first) same = 0;
-                fx2_pxf_add(&acc, fx_premul(sites[bi].c));
+                fx2_pxf_add(&acc, fxl_premul(sites[bi].c));
             }
-            drow[x] = same ? sites[first].c : fx2_average(acc, n);
+            drow[x] = same ? sites[first].c : fx2_average_lin(acc, n);
         }
     }
     return FX_OK;

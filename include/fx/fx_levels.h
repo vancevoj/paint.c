@@ -62,6 +62,15 @@ bool fx_levels_lut(const fx_levels *lv, uint8_t lut[3][256]);
  * pixels count with their stored color, like Paint.NET. */
 void fx_levels_histogram(const fx_img *src, fx_rect r, uint64_t hist[FX_LEVELS_HIST_LEN]);
 
+/* W3B-FXCORE: the same histogram restricted to the selection shape: a
+ * pixel counts when its coverage in mask (A8, chans 1, positioned by
+ * mask->r; pixels outside mask->r are unselected) is at least 128, the rule
+ * the Levels dialog's Auto button uses, so Auto-Level and Levels Auto agree
+ * on non-rectangular selections. mask NULL is fx_levels_histogram.
+ * Borrowed arguments; any thread. */
+void fx_levels_histogram_masked(const fx_img *src, fx_rect r, const fx_img *mask,
+                                uint64_t hist[FX_LEVELS_HIST_LEN]);
+
 /* The Auto button / Auto-Level: per channel lo = 0.5th percentile,
  * hi = 99.5th percentile, md = rounded mean; in_lo = lo, in_hi = hi,
  * out = 0..255, gamma = clamp(log(0.5) / log((md - lo) / (hi - lo)), 0.1,

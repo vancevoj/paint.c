@@ -12,6 +12,8 @@
  * same three, Bicubic the default); the preset key is "sampling_mode"
  * because the indices changed (it was "sampling" with Nearest Neighbor
  * first). Angle 0 is the identity.
+ * W3B-FXCORE: Bilinear and Bicubic interpolate in linear light (Paint.NET
+ * 5.0.4 lists Straighten among the effects rendering with linear gamma).
  *
  * Thread rules: no prepared state; render is reentrant.
  */
@@ -57,8 +59,8 @@ static int straighten_render(const void *params, const void *state, const fx_img
             double vx = (double)x - cx, vy = (double)y - cy;
             double sx = cx + (vx * ca - vy * sa) * inv, sy = cy + (vx * sa + vy * ca) * inv;
             if (mode == SAMPLE_NEAREST) d[x] = fx1_sample_nearest(src, sx, sy);
-            else if (mode == SAMPLE_BILINEAR) d[x] = fx1_sample_bilinear(src, sx, sy);
-            else d[x] = fx1_sample_bicubic(src, sx, sy);
+            else if (mode == SAMPLE_BILINEAR) d[x] = fx1_sample_bilinear_lin(src, sx, sy);
+            else d[x] = fx1_sample_bicubic_lin(src, sx, sy);
         }
     }
     return FX_OK;

@@ -4,8 +4,8 @@
  * outermost ring weighted by the fractional part of a real radius, so the
  * result changes smoothly with the slider. Gamma Boost works as in Gaussian
  * Blur (linear light at 0, range -0.99..2 as the 5.2 dialog shows); the
- * border is excluded (renormalized). O(1) per pixel through exact integer running sums. Paint.NET 5.1
- * effect without a 3.36 counterpart; see docs/fx/effects1.md.
+ * border is excluded (renormalized). O(1) per pixel through exact integer
+ * running sums. Paint.NET 5.1 effect without a 3.36 counterpart; see docs/fx/effects1.md.
  *
  * Thread rules: prepare builds an immutable fx1_sep (plus, for large
  * radii, a cache of the vertical passes); render is reentrant.
@@ -21,7 +21,7 @@ static const fx_prop k_props[] = {
     { "radius", "Radius", FXP_REAL, (uint32_t)offsetof(square_params, radius),
       0.0, 300.0, 6.0, 0.1, NULL, NULL, 0, FXP_F_SLIDER_LOG, NULL },
     { "gamma_boost", "Gamma Boost", FXP_REAL, (uint32_t)offsetof(square_params, gamma_boost),
-      -0.99, 2.0, 0.0, 0.01, NULL, NULL, 0, 0, NULL },
+      -0.99, 2.0, 0.0, 0.01, NULL, NULL, 0, FXP_F_SLIDER_LOG, NULL },  /* O-UI-NONLIN */
 };
 
 typedef struct square_state {

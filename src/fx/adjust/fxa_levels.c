@@ -75,6 +75,42 @@ void fx_levels_histogram(const fx_img *src, fx_rect r, uint64_t hist[FX_LEVELS_H
     }
 }
 
+void fx_levels_histogram_masked(const fx_img *src, fx_rect r, const fx_img *mask,
+                                uint64_t hist[FX_LEVELS_HIST_LEN])
+{
+    int64_t x0, y0, x1, y1;
+    if (!mask || !mask->px || mask->chans != 1) {
+        fx_levels_histogram(src, r, hist);
+        return;
+    }
+    memset(hist, 0, sizeof(uint64_t) * FX_LEVELS_HIST_LEN);
+    if (!src || !src->px || src->chans != 4) return;
+    /* only pixels inside r, the image and the mask can count */
+    x0 = r.x > src->r.x ? r.x : src->r.x;
+    y0 = r.y > src->r.y ? r.y : src->r.y;
+    if (mask->r.x > x0) x0 = mask->r.x;
+    if (mask->r.y > y0) y0 = mask->r.y;
+    x1 = (int64_t)r.x + r.w;
+    y1 = (int64_t)r.y + r.h;
+    if (x1 > (int64_t)src->r.x + src->r.w) x1 = (int64_t)src->r.x + src->r.w;
+    if (y1 > (int64_t)src->r.y + src->r.h) y1 = (int64_t)src->r.y + src->r.h;
+    if (x1 > (int64_t)mask->r.x + mask->r.w) x1 = (int64_t)mask->r.x + mask->r.w;
+    if (y1 > (int64_t)mask->r.y + mask->r.h) y1 = (int64_t)mask->r.y + mask->r.h;
+    if (r.w <= 0 || r.h <= 0 || x1 <= x0 || y1 <= y0) return;
+    for (int64_t y = y0; y < y1; y++) {
+        const fx_px *row = fx_row(src, (int32_t)y);
+        const uint8_t *mrow = fx_row8(mask, (int32_t)y);
+        for (int64_t x = x0; x < x1; x++) {
+            fx_px p;
+            if (mrow[x] < 128u) continue;
+            p = row[x];
+            hist[FX_CH_B * 256 + p.b]++;
+            hist[FX_CH_G * 256 + p.g]++;
+            hist[FX_CH_R * 256 + p.r]++;
+        }
+    }
+}
+
 /* Histogram.GetPercentile: first bin whose running total exceeds
  * sum * fraction, compared in single precision like the C# original. */
 static uint8_t percentile(const uint64_t h[256], float fraction)

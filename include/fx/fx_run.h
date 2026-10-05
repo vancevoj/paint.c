@@ -151,6 +151,39 @@ uint32_t fx_params_clamp(const fx_effect *fx, void *params);
 /* True when fx_params_clamp would change nothing. */
 bool     fx_params_valid(const fx_effect *fx, const void *params);
 
+/* ==== property rules (W3B-FXCORE) ============================================ */
+/* Rules between values, written into fx_prop.hint of INT and REAL props
+ * (that field names a widget only for FXP_CUSTOM; hosts that do not know the
+ * rules ignore it, so plugins may use them with any ABI v1 host):
+ *   "link:<key>"    <key> is a BOOL prop. While it is on, every prop whose
+ *                   hint names the same <key> holds the value of the member
+ *                   edited last (the first member until one is edited);
+ *                   turning it on syncs the group the same way. Members stay
+ *                   editable. (Posterize levels, Morphology width/height.)
+ *   "minmax:<key>"  this prop is a soft lower bound of <key> (same kind):
+ *                   editing <key> below this value pulls this value down to
+ *                   it; any other change that leaves this value above <key>
+ *                   pushes <key> up. (Frosted Glass scatter radii.)
+ * fx_effect_validate rejects rule hints whose partner is missing or unfit.
+ * Effects must still render sensibly from params that break the rules
+ * (scripts and presets bypass the dialog). */
+#define FX_RULE_NONE 0xFFFFFFFFu
+
+/* Applies the rules to params after props[changed] was edited
+ * (FX_RULE_NONE: an initial sync, as when a dialog opens). last_link is
+ * optional caller state of n slots, zeroed before first use and kept for
+ * the dialog's lifetime: slot s remembers the member edited last (+1) of
+ * the group whose BOOL is props[s]. Returns how many values changed.
+ * Pure; any thread on the caller's blob. Borrowed arguments. */
+uint32_t fx_props_rules(const fx_prop *props, uint32_t n, void *params, uint32_t changed,
+                        uint32_t *last_link);
+/* fx_props_rules(fx->props, fx->n_props, params, FX_RULE_NONE, NULL). */
+uint32_t fx_params_apply_rules(const fx_effect *fx, void *params);
+/* Index of the BOOL that links props[i], or FX_RULE_NONE. */
+uint32_t fx_prop_link_source(const fx_prop *props, uint32_t n, uint32_t i);
+/* Index of the prop props[i] is the soft minimum of, or FX_RULE_NONE. */
+uint32_t fx_prop_minmax_partner(const fx_prop *props, uint32_t n, uint32_t i);
+
 /* ==== presets =============================================================== */
 /* Text form "key=value;key=value" (UTF-8, ASCII in practice):
  *   INT, CHOICE (index), SEED: integer      BOOL: 0 or 1
@@ -193,7 +226,8 @@ typedef enum fx_job_state_t {
  *    fx_job_destroy. Both must cover the area rendered; chans must be 4
  *    (1 for FX_FLAG_MASK_ONLY) and stride >= w * chans.
  *  - env: copied. The rendered area is region clipped to env->sel, src->r
- *    and dst->r; ROIs are the cells of a tile x tile grid anchored at the
+ *    and dst->r (not to env->sel for FX_FLAG_NO_SEL_CLIP effects, which
+ *    draw outside the selection); ROIs are the cells of a tile x tile grid anchored at the
  *    document origin, clipped to that area (tile <= 0: 64). The grid is
  *    coarsened when it would exceed FX_JOB_MAX_ROIS cells.
  *    FX_FLAG_SINGLE_THREAD effects get one ROI covering the whole area.

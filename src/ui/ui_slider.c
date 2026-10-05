@@ -21,9 +21,40 @@ static double round_dec(double v, int decimals)
     return floor(v * k + 0.5) / k;
 }
 
+/* W3B-FXCORE (O-UI-NONLIN): UI_SLIDER_EXP is the quadratic mapping that
+ * matches the thumb positions measured on Paint.NET's radius-like sliders:
+ * value = min + (max - min) * t^2 for ranges starting at or above zero
+ * (Gaussian Radius 2 of 300 at 8.2 % of the track, Bokeh 25 at 29 %,
+ * Turbulence Period 100 of 0.1..1024 at 31 %). A range that spans zero
+ * keeps zero where a linear slider has it and maps each side
+ * quadratically away from zero (Polar Inversion Scale 1 of -8..8 at 68 %,
+ * Gamma Boost 1.23 of -0.99..2 at 86 %); an all-negative range mirrors the
+ * first case about max. */
+static double exp_to_t(double v, double min, double max)
+{
+    double span = max - min, t0;
+    if (min >= 0.0) return sqrt(ui_clampd((v - min) / span, 0.0, 1.0));
+    if (max <= 0.0) return 1.0 - sqrt(ui_clampd((max - v) / span, 0.0, 1.0));
+    t0 = -min / span;
+    if (v >= 0.0) return t0 + (1.0 - t0) * sqrt(ui_clampd(v / max, 0.0, 1.0));
+    return t0 - t0 * sqrt(ui_clampd(v / min, 0.0, 1.0));
+}
+
+static double exp_from_t(double t, double min, double max)
+{
+    double span = max - min, t0, u;
+    if (min >= 0.0) return min + span * t * t;
+    if (max <= 0.0) { u = 1.0 - t; return max - span * u * u; }
+    t0 = -min / span;
+    if (t >= t0) { u = (t - t0) / (1.0 - t0); return max * u * u; }
+    u = (t0 - t) / t0;
+    return min * u * u;
+}
+
 static double to_t(double v, double min, double max, uint32_t flags)
 {
     if (max <= min) return 0.0;
+    if (flags & UI_SLIDER_EXP) return exp_to_t(v, min, max);
     if ((flags & UI_SLIDER_LOG) && min > 0.0) return log(v / min) / log(max / min);
     return (v - min) / (max - min);
 }
@@ -31,6 +62,7 @@ static double to_t(double v, double min, double max, uint32_t flags)
 static double from_t(double t, double min, double max, uint32_t flags)
 {
     t = ui_clampd(t, 0.0, 1.0);
+    if ((flags & UI_SLIDER_EXP) && max > min) return exp_from_t(t, min, max);
     if ((flags & UI_SLIDER_LOG) && min > 0.0) return min * pow(max / min, t);
     return min + (max - min) * t;
 }

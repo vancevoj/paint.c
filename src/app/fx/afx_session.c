@@ -950,7 +950,10 @@ static afx_session *session_start(app *a, const fx_effect *fx, bool dialog, cons
     s->params = fx_params_new(fx, &s->env);
     memo = params ? params : afx_memo_get(a, fx);
     if (s->params && memo && fx->params_size) memcpy(s->params, memo, fx->params_size);
-    if (s->params) (void)fx_params_clamp(fx, s->params);
+    if (s->params) {
+        (void)fx_params_clamp(fx, s->params);
+        (void)fx_params_apply_rules(fx, s->params);    /* W3B-FXCORE: initial sync */
+    }
     L->want_hist = has_custom(fx, "levels");
     snap = s->params ? snapshot(d, l, &snap_layer) : NULL;
     if (!snap) {
