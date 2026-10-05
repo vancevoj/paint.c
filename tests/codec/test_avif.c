@@ -150,6 +150,29 @@ static void t_lossless(void)
     free(a);
     free(b);
     pc_doc_destroy(d);
+    /* gray with alpha (odd size): 4:0:0 plus an alpha plane, exact */
+    {
+        pc_px32 *g = tu_noise(31, 19, 1);
+        for (size_t i = 0; i < 31u * 19u; i++) g[i].g = g[i].b = g[i].r;
+        d = tu_doc_from_px(31, 19, g);
+        if (save_doc(d, NULL, &p, &out)) {
+            avifImage *im = raw_decode(out.p, out.n);
+            CHECK(im && im->yuvFormat == AVIF_PIXEL_FORMAT_YUV400 && im->alphaPlane != NULL);
+            if (im) avifImageDestroy(im);
+            r = load_ok(out.p, out.n, &m);
+            if (r) {
+                pc_px32 *px = doc_px(r);
+                CHECK(tu_diff(px, g, 31u * 19u) == 0);
+                CHECK(m.had_alpha);
+                free(px);
+                pc_doc_destroy(r);
+                pc_meta_free(&m);
+            }
+            pc_buf_free(&out);
+        }
+        free(g);
+        pc_doc_destroy(d);
+    }
     /* gray and opaque: 4:0:0, no alpha plane, still exact */
     {
         pc_px32 *g = tu_noise(33, 17, 0);
@@ -884,6 +907,95 @@ static void t_high_bit_depth(void)
     }
 }
 
+/* The real flow of "Preserve existing tile size": a grid file is opened,
+ * its layout travels in the image metadata and is reused by a later save
+ * with a preset that would not split the image by itself. */
+static void t_grid_round_trip(void)
+{
+    pc_px32 *a = tu_photo(1024, 512, false);
+    pc_doc *d = tu_doc_from_px(1024, 512, a), *r;
+    avif_params_t p = defaults();
+    pc_image_meta m, m2;
+    pc_buf out, out2;
+    p.quality = 30;
+    if (!save_doc(d, NULL, &p, &out)) goto done;
+    r = load_ok(out.p, out.n, &m);
+    if (r) {
+        CHECK(pc_meta_get(&m, "avif.grid") && strcmp(pc_meta_get(&m, "avif.grid"),
+                                                     "2,1,512,512") == 0);
+        p.preset = 1;                                     /* Medium alone: no grid */
+        if (save_doc(r, &m, &p, &out2)) {
+            pc_doc *r2 = load_ok(out2.p, out2.n, &m2);
+            if (r2) {
+                CHECK(pc_meta_get(&m2, "avif.grid") &&
+                      strcmp(pc_meta_get(&m2, "avif.grid"), "2,1,512,512") == 0);
+                pc_doc_destroy(r2);
+                pc_meta_free(&m2);
+            }
+            pc_buf_free(&out2);
+        }
+        pc_doc_destroy(r);
+        pc_meta_free(&m);
+    }
+    pc_buf_free(&out);
+done:
+    free(a);
+    pc_doc_destroy(d);
+}
+
+/* Mutations limited to the container header (everything before 'mdat')
+ * of a 2 x 2 grid file: most of them still decode, so the grid layout
+ * walker sees many malformed 'meta' boxes. */
+static void t_fuzz_meta_box(void)
+{
+    pc_px32 *a = tu_photo(128, 128, true);
+    pc_doc *d = tu_doc_from_px(128, 128, a);
+    avif_params_t p = defaults();
+    pc_image_meta keep;
+    pc_buf out;
+    memset(&keep, 0, sizeof keep);
+    pc_meta_add(&keep, "avif.grid", "2,2,64,64");
+    p.quality = 20;
+    if (save_doc(d, &keep, &p, &out)) {
+        size_t hdr = 0;
+        uint32_t iters = g_quick ? 400u : 4000u, ok = 0, grids = 0;
+        for (size_t i = 0; i + 8 <= out.n; i++)
+            if (memcmp(out.p + i + 4, "mdat", 4) == 0) { hdr = i; break; }
+        CHECK(hdr > 32u);
+        for (uint32_t it = 0; it < iters && hdr; it++) {
+            uint8_t *buf = (uint8_t *)malloc(out.n);
+            pc_codec_limits lim;
+            pc_doc *r = NULL;
+            pc_image_meta m;
+            int k = 1 + (int)rndu(3);
+            memcpy(buf, out.p, out.n);
+            for (int j = 0; j < k; j++) {
+                size_t pos = rndu((uint32_t)hdr);
+                buf[pos] = rndu(2) ? rnd8() : (uint8_t)(buf[pos] ^ (1u << rndu(8)));
+            }
+            pc_codec_limits_default(&lim);
+            lim.max_pixels = (uint64_t)1 << 22;
+            lim.max_mem = (uint64_t)64 << 20;
+            if (av()->load(buf, out.n, &lim, &r, &m) == PC_OK) {
+                ok++;
+                CHECK(r && r->w >= 1u && r->h >= 1u && pc_doc_edge_padding_is_zero(r));
+                if (pc_meta_get(&m, "avif.grid")) grids++;
+                pc_doc_destroy(r);
+                pc_meta_free(&m);
+            } else {
+                CHECK(r == NULL);
+            }
+            free(buf);
+        }
+        INFO("header fuzz: %u of %u decoded, %u with a grid layout", ok, iters, grids);
+        CHECK(ok > 0u);
+        pc_buf_free(&out);
+    }
+    pc_meta_free(&keep);
+    free(a);
+    pc_doc_destroy(d);
+}
+
 static void t_limits_fuzz(void)
 {
     pc_px32 *a = tu_photo(64, 64, true);
@@ -971,6 +1083,8 @@ int main(int argc, char **argv)
     RUN(t_metadata);
     RUN(t_color);
     RUN(t_high_bit_depth);
+    RUN(t_grid_round_trip);
+    RUN(t_fuzz_meta_box);
     RUN(t_limits_fuzz);
 #endif
     return pc_test_finish();

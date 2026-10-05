@@ -9,6 +9,8 @@
  *    checked before any frame is decoded, and every allocation libjxl
  *    makes goes through a counting memory manager capped at
  *    pc_codec_limits.max_mem (P-08).
+ *  - Decoded scanline pieces go straight into the layer (image-out
+ *    callback), so no full-size pixel buffer exists.
  *  - The first displayed frame is decoded (animations: coalesced frame 0,
  *    meta.note says so); layers are composited by libjxl (coalescing).
  *  - The codestream orientation is applied by libjxl; premultiplied alpha
@@ -253,7 +255,7 @@ typedef struct jxl_dec_state {
     bool         hdr;
     axj_hdr_tf   tf;
     axj_hdr_prim prim;
-    uint32_t     nch;          /* channels in the output buffer: 2 (gray + alpha) or 4 */
+    uint32_t     nch;          /* channels delivered: 2 (gray + alpha) or 4 */
     bool         u16;          /* 16-bit samples (HDR path) */
 } jxl_dec_state;
 
@@ -328,25 +330,25 @@ static pc_status jxl_color(JxlDecoder *dec, jxl_dec_state *s, pc_image_meta *met
     return PC_OK;
 }
 
-/* Output buffer rows [y0, y0 + n) as BGRA. */
-static void jxl_rows_to_bgra(const jxl_dec_state *s, const uint8_t *buf, uint32_t y0,
-                             uint32_t n, pc_px32 *dst, uint16_t *tmp16)
+/* n decoded pixels (format of s: s->nch channels, 8 or 16 bit) to BGRA.
+ * tmp16 holds n RGBA16 pixels on the 16-bit path. */
+static void jxl_px_to_bgra(const jxl_dec_state *s, const void *src, size_t n, pc_px32 *dst,
+                           uint16_t *tmp16)
 {
-    size_t k = (size_t)s->w * n;
     if (s->u16) {
-        const uint16_t *src = (const uint16_t *)(const void *)buf + (size_t)y0 * s->w * s->nch;
+        const uint16_t *p = (const uint16_t *)src;
         if (s->nch == 4u) {
-            memcpy(tmp16, src, k * 8u);
+            memcpy(tmp16, p, n * 8u);
         } else {
-            for (size_t i = 0; i < k; i++) {
-                tmp16[i * 4] = tmp16[i * 4 + 1] = tmp16[i * 4 + 2] = src[i * 2];
-                tmp16[i * 4 + 3] = src[i * 2 + 1];
+            for (size_t i = 0; i < n; i++) {
+                tmp16[i * 4] = tmp16[i * 4 + 1] = tmp16[i * 4 + 2] = p[i * 2];
+                tmp16[i * 4 + 3] = p[i * 2 + 1];
             }
         }
         if (s->hdr) {
-            axj_hdr_to_srgb8(tmp16, dst, k, s->tf, s->prim, 0.0);
+            axj_hdr_to_srgb8(tmp16, dst, n, s->tf, s->prim, 0.0);
         } else {
-            for (size_t i = 0; i < k; i++) {
+            for (size_t i = 0; i < n; i++) {
                 dst[i].r = lc_u16_to_u8(tmp16[i * 4]);
                 dst[i].g = lc_u16_to_u8(tmp16[i * 4 + 1]);
                 dst[i].b = lc_u16_to_u8(tmp16[i * 4 + 2]);
@@ -355,17 +357,40 @@ static void jxl_rows_to_bgra(const jxl_dec_state *s, const uint8_t *buf, uint32_
         }
         return;
     }
-    {
-        const uint8_t *src = buf + (size_t)y0 * s->w * s->nch;
-        if (s->nch == 4u) {
-            lc_rgba_to_bgra(dst, src, k);
-        } else {
-            for (size_t i = 0; i < k; i++) {
-                dst[i].r = dst[i].g = dst[i].b = src[i * 2];
-                dst[i].a = src[i * 2 + 1];
-            }
+    if (s->nch == 4u) {
+        lc_rgba_to_bgra(dst, (const uint8_t *)src, n);
+    } else {
+        const uint8_t *p = (const uint8_t *)src;
+        for (size_t i = 0; i < n; i++) {
+            dst[i].r = dst[i].g = dst[i].b = p[i * 2];
+            dst[i].a = p[i * 2 + 1];
         }
     }
+}
+
+/* Receiver of the decoded scanline pieces, which go straight into the
+ * layer (no full-size output buffer). libjxl calls it on the decoding
+ * thread only (no parallel runner is set). */
+typedef struct jxl_sink {
+    const jxl_dec_state *s;
+    pc_doc   *d;
+    pc_layer *l;
+    pc_px32  *row;              /* s->w pixels */
+    uint16_t *tmp16;            /* s->w RGBA16 pixels, 16-bit path only */
+    pc_status st;
+} jxl_sink;
+
+static void jxl_on_pixels(void *opaque, size_t x, size_t y, size_t n, const void *pixels)
+{
+    jxl_sink *k = (jxl_sink *)opaque;
+    if (k->st != PC_OK) return;
+    if (x >= k->s->w || y >= k->s->h || n == 0u || n > (size_t)k->s->w - x) {
+        k->st = PC_ERR_FORMAT;
+        return;
+    }
+    jxl_px_to_bgra(k->s, pixels, n, k->row, k->tmp16);
+    k->st = pc_layer_store_rect(k->d, k->l, pc_rect_make((int32_t)x, (int32_t)y, (int32_t)n, 1),
+                                k->row, n);
 }
 
 static pc_status dec_fail(const jxl_mm *mm)
@@ -383,18 +408,15 @@ static pc_status jxl_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
     JxlDecoder *dec = NULL;
     jxl_mm mm;
     jxl_dec_state s;
-    pc_doc *d = NULL;
-    pc_layer *layer = NULL;
-    uint8_t *buf = NULL;
-    pc_px32 *band = NULL;
-    uint16_t *tmp16 = NULL;
-    size_t buf_size = 0;
+    jxl_sink sink;
     bool done = false;
     pc_status st = PC_OK;
     if (out) *out = NULL;
     if (!p || !out || !meta) return PC_ERR_ARG;
     memset(meta, 0, sizeof *meta);
     memset(&s, 0, sizeof s);
+    memset(&sink, 0, sizeof sink);
+    sink.s = &s;
     if (!lim) { pc_codec_limits_default(&dl); lim = &dl; }
     if (!jxl_sniff(p, n)) return PC_ERR_FORMAT;
     memset(&mm, 0, sizeof mm);
@@ -431,8 +453,8 @@ static pc_status jxl_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
             s.h = s.info.orientation > 4 ? s.info.xsize : s.info.ysize;
             st = pc_codec_check_size(lim, s.w, s.h, 1u);
             if (st != PC_OK) break;
-            /* output buffer (up to 16-bit RGBA) plus the document */
-            need = (uint64_t)s.w * s.h * 12u;
+            /* the document (decoded pixels stream into it) */
+            need = (uint64_t)s.w * s.h * 4u;
             if (need > lim->max_mem) { st = PC_ERR_LIMIT; break; }
             meta->src_bits = s.info.bits_per_sample;
             meta->had_alpha = s.info.alpha_bits > 0u;
@@ -445,31 +467,27 @@ static pc_status jxl_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
             break;
         case JXL_DEC_NEED_IMAGE_OUT_BUFFER: {
             JxlPixelFormat pf;
-            size_t want;
-            if (buf) { st = PC_ERR_FORMAT; break; }        /* one frame only */
+            if (sink.d) { st = PC_ERR_FORMAT; break; }     /* one frame only */
             s.nch = s.info.num_color_channels == 1u ? 2u : 4u;
             pf.num_channels = s.nch;
             pf.data_type = s.u16 ? JXL_TYPE_UINT16 : JXL_TYPE_UINT8;
             pf.endianness = JXL_NATIVE_ENDIAN;
             pf.align = 0;
-            if (JxlDecoderImageOutBufferSize(dec, &pf, &buf_size) != JXL_DEC_SUCCESS) {
-                st = PC_ERR_FORMAT;
-                break;
-            }
-            want = (size_t)s.w * s.h * s.nch * (s.u16 ? 2u : 1u);
-            if (buf_size != want) { st = PC_ERR_FORMAT; break; }
-            buf = (uint8_t *)lc_alloc(buf_size, 1u, lim, &st);
-            if (!buf) break;
-            if (JxlDecoderSetImageOutBuffer(dec, &pf, buf, buf_size) != JXL_DEC_SUCCESS)
+            st = lc_doc_new(lim, s.w, s.h, 1u, &sink.d, &sink.l);
+            if (st != PC_OK) break;
+            sink.row = (pc_px32 *)lc_alloc(s.w, sizeof(pc_px32), lim, &st);
+            if (sink.row && s.u16) sink.tmp16 = (uint16_t *)lc_alloc(s.w, 8u, lim, &st);
+            if (st == PC_OK &&
+                JxlDecoderSetImageOutCallback(dec, &pf, jxl_on_pixels, &sink) != JXL_DEC_SUCCESS)
                 st = PC_ERR_FORMAT;
             break;
         }
         case JXL_DEC_FULL_IMAGE:
-            done = buf != NULL;
+            done = sink.d != NULL;
             if (!done) st = PC_ERR_FORMAT;
             break;
         case JXL_DEC_SUCCESS:
-            if (!buf) st = PC_ERR_FORMAT;
+            if (!sink.d) st = PC_ERR_FORMAT;
             done = true;
             break;
         case JXL_DEC_NEED_MORE_INPUT:         /* truncated (input is closed) */
@@ -482,32 +500,18 @@ static pc_status jxl_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
             break;
         }
     }
+    if (st == PC_OK) st = sink.st;
     if (st != PC_OK) goto fail;
     JxlDecoderDestroy(dec);
-    dec = NULL;
-    st = lc_doc_new(lim, s.w, s.h, 1u, &d, &layer);
-    if (st != PC_OK) goto fail;
-    band = (pc_px32 *)lc_alloc((size_t)s.w * (size_t)LC_BAND, sizeof *band, lim, &st);
-    if (band && s.u16)
-        tmp16 = (uint16_t *)lc_alloc((size_t)s.w * (size_t)LC_BAND * 4u, 2u, lim, &st);
-    for (uint32_t y0 = 0; y0 < s.h && st == PC_OK; y0 += (uint32_t)LC_BAND) {
-        uint32_t nb = s.h - y0 < (uint32_t)LC_BAND ? s.h - y0 : (uint32_t)LC_BAND;
-        jxl_rows_to_bgra(&s, buf, y0, nb, band, tmp16);
-        st = pc_layer_store_rect(d, layer, pc_rect_make(0, (int32_t)y0, (int32_t)s.w,
-                                                        (int32_t)nb), band, s.w);
-    }
-    if (st != PC_OK) goto fail;
-    free(band);
-    free(tmp16);
-    free(buf);
-    *out = d;
+    free(sink.row);
+    free(sink.tmp16);
+    *out = sink.d;
     return PC_OK;
 fail:
     if (dec) JxlDecoderDestroy(dec);
-    free(band);
-    free(tmp16);
-    free(buf);
-    pc_doc_destroy(d);
+    free(sink.row);
+    free(sink.tmp16);
+    pc_doc_destroy(sink.d);
     pc_meta_free(meta);
     return st;
 }

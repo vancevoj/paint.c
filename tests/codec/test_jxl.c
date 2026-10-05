@@ -634,6 +634,61 @@ static void t_high_bit_depth(void)
     free(px16);
 }
 
+/* JPEG files recompressed losslessly into JPEG XL (JxlEncoderAddJPEGFrame,
+ * the most common kind of JPEG XL in the wild) decode to the JPEG's pixels
+ * (within the differences of two IDCT implementations). */
+static void t_jpeg_recompression(void)
+{
+    const pc_codec *jp = pc_codec_by_id("jpeg");
+    pc_px32 *a = tu_photo(96, 64, false);
+    pc_doc *d = tu_doc_from_px(96, 64, a), *ref = NULL;
+    pc_buf jpg;
+    pc_image_meta m;
+    memset(&jpg, 0, sizeof jpg);
+    if (!jp || jp->save(d, NULL, NULL, NULL, &jpg) != PC_OK ||
+        jp->load(jpg.p, jpg.n, NULL, &ref, &m) != PC_OK) {
+        CHECK(0);
+        goto done;
+    }
+    pc_meta_free(&m);
+    {
+        JxlEncoder *enc = JxlEncoderCreate(NULL);
+        JxlEncoderFrameSettings *fs;
+        size_t cap = jpg.n * 2u + 4096u, used = 0;
+        uint8_t *buf = (uint8_t *)malloc(cap), *next = buf;
+        size_t avail = cap;
+        bool ok = JxlEncoderUseContainer(enc, JXL_TRUE) == JXL_ENC_SUCCESS &&
+                  JxlEncoderStoreJPEGMetadata(enc, JXL_TRUE) == JXL_ENC_SUCCESS;
+        fs = JxlEncoderFrameSettingsCreate(enc, NULL);
+        ok = ok && JxlEncoderAddJPEGFrame(fs, jpg.p, jpg.n) == JXL_ENC_SUCCESS;
+        JxlEncoderCloseInput(enc);
+        ok = ok && JxlEncoderProcessOutput(enc, &next, &avail) == JXL_ENC_SUCCESS;
+        used = (size_t)(next - buf);
+        JxlEncoderDestroy(enc);
+        CHECK(ok);
+        if (ok) {
+            pc_doc *r = load_ok(buf, used, &m);
+            INFO("JPEG %zu bytes, recompressed JPEG XL %zu bytes", jpg.n, used);
+            if (r) {
+                pc_px32 *q = doc_px(r), *rq = doc_px(ref);
+                double ps = tu_psnr(q, rq, 96u * 64u);
+                INFO("PSNR against the JPEG decode: %.1f dB", ps);
+                CHECK(r->w == 96u && r->h == 64u && ps > 40.0);
+                free(q);
+                free(rq);
+                pc_doc_destroy(r);
+                pc_meta_free(&m);
+            }
+        }
+        free(buf);
+    }
+done:
+    pc_doc_destroy(ref);
+    pc_buf_free(&jpg);
+    free(a);
+    pc_doc_destroy(d);
+}
+
 static void t_limits_fuzz(void)
 {
     pc_px32 *a = tu_photo(64, 48, true);
@@ -732,6 +787,7 @@ int main(int argc, char **argv)
     RUN(t_orientation);
     RUN(t_animation_boxes);
     RUN(t_high_bit_depth);
+    RUN(t_jpeg_recompression);
     RUN(t_limits_fuzz);
 #endif
     return pc_test_finish();

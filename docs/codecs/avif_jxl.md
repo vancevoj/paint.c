@@ -133,13 +133,15 @@ Save options (Save Configuration, FS-CONFIG):
 Load:
 - Only BASIC_INFO, COLOR_ENCODING and FULL_IMAGE events are subscribed;
   the canvas size (after orientation) is checked before any frame is
-  decoded, the output buffer and the document against max_mem, and every
+  decoded, the document against max_mem, and every
   allocation of libjxl itself goes through a counting JxlMemoryManager with
   max_mem as its budget (PC_ERR_LIMIT when it refuses; libjxl before 0.9
   allocates most working memory outside the manager).
 - Container files are scanned first with box events only (libjxl skips the
   codestream without decoding it) for the first Exif and XMP boxes,
   Brotli-compressed 'brob' boxes included (16 MiB cap each).
+- Decoded scanline pieces go straight into the layer through libjxl's
+  image-out callback (no full-size output buffer).
 - The first displayed frame is decoded (coalesced: layers are merged, as in
   Paint.NET); animations get the note "Animated JPEG XL: only the first
   frame was loaded". The codestream orientation is applied by libjxl,
@@ -201,3 +203,12 @@ budgets, PC_ERR_NOMEM, PC_ERR_UNSUPPORTED for features the library lacks
   combo box overlaps the preview column by a few pixels (same as the JPEG
   dialog). Fix belongs in src/app/propdlg.c (clamp the width to the row).
 - HDR tone mapping is paint.c's own (see above).
+- JPEG XL CMYK images (a black extra channel with a CMYK profile) are not
+  converted to RGB: the CMY channels are delivered as color with the
+  profile kept (rare in practice; FL-CMYK covers JPEG and TIFF).
+- The app's save paths (src/app/fileio.c, Save and the Save Configuration
+  preview) pass pc_par NULL, so libaom runs one thread and libjxl runs
+  serially there. Measured on a 4000 x 3000 image: AVIF Fast 0.7 s,
+  Medium 12 s, Slow 96 s, JPEG XL effort 7 4.1 s. Passing the app's pool
+  would let both codecs use it (libaom about 1.6 times faster with 6
+  threads at Medium).
