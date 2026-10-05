@@ -588,7 +588,7 @@ void sel_marquee_options(app *a, sel_marquee *m)
         static const char *const units[3] = { "Pixels", "Inches", "Centimeters" };
         int v = m->draw_mode;
         bool ch = false;
-        (void)app_opt_next(a, 104.0f);
+        (void)app_opt_next(a, app_opt_combo_dip(a, modes, 3, 104.0f));    /* lane UIA */
         if (ui_combo(ui, "##rectsel_mode", &v, modes, 3)) {
             m->draw_mode = v;
             ch = true;
@@ -602,7 +602,7 @@ void sel_marquee_options(app *a, sel_marquee *m)
             int dec = m->size_units == APP_UNITS_PX ? 0 : 2;
             ch |= num_field(a, "Width:", "##rectsel_sw", &m->size_w, 0.01, 65535.0, dec);
             ch |= num_field(a, "Height:", "##rectsel_sh", &m->size_h, 0.01, 65535.0, dec);
-            (void)app_opt_next(a, 104.0f);
+            (void)app_opt_next(a, app_opt_combo_dip(a, units, 3, 104.0f));   /* lane UIA */
             if (ui_combo(ui, "##rectsel_units", &u, units, 3) && u != m->size_units) {
                 m->size_units = u;
                 ch = true;

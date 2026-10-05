@@ -191,6 +191,11 @@ void        ui_push_id(ui_ctx *ctx, const char *s);
 void        ui_push_id_int(ui_ctx *ctx, int64_t n);
 void        ui_push_id_ptr(ui_ctx *ctx, const void *p);
 void        ui_pop_id(ui_ctx *ctx);
+/* Lane UIA (wave 4): the current id scope (what ids are hashed with), and
+ * a push that restores a scope taken earlier (pop it with ui_pop_id), so
+ * code inside another widget's scope can declare ids as if outside it. */
+ui_id       ui_id_scope(const ui_ctx *ctx);
+void        ui_push_id_scope(ui_ctx *ctx, ui_id scope);
 /* End of the displayed part of a label (the "##" or the terminator). */
 const char *ui_label_end(const char *label);
 

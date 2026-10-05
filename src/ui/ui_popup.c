@@ -11,7 +11,7 @@
 
 #define POPUP_SALT 0x9E3779B9u
 #define SUBMENU_DELAY_MS 250u
-#define COMBO_MAX_ROWS 12
+#define COMBO_MAX_ROWS 16       /* lane UIA (wave 4): was 12; the 15 blend modes fit */
 #define LABEL_BUF 256
 
 /* ---- access keys (lane KEYS) ------------------------------------------------
@@ -1022,7 +1022,11 @@ bool ui_combo(ui_ctx *ctx, const char *id_str, int *index, const char *const *it
             /* rows need their lead, right padding and the scroll bar (lane KEYS:
              * long names were cut off) */
             int32_t rw = wmax + ctx->px.icon + ui_px(ctx, 28.0f) + ctx->px.scrollbar;
-            ui_rect sr = ui_layout_next(ctx, rw, ctx->px.menu_item_h * COMBO_MAX_ROWS);
+            ui_rect sr;
+            /* lane UIA (wave 4): the popup is as wide as the rows need (the
+             * rows alone gave no room for the scroll bar: "Color Do...") */
+            if (p && rw > p->pref_w) p->pref_w = rw;
+            sr = ui_layout_next(ctx, rw, ctx->px.menu_item_h * COMBO_MAX_ROWS);
             ui_scroll_begin(ctx, "##rows", sr, UI_SCROLL_NO_BG);
         }
         for (int i = 0; i < n; i++) {

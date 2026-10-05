@@ -290,6 +290,10 @@ void               app_set_cursor(app *a, app_cursor c);
 ui_rect app_opt_next(app *a, float w_dip);
 void    app_opt_separator(app *a);
 void    app_opt_label(app *a, const char *text);
+/* Lane UIA (wave 4): the width in DIPs a ui_combo needs to show the
+ * longest of its n items without an ellipsis (at least min_dip). Main
+ * thread, during the options bar. */
+float   app_opt_combo_dip(app *a, const char *const *items, int n, float min_dip);
 /* Shared option widgets bound to app_tool_settings. */
 void    app_opt_width(app *a);
 void    app_opt_antialias(app *a);

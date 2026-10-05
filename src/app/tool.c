@@ -48,6 +48,9 @@ enum { OPT_BAR = 0, OPT_POPUP = 1, OPT_SINK = 2 };
 typedef struct opt_slot {
     int32_t x, w;               /* x relative to the start of the tool's options (px) */
     int32_t group;
+    int32_t unit;               /* lane UIA: the option this slot belongs to */
+    ui_id   key;                /* id scope the slot was declared in */
+    bool    label;              /* app_opt_label: joins the next slot */
 } opt_slot;
 
 typedef struct opt_layout {
@@ -65,14 +68,16 @@ typedef struct tool_fw {
     opt_layout prev, cur;
     bool       declaring;       /* inside the tool's options() */
     int32_t    mode;            /* OPT_BAR, OPT_POPUP, OPT_SINK */
-    int32_t    plan_group;      /* first overflowed group of this frame, -1 none */
+    int32_t    plan_slot;       /* lane UIA: first overflowed slot of this frame, -1 none */
     int32_t    content_x;       /* window x where the tool's options start */
     int32_t    row_h;
     int32_t    pop_w, pop_h;    /* popup content size (px) */
     int32_t    nrows;
-    int32_t    grow[OPT_MAX_SLOTS];   /* popup row of each planned group */
-    int32_t    gx0;             /* x of the first slot of the current group */
-    int32_t    gcur;            /* group of gx0 */
+    int32_t    px[OPT_MAX_SLOTS];     /* lane UIA: popup x of each planned slot */
+    int32_t    prow[OPT_MAX_SLOTS];   /* lane UIA: popup row of each planned slot */
+    ui_id      base_key;        /* lane UIA: unit key of the options() scope */
+    ui_id      base_scope;      /* lane UIA: id scope of the options bar */
+    bool       label_next;      /* lane UIA: the next slot is a label's */
     ui_rect    pop;             /* popup content block of this frame */
     bool       ovf_open_prev;   /* the overflow popup was open last frame */
     bool       tool_open_prev;
@@ -103,7 +108,7 @@ static tool_fw *fw_make(app *a)
         free(f);
         return NULL;
     }
-    f->plan_group = -1;
+    f->plan_slot = -1;
     f->last_first = -1;
     f->nudge_speed = 1;
     return f;
@@ -538,12 +543,14 @@ static int32_t gap_px(const app *a) { return ui_px(a->ui, SLOT_GAP_DIP); }
 
 /* Enter the overflow part of the bar: the popup when it is open, else a
  * sink far off screen where the widgets are declared but never seen or
- * reached. Called between widgets (at a separator or before the first
- * one), never inside one. */
+ * reached. Called before a slot (lane UIA: possibly inside the id scope
+ * of a widget with several slots, so the popup is declared in the scope
+ * of the options bar itself; leave_overflow pops that scope). */
 static void enter_overflow(app *a, tool_fw *f)
 {
     ui_ctx *ui = a->ui;
     if (f->mode != OPT_BAR) return;
+    ui_push_id_scope(ui, f->base_scope);
     if (ui_popup_begin(ui, OVF_POPUP)) {
         float s = ui_scale(ui) > 0.0f ? ui_scale(ui) : 1.0f;
         ui_size cell = ui_size_px((float)f->pop_w / s + 1.0f);
@@ -553,25 +560,35 @@ static void enter_overflow(app *a, tool_fw *f)
         f->pop = ui_layout_next(ui, f->pop_w, f->pop_h);
         ui_layout_column(ui);
     } else {
+        ui_pop_id(ui);
         f->mode = OPT_SINK;
     }
 }
 
 static void leave_overflow(app *a, tool_fw *f)
 {
-    if (f->mode == OPT_POPUP) ui_popup_end(a->ui);
+    if (f->mode == OPT_POPUP) {
+        ui_popup_end(a->ui);
+        ui_pop_id(a->ui);                       /* lane UIA: enter_overflow's scope */
+    }
     f->mode = OPT_BAR;
 }
 
-/* Plan this frame from the previous frame's layout of the same tool: the
- * first group that does not fit before the chevron and everything after
- * it overflow, one group per popup row. */
+/* Lane UIA (wave 4): the overflow moves single options, not whole
+ * groups. An option ("unit") is a label with the slot after it, or the
+ * slots one widget declares inside its own id scope (Brush size: label,
+ * -, box, +), or a lone slot; separators end units. Plan this frame from
+ * the previous frame's layout of the same tool: the first unit that does
+ * not fit before the chevron and every unit after it overflow. In the
+ * popup each group starts a row and a row wraps before a unit that would
+ * pass the popup's width (the window less its margins). */
 static void opt_plan(app *a, tool_fw *f, const app_tool *t, ui_rect bar)
 {
     ui_ctx *ui = a->ui;
     const opt_layout *p = &f->prev;
     int32_t right = bar.x + bar.w - ui_px(ui, BAR_PAD_DIP), limit, gap = gap_px(a);
-    f->plan_group = -1;
+    int32_t maxw, row = -1, rx = 0, grp = -1;
+    f->plan_slot = -1;
     f->nrows = 0;
     f->pop_w = f->pop_h = 0;
     f->row_h = ui_px(ui, ui_get_theme(ui)->m.control_h);
@@ -579,35 +596,71 @@ static void opt_plan(app *a, tool_fw *f, const app_tool *t, ui_rect bar)
     if (f->content_x + p->total <= right) return;
     limit = right - ui_px(ui, OVF_DIP) - gap;
     for (int32_t i = 0; i < p->n; i++) {
-        if (f->content_x + p->s[i].x + p->s[i].w > limit) {
-            f->plan_group = p->s[i].group;
+        int32_t k = i, end;
+        if (i > 0 && p->s[i].unit == p->s[i - 1].unit) continue;   /* not a unit start */
+        while (k + 1 < p->n && p->s[k + 1].unit == p->s[i].unit) k++;
+        end = p->s[k].x + p->s[k].w;
+        if (f->content_x + end > limit) {
+            f->plan_slot = i;
             break;
         }
     }
-    if (f->plan_group < 0) return;
-    /* rows: one per non-empty overflowed group */
-    for (int32_t g = 0; g < OPT_MAX_SLOTS; g++) f->grow[g] = -1;
-    for (int32_t i = 0; i < p->n; i++) {
-        int32_t g = p->s[i].group, gx = p->s[i].x, w;
-        if (g < f->plan_group || g >= OPT_MAX_SLOTS) continue;
-        if (f->grow[g] < 0) f->grow[g] = f->nrows++;
-        /* width of the group up to this slot */
-        for (int32_t k = i; k >= 0 && p->s[k].group == g; k--) gx = p->s[k].x;
-        w = p->s[i].x + p->s[i].w - gx;
-        if (w > f->pop_w) f->pop_w = w;
+    if (f->plan_slot < 0) return;
+    /* popup rows: 4 DIPs window margin and 4 DIPs popup padding a side */
+    maxw = a->fi.width - ui_px(ui, 16.0f) - 2;
+    if (maxw < ui_px(ui, 120.0f)) maxw = ui_px(ui, 120.0f);
+    for (int32_t i = f->plan_slot; i < p->n; i++) {
+        bool start = i == f->plan_slot || p->s[i].unit != p->s[i - 1].unit;
+        if (start) {
+            int32_t k = i, uw;
+            while (k + 1 < p->n && p->s[k + 1].unit == p->s[i].unit) k++;
+            uw = p->s[k].x + p->s[k].w - p->s[i].x;
+            if (row < 0 || p->s[i].group != grp || (rx > 0 && rx + uw > maxw)) {
+                row++;
+                rx = 0;
+                grp = p->s[i].group;
+            }
+            /* the slots of the unit keep their spacing */
+            for (int32_t j = i; j <= k; j++) {
+                f->px[j] = rx + (p->s[j].x - p->s[i].x);
+                f->prow[j] = row;
+            }
+            rx += uw;
+            if (rx > f->pop_w) f->pop_w = rx;
+            rx += gap;
+        }
     }
+    f->nrows = row + 1;
     f->pop_h = f->nrows > 0 ? f->nrows * f->row_h + (f->nrows - 1) * gap : 0;
 }
 
-/* Record a slot of the current frame; returns its index or -1. */
-static int32_t slot_add(tool_fw *f, int32_t x, int32_t w)
+/* Record a slot of the current frame; returns its index or -1. Units come
+ * from the id scope (see opt_plan); in the open popup the scope carries
+ * the popup's id, so the units of the last frame (same tool, same slots)
+ * are kept there. */
+static int32_t slot_add(app *a, tool_fw *f, int32_t x, int32_t w)
 {
     int32_t i;
+    ui_id key = ui_get_id(a->ui, "##opt_unit");
+    bool label = f->label_next;
+    f->label_next = false;
     if (f->cur.n >= OPT_MAX_SLOTS) return -1;
     i = f->cur.n++;
     f->cur.s[i].x = x;
     f->cur.s[i].w = w;
     f->cur.s[i].group = f->cur.ngroups - 1;
+    f->cur.s[i].key = key;
+    f->cur.s[i].label = label;
+    if (f->mode == OPT_POPUP && f->prev.tool == f->cur.tool && i < f->prev.n) {
+        f->cur.s[i].unit = f->prev.s[i].unit;
+    } else if (i == 0) {
+        f->cur.s[i].unit = 0;
+    } else {
+        const opt_slot *q = &f->cur.s[i - 1];
+        bool join = q->group == f->cur.s[i].group &&
+                    (q->label || (key != f->base_key && key == q->key));
+        f->cur.s[i].unit = join ? q->unit : q->unit + 1;
+    }
     return i;
 }
 
@@ -618,16 +671,16 @@ ui_rect app_opt_next(app *a, float w_dip)
     int32_t w = ui_px(ui, w_dip), h = ui_px(ui, ui_get_theme(ui)->m.control_h);
     ui_rect r = ui_rect_make((int32_t)a->opt_x, a->opt_bar.y + (a->opt_bar.h - h) / 2, w, h);
     if (f && f->declaring) {
-        int32_t rel = (int32_t)a->opt_x - f->content_x, i = slot_add(f, rel, w);
-        int32_t g = f->cur.ngroups - 1;
-        if (g != f->gcur) {
-            f->gcur = g;
-            f->gx0 = rel;
-        }
+        int32_t rel = (int32_t)a->opt_x - f->content_x, i;
+        /* lane UIA: the first overflowed option starts the popup (or the
+         * off-screen sink while it is closed) */
+        if (f->mode == OPT_BAR && f->plan_slot >= 0 && f->cur.n >= f->plan_slot)
+            enter_overflow(a, f);
+        i = slot_add(a, f, rel, w);
         if (f->mode == OPT_POPUP) {
-            int32_t row = g < OPT_MAX_SLOTS && f->grow[g] >= 0 ? f->grow[g] : f->nrows;
-            r = ui_rect_make(f->pop.x + rel - f->gx0, f->pop.y + row * (f->row_h + gap_px(a)),
-                             w, h);
+            bool planned = i >= 0 && i >= f->plan_slot && i < f->prev.n;
+            int32_t row = planned ? f->prow[i] : f->nrows, x = planned ? f->px[i] : 0;
+            r = ui_rect_make(f->pop.x + x, f->pop.y + row * (f->row_h + gap_px(a)), w, h);
         } else if (f->mode == OPT_SINK) {
             r = ui_rect_make(OPT_SINK_X + rel, OPT_SINK_X, w, h);
         }
@@ -648,12 +701,9 @@ void app_opt_separator(app *a)
     int32_t x = (int32_t)a->opt_x + ui_px(ui, 3.0f), h = a->opt_bar.h - ui_px(ui, 14.0f);
     if (f && f->declaring) {
         if (f->cur.ngroups < OPT_MAX_SLOTS) f->cur.ngroups++;
-        if (f->mode == OPT_BAR && f->plan_group >= 0 && f->cur.ngroups - 1 >= f->plan_group) {
-            enter_overflow(a, f);
-            a->opt_x += (float)ui_px(ui, SEP_DIP);
-            return;
-        }
-        if (f->mode != OPT_BAR) {
+        /* overflowed parts draw no separators (rows stand for groups), nor
+         * does the bar right before the overflow */
+        if (f->mode != OPT_BAR || (f->plan_slot >= 0 && f->cur.n >= f->plan_slot)) {
             a->opt_x += (float)ui_px(ui, SEP_DIP);
             return;
         }
@@ -663,10 +713,27 @@ void app_opt_separator(app *a)
     a->opt_x += (float)ui_px(ui, SEP_DIP);
 }
 
+float app_opt_combo_dip(app *a, const char *const *items, int n, float min_dip)
+{
+    ui_ctx *ui = a->ui;
+    float s = ui_scale(ui) > 0.0f ? ui_scale(ui) : 1.0f, wmax = 0.0f, need;
+    for (int i = 0; i < n; i++) {
+        float w = items[i] ? ui_text_width(ui_font_regular(ui), ui_font_px(ui), items[i],
+                                           strlen(items[i]))
+                           : 0.0f;
+        if (w > wmax) wmax = w;
+    }
+    /* ui_combo: 10 DIPs of padding left and right, a 24 DIP arrow */
+    need = ceilf(wmax / s) + 10.0f + 24.0f + 4.0f;
+    return need > min_dip ? need : min_dip;
+}
+
 void app_opt_label(app *a, const char *text)
 {
     ui_ctx *ui = a->ui;
     float w = ui_text_width(ui_font_regular(ui), ui_font_px(ui), text, strlen(text));
+    tool_fw *f = fw(a);
+    if (f && f->declaring) f->label_next = true;       /* lane UIA: one unit with the next */
     (void)app_opt_next(a, w / ui_scale(ui) + 2.0f);
     ui_label_ex(ui, text, UI_LABEL_DIM);
 }
@@ -724,7 +791,8 @@ void app_opt_blend(app *a)
 {
     ui_ctx *ui = a->ui;
     int v = (int)a->ts.blend;
-    (void)app_opt_next(a, 120.0f);
+    /* lane UIA: wide enough for "Color Dodge" in any font */
+    (void)app_opt_next(a, app_opt_combo_dip(a, k_blend_names, (int)PC_BLEND_COUNT + 1, 120.0f));
     if (ui_combo(ui, "##opt_blend", &v, k_blend_names, (int)PC_BLEND_COUNT + 1)) {
         a->ts.blend = (int32_t)v;
         app_tool_settings_changed(a);
@@ -918,32 +986,34 @@ void app_options_bar(app *a, ui_rect bar)
     f->cur.tool = cur;
     f->cur.scale = ui_scale(ui);
     f->cur.ngroups = 1;
-    f->gcur = -1;
-    f->gx0 = 0;
     f->mode = OPT_BAR;
+    f->label_next = false;
+    f->base_key = ui_get_id(ui, "##opt_unit");
+    f->base_scope = ui_id_scope(ui);
     memset(f->placed, 0, sizeof f->placed);
     f->declaring = true;
-    if (f->plan_group == 0) enter_overflow(a, f);
     if (cur && cur->options) cur->options(a, a->tool_state[a->tool]);
     leave_overflow(a, f);
     f->declaring = false;
     f->cur.total = (int32_t)a->opt_x - f->content_x;
     f->last_first = -1;
-    if (f->plan_group >= 0) {
-        for (int32_t i = 0; i < f->cur.n; i++)
-            if (f->cur.s[i].group >= f->plan_group) {
-                f->last_first = i;
-                break;
-            }
+    if (f->plan_slot >= 0) {
+        f->last_first = f->plan_slot < f->cur.n ? f->plan_slot : -1;
         overflow_button(a, f, bar);
     }
     f->last_n = f->cur.n;
-    f->ovf_open_prev = f->plan_group >= 0 && ui_popup_is_open(ui, OVF_POPUP);
+    f->ovf_open_prev = f->plan_slot >= 0 && ui_popup_is_open(ui, OVF_POPUP);
     /* a different layout than the plan assumed: plan again next frame */
     if (f->cur.n != f->prev.n || f->cur.total != f->prev.total ||
         f->cur.ngroups != f->prev.ngroups || f->cur.tool != f->prev.tool ||
         f->cur.scale != f->prev.scale)
         app_request_frame(a);
+    else
+        for (int32_t i = 0; i < f->cur.n; i++)    /* lane UIA: or other units */
+            if (f->cur.s[i].unit != f->prev.s[i].unit || f->cur.s[i].x != f->prev.s[i].x) {
+                app_request_frame(a);
+                break;
+            }
     f->prev = f->cur;
 }
 

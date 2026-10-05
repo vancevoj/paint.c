@@ -1,9 +1,10 @@
 /* test_toola_toolbar.c - lane TOOLA: the options bar.
  *   - overflow chevron (F-TOOL-TOOLBAR-OVERFLOW): at 800 px the Magic Wand
- *     and Paint Bucket rows do not fit; the overflowed groups (whole
- *     groups, after the last one that fits) appear in the chevron's popup
- *     and keep working there (Tolerance +, Finish); a wide window has no
- *     chevron; the chevron toggles the popup;
+ *     and Paint Bucket rows do not fit; the overflowed options (lane UIA,
+ *     wave 4: single options after the last one that fits, no longer whole
+ *     groups; at 640 px the Magic Wand's Tolerance bar overflows) appear in
+ *     the chevron's popup and keep working there (Tolerance +, Finish); a
+ *     wide window has no chevron; the chevron toggles the popup;
  *   - the tool chooser (F-TOOL-ORDER): icon and full name, the list in
  *     Tools window order, chosen by click and by Alt+T and the keyboard;
  *   - the Magic Wand uses the Paint Bucket's widgets (F-TOOL-OPT-FLOOD,
@@ -50,8 +51,8 @@ static bool inside(ui_rect outer, ui_rect r)
 
 static void t_overflow_wand(void)
 {
-    app *a = bar_app(800, 600);
-    ui_rect chev, fin, tolp, win = { 0, 0, 800, 600 };
+    app *a = bar_app(640, 600);                   /* lane UIA: was 800 (whole groups) */
+    ui_rect chev, fin, tolp, win = { 0, 0, 640, 600 };
     int32_t first, n;
     size_t h;
     CHECK(a != NULL);
