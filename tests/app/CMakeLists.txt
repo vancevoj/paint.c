@@ -22,3 +22,10 @@ if(TARGET paintc AND TARGET test_i_recovery)
   target_compile_definitions(test_i_recovery PRIVATE PC_PAINTC_EXE="$<TARGET_FILE:paintc>")
   add_dependencies(test_i_recovery paintc)
 endif()
+
+# lane KEYS: the command line tests start paintc itself (--diagnostics
+# without a video driver, --set).
+if(TARGET paintc AND TARGET test_keys_cli)
+  target_compile_definitions(test_keys_cli PRIVATE PC_PAINTC_EXE="$<TARGET_FILE:paintc>")
+  add_dependencies(test_keys_cli paintc)
+endif()

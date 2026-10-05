@@ -20,6 +20,18 @@
  *                                     scripted runs without either: off)
  *            --autosave-interval S    seconds after the first unsaved change
  *                                     (default: settings, 120; 0 = off)
+ *            --set KEY=VALUE          override a setting (repeatable; lane KEYS,
+ *                                     K-CLI-SET), e.g. --set gfx.software=1 to
+ *                                     turn hardware acceleration off. Written to
+ *                                     the settings file before the window opens,
+ *                                     so it also helps when the app cannot start
+ *                                     (scripted runs without a settings folder
+ *                                     only change the running app)
+ *
+ * --diagnostics (K-CLI-DIAG, lane KEYS) needs no display: it starts SDL's
+ * event subsystem only, prints the version, platform, processors, memory,
+ * folders, the available video and render drivers, then tries the video
+ * subsystem and prints the driver and displays or the reason it failed.
  *
  * Lane I owns this file (integration): single instance with forwarded
  * opens, autosave configuration and the recovery prompt at startup.
@@ -32,6 +44,7 @@
 
 #include "app_internal.h"
 #include "app/app_io.h"
+#include "keys_os.h"
 
 typedef struct cli {
     const char  *screenshot, *script, *config_dir, *state_dir;
@@ -43,6 +56,8 @@ typedef struct cli {
     double       autosave_s;          /* < 0: settings */
     const char **files;
     int          nfiles;
+    const char  *sets[64];            /* lane KEYS: --set KEY=VALUE (borrowed argv) */
+    int          nsets;
 } cli;
 
 static void usage(const char *argv0)
@@ -54,8 +69,26 @@ static void usage(const char *argv0)
             "       %s --self-test [--headless]\n"
             "options: --theme light|dark --software --no-vsync --frames N --config-dir DIR\n"
             "         --state-dir DIR --autosave-interval SECONDS --reset-windows\n"
-            "         --diagnostics --version --disable-plugins\n",
+            "         --diagnostics --version --disable-plugins --set KEY=VALUE\n",
             argv0, argv0, argv0, argv0);
+}
+
+/* lane KEYS: KEY=VALUE with a settings key ([A-Za-z0-9_.-], 1..255 bytes)
+ * and a single-line value (app_settings.h). */
+static bool valid_set(const char *s)
+{
+    const char *eq = strchr(s, '=');
+    size_t n;
+    if (!eq || eq == s) return false;
+    n = (size_t)(eq - s);
+    if (n >= APP_SETTINGS_MAX_KEY || strlen(eq + 1) >= APP_SETTINGS_MAX_VALUE) return false;
+    for (const char *p = s; p < eq; p++) {
+        char ch = *p;
+        if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') ||
+              ch == '_' || ch == '.' || ch == '-'))
+            return false;
+    }
+    return strchr(eq + 1, '\n') == NULL && strchr(eq + 1, '\r') == NULL;
 }
 
 static bool parse(int argc, char **argv, cli *c)
@@ -87,6 +120,12 @@ static bool parse(int argc, char **argv, cli *c)
         else if (strcmp(s, "--reset-windows") == 0) c->reset_windows = true;
         else if (strcmp(s, "--diagnostics") == 0) c->diagnostics = true;
         else if (strcmp(s, "--disable-plugins") == 0) c->no_plugins = true;   /* lane F */
+        else if (strcmp(s, "--set") == 0 && more) {                          /* lane KEYS */
+            const char *v = argv[++i];
+            if (!valid_set(v) || c->nsets >= (int)(sizeof c->sets / sizeof c->sets[0]))
+                return false;
+            c->sets[c->nsets++] = v;
+        }
         else if (strcmp(s, "--frames") == 0 && more) c->frames = atoi(argv[++i]);
         else if (strcmp(s, "--scale") == 0 && more) c->scale = (float)atof(argv[++i]);
         else if (strcmp(s, "--theme") == 0 && more) {
@@ -109,17 +148,113 @@ static bool parse(int argc, char **argv, cli *c)
     return true;
 }
 
-static void diagnostics(void)
+/* K-CLI-DIAG: everything that needs no window first, then an attempt to
+ * start the video subsystem (its failure is part of the report). */
+static int diagnostics(const cli *c)
 {
+    bool events = SDL_Init(SDL_INIT_EVENTS);
+    bool pal = events && pal_init(APP_ID, "paintc", APP_NAME);
+    int v = SDL_GetVersion();
     printf("%s %s\n", APP_NAME, APP_VERSION);
-    printf("SDL %d.%d.%d (runtime %d)\n", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_MICRO_VERSION,
-           SDL_GetVersion());
-    printf("video driver: %s\n",
-           SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "none");
-    printf("logical processors: %u\n", (unsigned)pal_cpu_count());
-    printf("memory: %llu MiB\n", (unsigned long long)(pal_ram_bytes() >> 20));
+    printf("platform: %s\n", SDL_GetPlatform());
+    printf("SDL %d.%d.%d (runtime %d.%d.%d)\n", SDL_MAJOR_VERSION, SDL_MINOR_VERSION,
+           SDL_MICRO_VERSION, SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v),
+           SDL_VERSIONNUM_MICRO(v));
+    printf("logical processors: %u\n",
+           pal ? (unsigned)pal_cpu_count() : (unsigned)SDL_GetNumLogicalCPUCores());
+    printf("memory: %llu MiB\n", pal ? (unsigned long long)(pal_ram_bytes() >> 20)
+                                     : (unsigned long long)SDL_GetSystemRAM());
+    if (!events) printf("events: unavailable (%s)\n", SDL_GetError());
+    if (pal) {
+        const char *cfg = c->config_dir && *c->config_dir ? c->config_dir : pal_dir(PAL_DIR_CONFIG);
+        char path[1024];
+        printf("settings folder: %s\n", cfg ? cfg : "?");
+        if (cfg) {
+            pal_path_join(path, sizeof path, cfg, "settings.ini");
+            printf("settings file: %s%s\n", path,
+                   pal_file_exists(path) ? "" : " (not created yet)");
+        }
+        printf("data folder: %s\n", pal_dir(PAL_DIR_DATA) ? pal_dir(PAL_DIR_DATA) : "?");
+        printf("cache folder: %s\n", pal_dir(PAL_DIR_CACHE) ? pal_dir(PAL_DIR_CACHE) : "?");
+        printf("state folder: %s\n", pal_dir(PAL_DIR_STATE) ? pal_dir(PAL_DIR_STATE) : "?");
+        printf("executable folder: %s\n", pal_dir(PAL_DIR_EXE) ? pal_dir(PAL_DIR_EXE) : "?");
+    } else {
+        printf("folders: unavailable (pal_init failed)\n");
+    }
+    for (int i = 0; i < SDL_GetNumVideoDrivers(); i++)
+        printf("available video driver %d: %s\n", i, SDL_GetVideoDriver(i));
     for (int i = 0; i < SDL_GetNumRenderDrivers(); i++)
         printf("render driver %d: %s\n", i, SDL_GetRenderDriver(i));
+    if (c->headless) {
+        printf("video: not started (--headless)\n");
+    } else if (SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        int n = 0;
+        SDL_DisplayID *ids = SDL_GetDisplays(&n);
+        printf("video driver: %s\n",
+               SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "none");
+        for (int i = 0; ids && i < n; i++) {
+            SDL_Rect r;
+            const char *name = SDL_GetDisplayName(ids[i]);
+            if (!SDL_GetDisplayBounds(ids[i], &r)) memset(&r, 0, sizeof r);
+            printf("display %d: %s, %d x %d at %d, %d, scale %.2f\n", i, name ? name : "?", r.w,
+                   r.h, r.x, r.y, (double)SDL_GetDisplayContentScale(ids[i]));
+        }
+        SDL_free(ids);
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    } else {
+        printf("video: unavailable (%s)\n", SDL_GetError());
+    }
+    fflush(stdout);
+    if (pal) pal_quit();
+    SDL_Quit();
+    return 0;
+}
+
+/* K-CLI-SET: write the overrides into the settings file before the app
+ * reads it (also when the window cannot be created afterwards). Returns
+ * false after printing why when the file cannot be written. */
+static bool persist_sets(const cli *c, const char *config_dir)
+{
+    const char *dir = config_dir ? config_dir : pal_dir(PAL_DIR_CONFIG);
+    char path[1024];
+    app_settings *st;
+    pc_status rc;
+    if (c->nsets == 0 || !dir || !*dir) return true;
+    pal_path_join(path, sizeof path, dir, "settings.ini");
+    st = app_settings_create();
+    if (!st) return false;
+    (void)pal_mkdirs(dir);
+    (void)app_settings_load(st, path);
+    for (int i = 0; i < c->nsets; i++) {
+        const char *eq = strchr(c->sets[i], '=');
+        char key[APP_SETTINGS_MAX_KEY];
+        size_t n = (size_t)(eq - c->sets[i]);
+        memcpy(key, c->sets[i], n);
+        key[n] = '\0';
+        (void)app_settings_set(st, key, eq + 1);
+    }
+    rc = app_settings_save(st, path);
+    app_settings_destroy(st);
+    if (rc != PC_OK) {
+        fprintf(stderr, "paintc: cannot write %s: %s\n", path, pc_status_str(rc));
+        return false;
+    }
+    return true;
+}
+
+/* The same overrides in the running app's store (covers runs without a
+ * settings file). */
+static void apply_sets(app *a, const cli *c)
+{
+    for (int i = 0; i < c->nsets; i++) {
+        const char *eq = strchr(c->sets[i], '=');
+        char key[APP_SETTINGS_MAX_KEY];
+        size_t n = (size_t)(eq - c->sets[i]);
+        memcpy(key, c->sets[i], n);
+        key[n] = '\0';
+        (void)app_settings_set(app_settings_of(a), key, eq + 1);
+    }
+    if (c->nsets > 0) app_tool_settings_changed(a);
 }
 
 /* Forwarded paths from later launches (single instance). */
@@ -241,6 +376,11 @@ int main(int argc, char **argv)
     }
     interactive = !c.screenshot && !c.script && !c.self_test && !c.diagnostics;
     SDL_SetAppMetadata(APP_NAME, APP_VERSION, APP_ID);
+    if (c.diagnostics) {                  /* lane KEYS: no video needed (K-CLI-DIAG) */
+        int drc = diagnostics(&c);
+        free((void *)c.files);
+        return drc;
+    }
     SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "composition");
     if (!SDL_Init(c.headless ? SDL_INIT_EVENTS : (SDL_INIT_VIDEO | SDL_INIT_EVENTS))) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -252,13 +392,6 @@ int main(int argc, char **argv)
         SDL_Quit();
         free((void *)c.files);
         return 1;
-    }
-    if (c.diagnostics) {
-        diagnostics();
-        pal_quit();
-        SDL_Quit();
-        free((void *)c.files);
-        return 0;
     }
     if (interactive && !c.headless) {
         if (!pal_single_instance(APP_ID, c.nfiles, c.files, forwarded, NULL)) {
@@ -285,6 +418,12 @@ int main(int argc, char **argv)
         o.no_default_doc = c.nfiles > 0 || c.self_test || c.script;
         if (!c.config_dir) o.config_dir = "";
     }
+    if (!persist_sets(&c, o.config_dir)) {          /* lane KEYS: --set */
+        pal_quit();
+        SDL_Quit();
+        free((void *)c.files);
+        return 1;
+    }
     a = app_create(&o);
     if (!a) {
         fprintf(stderr, "paint.c could not start (see the log for details)\n");
@@ -297,6 +436,8 @@ int main(int argc, char **argv)
         (void)pal_single_instance(APP_ID, 0, NULL, forwarded, a);
         app_wake_poll(a, 200u);        /* forwarded opens arrive while idle */
     }
+    apply_sets(a, &c);
+    (void)app_keys_os_menus(a);            /* lane KEYS: macOS menu key equivalents */
     configure_autosave(a, &c, interactive, primary);
     if (c.reset_windows) app_panels_reset_all(a);
     app_open_paths(a, c.files, c.nfiles);
