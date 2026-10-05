@@ -121,16 +121,16 @@ static void draw_cross(uint8_t *rgba, int size, int c)
     }
     for (int y = 0; y < size; y++)
         for (int x = 0; x < size; x++) {
-            bool near = false;
+            bool by_line = false;
             if (mask[(size_t)y * (size_t)size + (size_t)x]) continue;
-            for (int dy = -1; dy <= 1 && !near; dy++)
-                for (int dx = -1; dx <= 1 && !near; dx++) {
+            for (int dy = -1; dy <= 1 && !by_line; dy++)
+                for (int dx = -1; dx <= 1 && !by_line; dx++) {
                     int xx = x + dx, yy = y + dy;
                     if (xx >= 0 && yy >= 0 && xx < size && yy < size &&
                         mask[(size_t)yy * (size_t)size + (size_t)xx])
-                        near = true;
+                        by_line = true;
                 }
-            if (near) put_over(rgba + ((size_t)y * (size_t)size + (size_t)x) * 4u, 255, 255, 255,
+            if (by_line) put_over(rgba + ((size_t)y * (size_t)size + (size_t)x) * 4u, 255, 255, 255,
                                0.9f);
         }
     for (size_t i = 0; i < (size_t)size * (size_t)size; i++)
