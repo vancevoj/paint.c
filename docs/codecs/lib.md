@@ -363,5 +363,12 @@ Wave 4 additions (lane CODEC):
   closest freely redistributable choice; Paint.NET's own default CMYK
   profile is not known exactly (black box), so colors of such files may
   differ from Paint.NET by a few code values.
+- CMYK decodes run the exact, unoptimized Little-CMS pipeline (the
+  precalculated tables are up to 8 codes off for CMYK, 14 with
+  cmsFLAGS_HIGHRESPRECALC), single-threaded inside the decoder, with a
+  per-color cache: a noisy 4000 x 3000 profile-less CMYK JPEG opens in 2.5 s
+  on the reference machine (0.4 s with the old naive formula); images with
+  repeated colors are much faster. Files with an embedded CMYK profile
+  already took this path.
 - Not verified on MSVC and macOS hardware (mingw-w64 cross build passes
   all suites under Wine).
