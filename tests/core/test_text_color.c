@@ -630,7 +630,7 @@ static void t_huge_errors_history(void)
     e3_doc_free(&e);
 }
 
-/* ---- extreme but valid backend answers -------------------------------------------------------- */
+/* ---- extreme but valid backend answers ------------------------------------------------------- */
 
 static int g_mode;
 static pc_px32 g_px4[4];

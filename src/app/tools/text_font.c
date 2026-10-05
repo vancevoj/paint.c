@@ -120,10 +120,13 @@ static bool ensure(tf_face *t)
             return true;
         }
     }
-    if (t->f && !t->builtin && text_sfnt_open(&t->cs, t->f->s.d, t->f->s.n, t->index) == PC_OK) {
-        t->has_cs = text_sfnt_has_color(&t->cs);
-        if (!t->has_cs) text_sfnt_close(&t->cs);
-        else t->pf.color = true;
+    if (t->f && !t->builtin) {
+        /* the tables decide (the scan's flag may be stale) */
+        if (text_sfnt_open(&t->cs, t->f->s.d, t->f->s.n, t->index) == PC_OK) {
+            t->has_cs = text_sfnt_has_color(&t->cs);
+            if (!t->has_cs) text_sfnt_close(&t->cs);
+        }
+        t->pf.color = t->has_cs;
     }
     if (!t->f) pal_log(PAL_LOG_WARN, "text: cannot load font %s (%d)", t->path, (int)t->index);
     return t->f != NULL;
