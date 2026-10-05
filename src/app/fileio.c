@@ -17,6 +17,8 @@
  * share immutable tiles). Ownership: flows own their state until their done
  * callback ran. */
 #include "app_internal.h"
+#include "edit/m_size.h"
+#include "edit/m_ui.h"
 #include "io/io_internal.h"
 #include "pc/pc_layerops.h"
 
@@ -654,6 +656,7 @@ typedef struct cfg_dlg {
     double        zoom, cx, cy;
     bool          panning;
     float         pan_x, pan_y;
+    pc_status     err_shown;           /* lane SHELL: last encode error raised as a dialog */
 } cfg_dlg;
 
 typedef struct cfg_job {
@@ -775,6 +778,13 @@ static void cfg_done(app *a, void *ud)
             snprintf(c->info, sizeof c->info, "File size: %s", sz);
         } else {
             snprintf(c->info, sizeof c->info, "File size: error (%s)", pc_status_str(j->st));
+            /* lane SHELL (F-DLG-SAVECFG-FILESIZE): the standard error dialog,
+             * once per kind of failure while the dialog is open */
+            if (c->err_shown != j->st) {
+                c->err_shown = j->st;
+                app_error(a, "These options cannot be saved as %s: %s.", type_label(j->codec),
+                          pc_status_str(j->st));
+            }
         }
         if (j->rgba) {
             if (c->tex && (c->tw != j->tw || c->th != j->th)) {
@@ -1462,115 +1472,128 @@ bool app_quit_unsaved(app *a)
 }
 
 /* ---- New Image dialog (MENUS.md New Image, OBSERVED 2) -------------------------------- */
+/* Lane SHELL (wave 3b): the dialog uses the size model of Resize and
+ * Canvas Size (edit/m_size.h). The pixel boxes accept 0 .. 262144 like
+ * Paint.NET's (no silent clamp to the valid range), and OK is disabled
+ * with the reason shown while the size is not a valid image (zero, or
+ * above paint.c's 65535 per side, ADR-014); Enter does nothing then.
+ * Values typed out of a box's range are clamped when the box loses the
+ * focus (O-UI-CLAMP), so the dialog never creates another size than the
+ * one shown. The print size has its own unit choice (Inches,
+ * Centimeters), independent of the resolution unit; maintain aspect
+ * ratio keeps the ratio the size had when it was checked. The aspect
+ * lock and both units are remembered. */
 typedef struct new_dlg {
-    int32_t w, h;
-    bool    keep;
-    double  ratio;
-    double  res;                 /* pixels per unit */
-    int     res_unit;            /* 0 pixels/inch, 1 pixels/centimeter */
-    double  pw, ph;              /* print size in inches or centimeters */
+    m_size s;
 } new_dlg;
-
-static void new_sync_print(new_dlg *n)
-{
-    n->pw = (double)n->w / n->res;
-    n->ph = (double)n->h / n->res;
-}
-
-static int32_t clamp_dim(double v)
-{
-    if (!(v >= 1.0)) return 1;
-    if (v > (double)PC_MAX_DIM) return (int32_t)PC_MAX_DIM;
-    return (int32_t)v;
-}
 
 static bool new_frame(app *a, void *st)
 {
     new_dlg *n = (new_dlg *)st;
+    m_size *s = &n->s;
     ui_ctx *ui = a->ui;
+    const ui_palette *p = ui_pal(ui);
     ui_size cells[3];
     uint32_t r;
-    char est[96], sz[48];
+    char est[96], sz[48], why[96];
     static const char *const res_units[] = { "Pixels/inch", "Pixels/centimeter" };
     static const char *const print_units[] = { "Inches", "Centimeters" };
-    bool enter;
+    bool enter, valid;
     ui_dialog_begin(ui, "New Image##newimg", 420.0f, 0.0f);
     enter = app_dialog_take_enter(a);
-    format_size((double)n->w * (double)n->h * 4.0, sz, sizeof sz);
+    m_size_format_bytes(m_size_bytes(s, 1u), sz, sizeof sz);
     snprintf(est, sizeof est, "New image size: %s", sz);
     ui_label_ex(ui, est, UI_LABEL_DIM);
-    ui_checkbox(ui, "Maintain aspect ratio##keep", &n->keep);
-    if (n->keep && !(n->ratio > 0.0)) n->ratio = (double)n->w / (double)n->h;
+    {
+        bool keep = s->keep;
+        if (ui_checkbox(ui, "Maintain aspect ratio##keep", &keep)) {
+            /* the ratio of the size as it is now */
+            int32_t w = m_size_px(s, false), h = m_size_px(s, true);
+            s->ow = w > 0 ? (uint32_t)w : 1u;
+            s->oh = h > 0 ? (uint32_t)h : 1u;
+            m_size_set_keep(s, keep);
+        }
+    }
     ui_heading(ui, "Pixel size");
     cells[0] = ui_size_px(110.0f);
     cells[1] = ui_size_fr(1.0f);
-    cells[2] = ui_size_px(60.0f);
+    cells[2] = ui_size_px(150.0f);
     ui_layout_row(ui, 0.0f, 3, cells);
     ui_label_ex(ui, "Width", UI_LABEL_DIM);
-    if (ui_number_int(ui, "##nw", &n->w, 1, (int32_t)PC_MAX_DIM, 1, 0)) {
-        if (n->keep && n->ratio > 0.0) n->h = clamp_dim((double)n->w / n->ratio + 0.5);
-        new_sync_print(n);
+    {
+        int32_t w = m_size_px(s, false);
+        if (ui_number_int(ui, "##nw", &w, 0, M_SIZE_MAX_EDIT, 1, 0)) m_size_set_w(s, (double)w);
     }
     ui_label_ex(ui, "pixels", UI_LABEL_DIM);
     ui_label_ex(ui, "Height", UI_LABEL_DIM);
-    if (ui_number_int(ui, "##nh", &n->h, 1, (int32_t)PC_MAX_DIM, 1, 0)) {
-        if (n->keep && n->ratio > 0.0) n->w = clamp_dim((double)n->h * n->ratio + 0.5);
-        new_sync_print(n);
+    {
+        int32_t h = m_size_px(s, true);     /* read after the width may have changed it */
+        if (ui_number_int(ui, "##nh", &h, 0, M_SIZE_MAX_EDIT, 1, 0)) m_size_set_h(s, (double)h);
     }
     ui_label_ex(ui, "pixels", UI_LABEL_DIM);
     ui_layout_column(ui);
-    if (!n->keep) n->ratio = (double)n->w / (double)n->h;
     ui_heading(ui, "Resolution");
-    cells[2] = ui_size_px(150.0f);
     ui_layout_row(ui, 0.0f, 3, cells);
     ui_label_ex(ui, "Resolution", UI_LABEL_DIM);
-    if (ui_number_double(ui, "##nres", &n->res, 0.01, 65536.0, 1.0, 2, 0)) new_sync_print(n);
     {
-        int u = n->res_unit;
-        if (ui_combo(ui, "##nresu", &u, res_units, 2) && u != n->res_unit) {
-            n->res = u == 1 ? n->res / 2.54 : n->res * 2.54;
-            n->res_unit = u;
-            new_sync_print(n);
-        }
+        double res = m_size_res(s);
+        int u = s->res_unit;
+        if (ui_number_double(ui, "##nres", &res, M_SIZE_MIN_RES, M_SIZE_MAX_RES, 1.0, 2, 0))
+            m_size_set_res(s, res);
+        if (ui_combo(ui, "##nresu", &u, res_units, 2)) m_size_set_res_unit(s, u);
     }
     ui_layout_column(ui);
     ui_heading(ui, "Print size");
     ui_layout_row(ui, 0.0f, 3, cells);
     ui_label_ex(ui, "Width", UI_LABEL_DIM);
-    if (ui_number_double(ui, "##npw", &n->pw, 0.0001, 1.0e7, 0.1, 2, 0)) {
-        n->w = clamp_dim(n->pw * n->res + 0.5);
-        if (n->keep && n->ratio > 0.0) n->h = clamp_dim((double)n->w / n->ratio + 0.5);
-        new_sync_print(n);
+    {
+        double pw = m_size_print(s, false);
+        int pu = s->print_unit;
+        if (ui_number_double(ui, "##npw", &pw, 0.0, 1.0e7, 0.1, 2, 0))
+            m_size_set_print(s, false, pw);
+        if (ui_combo(ui, "##npu", &pu, print_units, 2)) s->print_unit = pu ? 1 : 0;
     }
-    ui_label_ex(ui, print_units[n->res_unit], UI_LABEL_DIM);
     ui_label_ex(ui, "Height", UI_LABEL_DIM);
-    if (ui_number_double(ui, "##nph", &n->ph, 0.0001, 1.0e7, 0.1, 2, 0)) {
-        n->h = clamp_dim(n->ph * n->res + 0.5);
-        if (n->keep && n->ratio > 0.0) n->w = clamp_dim((double)n->h * n->ratio + 0.5);
-        new_sync_print(n);
+    {
+        double ph = m_size_print(s, true);
+        if (ui_number_double(ui, "##nph", &ph, 0.0, 1.0e7, 0.1, 2, 0))
+            m_size_set_print(s, true, ph);
     }
-    ui_label_ex(ui, print_units[n->res_unit], UI_LABEL_DIM);
+    ui_label_ex(ui, print_units[s->print_unit], UI_LABEL_DIM);
     ui_layout_column(ui);
-    ui_dialog_buttons(ui, UI_DLG_OK | UI_DLG_CANCEL, UI_DLG_OK);
-    r = ui_dialog_end(ui);
-    if (enter && !r) r = UI_DLG_OK;
+    valid = m_size_valid(s, why, sizeof why);
+    if (!valid) {
+        ui_rect lr;
+        ui_layout_space(ui, 4.0f);
+        lr = ui_layout_next(ui, 0, ui_px(ui, 18.0f));
+        ui_draw_text_box(ui, ui_font_regular(ui), ui_font_px(ui), lr, UI_ALIGN_LEFT,
+                         UI_TEXT_ELLIPSIS, p->danger, why, strlen(why));
+    }
+    r = m_dlg_footer(a, valid);
+    {
+        uint32_t r2 = ui_dialog_end(ui);
+        if (!r) r = r2;
+    }
+    if (enter && !r && valid) r = UI_DLG_OK;
+    if (r == UI_DLG_OK && !valid) r = 0;           /* Enter in a box while invalid */
     if (!r) return true;
     if (r == UI_DLG_OK) {
-        app_doc *d = app_doc_new_image(a, (uint32_t)n->w, (uint32_t)n->h,
+        int32_t w = m_size_px(s, false), h = m_size_px(s, true);
+        app_doc *d = app_doc_new_image(a, (uint32_t)w, (uint32_t)h,
                                        app_px_make(255, 255, 255, 255));
         if (!d) {
-            app_error(a, "Could not create a %d x %d image: %s.", (int)n->w, (int)n->h,
+            app_error(a, "Could not create a %d x %d image: %s.", (int)w, (int)h,
                       pc_status_str(PC_ERR_NOMEM));
         } else {
-            double dpi = n->res_unit == 1 ? n->res * 2.54 : n->res;
-            d->meta.dpi_x = d->meta.dpi_y = dpi;
+            d->meta.dpi_x = d->meta.dpi_y = s->dpi;
             app_doc_set_untitled(a, d);
             (void)app_add_doc(a, d);
         }
     }
     /* remembered: aspect lock and units (MENUS.md New Image) */
-    (void)app_settings_set_bool(a->settings, "file.new.keep_aspect", n->keep);
-    (void)app_settings_set_int(a->settings, "file.new.res_unit", n->res_unit);
+    (void)app_settings_set_bool(a->settings, "file.new.keep_aspect", s->keep);
+    (void)app_settings_set_int(a->settings, "file.new.res_unit", s->res_unit);
+    (void)app_settings_set_int(a->settings, "file.new.print_unit", s->print_unit);
     return false;
 }
 
@@ -1606,12 +1629,13 @@ static void new_default_size(app *a, int32_t *w, int32_t *h)
 void app_new_image_dialog(app *a)
 {
     new_dlg *n = (new_dlg *)calloc(1u, sizeof *n);
+    int32_t w = 800, h = 600;
+    bool keep, cm;
     if (!n) return;
-    new_default_size(a, &n->w, &n->h);
-    n->keep = app_settings_bool(a->settings, "file.new.keep_aspect", false);
-    n->res_unit = app_settings_int(a->settings, "file.new.res_unit", 0) == 1 ? 1 : 0;
-    n->ratio = (double)n->w / (double)n->h;
-    n->res = n->res_unit == 1 ? 96.0 / 2.54 : 96.0;
-    new_sync_print(n);
+    new_default_size(a, &w, &h);
+    keep = app_settings_bool(a->settings, "file.new.keep_aspect", false);
+    cm = app_settings_int(a->settings, "file.new.res_unit", 0) == 1;
+    m_size_init(&n->s, (uint32_t)(w > 0 ? w : 1), (uint32_t)(h > 0 ? h : 1), 96.0, keep, cm);
+    n->s.print_unit = (int)app_settings_int(a->settings, "file.new.print_unit", cm ? 1 : 0) == 1;
     (void)app_dialog_push(a, new_frame, n, free);
 }

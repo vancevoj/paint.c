@@ -92,10 +92,12 @@ typedef struct pc_rotzoom {
     uint32_t  quality;
     pc_wrap   tiling;
     pc_sample sampling;
+    bool      gamma;      /* sample in linear light (lane SHELL; default false) */
 } pc_rotzoom;
 
 /* Identity settings: angle 0, no tilt, no pan, zoom 1, quality 1, no
- * tiling, bilinear (an exact copy of the layer). Edges toward transparent
+ * tiling, bilinear, gamma off (an exact copy of the layer; with gamma on
+ * the copy is exact too). Edges toward transparent
  * are always soft (filter taps outside the layer read as transparent);
  * quality > 1 adds supersampling on top. */
 void      pc_rotzoom_default(pc_rotzoom *rz);

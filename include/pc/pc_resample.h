@@ -140,6 +140,14 @@ pc_status pc_warp_surf(const pc_surf *src, const pc_warp *w, pc_surf *dst,
 pc_status pc_warp_grid(const pc_grid *src, const pc_warp *w, uint32_t dst_w,
                        uint32_t dst_h, const pc_par *par, pc_tile ***out);
 
+/* pc_warp_grid in linear light when linear (additive, lane SHELL wave 3b):
+ * samples are decoded with the sRGB transfer curve, filtered and
+ * supersampled premultiplied in linear light and encoded again, so edges
+ * between bright and dark areas do not darken (Rotate / Zoom). linear ==
+ * false is exactly pc_warp_grid. */
+pc_status pc_warp_grid_ex(const pc_grid *src, const pc_warp *w, bool linear, uint32_t dst_w,
+                          uint32_t dst_h, const pc_par *par, pc_tile ***out);
+
 /* One destination tile (tx, ty) of a dst_w x dst_h image, written to px
  * (PC_TILE_PX straight BGRA pixels, stride PC_TILE_DIM; padding zero).
  * Returns true when any pixel is nonzero. No allocation; any thread. */

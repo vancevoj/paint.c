@@ -13,7 +13,13 @@
 extern "C" {
 #endif
 
-typedef enum ui_theme_kind { UI_THEME_LIGHT = 0, UI_THEME_DARK = 1 } ui_theme_kind;
+/* UI_THEME_BLUE (lane SHELL, wave 3b): the light palette with blue
+ * tinted chrome, for the Blue color scheme of Settings > User Interface. */
+typedef enum ui_theme_kind {
+    UI_THEME_LIGHT = 0,
+    UI_THEME_DARK = 1,
+    UI_THEME_BLUE = 2
+} ui_theme_kind;
 
 typedef struct ui_palette {
     ui_color window;          /* app background (behind panels) */

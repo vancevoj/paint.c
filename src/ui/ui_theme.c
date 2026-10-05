@@ -138,5 +138,27 @@ void ui_theme_init(ui_theme *t, ui_theme_kind kind, ui_color accent)
         p->checker_b = hexc(0xD6D9DE);
         p->icon = hexc(0x3B414A);
         p->icon_accent = accent;
+        if (kind == UI_THEME_BLUE) {
+            /* lane SHELL: blue tinted window, panels and borders; fields,
+             * text and status colors stay as in the light palette */
+            p->window = hexc(0xD5E2F2);
+            p->workspace = hexc(0xC3D3E8);
+            p->panel = hexc(0xEAF1FA);
+            p->panel_header = hexc(0xDCE7F5);
+            p->raised = hexc(0xF7FAFE);
+            p->raised_hover = hexc(0xE6EFFA);
+            p->raised_active = hexc(0xD3E1F3);
+            p->border = hexc(0xAFC3DD);
+            p->border_strong = hexc(0x8EA8CB);
+            p->separator = hexc(0xC4D4EA);
+            p->text = hexc(0x14223A);
+            p->text_dim = hexc(0x4A5D7A);
+            p->selection = mix(p->panel, accent, 0.22f);
+            p->scrollbar = hexc(0xA8BCD8);
+            p->scrollbar_hover = hexc(0x8AA3C6);
+            p->tooltip = hexc(0xF7FAFE);
+            p->tooltip_text = hexc(0x14223A);
+            p->icon = hexc(0x2C3E5C);
+        }
     }
 }

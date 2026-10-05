@@ -49,7 +49,7 @@ void ui_draw_button_face(ui_ctx *ctx, ui_rect r, uint32_t flags, bool hovered, b
         ui_draw_rrect(ctx, r, rad, face);
         ui_draw_rrect_outline(ctx, r, rad, b, edge);
         if (!held && !disabled && !(flags & UI_BUTTON_SELECTED) &&
-            ctx->theme.kind == UI_THEME_LIGHT)
+            ctx->theme.kind != UI_THEME_DARK)          /* light and Blue (lane SHELL) */
             /* subtle darker bottom edge */
             ui_draw_rect(ctx,
                          ui_rect_make(r.x + (int32_t)rad, r.y + r.h - b, r.w - 2 * (int32_t)rad, b),

@@ -87,6 +87,7 @@ void ui_destroy(ui_ctx *ctx)
     ui_atlas_destroy(ctx);
     ui_path_free(&ctx->scratch_path);
     ui_path_free(&ctx->scratch_stroke);
+    free(ctx->fade_v);
     ui_store_free(&ctx->store);
     free(ctx->edit.orig);
     free(ctx->clip_text);
@@ -530,6 +531,7 @@ int32_t ui_root_begin(ui_ctx *ctx, ui_id id, int32_t kind, ui_rect hit, bool hid
     if (r->frame != ctx->frame) {
         if (r->frame + 1u != ctx->frame) r->order = ++ctx->open_seq;   /* newly shown */
         ui_dl_reset(&r->dl);
+        r->alpha = 1.0f;
     }
     r->kind = kind;
     r->frame = ctx->frame;
@@ -687,6 +689,20 @@ static void begin_autofocus(ui_ctx *ctx)
 {
     if (!ctx->autofocus_root) return;
     if (ctx->focus && ctx->focus_root == ctx->autofocus_root) { ctx->autofocus_root = 0; return; }
+    /* O-UI-FOCUS (lane SHELL): a dialog opens with its first text or
+     * numeric field focused (and its text selected) when it has one */
+    if (ctx->prev_autofocus_edit) {
+        for (int32_t i = 0; i < ctx->prev_nfocus; i++) {
+            if (ctx->prev_focus_list[i] == ctx->prev_autofocus_edit &&
+                ctx->prev_focus_roots[i] == ctx->autofocus_root) {
+                ctx->focus = ctx->prev_autofocus_edit;
+                ctx->focus_root = ctx->autofocus_root;
+                ctx->autofocus_root = 0;
+                ctx->want_frame = true;
+                return;
+            }
+        }
+    }
     for (int32_t i = 0; i < ctx->prev_nfocus; i++) {
         if (ctx->prev_focus_roots[i] == ctx->autofocus_root) {
             ctx->focus = ctx->prev_focus_list[i];
@@ -836,6 +852,8 @@ void ui_end_frame(ui_ctx *ctx)
     memcpy(ctx->prev_focus_list, ctx->focus_list, (size_t)ctx->nfocus * sizeof(ui_id));
     memcpy(ctx->prev_focus_roots, ctx->focus_roots, (size_t)ctx->nfocus * sizeof(ui_id));
     ctx->prev_nfocus = ctx->nfocus;
+    ctx->prev_autofocus_edit = ctx->autofocus_edit;
+    ctx->autofocus_edit = 0;
     /* modal state as of this frame, for ui_wants_keyboard after it */
     ctx->top_modal = 0;
     {

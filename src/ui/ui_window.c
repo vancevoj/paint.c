@@ -27,6 +27,14 @@ static ui_rect dialog_rect(const ui_ctx *ctx, const ui_state *st, int32_t W, int
 
 bool ui_dialog_begin(ui_ctx *ctx, const char *title, float w_dip, float h_dip)
 {
+    return ui_dialog_begin_ex(ctx, title, w_dip, h_dip, 0u);
+}
+
+/* lane SHELL (wave 3b): flags, UI_DIALOG_NO_DIM leaves the window behind
+ * undimmed (dialogs that preview on the canvas). */
+bool ui_dialog_begin_ex(ui_ctx *ctx, const char *title, float w_dip, float h_dip,
+                        uint32_t flags)
+{
     const ui_palette *p = &ctx->theme.pal;
     ui_id id = ui_get_id(ctx, title);
     ui_state *st = ui_state_get(ctx, id);
@@ -68,7 +76,8 @@ bool ui_dialog_begin(ui_ctx *ctx, const char *title, float w_dip, float h_dip)
         r = dialog_rect(ctx, st, W, H, th);
         close_r = ui_rect_make(r.x + r.w - th, r.y, th, th);
     }
-    ui_draw_rect(ctx, ui_rect_make(0, 0, ctx->fi.width, ctx->fi.height), p->backdrop);
+    if (!(flags & UI_DIALOG_NO_DIM))
+        ui_draw_rect(ctx, ui_rect_make(0, 0, ctx->fi.width, ctx->fi.height), p->backdrop);
     ui_draw_elevation(ctx, r, ctx->px.radius_large, 3);
     ui_draw_rrect(ctx, r, ctx->px.radius_large, p->panel);
     ui_draw_rrect_outline(ctx, r, ctx->px.radius_large, ctx->px.border, p->border);
@@ -135,7 +144,9 @@ uint32_t ui_dialog_end(ui_ctx *ctx)
     if (!id) return 0;
     h = (l->max_y - l->rect.y) + pad + pad / 2;
     if (st && st->i[0] != h) { st->i[0] = h; ctx->want_frame = true; }
-    if (!r) {
+    /* lane SHELL: with dialogs stacked (an error over Save Configuration)
+     * only the topmost one takes Enter and Escape */
+    if (!r && (!ctx->top_modal || ctx->top_modal == id)) {
         if (def && (ui_key_take(ctx, SDLK_RETURN, 0) || ui_key_take(ctx, SDLK_KP_ENTER, 0) ||
                     ctx->edit_submit_root == id))
             r = def;
@@ -413,4 +424,18 @@ ui_rect ui_panel_rect(ui_ctx *ctx, const char *title)
     if (!r || (r->frame != ctx->frame && r->frame + 1u != ctx->frame))
         return ui_rect_make(0, 0, 0, 0);
     return r->frame == ctx->frame ? r->rect : r->prev_rect;
+}
+
+/* ---- panel opacity (lane SHELL, wave 3b) ----------------------------------- */
+void ui_panel_set_alpha(ui_ctx *ctx, float alpha)
+{
+    ui_root *r = &ctx->roots[ctx->cur_root];
+    if (r->kind != UI_ROOT_PANEL) return;
+    r->alpha = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha);
+}
+
+bool ui_panel_held(const ui_ctx *ctx)
+{
+    const ui_root *r = &ctx->roots[ctx->cur_root];
+    return r->kind == UI_ROOT_PANEL && ctx->active != 0 && ctx->active_root == r->id;
 }

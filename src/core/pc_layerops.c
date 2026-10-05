@@ -667,6 +667,7 @@ void pc_rotzoom_default(pc_rotzoom *rz)
     rz->quality = 1u;
     rz->tiling = PC_WRAP_NONE;
     rz->sampling = PC_SAMPLE_BILINEAR;
+    rz->gamma = false;
 }
 
 bool pc_rotzoom_xform(const pc_rotzoom *rz, pc_rect frame, pc_xform *fwd)
@@ -730,7 +731,7 @@ static pc_status rotzoom_grid(const pc_doc *d, const pc_layer *l, const pc_rotzo
     w.quality = rz->quality;
     w.aa_edges = true;            /* soft edges, as the 3.36 bilinear masks */
     w.src_rect = pc_doc_rect(d);
-    return pc_warp_grid(&g, &w, d->w, d->h, par, out);
+    return pc_warp_grid_ex(&g, &w, rz->gamma, d->w, d->h, par, out);
 }
 
 static pc_status rotzoom_run(pc_hist *h, pc_txn *open_t, pc_doc *d, uint32_t layer_id,
