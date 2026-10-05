@@ -822,41 +822,27 @@ pc_status pdn_dump(const uint8_t *p, size_t n, uint32_t flags, pc_buf *out)
         snprintf(tmp, sizeof tmp, "!! container: %s\n", pc_status_str(st));
         return pc_buf_append(out, tmp, strlen(tmp)) == PC_OK ? st : PC_ERR_NOMEM;
     }
-    /* header XML with the thumbnail elided */
-    {
-        const char *v;
-        size_t vl, pre;
-        (void)pc_buf_append(out, "PDN3 header: ", 13u);
-        v = NULL;
-        for (size_t i = 0; i + 5u <= c.xml_len; i++)
-            if (memcmp(c.xml + i, "png=\"", 5u) == 0) { v = c.xml + i + 5u; break; }
-        if (v) {
-            const char *e = v;
-            while ((size_t)(e - c.xml) < c.xml_len && *e != '"') e++;
-            pre = (size_t)(v - c.xml);
-            vl = (size_t)(e - v);
-            if (flags & NRBF_DUMP_STRUCT) {     /* savedWithVersion value elided */
-                const char *sv;
-                size_t svl;
-                if (xml_attr(c.xml + 1, c.xml_len - 1u, "savedWithVersion", &sv, &svl) &&
-                    sv + svl <= v) {
-                    (void)pc_buf_append(out, c.xml, (size_t)(sv - c.xml));
-                    (void)pc_buf_append(out, "*", 1u);
-                    (void)pc_buf_append(out, sv + svl, (size_t)(v - (sv + svl)));
-                } else {
-                    (void)pc_buf_append(out, c.xml, pre);
-                }
-            } else {
-                (void)pc_buf_append(out, c.xml, pre);
-            }
-            snprintf(tmp, sizeof tmp, (flags & NRBF_DUMP_STRUCT) ? "(png)" : "(%zu chars)", vl);
+    /* header XML: thumbnail elided, struct dumps also elide savedWithVersion */
+    (void)pc_buf_append(out, "PDN3 header: ", 13u);
+    for (size_t i = 0; i < c.xml_len;) {
+        bool png = c.xml_len - i >= 5u && memcmp(c.xml + i, "png=\"", 5u) == 0;
+        bool ver = (flags & NRBF_DUMP_STRUCT) && c.xml_len - i >= 18u &&
+                   memcmp(c.xml + i, "savedWithVersion=\"", 18u) == 0;
+        if (png || ver) {
+            size_t s0 = i + (png ? 5u : 18u), e = s0;
+            while (e < c.xml_len && c.xml[e] != '"') e++;
+            (void)pc_buf_append(out, c.xml + i, s0 - i);
+            if (ver) snprintf(tmp, sizeof tmp, "*");
+            else if (flags & NRBF_DUMP_STRUCT) snprintf(tmp, sizeof tmp, "(png)");
+            else snprintf(tmp, sizeof tmp, "(%zu chars)", e - s0);
             (void)pc_buf_append(out, tmp, strlen(tmp));
-            (void)pc_buf_append(out, e, c.xml_len - (size_t)(e - c.xml));
+            i = e;
         } else {
-            (void)pc_buf_append(out, c.xml, c.xml_len);
+            (void)pc_buf_append(out, c.xml + i, 1u);
+            i++;
         }
-        (void)pc_buf_append(out, "\n", 1u);
     }
+    (void)pc_buf_append(out, "\n", 1u);
     nrbf_opts_default(&no);
     no.libs = NULL;
     no.classes = NULL;
