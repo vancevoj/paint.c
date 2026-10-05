@@ -505,7 +505,8 @@ static void t_drags(void)
         pc_shape_drag_update(&d, &s, p, PC_MOD_SHIFT);
         CHECK(e3_near(pc_shape_angle(&s), 15.0 * PI / 180.0, 1e-12));
         a = 25.0 * PI / 180.0;
-        pc_shape_drag_update(&d, &s, pc_pt_make(200 + 50 * cos(a), 150 + 50 * sin(a)), PC_MOD_SHIFT);
+        pc_shape_drag_update(&d, &s, pc_pt_make(200 + 50 * cos(a), 150 + 50 * sin(a)),
+                             PC_MOD_SHIFT);
         CHECK(e3_near(pc_shape_angle(&s), 30.0 * PI / 180.0, 1e-12));
         CHECK(pt_near(pc_shape_center(&s), 200, 150, 1e-9));
     }

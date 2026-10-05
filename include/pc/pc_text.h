@@ -1,0 +1,270 @@
+/* pc_text.h - font-backend-agnostic text layout, editing and rendering for
+ * the Text tool (lane E3).
+ *
+ * Fonts come from the app through pc_font_face, a table of callbacks
+ * (glyph lookup, has-glyph query, metrics, advances, kerning, outlines as
+ * pc_path), so the core never parses font files (P-06). The app connects
+ * stb_truetype (ADR-004) or any other backend; tests use a synthetic face.
+ *
+ * Layout model (TOOLS.md 11.1, 3.3; docs TextTool):
+ *  - Lines break only at '\n' (Enter); there is no word wrap.
+ *  - Each line is aligned relative to the origin (the click point): Left
+ *    extends right, Center both ways, Right extends left.
+ *  - Line height = ascent + descent + line gap of the primary face. The
+ *    vertical anchor defaults to the 3.36 rule: the first line's box is
+ *    centered on the origin (PC_TEXT_ANCHOR_LINE_CENTER).
+ *  - Em size in pixels: Points = size * image DPI / 72, Fixed (96 DPI) =
+ *    size * 96 / 72 (identical at 96 DPI).
+ *  - Codepoints the primary face lacks come from the first fallback face
+ *    that has them, else the primary face's glyph 0 (.notdef). Kerning
+ *    applies between neighbors of the same face. No complex-script shaping
+ *    (ADR-004): one glyph per codepoint, combining marks drawn at the pen
+ *    position with their own advance.
+ *  - Bold and italic are synthesized when the face lacks them: the outline
+ *    is sheared by 0.2 (about 11.3 degrees) and emboldened by stroking it
+ *    with em/24 (each glyph advance grows by em/24). Underline and
+ *    strikeout span each line's advance width.
+ *  - Rendering: the glyph outlines (nonzero) plus decorations become one
+ *    coverage layer painted with pc_vrender (primary color, blend mode,
+ *    antialiasing, selection clipping). Fill styles are not supported for
+ *    text (docs), but any pc_paint_src works.
+ *
+ * Editing model: the text is UTF-8 (always valid after insertion) with a
+ * caret and a selection anchor as byte offsets on caret stops. Caret stops
+ * are cluster boundaries: a base character plus following combining
+ * marks, variation selectors, emoji modifiers, ZWJ sequences, and pairs
+ * of regional indicators. Word movement and deletion follow the usual
+ * word processor rules (Ctrl+Left/Right, Ctrl+Backspace/Delete).
+ *
+ * Thread rules: a pc_text belongs to one thread (the main thread); its
+ * font callbacks run on that thread, synchronously inside pc_text calls,
+ * never concurrently. Rendering hands pure per-tile work to par workers
+ * through pc_paint_apply (pc_shapes.h).
+ * Ownership: pc_text owns its text, layout and glyph cache. Font faces
+ * (and their ud) are borrowed and must outlive the pc_text or the next
+ * pc_text_set_fonts. Pointers returned by queries are borrowed until the
+ * next mutating call.
+ */
+#ifndef PC_TEXT_H
+#define PC_TEXT_H
+
+#include "pc_shapes.h"
+
+/* Hard cap on the text size (P-08). */
+#define PC_TEXT_MAX_BYTES ((size_t)1u << 20)
+
+/* ---- font backend ---------------------------------------------------------------- */
+
+/* Text rendering modes (TOOLS.md 3.3). The engine passes the mode to the
+ * backend, which may hint outlines and advances for the Sharp modes. */
+typedef enum pc_text_mode {
+    PC_TEXT_SMOOTH = 0,          /* "Smooth": unhinted outlines */
+    PC_TEXT_SHARP_MODERN = 1,    /* "Sharp (Modern)": natural symmetric hinting */
+    PC_TEXT_SHARP_CLASSIC = 2,   /* "Sharp (Classic)": GDI-like hinting */
+    PC_TEXT_MODE_COUNT = 3
+} pc_text_mode;
+
+/* Face metrics in pixels for a given em size. Zero decoration fields ask
+ * for the engine's defaults (underline 0.1 em below the baseline,
+ * strikeout 0.3 em above it, thickness max(1, em / 14)). */
+typedef struct pc_font_metrics {
+    double ascent;               /* > 0: baseline to the line top */
+    double descent;              /* >= 0: baseline to the line bottom */
+    double line_gap;             /* >= 0: extra space between lines */
+    double underline_offset;     /* baseline to the underline center, > 0 below */
+    double underline_thickness;
+    double strike_offset;        /* baseline to the strikeout center, < 0 above */
+    double strike_thickness;
+} pc_font_metrics;
+
+typedef struct pc_font_face {
+    void *ud;
+    /* Glyph index of codepoint cp, 0 when the face has no glyph for it. */
+    uint32_t  (*glyph)(void *ud, uint32_t cp);
+    /* Optional "has glyph" query used for fallback; NULL means
+     * glyph(ud, cp) != 0. */
+    bool      (*has_glyph)(void *ud, uint32_t cp);
+    /* Metrics at em pixels per em. NULL or ascent <= 0 gives ascent
+     * 0.8 em, descent 0.2 em, no line gap. */
+    void      (*metrics)(void *ud, double em, pc_font_metrics *out);
+    /* Horizontal advance of glyph gid in pixels. */
+    double    (*advance)(void *ud, uint32_t gid, double em, pc_text_mode mode);
+    /* Optional kerning adjustment between two glyphs in pixels (added to
+     * the left glyph's advance). */
+    double    (*kerning)(void *ud, uint32_t left, uint32_t right, double em);
+    /* Append the outline of gid to out: pen at (0, 0) on the baseline, y
+     * down, pixels, closed subpaths, filled with the nonzero rule. May be
+     * NULL (nothing drawn). Errors abort the render with that status. */
+    pc_status (*outline)(void *ud, uint32_t gid, double em, pc_text_mode mode, pc_path *out);
+    bool bold;                   /* the face is bold: no synthetic emboldening */
+    bool italic;                 /* the face is italic: no synthetic slant */
+} pc_font_face;
+
+/* ---- style ---------------------------------------------------------------------------- */
+
+typedef enum pc_text_align {
+    PC_TEXT_LEFT = 0,
+    PC_TEXT_CENTER = 1,
+    PC_TEXT_RIGHT = 2
+} pc_text_align;
+
+typedef enum pc_text_unit {
+    PC_TEXT_POINTS = 0,          /* "Points (image DPI)" */
+    PC_TEXT_FIXED96 = 1          /* "Fixed (96 DPI)" */
+} pc_text_unit;
+
+typedef enum pc_text_anchor {
+    PC_TEXT_ANCHOR_LINE_CENTER = 0,  /* first line's box centered on the origin */
+    PC_TEXT_ANCHOR_TOP = 1,          /* first line's top at the origin */
+    PC_TEXT_ANCHOR_BASELINE = 2      /* first baseline at the origin */
+} pc_text_anchor;
+
+typedef struct pc_text_style {
+    double         size;         /* font size in `unit` (decimals allowed) */
+    pc_text_unit   unit;
+    double         dpi;          /* image DPI (PC_TEXT_POINTS) */
+    bool           bold, italic, underline, strikeout;
+    pc_text_align  align;
+    pc_text_mode   mode;
+    pc_text_anchor anchor;
+    bool           snap;         /* round each line's start and baseline to
+                                    whole pixels */
+} pc_text_style;
+
+/* 12, Points, 96 DPI, no styles, Left, Smooth, line-center anchor, snap. */
+void      pc_text_style_default(pc_text_style *st);
+/* Em size in pixels for st, 0 when st is invalid. Any thread. */
+double    pc_text_em_pixels(const pc_text_style *st);
+
+/* ---- layout results -------------------------------------------------------------------- */
+
+typedef struct pc_text_line {
+    size_t byte_start, byte_end;     /* [start, end), the '\n' excluded */
+    size_t glyph_start, glyph_end;   /* into pc_text_glyphs */
+    double x;                        /* pen start (left edge of the advance box) */
+    double width;                    /* advance width */
+    double top, baseline, bottom;
+} pc_text_line;
+
+typedef struct pc_text_glyph {
+    uint32_t cp;                     /* codepoint */
+    uint32_t gid;                    /* glyph index in its face */
+    uint32_t face;                   /* index into the face list */
+    bool     cluster_start;          /* false for marks joined to the glyph before */
+    size_t   byte;                   /* byte offset of cp */
+    double   x, y;                   /* pen position: left, on the baseline */
+    double   advance;                /* including kerning and synthetic bold */
+} pc_text_glyph;
+
+/* ---- the text object ------------------------------------------------------------------ */
+
+typedef struct pc_text pc_text;
+
+pc_text  *pc_text_create(void);                 /* empty, default style; NULL on OOM */
+void      pc_text_destroy(pc_text *t);          /* NULL-safe */
+
+/* faces[0] is the primary face, faces[1..n) fallbacks in order (n <= 16).
+ * The array is copied; the faces are borrowed. n == 0 clears the fonts
+ * (nothing is drawn). PC_ERR_ARG for NULL faces or missing glyph or
+ * advance callbacks. Clears the glyph cache and re-lays the text out. */
+pc_status pc_text_set_fonts(pc_text *t, const pc_font_face *const *faces, size_t n);
+/* PC_ERR_ARG when the em size is not in [0.1, 10000] px or an enum is out
+ * of range (the style is then unchanged). Re-lays the text out. */
+pc_status pc_text_set_style(pc_text *t, const pc_text_style *st);
+const pc_text_style *pc_text_get_style(const pc_text *t);
+void      pc_text_set_origin(pc_text *t, pc_pt origin);   /* moving the text block */
+pc_pt     pc_text_origin(const pc_text *t);
+
+/* Replace the whole text (normalized like pc_text_insert); caret at the
+ * end. PC_ERR_LIMIT beyond PC_TEXT_MAX_BYTES, PC_ERR_NOMEM (unchanged). */
+pc_status pc_text_set_utf8(pc_text *t, const char *s, size_t n);
+/* The text, NUL-terminated (len may be NULL). */
+const char *pc_text_utf8(const pc_text *t, size_t *len);
+bool      pc_text_is_empty(const pc_text *t);
+
+/* ---- caret, selection and editing -------------------------------------------------------- */
+
+size_t    pc_text_caret(const pc_text *t);
+size_t    pc_text_sel_anchor(const pc_text *t); /* equals the caret when nothing is selected */
+bool      pc_text_has_selection(const pc_text *t);
+/* Move the caret to the caret stop at or before index (clamped to the
+ * text); extend keeps the anchor (Shift), otherwise the selection is
+ * cleared. */
+void      pc_text_set_caret(pc_text *t, size_t index, bool extend);
+void      pc_text_select_all(pc_text *t);
+
+/* Insert UTF-8 at the caret, replacing the selection; the caret ends after
+ * the insertion. Normalization: invalid sequences become U+FFFD, CR LF
+ * and lone CR become '\n', a tab becomes a space, other C0/C1 controls
+ * and DEL are dropped. PC_ERR_LIMIT when the result would exceed
+ * PC_TEXT_MAX_BYTES, PC_ERR_NOMEM; the text is unchanged on error. */
+pc_status pc_text_insert(pc_text *t, const char *utf8, size_t n);
+/* Backspace / Delete: remove the selection, or the cluster before / after
+ * the caret, or with word the span to the previous word start / next word
+ * start (Ctrl). Return PC_OK also when there was nothing to remove. */
+pc_status pc_text_backspace(pc_text *t, bool word);
+pc_status pc_text_delete(pc_text *t, bool word);
+
+typedef enum pc_text_move {
+    PC_TEXT_MOVE_LEFT = 0,
+    PC_TEXT_MOVE_RIGHT,
+    PC_TEXT_MOVE_WORD_LEFT,          /* Ctrl+Left: previous word start */
+    PC_TEXT_MOVE_WORD_RIGHT,         /* Ctrl+Right: next word start */
+    PC_TEXT_MOVE_HOME,               /* line start */
+    PC_TEXT_MOVE_END,                /* line end */
+    PC_TEXT_MOVE_UP,                 /* previous line at the remembered x */
+    PC_TEXT_MOVE_DOWN,
+    PC_TEXT_MOVE_DOC_START,          /* Ctrl+Home */
+    PC_TEXT_MOVE_DOC_END             /* Ctrl+End */
+} pc_text_move;
+
+/* Caret movement; extend (Shift) keeps the anchor. Left / Right with a
+ * selection and no extend collapse to the selection's edge. Up on the first
+ * line and Down on the last line do not move (3.36 behavior). */
+void      pc_text_move_caret(pc_text *t, pc_text_move m, bool extend);
+
+/* ---- layout queries ------------------------------------------------------------------------ */
+
+const pc_text_line  *pc_text_lines(const pc_text *t, size_t *n);    /* n >= 1 */
+const pc_text_glyph *pc_text_glyphs(const pc_text *t, size_t *n);
+double    pc_text_line_height(const pc_text *t);
+/* Box of all line advance boxes (empty lines count with zero width). */
+void      pc_text_bounds(const pc_text *t, pc_box *out);
+/* Caret at byte index (snapped to a stop): x0 == x1 = caret x, y0 / y1 =
+ * the line's top and bottom. */
+void      pc_text_caret_box(const pc_text *t, size_t index, pc_box *out);
+/* Caret stop nearest to document point p: the line under p (clamped to
+ * the first and last line), then the stop whose x is nearest (a click on
+ * the right half of a character lands after it). */
+size_t    pc_text_hit_index(const pc_text *t, pc_pt p);
+/* Selection highlight boxes, one per line touched by [anchor, caret)
+ * (lines selected through their end get a small extra width for the
+ * newline). Writes at most cap boxes, returns the number needed. */
+size_t    pc_text_selection_boxes(const pc_text *t, pc_box *out, size_t cap);
+/* Move handle (T-TEXT-NUB): offset below and right of the caret's bottom. */
+pc_pt     pc_text_handle_pos(const pc_text *t, double offset);
+
+typedef enum pc_text_part {
+    PC_TEXT_PART_NONE = 0,           /* elsewhere: a click commits the text */
+    PC_TEXT_PART_HANDLE,             /* the move handle */
+    PC_TEXT_PART_INSIDE              /* inside the text bounds grown by the
+                                        hit radius: place the caret */
+} pc_text_part;
+pc_text_part pc_text_hit_test(const pc_text *t, pc_pt p, const pc_handle_metrics *m);
+
+/* ---- geometry and rendering ---------------------------------------------------------------- */
+
+/* Append the coverage geometry (glyph outlines with synthetic styles,
+ * underline, strikeout) in document coordinates to out, for the nonzero
+ * rule. Glyph outlines are cached per face and glyph until the fonts or
+ * the style change. Backend outline errors are returned. */
+pc_status pc_text_build(pc_text *t, pc_poly *out);
+
+/* Render through vr into layer_id of tx with src (the primary color; NULL
+ * = opaque black). Empty text clears what vr painted before. dirty as
+ * pc_vrender_draw. */
+pc_status pc_text_render(pc_text *t, pc_vrender *vr, pc_txn *tx, uint32_t layer_id,
+                         const pc_paint_src *src, const pc_vdraw_opts *o, const pc_par *par,
+                         pc_rect *dirty);
+
+#endif /* PC_TEXT_H */

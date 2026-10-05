@@ -46,7 +46,8 @@ static void t_names(void)
     CHECK(strcmp(pc_line_cap_name(PC_CAP_BUTT), "Flat") == 0);
     CHECK(strcmp(pc_dash_style_name(PC_DASH_DASH_DOT_DOT), "Dash Dot Dot") == 0);
     CHECK(strcmp(pc_curve_type_name(PC_CURVE_BEZIER), "Bezier") == 0);
-    CHECK(pc_curve_type_name((pc_curve_type)7)[0] == '\0' && pc_dash_style_name((pc_dash_style)9)[0] == '\0');
+    CHECK(pc_curve_type_name((pc_curve_type)7)[0] == '\0');
+    CHECK(pc_dash_style_name((pc_dash_style)9)[0] == '\0');
 }
 
 static void t_create(void)
@@ -210,7 +211,8 @@ static void t_caps(void)
     lc.style.end_cap = PC_CAP_BUTT;
     CHECK(line_area(&lc, true, r, &m) > 200.0);
     CHECK(pc_mask_at(&m, 29, 25) > 0u && pc_mask_at(&m, 29, 34) > 0u);
-    CHECK(pc_mask_at(&m, 25, 30) > 0u && pc_mask_at(&m, 18, 30) > 0u && pc_mask_at(&m, 16, 30) == 0u);
+    CHECK(pc_mask_at(&m, 25, 30) > 0u && pc_mask_at(&m, 18, 30) > 0u);
+    CHECK(pc_mask_at(&m, 16, 30) == 0u);    /* the mitered tip ends at x = 17.76 */
     pc_mask_free(&m);
     /* arrows follow the end direction of curves */
     lc.style.start_cap = PC_CAP_BUTT;
@@ -291,7 +293,8 @@ static void t_thin(void)
     CHECK(pc_mask_at(&m, 16, 27) && pc_mask_at(&m, 16, 33) && !pc_mask_at(&m, 16, 29));
     CHECK(!pc_mask_at(&m, 16, 26) && !pc_mask_at(&m, 16, 34));
     for (int y = 0; y < 64; y++)
-        for (int x = 0; x < 64; x++) CHECK(pc_mask_at(&m, x, y) == 0u || pc_mask_at(&m, x, y) == 255u);
+        for (int x = 0; x < 64; x++)
+            CHECK(pc_mask_at(&m, x, y) == 0u || pc_mask_at(&m, x, y) == 255u);
     pc_mask_free(&m);
 }
 

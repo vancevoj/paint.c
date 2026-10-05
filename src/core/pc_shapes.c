@@ -247,12 +247,15 @@ static double clamp_width(double w)
 void pc_shape_doc_bounds(const pc_shape *s, pc_box *out)
 {
     double g = 0.0;
-    for (int i = 0; i < 4; i++) {
+    pc_pt p0 = pc_shape_nub(s, 0);
+    out->x0 = out->x1 = p0.x;
+    out->y0 = out->y1 = p0.y;
+    for (int i = 1; i < 4; i++) {
         pc_pt p = pc_shape_nub(s, 2 * i);
-        if (i == 0 || p.x < out->x0) out->x0 = p.x;
-        if (i == 0 || p.y < out->y0) out->y0 = p.y;
-        if (i == 0 || p.x > out->x1) out->x1 = p.x;
-        if (i == 0 || p.y > out->y1) out->y1 = p.y;
+        if (p.x < out->x0) out->x0 = p.x;
+        if (p.y < out->y0) out->y0 = p.y;
+        if (p.x > out->x1) out->x1 = p.x;
+        if (p.y > out->y1) out->y1 = p.y;
     }
     if (has_outline(&s->style)) {
         g = clamp_width(s->style.width) * 0.5;
