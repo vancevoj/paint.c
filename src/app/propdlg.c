@@ -6,7 +6,9 @@
  *   INT, REAL    label, slider, numeric up/down, reset button (log and
  *                percent flags, step and decimals from the schema)
  *   BOOL         check box
- *   CHOICE       "Label:" and a drop-down on one row
+ *   CHOICE       "Label:" and a drop-down on one row; the drop-down is as
+ *                wide as its longest item (at least 176 DIP) and moves
+ *                below its label when the row would not fit (W4-SAVECFG)
  *   COLOR        label, color wheel, R G B A channel bars with numbers, the
  *                swatch with hex entry and a reset button; FX_COLOR_PRIMARY /
  *                FX_COLOR_SECONDARY defaults follow the palette; with
@@ -589,6 +591,33 @@ static bool w_point(app *a, const fx_prop *p, void *params, uint32_t dis,
     return false;
 }
 
+/* W4-SAVECFG (F-FILE-DDS-SAVE-BC7SPEED): widths in px of a choice row,
+ * the "Label:" text (0 without a label) and the drop-down: natural is what
+ * ui_combo measures for its longest item (text, 10 DIP padding on both
+ * sides, 24 DIP arrow), want is that but at least the 176 DIP every
+ * dialog used before. */
+static void choice_widths(ui_ctx *ui, const fx_prop *p, uint32_t cn, const char *lbl,
+                          int32_t *label_w, int32_t *natural, int32_t *want)
+{
+    ui_font *f = ui_font_regular(ui);
+    float fs = ui_font_px(ui);
+    int32_t wmax = 0;
+    *label_w = lbl ? (int32_t)ceilf(ui_text_width(f, fs, lbl, strlen(lbl))) : 0;
+    for (uint32_t i = 0; i < cn; i++) {
+        int32_t w = (int32_t)ceilf(ui_text_width(f, fs, p->choices[i], strlen(p->choices[i])));
+        if (w > wmax) wmax = w;
+    }
+    *natural = wmax + 2 * ui_px(ui, 10.0f) + ui_px(ui, 24.0f);
+    *want = *natural > ui_px(ui, 176.0f) ? *natural : ui_px(ui, 176.0f);
+}
+
+/* A layout cell of exactly px pixels (cells are given in DIPs). */
+static ui_size cell_px(ui_ctx *ui, int32_t px)
+{
+    float s = ui_scale(ui) > 0.0f ? ui_scale(ui) : 1.0f;
+    return ui_size_px((float)px / s);
+}
+
 static bool w_choice(app *a, const fx_prop *p, void *params, uint32_t dis)
 {
     ui_ctx *ui = a->ui;
@@ -598,11 +627,35 @@ static bool w_choice(app *a, const fx_prop *p, void *params, uint32_t dis)
     if (cn == 0u) return false;
     if (p->label && *p->label) {
         ui_size cells[3];
-        cells[0] = ui_size_auto();
-        cells[1] = ui_size_px(176.0f);
-        cells[2] = ui_size_fr(1.0f);
-        ui_layout_row(ui, 0.0f, 3, cells);
+        int32_t lw, nat, want, avail = ui_layout_rest(ui).w;
+        int32_t sp = ui_px(ui, ui_get_theme(ui)->m.spacing);
         snprintf(lbl, sizeof lbl, "%s:", p->label);
+        choice_widths(ui, p, cn, lbl, &lw, &nat, &want);
+        if (lw + sp + want <= avail) {               /* one row, sized to the items */
+            cells[0] = cell_px(ui, lw);
+            cells[1] = cell_px(ui, want);
+            cells[2] = ui_size_fr(1.0f);
+            ui_layout_row(ui, 0.0f, 3, cells);
+        } else if (lw + sp + nat <= avail) {         /* one row, the rest of it */
+            cells[0] = cell_px(ui, lw);
+            cells[1] = ui_size_fr(1.0f);
+            ui_layout_row(ui, 0.0f, 2, cells);
+        } else {                                     /* the label above the drop-down */
+            ui_layout_column(ui);
+            ui_label_ex(ui, lbl, dis);
+            cells[0] = cell_px(ui, want < avail ? want : avail);
+            cells[1] = ui_size_fr(1.0f);
+            ui_layout_row(ui, 0.0f, 2, cells);
+            ui_combo(ui, "##choice", &v, p->choices, (int)cn);
+            hit_note(a, p->key, AFX_HIT_MAIN, ui_last_rect(ui));
+            if (dis) dim_last(a);
+            ui_layout_column(ui);
+            if (v != old && !dis) {
+                app_prop_set(p, params, (double)v);
+                return true;
+            }
+            return false;
+        }
         ui_label_ex(ui, lbl, dis);
     }
     ui_combo(ui, "##choice", &v, p->choices, (int)cn);
@@ -741,4 +794,50 @@ uint32_t app_props_ui(app *a, const fx_prop *props, uint32_t n, void *params,
                       const app_props_ctx *ctx)
 {
     return afx_props_ui(a, props, n, params, ctx, NULL);
+}
+
+/* W4-SAVECFG: the narrowest container width (px) at which every check box
+ * and choice row of props stays on one line and every slider row keeps its
+ * slider (labels of sliders, angles and colors sit on their own lines). */
+int32_t app_props_width(app *a, const fx_prop *props, uint32_t n)
+{
+    ui_ctx *ui = a->ui;
+    const ui_theme *th = ui_get_theme(ui);
+    ui_font *f = ui_font_regular(ui);
+    float fs = ui_font_px(ui);
+    int32_t sp = ui_px(ui, th->m.spacing), best = 0;
+    /* slider rows: slider >= 48, numeric box >= 56, reset button (ui_slider.c) */
+    int32_t slider_min = ui_px(ui, 48.0f + 56.0f + th->m.control_h) + 2 * sp;
+    for (uint32_t i = 0; i < n; i++) {
+        const fx_prop *p = &props[i];
+        int32_t w = 0, lw = p->label ? (int32_t)ceilf(ui_text_width(f, fs, p->label,
+                                                                    strlen(p->label))) : 0;
+        switch (p->kind) {
+        case FXP_CHOICE: {
+            uint32_t cn = choice_count(p);
+            int32_t clw, nat, want;
+            char lbl[160];
+            if (cn == 0u) break;
+            snprintf(lbl, sizeof lbl, "%s:", p->label ? p->label : "");
+            choice_widths(ui, p, cn, p->label && *p->label ? lbl : NULL, &clw, &nat, &want);
+            w = clw ? clw + sp + want : want;
+            break;
+        }
+        case FXP_BOOL:
+            w = ui_px(ui, th->m.check) + ui_px(ui, 8.0f) + lw;
+            break;
+        case FXP_INT:
+        case FXP_REAL:
+            w = lw > slider_min ? lw : slider_min;
+            break;
+        case FXP_SEED:
+            w = lw + 2 * ui_px(ui, 12.0f);
+            break;
+        default:
+            w = lw;
+            break;
+        }
+        if (w > best) best = w;
+    }
+    return best;
 }
