@@ -10,8 +10,16 @@
  * previous frame. Once a press is accepted the canvas captures the
  * pointer until every button is released, so strokes keep every motion
  * event at full rate. Pen events carry pressure; the mouse events SDL
- * synthesizes from pens are ignored for tools. Main thread. */
+ * synthesizes from pens are ignored for tools. Main thread.
+ *
+ * Lane SHELL (wave 3b, shell_ext.h): auto-scroll while a tool drags at
+ * the view edge (V-AUTOSCROLL), two-finger pinch zoom (V-ZOOM-PINCH),
+ * Space + arrows panning (V-PAN-KEYS), Zoom to Window twice re-centers
+ * (V-ZOOM-RECENTER), the first presentation of an image waits for its
+ * visible tiles (V-NOFLICKER), marching ants at the display refresh rate
+ * with a battery saver pause (V-SEL-ANTS). */
 #include "app_internal.h"
+#include "shell_ext.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -23,7 +31,101 @@
 #define SBAR_DIP  14.0f
 #define FIT_MARGIN_DIP 12.0f
 #define UPDATE_BUDGET_NS 14000000ull     /* view cache work per frame */
-#define ANTS_STEP_MS 60u
+#define FIRST_BUDGET_NS 120000000ull     /* first presentation of an image (V-NOFLICKER) */
+#define ANTS_STEP_MS 60u                 /* 3.36: the dashes move one pixel per 60 ms */
+#define KEY_PAN_DIP 10.0                 /* V-PAN-KEYS step on screen */
+#define AS_EDGE_DIP 4.0f                 /* auto-scroll starts this close to the edge */
+#define AS_MIN_SPEED 240.0               /* screen px per second at the edge */
+#define AS_GAIN 14.0                     /* extra px per second per px beyond it */
+#define AS_MAX_SPEED 6000.0
+#define SHELL_MAX_FINGERS 10
+
+/* ---- lane SHELL state (app_ext "shell.cv") ------------------------------------------------- */
+typedef struct shell_finger {
+    SDL_TouchID  touch;
+    SDL_FingerID id;
+    float        x, y;               /* normalized 0..1 */
+} shell_finger;
+
+typedef struct shell_cv {
+    bool         autoscroll;          /* Settings > User Interface (default on) */
+    uint64_t     as_ns;               /* time of the last auto-scroll step, 0 = idle */
+    /* two-finger gestures */
+    shell_finger fing[SHELL_MAX_FINGERS];
+    int          nfing;
+    bool         pinching;
+    int          pinch_mode;          /* 0 undecided, 1 zoom/pan, 2 scroll (indirect) */
+    bool         pinch_direct;        /* touch screen: positions map to the window */
+    SDL_TouchID  pinch_touch;
+    double       p_d0, p_cx0, p_cy0;  /* start distance and centroid (normalized) */
+    double       p_z0, p_docx, p_docy;/* zoom at the start, image point under the centroid */
+    bool         native_pinch;        /* SDL >= 3.4 pinch events seen */
+    bool         touch_block;         /* ignore touch-synthesized mouse until fingers lift */
+    bool         touch_press;         /* the last canvas press came from a touch screen */
+    uint32_t     touch_doc;           /* image and history node at that press */
+    uint64_t     touch_seq;
+    /* first presentation (V-NOFLICKER) */
+    uint32_t     shown_doc;
+    bool         shown_ok;
+    uint64_t     shown_ms;            /* when the image became active */
+    uint64_t     first_budget_ns;     /* 0 = FIRST_BUDGET_NS (tests lower it) */
+    /* marching ants */
+    double       ants_phase;          /* dash offset, screen px */
+    uint64_t     ants_ms;             /* time of the last phase advance, 0 = paused */
+    uint64_t     power_ms;            /* last battery check */
+    bool         power_saver;
+    int          power_force;         /* -1 measure, 0 off, 1 on (tests) */
+} shell_cv;
+
+static shell_cv *scv(const app *a)
+{
+    shell_cv *s = (shell_cv *)app_ext_get(a, "shell.cv");
+    if (!s) {
+        s = (shell_cv *)calloc(1u, sizeof *s);
+        if (!s) return NULL;
+        s->autoscroll = true;
+        s->power_force = -1;
+        if (!app_ext_set((app *)(uintptr_t)a, "shell.cv", s, free)) {
+            free(s);
+            return NULL;
+        }
+    }
+    return s;
+}
+
+void app_canvas_set_autoscroll(app *a, bool on)
+{
+    shell_cv *s = scv(a);
+    if (s) s->autoscroll = on;
+}
+
+bool app_canvas_autoscroll(const app *a)
+{
+    shell_cv *s = scv(a);
+    return s ? s->autoscroll : true;
+}
+
+void app_canvas_force_power_saver(app *a, int state)
+{
+    shell_cv *s = scv(a);
+    if (s) {
+        s->power_force = state < 0 ? -1 : (state ? 1 : 0);
+        s->power_ms = 0;
+    }
+}
+
+void app_canvas_set_first_budget(app *a, uint64_t ns)
+{
+    shell_cv *s = scv(a);
+    if (s) s->first_budget_ns = ns;
+}
+
+bool app_canvas_first_shown(app *a)
+{
+    shell_cv *s = scv(a);
+    app_doc *d = app_active_doc(a);
+    return s && d && s->shown_doc == d->id && s->shown_ok;
+}
 
 /* ---- views ---------------------------------------------------------------------- */
 gfx_view app_doc_gview(const app *a, const app_doc *d)
@@ -83,10 +185,13 @@ void app_view_fit_toggle(app *a, app_doc *d)
     if (!d) return;
     v = app_doc_gview(a, d);
     if (d->view.fit_mode && d->view.has_prev) {
-        /* V-ZOOM-WINDOW: the second invocation restores the previous view */
+        /* V-ZOOM-WINDOW / V-ZOOM-RECENTER: the second invocation restores
+         * the previous zoom level and keeps the image centered (the
+         * ViewTools "Centering an Image" trick; 3.36 also only restored
+         * the scale). prev_cx / prev_cy are kept for API compatibility. */
         v.zoom = d->view.prev_zoom;
-        v.cx = d->view.prev_cx;
-        v.cy = d->view.prev_cy;
+        v.cx = (double)v.dw * 0.5;
+        v.cy = (double)v.dh * 0.5;
         gfx_view_clamp(&v, a->overscroll);
         d->view.fit_mode = false;
         d->view.has_prev = false;
@@ -120,6 +225,17 @@ void app_view_pan_px(app *a, app_doc *d, double dx, double dy)
     v = app_doc_gview(a, d);
     gfx_view_pan_px(&v, dx, dy, a->overscroll);
     app_doc_set_gview(a, d, &v);
+}
+
+double app_view_key_pan_step(const app *a) { return (double)ui_px(a->ui, (float)KEY_PAN_DIP); }
+
+void app_view_key_pan(app *a, app_doc *d, int dx, int dy, bool ten)
+{
+    double step;
+    if (!d || (dx == 0 && dy == 0)) return;
+    step = app_view_key_pan_step(a) * (ten ? 10.0 : 1.0);
+    /* the arrow moves the view: Right shows what is to the right */
+    app_view_pan_px(a, d, -(double)dx * step, -(double)dy * step);
 }
 
 void app_view_home(app *a, app_doc *d, int which)
@@ -337,6 +453,175 @@ static int map_btn(Uint8 b)
     return -1;
 }
 
+/* ---- two-finger pinch zoom (V-ZOOM-PINCH, lane SHELL) -------------------------------------
+ * SDL 3.2 finger events. Touch screens (direct devices) report positions
+ * normalized to the window: the image point under the two fingers'
+ * centroid follows the centroid while the zoom follows the finger
+ * distance, so pinching zooms around the gesture and moving both fingers
+ * pans. Touchpads that report fingers (indirect devices, macOS trackpads)
+ * report positions on the pad: the gesture zooms around the pointer once
+ * the finger distance changed clearly before the fingers moved together
+ * (otherwise it is a two-finger scroll, which arrives as wheel events).
+ * With SDL >= 3.4 the native pinch events of touchpads are used instead
+ * and indirect finger pinches are ignored from then on. */
+static int finger_find(const shell_cv *s, SDL_TouchID t, SDL_FingerID f)
+{
+    for (int i = 0; i < s->nfing; i++)
+        if (s->fing[i].touch == t && s->fing[i].id == f) return i;
+    return -1;
+}
+
+static bool touch_direct(SDL_TouchID t)
+{
+    SDL_TouchDeviceType k = SDL_GetTouchDeviceType(t);
+    /* unknown devices (synthetic events) are treated as touch screens */
+    return k != SDL_TOUCH_DEVICE_INDIRECT_ABSOLUTE && k != SDL_TOUCH_DEVICE_INDIRECT_RELATIVE;
+}
+
+/* The first two fingers of the gesture device: distance and centroid. */
+static bool pinch_geom(const shell_cv *s, const app *a, double *dist, double *cx, double *cy)
+{
+    const shell_finger *f0 = NULL, *f1 = NULL;
+    double w = s->pinch_direct ? (double)(a->fi.width > 0 ? a->fi.width : 1) : 1.0;
+    double h = s->pinch_direct ? (double)(a->fi.height > 0 ? a->fi.height : 1) : 1.0;
+    double dx, dy;
+    for (int i = 0; i < s->nfing; i++) {
+        if (s->fing[i].touch != s->pinch_touch) continue;
+        if (!f0) f0 = &s->fing[i];
+        else if (!f1) f1 = &s->fing[i];
+    }
+    if (!f0 || !f1) return false;
+    dx = ((double)f1->x - (double)f0->x) * w;
+    dy = ((double)f1->y - (double)f0->y) * h;
+    *dist = sqrt(dx * dx + dy * dy);
+    *cx = ((double)f0->x + (double)f1->x) * 0.5 * w;
+    *cy = ((double)f0->y + (double)f1->y) * 0.5 * h;
+    return *dist > 1e-6;
+}
+
+static void touch_undo(app *a, app_doc *d, uint64_t seq)
+{
+    pc_hist *h = d->hist;
+    size_t depth = 0;
+    const pc_hist_node *n;
+    if (!h || d->txn || d->doc->open_txns || h->cur->seq == seq || !h->cur->parent ||
+        h->cur->parent->seq != seq)
+        return;
+    if (!pc_hist_undo(h)) return;
+    for (n = h->cur; n->parent; n = n->parent) depth++;
+    pc_hist_prune(h, depth + 1u);                /* the undone step is not redoable */
+    app_doc_history_changed(a, d);
+}
+
+static void pinch_begin(app *a, shell_cv *s)
+{
+    app_doc *d = app_active_doc(a);
+    double dist, cx, cy;
+    gfx_view v;
+    s->pinching = false;
+    if (!d || app_dialog_active(a) || !pinch_geom(s, a, &dist, &cx, &cy)) return;
+    if (!s->pinch_direct && s->native_pinch) return;
+    v = app_doc_gview(a, d);
+    if (s->pinch_direct) {
+        /* the gesture must start over the image view */
+        if (cx < (double)v.vx || cy < (double)v.vy || cx >= (double)(v.vx + v.vw) ||
+            cy >= (double)(v.vy + v.vh))
+            return;
+        s->p_docx = v.cx + (cx - ((double)v.vx + (double)v.vw * 0.5)) / v.zoom;
+        s->p_docy = v.cy + (cy - ((double)v.vy + (double)v.vh * 0.5)) / v.zoom;
+        /* a touch that started a tool drag becomes a gesture: the tool
+         * gets the usual cancel, and a history step the touch made (a
+         * stroke ends by committing what it painted) is undone and
+         * dropped, so the gesture leaves no trace */
+        if (a->cv.captured) {
+            app_canvas_lost_capture(a);
+            if (s->touch_press && s->touch_doc == d->id) touch_undo(a, d, s->touch_seq);
+        }
+        s->touch_block = true;
+        s->pinch_mode = 1;
+    } else {
+        if (!a->cv.mouse_in || !app_canvas_over(a)) return;
+        s->pinch_mode = 0;
+    }
+    s->pinching = true;
+    s->p_d0 = dist;
+    s->p_cx0 = cx;
+    s->p_cy0 = cy;
+    s->p_z0 = v.zoom;
+}
+
+static void pinch_update(app *a, shell_cv *s)
+{
+    app_doc *d = app_active_doc(a);
+    double dist, cx, cy, z;
+    gfx_view v;
+    if (!s->pinching || !d || !pinch_geom(s, a, &dist, &cx, &cy)) return;
+    if (s->pinch_mode == 0) {
+        /* touchpad: decide between pinch and two-finger scroll */
+        double ds = fabs(log(dist / s->p_d0));
+        double mv = hypot(cx - s->p_cx0, cy - s->p_cy0);
+        if (ds > 0.08 && ds > mv * 1.5) s->pinch_mode = 1;
+        else if (mv > 0.05) s->pinch_mode = 2;
+        if (s->pinch_mode == 1) {         /* restart from here: no jump */
+            s->p_d0 = dist;
+            s->p_z0 = d->view.zoom;
+        }
+        return;
+    }
+    if (s->pinch_mode != 1) return;
+    z = gfx_zoom_clamp(s->p_z0 * dist / s->p_d0);
+    v = app_doc_gview(a, d);
+    if (s->pinch_direct) {
+        v.zoom = z;
+        v.cx = s->p_docx - (cx - ((double)v.vx + (double)v.vw * 0.5)) / z;
+        v.cy = s->p_docy - (cy - ((double)v.vy + (double)v.vh * 0.5)) / z;
+        gfx_view_clamp(&v, a->overscroll);
+    } else {
+        gfx_view_zoom_at(&v, z, (double)a->cv.mx, (double)a->cv.my, a->overscroll);
+    }
+    d->view.fit_mode = false;
+    app_doc_set_gview(a, d, &v);
+}
+
+static void touch_event(app *a, const SDL_Event *e)
+{
+    shell_cv *s = scv(a);
+    const SDL_TouchFingerEvent *t = &e->tfinger;
+    int i;
+    if (!s || t->touchID == SDL_MOUSE_TOUCHID) return;
+    i = finger_find(s, t->touchID, t->fingerID);
+    if (e->type == SDL_EVENT_FINGER_DOWN) {
+        if (i < 0 && s->nfing < SHELL_MAX_FINGERS) {
+            i = s->nfing++;
+            s->fing[i].touch = t->touchID;
+            s->fing[i].id = t->fingerID;
+        }
+        if (i < 0) return;
+        s->fing[i].x = t->x;
+        s->fing[i].y = t->y;
+        if (!s->pinching) {
+            int same = 0;
+            for (int k = 0; k < s->nfing; k++) same += s->fing[k].touch == t->touchID;
+            if (same == 2) {
+                s->pinch_touch = t->touchID;
+                s->pinch_direct = touch_direct(t->touchID);
+                pinch_begin(a, s);
+            }
+        }
+    } else if (e->type == SDL_EVENT_FINGER_MOTION) {
+        if (i < 0) return;
+        s->fing[i].x = t->x;
+        s->fing[i].y = t->y;
+        if (s->pinching && t->touchID == s->pinch_touch) pinch_update(a, s);
+    } else {                                  /* up or canceled */
+        if (i < 0) return;
+        s->fing[i] = s->fing[--s->nfing];
+        if (s->pinching && t->touchID == s->pinch_touch) s->pinching = false;
+        if (s->nfing == 0) s->touch_block = false;
+    }
+    app_request_frame(a);
+}
+
 void app_canvas_event(app *a, const SDL_Event *e)
 {
     app_canvas *c = &a->cv;
@@ -344,6 +629,45 @@ void app_canvas_event(app *a, const SDL_Event *e)
     SDL_Event m_mouse;                   /* lane M: pen as mouse */
     memset(&q, 0, sizeof q);
     q.pressure = 1.0f;
+    /* lane SHELL: touch gestures; while two fingers pinch, the mouse
+     * events SDL synthesizes from the touch screen are not for the tools */
+    if (e->type == SDL_EVENT_FINGER_DOWN || e->type == SDL_EVENT_FINGER_UP ||
+        e->type == SDL_EVENT_FINGER_MOTION || e->type == SDL_EVENT_FINGER_CANCELED) {
+        touch_event(a, e);
+        return;
+    }
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+    if (e->type == SDL_EVENT_PINCH_BEGIN || e->type == SDL_EVENT_PINCH_UPDATE ||
+        e->type == SDL_EVENT_PINCH_END) {
+        shell_cv *s = scv(a);
+        app_doc *d = app_active_doc(a);
+        if (s) s->native_pinch = true;
+        if (e->type == SDL_EVENT_PINCH_UPDATE && d && !app_dialog_active(a) && c->mouse_in &&
+            app_canvas_over(a) && e->pinch.scale > 0.0f) {
+            gfx_view v = app_doc_gview(a, d);
+            gfx_view_zoom_at(&v, v.zoom * (double)e->pinch.scale, (double)c->mx, (double)c->my,
+                             a->overscroll);
+            d->view.fit_mode = false;
+            app_doc_set_gview(a, d, &v);
+        }
+        return;
+    }
+#endif
+    if ((e->type == SDL_EVENT_MOUSE_MOTION && e->motion.which == SDL_TOUCH_MOUSEID) ||
+        ((e->type == SDL_EVENT_MOUSE_BUTTON_DOWN || e->type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+         e->button.which == SDL_TOUCH_MOUSEID)) {
+        shell_cv *s = scv(a);
+        if (s && (s->touch_block || s->pinching)) return;
+        if (s && e->type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+            app_doc *d = app_active_doc(a);
+            s->touch_press = true;
+            s->touch_doc = d ? d->id : 0u;
+            s->touch_seq = d && d->hist ? d->hist->cur->seq : 0u;
+        }
+    } else if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN || e->type == SDL_EVENT_PEN_DOWN) {
+        shell_cv *s = scv(a);
+        if (s) s->touch_press = false;
+    }
     /* lane M: Settings > Pen & Tablet off: pen events are ignored and the
      * mouse events SDL synthesizes from pens are used like a mouse */
     if (a->m_pen_off) {
@@ -574,6 +898,192 @@ static void process_queue(app *a, const ui_interaction *in)
     c->nq = 0;
 }
 
+/* ---- auto-scroll (V-AUTOSCROLL, lane SHELL) -------------------------------------------------
+ * While a tool drags (not a pan, not the Pan tool, as in 3.36) and the
+ * pointer is at an edge of the view or beyond it, the view scrolls toward
+ * that side by elapsed time, faster the further out the pointer is. It
+ * never scrolls into the overscroll area: an axis moves only toward the
+ * limit the view has without overscroll and stops there. After a step the
+ * tool receives a move at the same screen position, which is now another
+ * image position, so selections and strokes follow. */
+static double as_speed(double depth)
+{
+    double v = AS_MIN_SPEED + AS_GAIN * depth;
+    return v > AS_MAX_SPEED ? AS_MAX_SPEED : v;
+}
+
+static void auto_scroll(app *a, app_doc *d)
+{
+    app_canvas *c = &a->cv;
+    shell_cv *s = scv(a);
+    const app_tool *t = app_tool_current(a);
+    double edge, sx = 0.0, sy = 0.0, dt, x0, x1, y0, y1, ncx, ncy, depth;
+    uint64_t now;
+    gfx_view v;
+    if (!s) return;
+    if (!s->autoscroll || !c->captured || c->panning || !d || app_dialog_active(a) ||
+        (t && strcmp(t->id, "pan") == 0)) {
+        s->as_ns = 0;
+        return;
+    }
+    edge = (double)ui_px(a->ui, AS_EDGE_DIP);
+    depth = (double)c->view.x + edge - (double)c->mx;
+    if (depth > 0.0) sx = -as_speed(depth);
+    depth = (double)c->mx - ((double)(c->view.x + c->view.w) - edge);
+    if (depth > 0.0) sx = as_speed(depth);
+    depth = (double)c->view.y + edge - (double)c->my;
+    if (depth > 0.0) sy = -as_speed(depth);
+    depth = (double)c->my - ((double)(c->view.y + c->view.h) - edge);
+    if (depth > 0.0) sy = as_speed(depth);
+    if (sx == 0.0 && sy == 0.0) {
+        s->as_ns = 0;
+        return;
+    }
+    now = SDL_GetTicksNS();
+    if (s->as_ns == 0u || now <= s->as_ns) {
+        /* the first frame at the edge only starts the clock */
+        s->as_ns = now;
+        app_request_frame_at(a, a->now + 8u);
+        return;
+    }
+    dt = (double)(now - s->as_ns) * 1e-9;
+    if (dt > 0.05) dt = 0.05;                 /* a stalled frame does not jump */
+    s->as_ns = now;
+    v = app_doc_gview(a, d);
+    gfx_view_range(&v, false, &x0, &x1, &y0, &y1);
+    ncx = v.cx + sx * dt / v.zoom;
+    ncy = v.cy + sy * dt / v.zoom;
+    if (sx > 0.0) ncx = v.cx < x1 ? (ncx < x1 ? ncx : x1) : v.cx;
+    else if (sx < 0.0) ncx = v.cx > x0 ? (ncx > x0 ? ncx : x0) : v.cx;
+    if (sy > 0.0) ncy = v.cy < y1 ? (ncy < y1 ? ncy : y1) : v.cy;
+    else if (sy < 0.0) ncy = v.cy > y0 ? (ncy > y0 ? ncy : y0) : v.cy;
+    if (ncx != v.cx || ncy != v.cy) {
+        app_qev q;
+        v.cx = ncx;
+        v.cy = ncy;
+        gfx_view_clamp(&v, a->overscroll);
+        d->view.fit_mode = false;
+        app_doc_set_gview(a, d, &v);
+        memset(&q, 0, sizeof q);
+        q.kind = QEV_MOVE;
+        q.x = c->mx;
+        q.y = c->my;
+        q.pen = c->pen_down;
+        q.eraser = c->pen_down && c->pen_eraser;
+        q.pressure = c->pen_down ? c->pen_pressure : 1.0f;
+        q.mods = cur_mods(a);
+        q.ts = now;
+        send(a, APP_PTR_MOVE, &q, c->first_button);
+    }
+    app_request_frame_at(a, a->now + 8u);
+}
+
+/* ---- Space + arrows (V-PAN-KEYS, lane SHELL) ------------------------------------------------
+ * Taken from the frame's key presses so that tools (which would nudge
+ * with the arrows) and shortcuts never see them while Space is down. */
+static void key_pan(app *a, app_doc *d)
+{
+    static const struct { int32_t key; int dx, dy; } k[4] = {
+        { SDLK_LEFT, -1, 0 }, { SDLK_RIGHT, 1, 0 }, { SDLK_UP, 0, -1 }, { SDLK_DOWN, 0, 1 }
+    };
+    uint32_t m = 0;
+    if (!a->cv.space_down || !d) return;
+    for (int i = 0; i < 4; i++)
+        while (ui_key_take_any(a->ui, k[i].key, &m))
+            app_view_key_pan(a, d, k[i].dx, k[i].dy, (m & (UI_MOD_CTRL | UI_MOD_GUI)) != 0u);
+}
+
+/* ---- first presentation (V-NOFLICKER, lane SHELL) -------------------------------------------
+ * A newly active image is shown only once every tile of the view is in
+ * the display cache: the first frame gets a larger budget, and until the
+ * visible tiles exist the canvas shows the empty workspace (no
+ * checkerboard flash, no half drawn image). A safety limit of two seconds
+ * stops the wait for views that cannot be cached at once. */
+static bool first_ready(app *a, app_doc *d, const gfx_view *v, uint64_t budget_ns)
+{
+    uint32_t level = gfx_view_level(v->zoom);
+    pc_rect lr = gfx_view_level_rect(v, level);
+    pc_comp_opts o;
+    uint64_t t0 = SDL_GetTicksNS();
+    int32_t band = 2 * (int32_t)PC_TILE_DIM;
+    if (gfx_view_ready(v, d->vcache)) return true;
+    if (pc_rect_is_empty(lr)) return true;
+    o = app_doc_comp_opts(d);
+    for (int32_t y = lr.y & ~((int32_t)PC_TILE_DIM - 1); y < lr.y + lr.h; y += band) {
+        pc_rect r = pc_rect_intersect(lr, pc_rect_make(lr.x, y, lr.w, band));
+        if (pc_rect_is_empty(r)) continue;
+        if (pc_view_cache_update(d->vcache, d->doc, &o, level, r, &a->par) != PC_OK) break;
+        if (SDL_GetTicksNS() - t0 > budget_ns) break;
+    }
+    return gfx_view_ready(v, d->vcache);
+}
+
+static bool first_hold(app *a, app_doc *d, const gfx_view *v)
+{
+    shell_cv *s = scv(a);
+    if (!s) return false;
+    if (s->shown_doc != d->id) {
+        s->shown_doc = d->id;
+        s->shown_ok = false;
+        s->shown_ms = a->now;
+    }
+    if (s->shown_ok) return false;
+    if (first_ready(a, d, v, s->first_budget_ns ? s->first_budget_ns : FIRST_BUDGET_NS) ||
+        a->now - s->shown_ms > 2000u) {
+        s->shown_ok = true;
+        return false;
+    }
+    app_request_frame(a);
+    return true;
+}
+
+/* ---- marching ants timing (V-SEL-ANTS, lane SHELL) ------------------------------------------ */
+float app_canvas_ants_hz(app *a)
+{
+    float hz = 0.0f;
+    if (a->win) {
+        SDL_DisplayID id = SDL_GetDisplayForWindow(a->win);
+        const SDL_DisplayMode *m = id ? SDL_GetCurrentDisplayMode(id) : NULL;
+        if (m) hz = m->refresh_rate;
+    }
+    if (!(hz >= 20.0f)) hz = 60.0f;
+    if (hz > 500.0f) hz = 500.0f;
+    return hz;
+}
+
+bool app_canvas_ants_paused(app *a)
+{
+    shell_cv *s = scv(a);
+    if (!a->focused) return true;
+    if (!s) return false;
+    if (s->power_force >= 0) return s->power_force == 1;
+    if (s->power_ms == 0u || a->now - s->power_ms > 10000u) {
+        int pct = -1;
+        SDL_PowerState ps = SDL_GetPowerInfo(NULL, &pct);
+        s->power_saver = ps == SDL_POWERSTATE_ON_BATTERY && pct >= 0 && pct <= 20;
+        s->power_ms = a->now ? a->now : 1u;
+    }
+    return s->power_saver;
+}
+
+/* The dash offset in screen pixels: one pixel per 60 ms like 3.36, but
+ * continuous, so every frame at the refresh rate moves the dashes (drawn
+ * with antialiased ends, gfx_draw_ants). Frozen while paused. */
+static double ants_phase(app *a)
+{
+    shell_cv *s = scv(a);
+    if (!s) return 0.0;
+    if (!app_canvas_ants_paused(a)) {
+        if (s->ants_ms && a->now > s->ants_ms)
+            s->ants_phase += (double)(a->now - s->ants_ms) / (double)ANTS_STEP_MS;
+        s->ants_ms = a->now;
+    } else {
+        s->ants_ms = 0;
+    }
+    s->ants_phase = fmod(s->ants_phase, 4096.0);
+    return s->ants_phase;
+}
+
 /* ---- scroll bars --------------------------------------------------------------------- */
 static void scrollbar(app *a, app_doc *d, ui_rect r, bool horiz)
 {
@@ -762,9 +1272,7 @@ static void draw_cb(SDL_Renderer *r, ui_rect clip, void *ud)
     {
         const pc_poly *ants = app_doc_ants(d);
         if (ants && ants->n_contours) {
-            uint64_t t = a->focused ? a->now - a->cv.ants_t0 : 0u;
-            double phase = (double)(t / ANTS_STEP_MS);
-            gfx_draw_ants(a->ren, &dc->v, ants, phase, (double)ui_px(a->ui, 4.0f),
+            gfx_draw_ants(a->ren, &dc->v, ants, ants_phase(a), (double)ui_px(a->ui, 4.0f),
                           pc_rect_make(clip.x, clip.y, clip.w, clip.h));
         }
     }
@@ -850,6 +1358,9 @@ void app_canvas_frame(app *a, ui_rect area)
     c->hovered = in.hovered || c->captured;
     process_queue(a, &in);
     if (d != app_active_doc(a)) return;       /* a tool closed or switched the image */
+    auto_scroll(a, d);                        /* lane SHELL */
+    if (d != app_active_doc(a)) return;
+    key_pan(a, d);
     v = app_doc_gview(a, d);
 
     /* hover (one per frame) */
@@ -889,8 +1400,9 @@ void app_canvas_frame(app *a, ui_rect area)
         }
     }
 
-    /* image drop shadow, then the image (callback) and the ants */
-    {
+    /* image drop shadow, then the image (callback) and the ants; nothing
+     * until a new image's view can be shown completely (V-NOFLICKER) */
+    if (!first_hold(a, d, &v)) {
         double x0, y0, x1, y1;
         gfx_view_doc_rect(&v, &x0, &y0, &x1, &y1);
         ui_push_clip(ui, c->view);
@@ -985,7 +1497,10 @@ void app_canvas_prepare(app *a)
         }
     }
     if (c->need_more) app_request_frame(a);
-    /* marching ants animation */
-    if (a->focused && pc_sel_is_active(d->doc))
-        app_request_frame_at(a, a->now + ANTS_STEP_MS);
+    /* marching ants animation at the display refresh rate (V-SEL-ANTS) */
+    if (pc_sel_is_active(d->doc) && !app_canvas_ants_paused(a)) {
+        float hz = app_canvas_ants_hz(a);
+        uint64_t ms = (uint64_t)(1000.0f / hz);
+        app_request_frame_at(a, a->now + (ms > 0u ? ms : 1u));
+    }
 }

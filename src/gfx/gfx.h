@@ -80,6 +80,15 @@ void        gfx_canvas_set_budget(gfx_canvas *c, uint32_t page_budget);
  * to the level image). Feed it to pc_view_cache_update before drawing. */
 pc_rect     gfx_view_level_rect(const gfx_view *v, uint32_t level);
 
+/* V-RENDER-UP: true when zoom draws magnified pixels with antialiased
+ * edges (non-integer zoom above 100 % on SDL >= 3.4), false when they are
+ * drawn with nearest sampling. */
+bool        gfx_upscale_antialiased(double zoom);
+
+/* True when every tile of the view's mip level rect is in vc (possibly
+ * stale): the view can be presented without holes (V-NOFLICKER). */
+bool        gfx_view_ready(const gfx_view *v, const pc_view_cache *vc);
+
 /* Upload changed tiles of vc and draw checkerboard, image and grid for
  * view v. Tiles missing from the cache draw as transparent. A different
  * cache (or a cache whose epoch changed) resets the pages first. stats

@@ -117,6 +117,23 @@ pc_rect gfx_view_level_rect(const gfx_view *v, uint32_t level)
     return r;
 }
 
+bool gfx_view_ready(const gfx_view *v, const pc_view_cache *vc)
+{
+    uint32_t level;
+    pc_rect lr;
+    pc_view_tile t;
+    if (!v || !vc) return false;
+    level = gfx_view_level(v->zoom);
+    lr = gfx_view_level_rect(v, level);
+    if (pc_rect_is_empty(lr)) return true;
+    for (uint32_t ty = (uint32_t)lr.y >> PC_TILE_SHIFT;
+         ty <= (uint32_t)(lr.y + lr.h - 1) >> PC_TILE_SHIFT; ty++)
+        for (uint32_t tx = (uint32_t)lr.x >> PC_TILE_SHIFT;
+             tx <= (uint32_t)(lr.x + lr.w - 1) >> PC_TILE_SHIFT; tx++)
+            if (!pc_view_cache_get(vc, level, tx, ty, &t)) return false;
+    return true;
+}
+
 /* ---- pages ------------------------------------------------------------------ */
 static gfx_page *find_page(gfx_canvas *c, uint32_t level, uint32_t px, uint32_t py)
 {
@@ -303,6 +320,31 @@ static void draw_grid(gfx_canvas *c, const gfx_view *v, const gfx_style *st, con
     SDL_RenderFillRects(c->r, c->rects, (int)n);
 }
 
+/* ---- upscaling (V-RENDER-UP) ------------------------------------------------------- */
+/* Above 100 % at a zoom that is not a whole number, Paint.NET 5.0.4+
+ * antialiases the edges of the magnified pixels instead of showing uneven
+ * pixel widths. SDL 3.4 provides that sampler (SDL_SCALEMODE_PIXELART:
+ * nearest inside a texel, a one screen pixel linear blend across texel
+ * edges; premultiplied pages make the blend correct). Builds against SDL
+ * 3.2 and renderers without it keep plain nearest (ADR-003). */
+static SDL_ScaleMode gfx_upscale_mode(double zoom)
+{
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+    static int runtime_ok = -1;
+    if (runtime_ok < 0) runtime_ok = SDL_GetVersion() >= SDL_VERSIONNUM(3, 4, 0) ? 1 : 0;
+    if (runtime_ok && zoom > 1.0 + 1e-9 && fabs(zoom - floor(zoom + 0.5)) > 1e-6)
+        return SDL_SCALEMODE_PIXELART;
+#else
+    (void)zoom;
+#endif
+    return SDL_SCALEMODE_NEAREST;
+}
+
+bool gfx_upscale_antialiased(double zoom)
+{
+    return gfx_upscale_mode(zoom) != SDL_SCALEMODE_NEAREST;
+}
+
 /* ---- main draw --------------------------------------------------------------------- */
 void gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
                      const gfx_style *st, gfx_stats *stats)
@@ -313,6 +355,7 @@ void gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
     double ox, oy, scale, ix0, iy0, ix1, iy1;
     pc_rect lr;
     bool nearest;
+    SDL_ScaleMode up_mode;
     if (!c || !v || !st) return;
     c->frame++;
     c->uploads = c->visible = c->missing = 0;
@@ -339,6 +382,7 @@ void gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
     level = gfx_view_level(v->zoom);
     scale = v->zoom * (double)(1u << level);
     nearest = gfx_view_nearest(v->zoom);
+    up_mode = gfx_upscale_mode(v->zoom);
     gfx_view_origin(v, &ox, &oy);
     {
         /* level pixels under the clipped screen area (same origin as v) */
@@ -408,8 +452,7 @@ void gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
                 dst.y = (float)(oy + (double)sy0 * scale);
                 dst.w = (float)((double)(sx1 - sx0) * scale);
                 dst.h = (float)((double)(sy1 - sy0) * scale);
-                SDL_SetTextureScaleMode(p->tex, nearest ? SDL_SCALEMODE_NEAREST
-                                                        : SDL_SCALEMODE_LINEAR);
+                SDL_SetTextureScaleMode(p->tex, nearest ? up_mode : SDL_SCALEMODE_LINEAR);
                 SDL_RenderTexture(c->r, p->tex, &src, &dst);
             }
         }

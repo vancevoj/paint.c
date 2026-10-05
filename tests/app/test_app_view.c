@@ -39,21 +39,21 @@ static void t_presets(void)
     CHECK(gfx_zoom_next_in(1.0) == 1.5);
     CHECK(gfx_zoom_next_in(1.5) == 2.0);
     CHECK(gfx_zoom_next_in(2.0) == 3.0);
-    CHECK(gfx_zoom_next_in(64.0) == 80.0);
+    CHECK(gfx_zoom_next_in(64.0) == 76.0);     /* OBSERVED 8 (lane SHELL) */
     CHECK(gfx_zoom_next_in(100.0) == 100.0);
     /* V-ZOOM-PRESETS-DOWN */
-    CHECK(gfx_zoom_next_out(1.0) == 0.67);
-    CHECK(gfx_zoom_next_out(0.67) == 0.5);
-    CHECK(gfx_zoom_next_out(0.5) == 0.33);
-    CHECK(gfx_zoom_next_out(0.33) == 0.25);
+    CHECK(gfx_zoom_next_out(1.0) == 1.0 / 1.5);     /* 2/3 and 1/3 (OBSERVED 8, lane SHELL) */
+    CHECK(gfx_zoom_next_out(1.0 / 1.5) == 0.5);
+    CHECK(gfx_zoom_next_out(0.5) == 1.0 / 3.0);
+    CHECK(gfx_zoom_next_out(1.0 / 3.0) == 0.25);
     CHECK(gfx_zoom_next_out(0.25) == 0.20);
-    CHECK(gfx_zoom_next_out(0.02) == 0.01);
+    CHECK(gfx_zoom_next_out(1.0 / 88.0) == 0.01);   /* lowest observed step (lane SHELL) */
     CHECK(gfx_zoom_next_out(0.01) == 0.01);
     /* off-preset zooms step to the neighbours, with the 0.005 tolerance */
     CHECK(gfx_zoom_next_in(1.2) == 1.5);
     CHECK(gfx_zoom_next_out(1.2) == 1.0);
     CHECK(gfx_zoom_next_in(0.997) == 1.5);      /* 0.997 + 0.005 > 1 */
-    CHECK(gfx_zoom_next_out(1.003) == 0.67);
+    CHECK(gfx_zoom_next_out(1.003) == 1.0 / 1.5);
     /* stepping in then out returns to a preset */
     {
         double z = 1.0;
