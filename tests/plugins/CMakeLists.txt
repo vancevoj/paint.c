@@ -43,3 +43,13 @@ if(TARGET test_f_plugins)
   target_compile_definitions(test_f_plugins PRIVATE AFX_FIXTURES="${_fxp_out}"
                              AFX_SUFFIX="${_fxp_suffix}")
 endif()
+
+# Optional plugin tests: every plg_<slug>.cmake in this folder (one per
+# plugin of plugins/<slug>) is included, so a plugin adds its test without
+# editing this file. Each one builds tests/plugins/test_plg_<slug>.c, which
+# loads the built plugin through the real loader.
+file(GLOB _plg_cmake CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/plg_*.cmake)
+list(SORT _plg_cmake)
+foreach(_f ${_plg_cmake})
+  include(${_f})
+endforeach()
