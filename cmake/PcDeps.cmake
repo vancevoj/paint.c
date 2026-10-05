@@ -8,10 +8,43 @@ if(POLICY CMP0135)
   cmake_policy(SET CMP0135 NEW)
 endif()
 
+# Optional download cache: archives are kept in PC_DOWNLOAD_CACHE (by file
+# name, verified by SHA-256) so CI caches and repeated fresh builds do not
+# download them again. Empty = download into the build tree as usual.
+set(PC_DOWNLOAD_CACHE "" CACHE PATH "Directory that keeps dependency archives between builds")
+
+# pc_dep_url(<out-var> <url> <sha256>) - the URL to give FetchContent: the
+# cached archive when PC_DOWNLOAD_CACHE is set, else url itself.
+function(pc_dep_url out url sha)
+  if(NOT PC_DOWNLOAD_CACHE)
+    set(${out} "${url}" PARENT_SCOPE)
+    return()
+  endif()
+  get_filename_component(_name "${url}" NAME)
+  set(_file "${PC_DOWNLOAD_CACHE}/${_name}")
+  set(_have "")
+  if(EXISTS "${_file}")
+    file(SHA256 "${_file}" _have)
+  endif()
+  if(NOT _have STREQUAL "${sha}")
+    file(MAKE_DIRECTORY "${PC_DOWNLOAD_CACHE}")
+    file(DOWNLOAD "${url}" "${_file}.part" EXPECTED_HASH SHA256=${sha}
+         TLS_VERIFY ON STATUS _st)
+    list(GET _st 0 _code)
+    if(NOT _code EQUAL 0)
+      file(REMOVE "${_file}.part")
+      message(FATAL_ERROR "paint.c: download of ${url} failed: ${_st}")
+    endif()
+    file(RENAME "${_file}.part" "${_file}")
+  endif()
+  set(${out} "${_file}" PARENT_SCOPE)
+endfunction()
+
 # Download a source tarball without running its own CMake (we define the
 # targets ourselves where that is simpler and more portable).
 macro(pc_fetch_sources name url sha)
-  FetchContent_Declare(${name} URL ${url} URL_HASH SHA256=${sha}
+  pc_dep_url(_pc_url ${url} ${sha})
+  FetchContent_Declare(${name} URL ${_pc_url} URL_HASH SHA256=${sha}
                        SOURCE_SUBDIR __pc_no_cmake__)
   FetchContent_MakeAvailable(${name})
 endmacro()
@@ -34,10 +67,22 @@ function(pc_dep_sdl3)
     set(SDL_TESTS OFF CACHE BOOL "" FORCE)
     set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(sdl3
-      URL https://github.com/libsdl-org/SDL/releases/download/release-3.4.18/SDL3-3.4.18.tar.gz
-      URL_HASH SHA256=9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3)
+    set(_sha 9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3)
+    pc_dep_url(_url
+      https://github.com/libsdl-org/SDL/releases/download/release-3.4.18/SDL3-3.4.18.tar.gz
+      ${_sha})
+    FetchContent_Declare(sdl3 URL ${_url} URL_HASH SHA256=${_sha})
     FetchContent_MakeAvailable(sdl3)
+    # Consumers see SDL's headers as system headers, so our -Wpedantic
+    # -Werror (and /W4 /WX) never trip over third-party code.
+    foreach(_t SDL3-static SDL3-shared SDL3_Headers)
+      if(TARGET ${_t})
+        get_target_property(_inc ${_t} INTERFACE_INCLUDE_DIRECTORIES)
+        if(_inc)
+          set_target_properties(${_t} PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_inc}")
+        endif()
+      endif()
+    endforeach()
   else()
     message(STATUS "paint.c: using system SDL3 ${SDL3_VERSION}")
   endif()
