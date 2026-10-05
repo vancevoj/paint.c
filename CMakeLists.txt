@@ -19,7 +19,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 option(PC_SANITIZE    "Build with AddressSanitizer + UBSan (GCC/Clang)" OFF)
 option(PC_TSAN        "Build with ThreadSanitizer (GCC/Clang)" OFF)
 option(PC_HEADLESS    "Build only the headless libraries and tests (no SDL)" OFF)
-option(PC_VENDOR_SDL  "Always build SDL3 from source instead of using a system copy" OFF)
+option(PC_VENDOR_SDL  "Build the pinned SDL3 3.4.18 from source (default; OFF accepts a system SDL3 >= 3.4)" ON)
 option(PC_BUILD_TESTS "Build test executables" ON)
 
 include(PcCommon)     # pc_warnings(), sanitizer flags

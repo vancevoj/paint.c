@@ -13,7 +13,7 @@ arguments runs the full reference suite.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `PC_VENDOR_SDL` | OFF | Always build SDL3 3.4.18 from source (CI does) |
+| `PC_VENDOR_SDL` | ON | Build the pinned SDL3 3.4.18 from source. OFF uses a system SDL3 >= 3.4 (SDL 3.2.x has an X11 clipboard crash, so it is not accepted) |
 | `PC_SANITIZE` | OFF | AddressSanitizer + UBSan on every target (GCC, Clang) |
 | `PC_TSAN` | OFF | ThreadSanitizer on every target (GCC, Clang) |
 | `PC_HEADLESS` | OFF | Only the headless libraries and their tests, no SDL |

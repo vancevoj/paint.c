@@ -51,14 +51,18 @@ macro(pc_fetch_sources name url sha)
 endmacro()
 
 # ---- SDL3 (zlib license) -----------------------------------------------------
-# Uses an installed SDL3 >= 3.2 unless PC_VENDOR_SDL is ON or none is found.
-# Code must only use the SDL 3.2 API surface so both paths behave the same.
+# Builds the pinned SDL3 3.4.18 by default (PC_VENDOR_SDL=ON). With
+# PC_VENDOR_SDL=OFF an installed SDL3 >= 3.4 is used if present: SDL 3.2.x
+# crashes on X11 when another SDL3 process exchanges the clipboard
+# (SIGSEGV in XInternAtom / BadWindow, found by the wave 4 monkey tests), so
+# 3.2 is no longer accepted. Code uses the 3.2 API surface plus 3.4 APIs only
+# behind SDL_VERSION_ATLEAST(3,4,0).
 function(pc_dep_sdl3)
   if(TARGET SDL3::SDL3)
     return()
   endif()
   if(NOT PC_VENDOR_SDL)
-    find_package(SDL3 3.2 CONFIG QUIET)
+    find_package(SDL3 3.4 CONFIG QUIET)
   endif()
   if(NOT SDL3_FOUND)
     message(STATUS "paint.c: building SDL3 3.4.18 from source")
