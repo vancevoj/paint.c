@@ -1,0 +1,21 @@
+--- a/src/core/pc_doc.c
++++ b/src/core/pc_doc.c
+@@ -193,7 +193,7 @@
+     for (uint32_t i = 0; i < d->n_layers; i++) {
+         const pc_layer *l = d->stack[i];
+         uint32_t mode = (uint32_t)l->mode;
+-        uint8_t vis = l->visible ? 1u : 0u;
++        uint8_t vis = (uint8_t)(l->visible ? 1u : 0u);
+         h = fnv(h, &l->id, sizeof l->id);
+         h = fnv(h, l->name, sizeof l->name);
+         h = fnv(h, &mode, sizeof mode);
+--- a/src/core/pc_fill.c
++++ b/src/core/pc_fill.c
+@@ -111,6 +111,6 @@
+         const pc_px32 *row = img + (size_t)y * stride_px;
+         uint8_t *mrow = mask + (size_t)y * (size_t)w;
+         for (int32_t x = 0; x < w; x++)
+-            mrow[x] = pc_color_within(row[x], seed, lim) ? 255u : 0u;
++            mrow[x] = (uint8_t)(pc_color_within(row[x], seed, lim) ? 255u : 0u);
+     }
+ }

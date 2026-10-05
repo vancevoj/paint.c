@@ -1089,6 +1089,7 @@ static void t_encoders(void)
         for (int it = 0; it < iters; it++) {
             uint8_t m[256];
             size_t n = 40u + rndu(200u);
+            memset(m, 0, sizeof m);
             memcpy(m, dib, n < dib_n ? n : dib_n);
             for (int k = (int)rndu(6u) + 1; k > 0; k--) m[rndu((uint32_t)n)] = rnd8();
             if (rndu(2u)) { m[0] = 40; m[1] = m[2] = m[3] = 0; }
