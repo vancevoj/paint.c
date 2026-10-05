@@ -198,7 +198,7 @@ uint64_t pc_doc_fingerprint(const pc_doc *d)
     for (uint32_t i = 0; i < d->n_layers; i++) {
         const pc_layer *l = d->stack[i];
         uint32_t mode = (uint32_t)l->mode;
-        uint8_t vis = l->visible ? 1u : 0u;
+        uint8_t vis = (uint8_t)(l->visible ? 1u : 0u);
         h = fnv(h, &l->id, sizeof l->id);
         h = fnv(h, l->name, sizeof l->name);
         h = fnv(h, &mode, sizeof mode);

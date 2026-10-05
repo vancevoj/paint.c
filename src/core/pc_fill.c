@@ -111,6 +111,6 @@ void pc_flood_global(const pc_px32 *img, int32_t w, int32_t h,
         const pc_px32 *row = img + (size_t)y * stride_px;
         uint8_t *mrow = mask + (size_t)y * (size_t)w;
         for (int32_t x = 0; x < w; x++)
-            mrow[x] = pc_color_within(row[x], seed, lim) ? 255u : 0u;
+            mrow[x] = (uint8_t)(pc_color_within(row[x], seed, lim) ? 255u : 0u);
     }
 }

@@ -77,4 +77,17 @@ pc_status pc_hist_set_layer_props(pc_hist *h, uint32_t layer_id,
                                   bool visible, const char *name,
                                   const char *label);
 
+/* ---- history memory budget --------------------------------------------- */
+
+/* Approximate bytes held by all history payloads (sum of ops->bytes).
+ * Tiles are counted as tile_bytes / refs for every holder, so a tile shared
+ * between the document and history, or between several payloads, adds up
+ * to its size once in total instead of once per holder. Main thread. */
+size_t    pc_hist_bytes(const pc_hist *h);
+
+/* Like pc_hist_prune, but drops least-recently-visited leaves off the
+ * root..current path (then collapses the root) until pc_hist_bytes(h) <=
+ * max_bytes or nothing can be pruned. Never changes the document. */
+void      pc_hist_prune_bytes(pc_hist *h, size_t max_bytes);
+
 #endif /* PC_HIST_H */

@@ -129,18 +129,4 @@ void      pc_txn_restore_tile(pc_txn *t, uint32_t layer_id, uint32_t tile_idx);
  * PC_ERR_NOMEM (that tile is then left unchanged). */
 pc_status pc_txn_restore_rect(pc_txn *t, uint32_t layer_id, pc_rect r);
 
-/* ---- history memory budget (pc_hist.c; declared here because pc_hist.h is
- * not owned by lane L1b, see the lane report) ------------------------------ */
-
-/* Approximate bytes held by all history payloads (sum of ops->bytes).
- * Tiles are counted as tile_bytes / refs for every holder, so a tile shared
- * between the document and history, or between several payloads, adds up
- * to its size once in total instead of once per holder. Main thread. */
-size_t    pc_hist_bytes(const pc_hist *h);
-
-/* Like pc_hist_prune, but drops least-recently-visited leaves off the
- * root..current path (then collapses the root) until pc_hist_bytes(h) <=
- * max_bytes or nothing can be pruned. Never changes the document. */
-void      pc_hist_prune_bytes(pc_hist *h, size_t max_bytes);
-
 #endif /* PC_TXN_H */

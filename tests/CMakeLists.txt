@@ -3,6 +3,7 @@
 
 # pc_add_tests(<lib> [extra libs...]) - one executable and one CTest per
 # test_*.c file in the calling directory. Tests run with --quick under CTest.
+find_package(Threads)
 function(pc_add_tests)
   file(GLOB _tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test_*.c)
   list(SORT _tests)
@@ -11,6 +12,9 @@ function(pc_add_tests)
     add_executable(${_n} ${t})
     target_include_directories(${_n} PRIVATE ${PROJECT_SOURCE_DIR}/tests)
     target_link_libraries(${_n} PRIVATE ${ARGN})
+    if(Threads_FOUND)
+      target_link_libraries(${_n} PRIVATE Threads::Threads)
+    endif()
     pc_warnings(${_n})
     add_test(NAME ${_n} COMMAND ${_n} --quick
              WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

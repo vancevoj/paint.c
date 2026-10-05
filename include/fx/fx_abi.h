@@ -146,7 +146,9 @@ typedef struct fx_effect {
 /* A plugin library exports exactly one symbol named FX_ENTRY_NAME with this
  * type. It calls reg() once per effect and returns the number registered,
  * or a negative value on failure. Effect structs must stay valid until the
- * library is unloaded. Built-in effect modules use the same signature. */
+ * library is unloaded. Built-in effect modules use the same signature.
+ * reg() returns >= 0 when the effect was accepted and a negative value when
+ * the host rejected it (invalid struct, duplicate id). */
 typedef int (*fx_entry_fn)(const fx_host *host, int (*reg)(const fx_effect *fx));
 #define FX_ENTRY_NAME "fx_entry"
 

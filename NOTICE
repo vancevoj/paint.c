@@ -29,3 +29,29 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 The Paint.NET 3.36 license excludes its logo and icon artwork, its resource assets
 (.resources, .resx and .png files, menu and status text) and the GPC library from the
 MIT grant. None of that material is used here, and it must never be added.
+
+----------------------------------------------------------------------------------------
+Additional Paint.NET 3.36 derived algorithms
+
+Several adjustments and effects (src/fx/adjust, src/fx/blur, src/fx/noise, src/fx/photo,
+src/fx/artistic, src/fx/distort, src/fx/render, src/fx/stylize) and a few codec and core
+behaviors re-implement algorithms from the MIT-licensed Paint.NET 3.36 source under the
+license reproduced above. Per-file details are in docs/notice/*.md. Some of those 3.36
+files carry an additional notice, also under the MIT License reproduced above:
+
+    Copyright (c) 2006-2008 Ed Harvey
+    (Posterize tables, WarpEffectBase, Polar Inversion, Dents, PerlinNoise2D)
+
+----------------------------------------------------------------------------------------
+Third-party components (full license texts ship in licenses/ with every binary package)
+
+    SDL 3.4.18                 zlib license          https://libsdl.org
+    zlib 1.3.2                 zlib license          https://zlib.net
+    libspng 0.7.4              BSD 2-Clause          https://libspng.org
+    libjpeg-turbo 3.2.0        IJG, BSD 3-Clause and zlib licenses
+    libwebp 1.6.0              BSD 3-Clause          https://chromium.googlesource.com/webm/libwebp
+    Little-CMS 2.19.1          MIT                   https://littlecms.com
+    bcdec, stb_dxt, bc7enc     MIT or public domain  (see third_party/*/LICENSE*)
+    stb_truetype               MIT or public domain  (see third_party/stb_truetype)
+
+This software is based in part on the work of the Independent JPEG Group.

@@ -33,9 +33,13 @@ static void pc_test_fail_at(const char *file, int line, const char *expr)
 
 static double pc_test_now(void)
 {
+#if defined(TIME_UTC)
     struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
-    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+    if (timespec_get(&ts, TIME_UTC) == TIME_UTC)
+        return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+#endif
+    /* C11 timespec_get is missing from msvcrt.dll based MinGW runtimes */
+    return (double)clock() / (double)CLOCKS_PER_SEC;
 }
 
 /* xorshift64* with a fixed default seed, so logs stay comparable. */

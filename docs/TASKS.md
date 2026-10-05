@@ -6,7 +6,7 @@ they differ (see docs/DECISIONS.md ADR-001..012). IDs are stable.
 ## Ownership (lanes edit only these paths plus their own tests/<lane>/)
 | Lane | Owns |
 |---|---|
-| L0 Foundation | cmake/PcDeps.cmake (SDL3, zlib), src/pal, include/pal (frozen v1), .github/, cmake/toolchains/, packaging/ |
+| L0 Foundation | cmake/PcDeps.cmake (SDL3, zlib), cmake/PcCommon.cmake, src/pal, include/pal (frozen v1, plus pal_clip_raw.h), .github/, cmake/toolchains/, packaging/, docs/BUILDING.md, docs/PAL.md, docs/patches/ |
 | L1a Core geometry | src/core/pc_sel*, pc_raster*, pc_path*, pc_contour*, include/pc/pc_sel.h, pc_raster.h, pc_path.h, pc_doc.h/.c (selection fields only), tests/core/test_sel*, test_raster*, test_path* |
 | L1b Core ops | src/core/pc_comp*, pc_mip*, pc_geom*, pc_layerops*, pc_txn.c, pc_resample*, pc_quant? (no: L6a), include/pc/pc_comp.h, pc_mip.h, pc_geom.h, pc_layerops.h, pc_txn.h (additive), tests/core/test_comp*, test_geom*, test_layerops*, test_txn* |
 | L5a FX host + adjustments | include/fx/fx_run.h, src/fx/host/, src/fx/adjust/, tests/fx/ (host + adjust tests) |
@@ -45,3 +45,11 @@ in its final report.
 
 ## Wave 4
 - Packaging (Windows zip/installer, macOS .app bundle, Linux AppImage/Flatpak manifest, .desktop), autosave and recovery, plugin loader, polish, parity audit, Wayland and X11 verification, CI green on all three OSes.
+
+## Ownership additions recorded at the wave 1 merge
+- L1a: tests/core/test_contour*, docs/notice/l1a.md.
+- L1b: src/core/pc_tile.c, pc_hist.c (byte budget), pc_geom_int.h, tests/core/test_mip*, test_resample*, test_comp_mt.c, l1b_testutil.h.
+- L5c: src/fx/color/, tests/fx/fx2_util.h.
+- L6b: src/codec/lib_codec.c/.h, tests/codec/lib_test_util.h, third_party/bc7enc/, docs/DEPENDENCIES.md.
+- L6c: src/codec/pdn_*.c, pdn.h, tests/codec/pdn_util.h, tests/codec/pdn_pypdn_check.py, docs/codecs/pdn.md.
+- Every lane: docs/notice/<lane>.md.
