@@ -280,3 +280,40 @@ runs scripts (`paintc --script file`), its own end-to-end check
 (`paintc --self-test`) and screenshots after loading files
 (`paintc --screenshot out.bmp [--headless] files...`), which is how the X11
 (Xvfb) and Wayland (Weston) renderings are verified.
+
+## Tool framework additions (lane TOOLA, wave 3b)
+
+* Kinds of Finish (`app_tool_finish_as`, `app_tool_finishing`): commands,
+  tool and image switches finish implicitly; the Finish button
+  (`app_opt_finish`), Esc for tools without `cancel` and
+  `app_tool_finish_explicit` are the user's Finish; tools that want Enter
+  as an explicit Finish handle it in `key`. A layer visibility or property
+  change (`APP_FINISH_LAYER_PROPS`, Layers window) leaves tools with
+  `APP_TOOL_KEEPS_LIVE` alone. Live objects record a final "Finish"
+  History item only for the explicit kind (T-FW-HISTORY).
+* `tools/sel_live.c` keeps the History items of a live object (Magic
+  Wand, Move Selected Pixels, Move Selection): Undo and Redo revive it with
+  the item's state and toolbar values, a Finish item ends it, a newer item
+  of something else forgets it unless it left the active layer's tiles and
+  the selection untouched (then it is adopted, so hiding a layer keeps a
+  move editable).
+* Options bar: groups are the runs between `app_opt_separator` calls; the
+  groups that do not fit move behind an overflow chevron (popup, one group
+  per row). Every widget is declared once per frame, in the bar, in the
+  popup or off screen, so tools need no changes, but separators must be
+  called between widgets (outside a widget's own `ui_push_id` scope). The
+  plan comes from the previous frame; `app_opt_slot_rect` and friends
+  expose it for tests.
+* The tool chooser (icon, full name, list with "Name (S, 4 times)"
+  tooltips) opens with a click, `app_tool_menu_open` or Alt+T (command
+  `tool.choose`, tools/mod_toola.c); its popup id `##tool_choice` also
+  answers the toolkit's open requests.
+* `app_tool_nudge_pointer`: arrow keys move the pointer one image pixel
+  (Ctrl ten, 3.36 acceleration); a held drag follows. Tools call it for
+  arrows they do not use; the key dispatch may use it as the fallback.
+* Cursors: `app_tool_cursor_make` draws the closed hand and the selection
+  mode glyph cursors (`APP_CURSOR_SEL_*`, `APP_CURSOR_LASSO_*`,
+  `APP_CURSOR_WAND_*`, `app_cursor_sel_mode`); `canvas.c cursor_for` asks
+  it first.
+* Startup selects `tooldef.tool` (Settings > Tools) or Paintbrush; the
+  default brush width follows the display scale (`app_tool_default_width`).

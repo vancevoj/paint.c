@@ -185,6 +185,27 @@ static void t_move_pixels_copy_and_commands(void)
     app_destroy(a);
 }
 
+/* The rotation anchor can be placed before anything moved: the pending
+ * session keeps it (no History item) and the next drag uses it. */
+static void t_anchor_first(void)
+{
+    app *a = pat_app();
+    size_t h;
+    CHECK(a != NULL);
+    if (!a) return;
+    select_block(a);
+    CHECK(app_tool_select(a, "move_pixels"));
+    h = a_hist(a);
+    a_drag(a, 40, 35, 60, 35, SDL_BUTTON_LEFT, 0u);       /* the anchor, from the middle */
+    CHECK(a_hist(a) == h && moved_by(a, 0, 0));
+    /* a half turn about the moved anchor (Shift snaps to 180 degrees) */
+    a_drag(a, 80, 35, 40, 35.4, SDL_BUTTON_RIGHT, UI_MOD_SHIFT);
+    CHECK(a_hist(a) == h + 1u);
+    CHECK(eq(a_lpx(a, 99, 49), pat(20, 20)) && eq(a_lpx(a, 60, 20), pat(59, 49)));
+    CHECK(is_zero(a_lpx(a, 30, 30)));
+    app_destroy(a);
+}
+
 /* T-MOVEPX-FINISH: hiding the layer in the Layers window keeps the move. */
 static void t_visibility(void)
 {
@@ -379,6 +400,7 @@ int main(int argc, char **argv)
     }
     RUN(t_move_pixels);
     RUN(t_move_pixels_copy_and_commands);
+    RUN(t_anchor_first);
     RUN(t_visibility);
     RUN(t_move_selection);
     RUN(t_wand);

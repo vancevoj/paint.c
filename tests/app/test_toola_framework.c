@@ -6,8 +6,6 @@
  *   - arrow keys nudge the pointer by one image pixel, Ctrl ten, a held
  *     drag follows, Space + arrows do not nudge, the Pan tool pans with a
  *     button held (T-FW-ARROWS, K-NAV-TOOLMOVE, K-PAN-DRAG);
- *   - auto-scroll while a drag is held beyond the view edge, time based,
- *     never into the overscroll margin, off by setting (T-FW-AUTOSCROLL);
  *   - the start tool is the default tool, not the last one
  *     (F-TOOL-DEFAULT-BRUSH); the default width follows the UI scale;
  *   - the width box of Line/Curve and Shapes is Paint.NET's brush size box:
@@ -251,72 +249,6 @@ static void t_pan_keys(void)
     app_destroy(a);
 }
 
-/* Run frames for about ms milliseconds of wall time. */
-static void run_ms(app *a, uint32_t ms)
-{
-    uint64_t end = SDL_GetTicks() + ms;
-    while (SDL_GetTicks() < end) {
-        at_frames(a, 1);
-        SDL_Delay(4);
-    }
-}
-
-static void t_autoscroll(void)
-{
-    app *a = rec_app(1200, 800, 1600, 1000);
-    app_doc *d;
-    rec_st *s;
-    float sx, sy;
-    ui_rect v;
-    double cx0, cy0, hw;
-    CHECK(a != NULL);
-    if (!a) return;
-    d = a_doc(a);
-    CHECK(app_tool_autoscroll_enabled(a));
-    CHECK(app_tool_select(a, "t_rec"));
-    s = rec_state(a, "t_rec");
-    v = a->cv.view;
-    cx0 = d->view.cx;
-    cy0 = d->view.cy;
-    (void)at_screen(a, cx0, cy0, &sx, &sy);
-    at_mouse(a, SDL_EVENT_MOUSE_MOTION, sx, sy, 0);
-    at_frames(a, 1);
-    at_mouse(a, SDL_EVENT_MOUSE_BUTTON_DOWN, sx, sy, SDL_BUTTON_LEFT);
-    at_frames(a, 1);
-    /* inside the view: nothing scrolls */
-    at_mouse(a, SDL_EVENT_MOUSE_MOTION, (float)(v.x + v.w / 2 + 40), sy, 0);
-    run_ms(a, 120);
-    CHECK(d->view.cx == cx0 && d->view.cy == cy0);
-    /* held past the right edge: scrolls right, the tool gets the motion */
-    at_mouse(a, SDL_EVENT_MOUSE_MOTION, (float)(v.x + v.w + 60), sy, 0);
-    run_ms(a, 150);
-    CHECK(d->view.cx > cx0 && d->view.cy == cy0);
-    CHECK(s->last_kind == APP_PTR_MOVE && s->last_x > cx0 + (double)v.w / 2.0);
-    /* until the image edge reaches the view edge: never into the overscroll */
-    run_ms(a, 900);
-    hw = (double)v.w / (2.0 * d->view.zoom);
-    CHECK(fabs(d->view.cx - (1600.0 - hw)) < 1e-6);
-    CHECK(a->overscroll);                                 /* overscroll would allow more */
-    at_mouse(a, SDL_EVENT_MOUSE_BUTTON_UP, (float)(v.x + v.w + 60), sy, SDL_BUTTON_LEFT);
-    at_frames(a, 2);
-    /* off by setting */
-    app_tool_set_autoscroll(a, false);
-    CHECK(!app_tool_autoscroll_enabled(a));
-    cx0 = d->view.cx;
-    (void)at_screen(a, d->view.cx, d->view.cy, &sx, &sy);
-    at_mouse(a, SDL_EVENT_MOUSE_MOTION, sx, sy, 0);
-    at_frames(a, 1);
-    at_mouse(a, SDL_EVENT_MOUSE_BUTTON_DOWN, sx, sy, SDL_BUTTON_LEFT);
-    at_frames(a, 1);
-    at_mouse(a, SDL_EVENT_MOUSE_MOTION, (float)(v.x - 60), sy, 0);
-    run_ms(a, 150);
-    CHECK(d->view.cx == cx0);
-    at_mouse(a, SDL_EVENT_MOUSE_BUTTON_UP, (float)(v.x - 60), sy, SDL_BUTTON_LEFT);
-    at_frames(a, 2);
-    app_tool_set_autoscroll(a, true);
-    app_destroy(a);
-}
-
 /* An app with a settings file holding text. */
 static app *cfg_app(const char *name, const char *text)
 {
@@ -491,7 +423,6 @@ int main(int argc, char **argv)
     RUN(t_finish_kinds);
     RUN(t_nudge);
     RUN(t_pan_keys);
-    RUN(t_autoscroll);
     RUN(t_default_tool);
     RUN(t_width_box);
     RUN(t_default_width_scaled);

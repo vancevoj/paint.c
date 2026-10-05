@@ -236,13 +236,6 @@ app_finish_kind app_tool_finishing(const app *a);
  * may call it as the fallback for every tool. Main thread. */
 bool            app_tool_nudge_pointer(app *a, int32_t key, uint32_t mods);
 
-/* T-FW-AUTOSCROLL: the view scrolls while a tool drag is held near or
- * beyond the edge of the canvas viewport (time based, never into the
- * overscroll margin). Setting key ui.autoscroll (default on); Settings >
- * User Interface "Auto-scroll when drawing at the edge" binds to it. */
-bool            app_tool_autoscroll_enabled(const app *a);
-void            app_tool_set_autoscroll(app *a, bool on);
-
 /* Cursors the framework draws itself (lane TOOLA): the closed hand and the
  * selection mode glyph cursors. NULL for kinds it does not draw (the
  * canvas then uses its own); the caller owns the cursor. size: 24 or 32
@@ -317,7 +310,8 @@ void    app_opt_finish(app *a);     /* Finish button, enabled while live */
  *
  * The tool chooser at the start of the bar shows the tool icon and name
  * and lists every tool with its icon and a "Name (S, 4 times)" tooltip
- * (TOOLS.md 1); Alt+T opens it (K-UI-TOOLDROP, app_tool_menu_open). */
+ * (TOOLS.md 1); Alt+T opens it (K-UI-TOOLDROP, app_tool_menu_open, command
+ * tool.choose). Its popup id is "##tool_choice". */
 void    app_tool_menu_open(app *a);
 /* Tests and diagnostics, all about the last frame: the index of the first
  * option slot that overflowed (-1: everything fit), the number of slots

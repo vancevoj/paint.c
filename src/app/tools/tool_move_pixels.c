@@ -256,7 +256,7 @@ static void mp_pointer(app *a, void *st, const app_pointer *ev)
         if (f && copy) {
             /* Ctrl on a later drag: the pixels stay where they are (a new
              * object finishes the old one) and a copy of them moves on */
-            (void)sel_live_finish(a, &ms->L, true);
+            if (!sel_live_finish(a, &ms->L, true)) sel_live_forget(a, &ms->L);   /* pending */
             f = NULL;
         }
         f = ensure(a, ms, d, copy);
@@ -514,11 +514,11 @@ static void mp_options(app *a, void *st)
     v = ms->rs;
     g = ms->gamma ? 0 : 1;
     app_opt_label(a, "Sampling:");
-    (void)app_opt_next(a, 150.0f);
+    (void)app_opt_next(a, 176.0f);                /* "Multisample Bilinear" fits */
     if (ui_combo(ui, "##movepx_rs", &v, modes, (int)SEL_RS_COUNT) && v != ms->rs)
         sel_move_pixels_quality(a, (sel_rs)v, ms->gamma);
     ui_tooltip(ui, "Resampling used when the pixels are rotated or resized");
-    (void)app_opt_next(a, 128.0f);
+    (void)app_opt_next(a, 150.0f);                /* "Gamma Corrected" fits */
     if (ui_combo(ui, "##movepx_gamma", &g, gammas, 2) && (g == 0) != ms->gamma)
         sel_move_pixels_quality(a, (sel_rs)ms->rs, g == 0);
     ui_tooltip(ui, "Gamma Corrected filters in linear light so brightness is kept; "

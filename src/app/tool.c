@@ -5,10 +5,10 @@
  * items, live edits that survive layer property changes), the Paint.NET
  * style brush size box for every tool, the DPI scaled default width, the
  * toolbar overflow chevron, the tool chooser with icons and Alt+T,
- * starting with the default tool, arrow key pointer nudges and auto-scroll
- * at the edge of the view. The keyboard acceleration of the nudges and the
- * auto-scroll trigger zone follow the Paint.NET 3.36 Tool class (MIT,
- * docs/notice/toola.md). Main thread. */
+ * starting with the default tool and arrow key pointer nudges. The
+ * keyboard acceleration of the nudges follows the Paint.NET 3.36 Tool
+ * class (MIT, docs/notice/toola.md). Auto-scroll at the view edge is the
+ * canvas's (lane SHELL). Main thread. */
 #include "app_internal.h"
 #include "tools/paint_common.h"
 
@@ -37,12 +37,11 @@ static const app_tool *const k_builtin_tools[] = {
 #define OPT_MAX_SLOTS   160
 #define OPT_SINK_X      (-1000000)
 #define OVF_POPUP       "##opt_overflow"
-#define TOOL_POPUP      "##tool_menu"
+#define TOOL_POPUP      "##tool_choice"  /* also the toolkit open request id (Alt+T) */
 #define OVF_DIP         26.0f       /* chevron button */
 #define BAR_PAD_DIP     8.0f
 #define SLOT_GAP_DIP    4.0f
 #define SEP_DIP         10.0f
-#define AS_ZONE_DIP     2.0f        /* auto-scroll starts this close to the view edge */
 
 enum { OPT_BAR = 0, OPT_POPUP = 1, OPT_SINK = 2 };
 
@@ -84,8 +83,6 @@ typedef struct tool_fw {
     ui_rect    chevron, tool_btn;
     bool       chevron_vis;
     bool       menu_req;        /* Alt+T: open the tool chooser next frame */
-    /* auto-scroll */
-    uint64_t   as_last;
     /* pointer nudges (3.36 keyboard acceleration) */
     uint64_t   nudge_t;
     int32_t    nudge_key, nudge_repeats, nudge_speed;
@@ -154,8 +151,6 @@ bool app_tool_register(app *a, const app_tool *t)
     return true;
 }
 
-static void autoscroll_hook(app *a, app_doc *d, void *ud);
-
 /* Default brush width scale: the UI scale of the first app (O-WIDTH: the
  * default width is 2 at 100 % and follows the display DPI). Written once
  * per app creation on the main thread. */
@@ -180,7 +175,6 @@ bool app_tools_init(app *a)
     g_width_scale = s > 0.25f && s < 16.0f ? s : 1.0f;
     app_tool_settings_reset(&a->ts);
     (void)fw_make(a);
-    (void)app_hook_add(a, APP_HOOK_FRAME, autoscroll_hook, NULL);
     for (size_t i = 0; k_builtin_tools[i]; i++)
         if (!app_tool_register(a, k_builtin_tools[i])) return false;
     return true;
@@ -398,103 +392,6 @@ bool app_tool_nudge_pointer(app *a, int32_t key, uint32_t mods)
     app_canvas_event(a, &e);
     app_request_frame(a);
     return true;
-}
-
-/* ---- auto-scroll (T-FW-AUTOSCROLL) ---------------------------------------------------- */
-bool app_tool_autoscroll_enabled(const app *a)
-{
-    return app_settings_bool(a->settings, "ui.autoscroll", true);
-}
-
-void app_tool_set_autoscroll(app *a, bool on)
-{
-    app_settings_set_bool(a->settings, "ui.autoscroll", on);
-}
-
-/* Distance of v beyond [lo, hi] (negative below, positive above, 0 inside). */
-static double beyond(double v, double lo, double hi)
-{
-    if (v < lo) return v - lo;
-    if (v > hi) return v - hi;
-    return 0.0;
-}
-
-/* While a tool drag holds the pointer at or past the edge of the view,
- * scroll toward it at a speed that grows with the distance, per elapsed
- * time, and replay the pointer to the tool at its new document position.
- * The view never moves into the overscroll margin (R 4.0.10, 4.0.11):
- * an axis only scrolls while the image still extends past that edge. */
-static void autoscroll_hook(app *a, app_doc *d, void *ud)
-{
-    tool_fw *f = fw(a);
-    app_canvas *c = &a->cv;
-    const app_tool *t = app_tool_current(a);
-    app_doc *doc = app_active_doc(a);
-    gfx_view v;
-    ui_rect r = c->view;
-    double zone, ex, ey, dt, sx = 0.0, sy = 0.0, x0, x1, y0, y1, hw, hh;
-    (void)d;
-    (void)ud;
-    if (!f) return;
-    if (!doc || !c->captured || c->panning || !t || strcmp(t->id, "pan") == 0 ||
-        !app_tool_autoscroll_enabled(a) || app_dialog_active(a) || r.w < 8 || r.h < 8) {
-        f->as_last = 0u;
-        return;
-    }
-    zone = (double)ui_px(a->ui, AS_ZONE_DIP);
-    ex = beyond((double)c->mx, (double)r.x + zone, (double)(r.x + r.w) - zone);
-    ey = beyond((double)c->my, (double)r.y + zone, (double)(r.y + r.h) - zone);
-    if (ex == 0.0 && ey == 0.0) {
-        f->as_last = 0u;
-        return;
-    }
-    if (f->as_last == 0u || a->now < f->as_last) {
-        f->as_last = a->now;          /* engaged: scrolling starts with the next frame */
-        app_request_frame_at(a, a->now + 16u);
-        return;
-    }
-    dt = (double)(a->now - f->as_last) / 1000.0;
-    if (dt > 0.1) dt = 0.1;
-    f->as_last = a->now;
-    v = app_doc_gview(a, doc);
-    /* the range of view centers without overscroll */
-    hw = (double)v.vw / (2.0 * v.zoom);
-    hh = (double)v.vh / (2.0 * v.zoom);
-    x0 = hw;
-    x1 = (double)v.dw - hw;
-    y0 = hh;
-    y1 = (double)v.dh - hh;
-    {
-        /* screen px per second: 300 at the edge, + 12 per px beyond, at most 4000 */
-        double spx = ex != 0.0 ? fmin(4000.0, 300.0 + 12.0 * fabs(ex)) : 0.0;
-        double spy = ey != 0.0 ? fmin(4000.0, 300.0 + 12.0 * fabs(ey)) : 0.0;
-        double ncx = v.cx, ncy = v.cy;
-        if (ex > 0.0 && v.cx < x1) ncx = fmin(x1, v.cx + spx * dt / v.zoom);
-        if (ex < 0.0 && v.cx > x0) ncx = fmax(x0, v.cx - spx * dt / v.zoom);
-        if (ey > 0.0 && v.cy < y1) ncy = fmin(y1, v.cy + spy * dt / v.zoom);
-        if (ey < 0.0 && v.cy > y0) ncy = fmax(y0, v.cy - spy * dt / v.zoom);
-        sx = (ncx - v.cx) * v.zoom;
-        sy = (ncy - v.cy) * v.zoom;
-    }
-    if (sx != 0.0 || sy != 0.0) {
-        app_pointer p;
-        app_view_pan_px(a, doc, -sx, -sy);
-        v = app_doc_gview(a, doc);
-        memset(&p, 0, sizeof p);
-        p.kind = APP_PTR_MOVE;
-        gfx_view_to_doc(&v, (double)c->mx, (double)c->my, &p.x, &p.y);
-        p.sx = c->mx;
-        p.sy = c->my;
-        p.button = c->first_button;
-        p.buttons = c->buttons;
-        p.pressure = c->pen_down ? c->pen_pressure : 1.0f;
-        p.pen = c->pen_down;
-        p.eraser = c->pen_down && c->pen_eraser;
-        p.mods = ui_mods(a->ui);
-        p.time_ns = SDL_GetTicksNS();
-        app_tool_dispatch(a, &p);
-    }
-    app_request_frame_at(a, a->now + 16u);
 }
 
 /* ---- tool settings --------------------------------------------------------------- */
@@ -919,7 +816,7 @@ static void tool_chooser(app *a, tool_fw *f, const app_tool *cur)
     r = app_opt_next(a, (tw + (float)(isz + 3 * pad + aw)) / ui_scale(ui) + 4.0f);
     (void)ui_layout_next(ui, r.w, r.h);          /* drawn by hand: consume the slot */
     if (f) f->tool_btn = r;
-    in = ui_interact(ui, ui_get_id(ui, "##tool_choice"), r, 0u);
+    in = ui_interact(ui, ui_get_id(ui, "##tool_choice_btn"), r, 0u);
     ui_draw_rrect(ui, r, rad, in.hovered ? p->field_hover : p->field);
     ui_draw_rrect_outline(ui, r, rad, ui_px_line(ui, 1.0f),
                           in.hovered || open_now ? p->border_strong : p->border);
