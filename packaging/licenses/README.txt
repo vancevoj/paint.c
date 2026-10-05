@@ -28,6 +28,8 @@ libjxl-PATENTS.txt            libjxl additional patent grant     (grant)
 highway.txt                   Highway 1.3.0 (used by libjxl)     BSD 3-Clause (of Apache-2.0 OR BSD-3)
 brotli.txt                    Brotli 1.2.0 (used by libjxl)      MIT
 skcms.txt                     skcms (used by libjxl)             BSD 3-Clause
+mingw-w64-runtime.txt         mingw-w64 runtime (Windows builds  ZPL 2.1, MIT style and public
+                              only; includes the gdtoa notice)   domain parts
 
 The AVIF and JPEG XL rows (lane AVIFJXL) apply to builds with the bundled
 libraries (PC_WITH_AVIF / PC_WITH_JXL = BUNDLED), which all release packages

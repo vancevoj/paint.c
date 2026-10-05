@@ -5,9 +5,11 @@
 # zip and installer, macOS dmg for arm64 and x86_64) to a GitHub release.
 name: release
 
+# Manual only for now (ADR-021): Actions minutes are exhausted and 0.1.0 is
+# released from local builds (docs/PACKAGING.md). Re-enable the tag trigger
+# when CI is available again.
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: read
