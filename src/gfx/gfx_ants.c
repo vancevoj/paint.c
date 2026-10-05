@@ -496,7 +496,6 @@ typedef struct vec_ctx {
     double          ox, oy, zoom, phase, dash, period;
     double          cx0, cy0, cx1, cy1;
     size_t          nline;
-    bool            ok;
 } vec_ctx;
 
 static void flush_line(vec_ctx *x)

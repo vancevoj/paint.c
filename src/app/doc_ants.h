@@ -4,14 +4,18 @@
  * Each document keeps its displayed outline as a prepared gfx_ants: the
  * selection's own outline (rebuilt when sel_gen changes) or a tool's
  * preview. Simple selections are traced at once on the main thread, as
- * before. Selections with more partially selected tiles than the sync
- * limit are traced on a worker (app_task) from a snapshot of the selection
- * tiles (immutable, retained), so a global Magic Wand on a noisy 4K image
- * no longer freezes the window for seconds: the frame shows no ants (and
- * app_doc_ants_pending is true) until the result lands. A newer selection
- * cancels the running trace; a finished trace is used only when the
- * selection is still the one it was made from. Outlines with many points
- * get the coarse occupancy levels for drawing zoomed out.
+ * before. Complex selections are traced on a worker (app_task) from a
+ * snapshot of the selection tiles (immutable, retained), so a global Magic
+ * Wand on a noisy 4K image no longer freezes the window for seconds: the
+ * frame shows no ants (and app_doc_ants_pending is true) until the result
+ * lands. A newer selection cancels the running trace; a finished trace is
+ * used only when the selection is still the one it was made from.
+ * "Complex" means more than DOC_ANTS_SYNC_TILES partially selected tiles
+ * holding more than DOC_ANTS_SYNC_EDGES crossings of the 50 % coverage
+ * level (an outline of about that many pixels traces in roughly 15 ms),
+ * so a big ellipse or rectangle still shows its outline in the same
+ * frame. Outlines with many points get the coarse occupancy levels for
+ * drawing zoomed out.
  *
  * Thread rules: main thread, except the job's work function. Ownership:
  * the document owns its app_doc_ants_rt (created and destroyed with it); a
@@ -39,9 +43,11 @@ void app_doc_ants_draw(app *a, app_doc *d, const gfx_view *v, double phase, doub
  * the first draw. */
 bool app_doc_ants_last_draw(app *a, gfx_ants_info *out);
 
-/* Tests: selections with at most n partially selected tiles are traced
- * synchronously (default DOC_ANTS_SYNC_TILES; UINT32_MAX always, 0 never). */
+/* Tests: the limits of synchronous tracing (selections at or below either
+ * one are traced at once): partially selected tiles and edge crossings. */
 #define DOC_ANTS_SYNC_TILES 48u
+#define DOC_ANTS_SYNC_EDGES 40000u
 void app_doc_ants_set_sync_tiles(uint32_t n);
+void app_doc_ants_set_sync_edges(uint64_t n);
 
 #endif /* DOC_ANTS_H */

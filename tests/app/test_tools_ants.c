@@ -302,8 +302,10 @@ static void t_async_outline(void)
     at_frames(a, 3);
     pc_poly_init(&ref);
     pc_poly_init(&got);
-    /* (a small image: more than 8 partially selected tiles count as complex) */
+    /* (a small image: more than 8 partially selected tiles with more than
+     * 1000 edge crossings count as complex) */
     app_doc_ants_set_sync_tiles(8u);
+    app_doc_ants_set_sync_edges(1000u);
     /* a simple selection is traced at once, as before */
     CHECK(pc_sel_apply_rect(d->hist, pc_rect_make(10, 10, 100, 80), PC_SEL_REPLACE, "R") ==
           PC_OK);
@@ -361,6 +363,25 @@ static void t_async_outline(void)
         CHECK(same_poly(app_doc_ants(d), &ref));
         pc_poly_free(&pv);
     }
+    /* a long but simple outline (many partially selected tiles, few edge
+     * pixels) is still traced at once with the default limits */
+    app_doc_ants_set_sync_tiles(DOC_ANTS_SYNC_TILES);
+    app_doc_ants_set_sync_edges(DOC_ANTS_SYNC_EDGES);
+    {
+        app_doc *big = app_doc_new_image(a, 4000, 3000, app_px_make(255, 255, 255, 255));
+        CHECK(big && app_add_doc(a, big));
+        if (big) {
+            CHECK(pc_sel_apply_rect(big->hist, pc_rect_make(3, 5, 3990, 2990), PC_SEL_REPLACE,
+                                    "R") == PC_OK);
+            app_doc_history_changed(a, big);
+            CHECK(!app_doc_sel_complex(big) && !app_doc_ants_pending(big));
+            CHECK(app_doc_ants(big)->n_pts == 4u);
+            app_close_doc_now(a, big);
+        }
+        app_set_active_doc(a, d);
+    }
+    app_doc_ants_set_sync_tiles(8u);
+    app_doc_ants_set_sync_edges(1000u);
     /* deselect: no outline, nothing pending */
     CHECK(pc_sel_deselect(d->hist, "Deselect") == PC_OK);
     app_doc_history_changed(a, d);
@@ -372,6 +393,7 @@ static void t_async_outline(void)
     app_tasks_wait(a);
     at_frames(a, 1);
     app_doc_ants_set_sync_tiles(DOC_ANTS_SYNC_TILES);
+    app_doc_ants_set_sync_edges(DOC_ANTS_SYNC_EDGES);
     pc_poly_free(&ref);
     pc_poly_free(&got);
     app_destroy(a);
@@ -428,6 +450,7 @@ static void t_marquee_combine(void)
     app_view_set_zoom(a, d, 1.0);
     at_frames(a, 2);
     app_doc_ants_set_sync_tiles(8u);
+    app_doc_ants_set_sync_edges(1000u);
     CHECK(noise_select(a, d, pc_rect_make(0, 0, 300, 400), 29u));
     at_frames(a, 2);
     CHECK(app_doc_sel_complex(d) && !app_doc_ants_pending(d));
@@ -471,6 +494,7 @@ static void t_marquee_combine(void)
     CHECK(pc_sel_coverage(d->doc, 400, 100) == 255u && !app_doc_ants_is_preview(d));
     CHECK(!app_doc_ants_pending(d) && same_poly(app_doc_ants(d), &ref));
     app_doc_ants_set_sync_tiles(DOC_ANTS_SYNC_TILES);
+    app_doc_ants_set_sync_edges(DOC_ANTS_SYNC_EDGES);
     pc_poly_free(&ref);
     app_destroy(a);
 }

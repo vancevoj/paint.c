@@ -149,7 +149,7 @@ pc_status app_doc_ants_preview(app_doc *d, const pc_poly *p);
 /* ---- lane TOOLS (wave 4 item 28): complex outlines --------------------------------------
  * The outline shown as marching ants is kept as a prepared gfx_ants
  * (gfx.h), so drawing visits only the visible part of it. Selections whose
- * outline may be long (more than a few dozen partially selected tiles) are
+ * outline is long (tens of thousands of edge pixels, doc_ants.h) are
  * traced on a worker from a snapshot of the selection; the newest request
  * wins and stale results are dropped. All functions: main thread. */
 struct gfx_ants;

@@ -12,8 +12,10 @@
 #define CACHE_KEY      "tools.ants_draw"
 
 static uint32_t g_sync_tiles = DOC_ANTS_SYNC_TILES;
+static uint64_t g_sync_edges = DOC_ANTS_SYNC_EDGES;
 
 void app_doc_ants_set_sync_tiles(uint32_t n) { g_sync_tiles = n; }
+void app_doc_ants_set_sync_edges(uint64_t n) { g_sync_edges = n; }
 
 typedef struct ants_job ants_job;
 
@@ -80,9 +82,28 @@ static void job_free(ants_job *j)
 }
 
 /* ---- tracing ------------------------------------------------------------------------- */
-/* Partially selected tiles, counted up to limit + 1 (fully selected tiles
- * share pointers, so one check covers a whole Select All). */
-static uint32_t mixed_tiles(const pc_doc *d, uint32_t limit)
+/* Crossings of the 50 % level between neighboring pixels of one tile's
+ * vw x vh area, rows and columns (about the length of the outline inside). */
+static uint32_t tile_edges(const uint8_t *px, uint32_t vw, uint32_t vh)
+{
+    uint32_t n = 0;
+    for (uint32_t y = 0; y < vh; y++) {
+        const uint8_t *row = px + (size_t)y * PC_TILE_DIM;
+        const uint8_t *up = y ? row - PC_TILE_DIM : NULL;
+        for (uint32_t x = 0; x < vw; x++) {
+            bool in = row[x] >= 128u;
+            if (x && in != (row[x - 1u] >= 128u)) n++;
+            if (up && in != (up[x] >= 128u)) n++;
+        }
+    }
+    return n;
+}
+
+/* Whether tracing d's selection outline is too slow for a frame: more
+ * partially selected tiles than tile_limit and more than edge_limit
+ * crossings inside them (counting stops at the answer; fully selected
+ * tiles share pointers, so one check covers a whole Select All). */
+static bool sel_is_complex(const pc_doc *d, uint32_t tile_limit, uint64_t edge_limit)
 {
     static const uint8_t full_row[PC_TILE_DIM] = {
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
@@ -91,7 +112,8 @@ static uint32_t mixed_tiles(const pc_doc *d, uint32_t limit)
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 };
     const pc_tile *last_full = NULL;
     uint32_t n = 0;
-    if (!d->sel_active || !d->sel_grid) return 0u;
+    uint64_t edges = 0;
+    if (!d->sel_active || !d->sel_grid) return false;
     for (uint32_t ty = 0; ty < d->tiles_y; ty++)
         for (uint32_t tx = 0; tx < d->tiles_x; tx++) {
             const pc_tile *t = d->sel_grid[(size_t)ty * d->tiles_x + tx];
@@ -106,9 +128,11 @@ static uint32_t mixed_tiles(const pc_doc *d, uint32_t limit)
                 last_full = t;
                 continue;
             }
-            if (++n > limit) return n;
+            n++;
+            edges += tile_edges(t->data, vw, vh);
+            if (n > tile_limit && edges > edge_limit) return true;
         }
-    return n;
+    return false;
 }
 
 static const uint8_t *snap_block(void *ud, int32_t bx, int32_t by, uint8_t *scratch,
@@ -337,9 +361,9 @@ bool app_doc_sel_complex(app_doc *d)
 {
     app_doc_ants_rt *rt = d ? d->ants_rt : NULL;
     if (!d || !pc_sel_is_active(d->doc)) return false;
-    if (!rt) return mixed_tiles(d->doc, g_sync_tiles) > g_sync_tiles;
+    if (!rt) return sel_is_complex(d->doc, g_sync_tiles, g_sync_edges);
     if (!rt->complex_known || rt->complex_gen != d->doc->sel_gen) {
-        rt->complex = mixed_tiles(d->doc, g_sync_tiles) > g_sync_tiles;
+        rt->complex = sel_is_complex(d->doc, g_sync_tiles, g_sync_edges);
         rt->complex_gen = d->doc->sel_gen;
         rt->complex_known = true;
     }
