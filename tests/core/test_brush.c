@@ -879,6 +879,55 @@ static void t_undo(void)
     tdoc_free(&td);
 }
 
+/* random strokes with commits, aborts and undo/redo walks: every state
+ * comes back exactly, edge padding stays zero (INV-TILE-EDGE) */
+static void t_history_random(void)
+{
+    int rounds = g_quick ? 3 : 12;
+    pc_brush *b = pc_brush_create();
+    for (int r = 0; r < rounds; r++) {
+        tdoc td;
+        uint64_t fp[24];
+        int n = 0;
+        uint32_t W = 70u + rndu(200), H = 50u + rndu(150);
+        tdoc_init(&td, W, H, FILL_RANDOM);
+        fp[n++] = pc_doc_fingerprint(td.d);
+        for (int k = 0; k < 20; k++) {
+            stroke_case c;
+            pc_txn *t = pc_txn_begin(td.d, "stroke");
+            bool abort_it = rndu(5) == 0;
+            random_case(&c, W, H);
+            CHECK(pc_brush_begin(b, t, td.lid, &c.p, &c.src, &c.opts, NULL, &c.s[0],
+                                 rndu(3) == 0 ? PC_BRUSH_FROM_LAST : 0u, NULL) == PC_OK);
+            for (int i = 1; i < c.n; i++) CHECK(pc_brush_add(b, &c.s[i], NULL) == PC_OK);
+            if (abort_it) {
+                pc_brush_abort(b);
+                pc_txn_cancel(t);
+                CHECK(pc_doc_fingerprint(td.d) == fp[n - 1]);
+                continue;
+            }
+            CHECK(pc_brush_end(b, NULL) == PC_OK);
+            {
+                size_t before = td.h->count;
+                CHECK(pc_txn_commit(t, td.h) == PC_OK);
+                if (td.h->count > before) fp[n++] = pc_doc_fingerprint(td.d);
+                else CHECK(pc_doc_fingerprint(td.d) == fp[n - 1]);
+            }
+            CHECK(pc_doc_edge_padding_is_zero(td.d));
+        }
+        for (int i = n - 1; i > 0; i--) {
+            CHECK(pc_hist_undo(td.h));
+            CHECK(pc_doc_fingerprint(td.d) == fp[i - 1]);
+        }
+        for (int i = 1; i < n; i++) {
+            CHECK(pc_hist_redo(td.h));
+            CHECK(pc_doc_fingerprint(td.d) == fp[i]);
+        }
+        tdoc_free(&td);
+    }
+    pc_brush_destroy(b);
+}
+
 static void t_from_last(void)
 {
     tdoc td;
@@ -1115,6 +1164,7 @@ int main(int argc, char **argv)
     RUN(t_pattern_src);
     RUN(t_selection_clip);
     RUN(t_undo);
+    RUN(t_history_random);
     RUN(t_from_last);
     RUN(t_offcanvas);
     RUN(t_errors);

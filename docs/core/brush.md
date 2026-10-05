@@ -118,7 +118,9 @@ events.) A width 1500 stroke takes about 25 ms per event serially and
   aliased pixel counts), accumulation rule, random strokes against a
   single-buffer reference render and a single `pc_paint_apply` (T-L4-02;
   also checks the engine's coverage mask and the dirty rects), more than
-  one dab batch, spacing and carry, event-split invariance, no double
+  one dab batch, long thin strokes painted tile row by tile row, random
+  strokes with commits, aborts and full undo/redo walks (fingerprints,
+  edge padding), spacing and carry, event-split invariance, no double
   blending with a 50% color, build-up vs max, pressure, smoothing,
   eraser (#00000000 and 255 -> 195), all blend modes and Overwrite,
   pattern sources, antialiased and pixelated selection clipping, undo
@@ -136,8 +138,11 @@ events.) A width 1500 stroke takes about 25 ms per event serially and
   100%), shift and clamp, tolerance 0 / 15 / 100 on known colors,
   Sampling Once (also starting off the canvas), soft edges, random
   strokes against the reference, clipping, undo, errors.
-- test_brush_mt: everything above on 6 real threads (C11 threads where
-  glibc has them) equals the serial result bit for bit.
+- test_brush_mt: brush, eraser, clone and recolor strokes on 6 real
+  threads (C11 threads where glibc has them) equal the serial result bit
+  for bit. A pthread variant of it ran clean under ThreadSanitizer
+  (2026-10-05, clang 19, not part of CTest because TSan does not
+  intercept glibc's thrd_create).
 - test_brush_perf: the timings above; enforced (2x headroom) only in
   optimized builds without sanitizers.
 
