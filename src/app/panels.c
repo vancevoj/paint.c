@@ -163,15 +163,28 @@ static void default_layout(app *a, float W, float H, ui_panel_state *out, bool *
     lay_pick(a, &h, "history");
     lay_pick(a, &l, "layers");
     if (t.p) {
-        float tw = t.p->def.def.w, th = t.p->def.def.h;
+        float tw = t.p->def.def.w, th = t.p->def.def.h, chrome = th - 10.0f * LAY_CELL;
+        float cw = c.p ? c.p->st.w : 0.0f, ch = c.p ? c.p->st.h : 0.0f;
+        bool stacked = !c.p || th + ch + 3.0f * M <= H;
+        /* more columns and fewer rows: first so that Colors still fits
+         * below (Tools no wider than Colors), else so that Tools fits */
+        for (float cols = 3.0f; !stacked && cols <= 8.0f; cols += 1.0f) {
+            float w2 = tw + (cols - 2.0f) * LAY_CELL;
+            float h2 = chrome + ceilf(LAY_TOOLS / cols) * LAY_CELL;
+            if (w2 > cw) break;
+            if (h2 + ch + 3.0f * M <= H) {
+                tw = w2;
+                th = h2;
+                stacked = true;
+            }
+        }
         if (th + 2.0f * M > H) {
-            /* more columns, fewer rows */
-            float chrome = th - 10.0f * LAY_CELL, rows, cols;
-            rows = floorf((H - 2.0f * M - chrome) / LAY_CELL);
+            float rows = floorf((H - 2.0f * M - chrome) / LAY_CELL), cols;
             if (rows < 1.0f) rows = 1.0f;
             cols = ceilf(LAY_TOOLS / rows);
             if (cols < 2.0f) cols = 2.0f;
-            tw += (cols - 2.0f) * LAY_CELL;
+            if (cols > 8.0f) cols = 8.0f;
+            tw = t.p->def.def.w + (cols - 2.0f) * LAY_CELL;
             th = chrome + ceilf(LAY_TOOLS / cols) * LAY_CELL;
         }
         lay_set(&t, M, M, tw, th, UI_ANCHOR_START, UI_ANCHOR_START);

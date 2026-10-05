@@ -136,7 +136,9 @@ static void t_text_default_size(void)
     if (a) {
         CHECK(app_tool_select(a, "text"));
         at_frames(a, 2);
-        b_click(a, 30, 60, SDL_BUTTON_LEFT);
+        /* lane UIA (wave 4): at 800 x 450 DIPs the default layout puts the
+         * Colors window beside Tools, over the image's left part */
+        b_click(a, 150, 60, SDL_BUTTON_LEFT);
         type_text(a, "A");
         {
             const pc_text *t = text_tool_editing(a);
