@@ -449,6 +449,38 @@ static void t_width_box(void)
     app_destroy(a);
 }
 
+/* O-WIDTH: the default brush width follows the display scale (4 at 200 %). */
+static void t_default_width_scaled(void)
+{
+    app_opts o;
+    app *a;
+    app_opts_default(&o);
+    o.headless = true;
+    o.width = 800;
+    o.height = 600;
+    o.workers = 2;
+    o.config_dir = "";
+    o.theme = APP_THEME_LIGHT;
+    o.no_default_doc = true;
+    o.scale = 2.0f;
+    a = app_create(&o);
+    CHECK(a != NULL);
+    if (!a) return;
+    CHECK(app_tool_default_width() == 4.0f && a->ts.width == 4.0f);
+    {
+        app_tool_settings t;
+        app_tool_settings_reset(&t);                     /* Settings > Tools: Reset */
+        CHECK(t.width == 4.0f);
+    }
+    app_destroy(a);
+    a = at_app(800, 600);
+    CHECK(a != NULL);
+    if (a) {
+        CHECK(app_tool_default_width() == 2.0f && a->ts.width == 2.0f);
+        app_destroy(a);
+    }
+}
+
 int main(int argc, char **argv)
 {
     pc_test_init(argc, argv);
@@ -462,6 +494,7 @@ int main(int argc, char **argv)
     RUN(t_autoscroll);
     RUN(t_default_tool);
     RUN(t_width_box);
+    RUN(t_default_width_scaled);
     at_uses_rng();
     at_quit();
     return pc_test_finish();

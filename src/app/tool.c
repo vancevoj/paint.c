@@ -171,12 +171,13 @@ float app_tool_default_width(void)
 
 bool app_tools_init(app *a)
 {
+    float s = 1.0f;
     a->tool = -1;
     a->tool_prev = -1;
-    if (a->ui) {
-        float s = ui_scale(a->ui);
-        g_width_scale = s > 0.25f && s < 16.0f ? s : 1.0f;
-    }
+    /* the display scale (no frame has run yet, so not ui_scale) */
+    if (a->opts.headless) s = a->opts.scale;
+    else if (a->win) s = SDL_GetWindowDisplayScale(a->win);
+    g_width_scale = s > 0.25f && s < 16.0f ? s : 1.0f;
     app_tool_settings_reset(&a->ts);
     (void)fw_make(a);
     (void)app_hook_add(a, APP_HOOK_FRAME, autoscroll_hook, NULL);
