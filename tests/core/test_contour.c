@@ -224,6 +224,43 @@ static void t_antialiased(void)
     pc_poly_free(&src);
 }
 
+/* Antialiased random fields: every contour is closed, and sampling the
+ * outline at pixel centers (aliased fill, either rule) reproduces the 50%
+ * threshold exactly, so the topology and orientation are right. */
+static void t_random_soft(void)
+{
+    int iters = g_quick ? 60 : 400, bad_nz = 0, bad_eo = 0;
+    pc_poly p;
+    pc_mask m, back;
+    pc_poly_init(&p);
+    for (int k = 0; k < iters; k++) {
+        int w = 1 + (int)rndu(100), h = 1 + (int)rndu(100), mode = (int)rndu(3);
+        CHECK(pc_mask_alloc(&m, pc_rect_make((int)rndu(50) - 25, (int)rndu(50) - 25, w, h)) ==
+              PC_OK);
+        for (int i = 0; i < w * h; i++) {
+            uint8_t v = rnd8();
+            if (mode == 1) v = v < 100 ? 0 : (v > 155 ? 255 : v);         /* mixed hard/soft */
+            if (mode == 2) v = (uint8_t)(120 + rndu(16));                 /* near threshold */
+            m.px[i] = v;
+        }
+        pc_poly_clear(&p);
+        CHECK(pc_contour_mask(&m, 0.0, &p) == PC_OK);
+        for (size_t i = 0; i < p.n_contours; i++) CHECK(p.closed[i] && cpts(&p, i) >= 3);
+        CHECK(pc_mask_alloc(&back, pc_rect_make(m.x, m.y, w, h)) == PC_OK);
+        CHECK(pc_raster_fill_poly(&p, NULL, PC_FILL_NONZERO, false, &back) == PC_OK);
+        for (int i = 0; i < w * h; i++)
+            if (back.px[i] != (m.px[i] >= 128 ? 255 : 0)) bad_nz++;
+        CHECK(pc_raster_fill_poly(&p, NULL, PC_FILL_EVENODD, false, &back) == PC_OK);
+        for (int i = 0; i < w * h; i++)
+            if (back.px[i] != (m.px[i] >= 128 ? 255 : 0)) bad_eo++;
+        pc_mask_free(&back);
+        pc_mask_free(&m);
+    }
+    INFO("soft masks: center sampling mismatches %d (nonzero) %d (even-odd)", bad_nz, bad_eo);
+    CHECK(bad_nz == 0 && bad_eo == 0);
+    pc_poly_free(&p);
+}
+
 /* A huge field: a rectangle inside a 65535 x 65535 area, blocks served
  * as uniform where possible. */
 typedef struct big_field { pc_rect in; long calls; } big_field;
@@ -392,6 +429,7 @@ int main(int argc, char **argv)
     RUN(t_rect_and_pixel);
     RUN(t_random_hard);
     RUN(t_antialiased);
+    RUN(t_random_soft);
     RUN(t_huge);
     RUN(t_json);
     RUN(t_json_fuzz);

@@ -571,6 +571,14 @@ static void t_poly_preview_contour(void)
     /* copy selection text and paste it back (hard selections round trip) */
     {
         char *txt = NULL;
+        CHECK(pc_sel_apply_rect(h, pc_rect_make(3, 4, 6, 15), PC_SEL_REPLACE, "R") == PC_OK);
+        CHECK(pc_sel_copy_text(d, &txt, NULL) == PC_OK);
+        /* the sample from the Edit menu documentation */
+        CHECK(txt && strstr(txt, "\"3,4,9,4,9,19,3,19,3,4\"") != NULL);
+        free(txt);
+    }
+    {
+        char *txt = NULL;
         size_t n = 0;
         uint64_t fp;
         CHECK(pc_sel_apply_rect(h, pc_rect_make(10, 20, 50, 30), PC_SEL_REPLACE, "R") == PC_OK);

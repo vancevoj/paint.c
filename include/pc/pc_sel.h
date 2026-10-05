@@ -220,7 +220,9 @@ void      pc_sel_src_state(pc_sel_src *s, const pc_sel_state *st);
 void      pc_sel_touch(pc_doc *d);
 
 /* Edit > Copy Selection / Paste Selection helpers: the selection outline
- * as the polygon-list text (*out malloc'ed, caller frees with free()), and
+ * as the polygon-list text (*out malloc'ed, caller frees with free()); like
+ * Paint.NET's own text, each polygon starts at its top-left vertex and
+ * outer boundaries run clockwise on screen. And
  * the text applied with a combine mode (even-odd fill, pixelated or
  * antialiased). Pasting untrusted text is safe: see pc_poly_from_json. */
 pc_status pc_sel_copy_text(const pc_doc *d, char **out, size_t *len);

@@ -1575,12 +1575,39 @@ pc_status pc_sel_contour_preview(const pc_doc *d, const pc_mask *src, pc_sel_mod
 }
 
 /* ---- Copy Selection / Paste Selection ------------------------------------------------------- */
+/* Reverse contour i of p and rotate it to start at its top-left point,
+ * the shape of Paint.NET's own text (outer boundaries clockwise on screen,
+ * starting top-left). */
+static void canon_contour(pc_poly *p, size_t i)
+{
+    size_t s = pc_poly_contour_start(p, i), e = p->ends[i], n = e - s, best = 0;
+    for (size_t a = s, b = e; a + 1u < b; a++, b--) {
+        pc_pt t = p->pts[a];
+        p->pts[a] = p->pts[b - 1u];
+        p->pts[b - 1u] = t;
+    }
+    for (size_t k = 1; k < n; k++) {
+        pc_pt q = p->pts[s + k], m = p->pts[s + best];
+        if (q.y < m.y || (q.y == m.y && q.x < m.x)) best = k;
+    }
+    /* rotate left by best with three reversals */
+    for (int pass = 0; pass < 3 && best; pass++) {
+        size_t a = s + (pass == 1 ? best : 0), b = pass == 0 ? s + best : e;
+        for (; a + 1u < b; a++, b--) {
+            pc_pt t = p->pts[a];
+            p->pts[a] = p->pts[b - 1u];
+            p->pts[b - 1u] = t;
+        }
+    }
+}
+
 pc_status pc_sel_copy_text(const pc_doc *d, char **out, size_t *len)
 {
     pc_poly p;
     pc_status st;
     pc_poly_init(&p);
     st = pc_sel_contour(d, 0.0, &p);
+    for (size_t i = 0; st == PC_OK && i < p.n_contours; i++) canon_contour(&p, i);
     if (st == PC_OK) st = pc_poly_to_json(&p, out, len);
     pc_poly_free(&p);
     return st;
