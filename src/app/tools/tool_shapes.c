@@ -184,7 +184,13 @@ static void end_drag(app *a, shapes_state *s)
     int kind = s->drag;
     s->drag = DRAG_NONE;
     if (!vec_op_active(&s->lv)) return;
-    (void)vec_op_end(a, &s->lv, kind == DRAG_CREATE ? VEC_EDIT_CREATE : VEC_EDIT_DRAG);
+    (void)vec_op_end(a, &s->lv,
+                     kind == DRAG_CREATE              ? VEC_EDIT_CREATE
+                     : s->op == PC_SHAPE_OP_RESIZE     ? VEC_EDIT_RESIZE
+                     : s->op == PC_SHAPE_OP_ROTATE     ? VEC_EDIT_ROTATE
+                     : s->op == PC_SHAPE_OP_MOVE_PIVOT ? VEC_EDIT_PIVOT
+                     : s->op == PC_SHAPE_OP_MOVE       ? VEC_EDIT_MOVE
+                                                       : VEC_EDIT_DRAG);
     app_status(a, NULL);
 }
 

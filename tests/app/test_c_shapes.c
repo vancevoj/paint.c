@@ -137,7 +137,7 @@ static void t_draw_rect(void)
     at_drag(a, 20.2, 20.2, 60.2, 50.2, 6, SDL_BUTTON_LEFT);
     CHECK(app_tool_live(a));
     CHECK(hist_len(a) == h0 + 1u);
-    CHECK(strcmp(cur_label(a), "Draw Rectangle") == 0);
+    CHECK(strcmp(cur_label(a), "Shape: Rectangle") == 0);
     /* width 2 on pixel corners: two crisp pixels on each side */
     CHECK(black(at_doc_px(a, 19, 35)));
     CHECK(black(at_doc_px(a, 20, 35)));
@@ -149,7 +149,7 @@ static void t_draw_rect(void)
     key(a, SDLK_RETURN, SDL_KMOD_NONE);
     CHECK(!app_tool_live(a));
     CHECK(hist_len(a) == h0 + 2u);
-    CHECK(strcmp(cur_label(a), "Finish Rectangle") == 0);
+    CHECK(strcmp(cur_label(a), "Shape: Finish") == 0);
     CHECK(black(at_doc_px(a, 20, 35)));
     /* undo Finish: editable again */
     key(a, SDLK_Z, SDL_KMOD_CTRL);
@@ -242,19 +242,21 @@ static void t_edit_drags(void)
     at_drag(a, 60.0, 50.0, 100.2, 80.2, 5, SDL_BUTTON_LEFT);
     CHECK(app_tool_live(a));
     CHECK(hist_len(a) == h0 + 1u);
-    CHECK(strcmp(cur_label(a), "Edit Rectangle") == 0);
+    CHECK(strcmp(cur_label(a), "Shape: Resize") == 0);
     CHECK(black(at_doc_px(a, 95, 75)));
     CHECK(black(at_doc_px(a, 22, 22)));
     CHECK(white(at_doc_px(a, 102, 82)));
     /* drag inside: move */
     at_drag(a, 50.2, 50.2, 80.2, 70.2, 5, SDL_BUTTON_LEFT);
     CHECK(hist_len(a) == h0 + 2u);
+    CHECK(strcmp(cur_label(a), "Shape: Move") == 0);
     CHECK(white(at_doc_px(a, 30, 30)));
     CHECK(black(at_doc_px(a, 55, 45)));
     CHECK(black(at_doc_px(a, 125, 95)));
     /* right drag: rotate 90 degrees about the pivot (the center, 90, 70) */
     at_drag(a, 130.0, 70.0, 90.0, 110.0, 8, SDL_BUTTON_RIGHT);
     CHECK(hist_len(a) == h0 + 3u);
+    CHECK(strcmp(cur_label(a), "Shape: Rotate") == 0);
     {
         const vec_obj *o = vec_live_obj(shapes_live(a));
         CHECK(o != NULL);
@@ -286,6 +288,7 @@ static void t_keys(void)
     h0 = hist_len(a);
     key(a, SDLK_RIGHT, SDL_KMOD_NONE);
     CHECK(hist_len(a) == h0 + 1u);
+    CHECK(strcmp(cur_label(a), "Shape: Move") == 0);
     CHECK(black(at_doc_px(a, 60, 35)));
     CHECK(white(at_doc_px(a, 20, 35)));
     key(a, SDLK_DOWN, SDL_KMOD_CTRL);
@@ -320,6 +323,7 @@ static void t_live_options(void)
     app_tool_settings_changed(a);
     at_frames(a, 1);
     CHECK(hist_len(a) == h0 + 1u);
+    CHECK(strcmp(cur_label(a), "Shape: Style") == 0);
     CHECK(fp(a) != f1);
     CHECK(black(at_doc_px(a, 70, 24)));
     /* a color change right after it replaces that step (coalescing) */
@@ -401,7 +405,7 @@ static void t_finish_ways(void)
     key(a, SDLK_ESCAPE, SDL_KMOD_NONE);
     CHECK(!app_tool_live(a));
     CHECK(black(at_doc_px(a, 120, 100)));
-    CHECK(strcmp(cur_label(a), "Finish Rectangle") == 0);
+    CHECK(strcmp(cur_label(a), "Shape: Finish") == 0);
     /* the toolbar Finish */
     at_drag(a, 150.2, 10.2, 190.2, 40.2, 4, SDL_BUTTON_LEFT);
     CHECK(app_tool_finish(a));
@@ -409,7 +413,7 @@ static void t_finish_ways(void)
     /* a tool switch finishes */
     at_drag(a, 150.2, 100.2, 190.2, 140.2, 4, SDL_BUTTON_LEFT);
     CHECK(app_tool_select(a, "pencil"));
-    CHECK(strcmp(cur_label(a), "Finish Rectangle") == 0);
+    CHECK(strcmp(cur_label(a), "Shape: Finish") == 0);
     /* undo the Finish while another tool is active: Shapes comes back live */
     key(a, SDLK_Z, SDL_KMOD_CTRL);
     at_frames(a, 2);
@@ -576,7 +580,7 @@ static void t_pivot_corridor_flip(void)
     at_drag(a, 130.0, 120.0, 100.0, 100.0, 4, SDL_BUTTON_LEFT);
     o = vec_live_obj(shapes_live(a));
     CHECK(o && o->shape.pivot_custom && fabs(pc_shape_pivot(&o->shape).x - 100.0) < 1.0);
-    CHECK(strcmp(cur_label(a), "Edit Rectangle") == 0);
+    CHECK(strcmp(cur_label(a), "Shape: Rotation Point") == 0);
     /* right drag from east of the pivot to south of it: 90 degrees clockwise */
     at_drag(a, 180.0, 100.0, 100.0, 180.0, 8, SDL_BUTTON_RIGHT);
     /* the box (100..160, 100..140) turned about (100, 100): x 60..100, y 100..160 */

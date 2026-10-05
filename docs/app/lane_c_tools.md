@@ -43,9 +43,13 @@ the owning tool, and the toolbar follows the object's options. Options and
 color changes within one second replace each other in history (a color
 wheel drag records one step). An edit that changes nothing records nothing.
 
-History labels (paint.c's choice, TOOLS.md marks them I): "Draw <shape>",
-"Edit <shape>", "Finish <shape>" with the shape's name, "Draw Line/Curve",
-"Edit Line/Curve", "Finish Line/Curve", and "Text" for a finished text. The
+History labels (paint.c's choice, TOOLS.md marks Paint.NET's as I) start
+with the tool so the History window shows its icon: "Shape: Rectangle"
+(creation, the shape's name), "Shape: Move", "Shape: Resize", "Shape:
+Rotate", "Shape: Rotation Point", "Shape: Style" (options, colors, A),
+"Shape: Finish"; "Line/Curve", "Line/Curve: Bend", "Line/Curve: Move",
+"Line/Curve: Rotate", "Line/Curve: Style", "Line/Curve: Finish"; and "Text"
+for a finished text. The
 Text tool keeps the 3.36 model: one step when the text is finished.
 
 ## Text input

@@ -186,21 +186,26 @@ static app_doc *doc_by_id(app *a, uint32_t id)
     return NULL;
 }
 
+/* History step names (paint.c's own; TOOLS.md marks Paint.NET's as
+ * inferred): "<Noun>: <verb>" so the History window shows the tool icon. */
 void vec_label(const vec_live *lv, vec_edit_kind k, char *out, size_t cap)
 {
+    static const char *const verbs[] = { "", "Edit", "Move", "Style", "Move", "Resize",
+                                         "Rotate", "Rotation Point", "Bend" };
     const char *noun = lv->noun ? lv->noun : "Shape";
-    const vec_obj *o = vec_live_obj(lv);
-    if (lv->op) o = &lv->op_obj;
-    if (o && !o->is_line) noun = pc_shape_name(o->shape.kind);
-    (void)snprintf(out, cap, "%s %s", k == VEC_EDIT_CREATE ? "Draw" : "Edit", noun);
+    const vec_obj *o = lv->op ? &lv->op_obj : vec_live_obj(lv);
+    if (k == VEC_EDIT_CREATE) {
+        if (o && !o->is_line) (void)snprintf(out, cap, "%s: %s", noun, pc_shape_name(o->shape.kind));
+        else (void)snprintf(out, cap, "%s", noun);
+        return;
+    }
+    if ((unsigned)k >= sizeof verbs / sizeof verbs[0]) k = VEC_EDIT_DRAG;
+    (void)snprintf(out, cap, "%s: %s", noun, verbs[k]);
 }
 
 static void finish_label(const vec_live *lv, char *out, size_t cap)
 {
-    const char *noun = lv->noun ? lv->noun : "Shape";
-    const vec_obj *o = vec_live_obj(lv);
-    if (o && !o->is_line) noun = pc_shape_name(o->shape.kind);
-    (void)snprintf(out, cap, "Finish %s", noun);
+    (void)snprintf(out, cap, "%s: Finish", lv->noun ? lv->noun : "Shape");
 }
 
 static void set_label(pc_hist_node *n, const char *label)

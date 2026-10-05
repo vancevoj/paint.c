@@ -60,11 +60,18 @@ typedef struct vec_state {
 
 typedef struct vec_sess vec_sess;
 
+/* What an edit did; names the history step ("Shape: Rectangle",
+ * "Shape: Resize", "Line/Curve: Bend", "Line/Curve: Finish", ...). */
 typedef enum vec_edit_kind {
-    VEC_EDIT_CREATE = 0,
-    VEC_EDIT_DRAG,               /* nub, move handle, rotation */
-    VEC_EDIT_KEYS,               /* arrow keys, cycling keys */
-    VEC_EDIT_OPTIONS             /* toolbar option or color change */
+    VEC_EDIT_CREATE = 0,         /* "<Noun>: <shape>" or "<Noun>" for lines */
+    VEC_EDIT_DRAG,               /* any other drag: "Edit" */
+    VEC_EDIT_KEYS,               /* arrow keys: "Move" */
+    VEC_EDIT_OPTIONS,            /* toolbar option, color change, A key: "Style" */
+    VEC_EDIT_MOVE,               /* move handle or a drag inside: "Move" */
+    VEC_EDIT_RESIZE,             /* a shape's nub: "Resize" */
+    VEC_EDIT_ROTATE,             /* "Rotate" */
+    VEC_EDIT_PIVOT,              /* the rotation point: "Rotation Point" */
+    VEC_EDIT_BEND                /* a line's nub: "Bend" */
 } vec_edit_kind;
 
 /* Per-tool live editing state (embedded at the start of the tool state of

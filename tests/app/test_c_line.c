@@ -131,7 +131,7 @@ static void t_straight(void)
     at_drag(a, 20.3, 40.3, 120.3, 40.3, 6, SDL_BUTTON_LEFT);
     CHECK(app_tool_live(a));
     CHECK(hist_len(a) == h0 + 1u);
-    CHECK(strcmp(cur_label(a), "Draw Line/Curve") == 0);
+    CHECK(strcmp(cur_label(a), "Line/Curve") == 0);
     /* 1 px aliased: exactly one dark pixel per column, on row 40 */
     for (int x = 22; x < 118; x += 7) {
         CHECK(black(at_doc_px(a, x, 40)));
@@ -140,7 +140,7 @@ static void t_straight(void)
     CHECK(white(at_doc_px(a, 125, 40)));
     key(a, SDLK_RETURN, SDL_KMOD_NONE);
     CHECK(!app_tool_live(a));
-    CHECK(strcmp(cur_label(a), "Finish Line/Curve") == 0);
+    CHECK(strcmp(cur_label(a), "Line/Curve: Finish") == 0);
     /* the right button draws with the secondary color */
     app_set_secondary(a, app_px_make(255, 0, 0, 255));
     at_drag(a, 20.3, 80.3, 120.3, 80.3, 6, SDL_BUTTON_RIGHT);
@@ -182,7 +182,7 @@ static void t_nubs_and_types(void)
     at_drag(a, 30.5, 100.5, 210.5, 100.5, 6, SDL_BUTTON_LEFT);
     /* drag the second nub (at 1/3) up: the polyline bends there */
     at_drag(a, 90.5, 100.5, 90.5, 40.5, 6, SDL_BUTTON_LEFT);
-    CHECK(strcmp(cur_label(a), "Edit Line/Curve") == 0);
+    CHECK(strcmp(cur_label(a), "Line/Curve: Bend") == 0);
     CHECK(black(at_doc_px(a, 90, 40)));
     CHECK(white(at_doc_px(a, 90, 100)));
     f_straight = fp(a);

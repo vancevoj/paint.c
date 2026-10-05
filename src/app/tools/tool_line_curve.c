@@ -152,7 +152,12 @@ static void end_drag(app *a, line_state *s)
     int kind = s->drag;
     s->drag = DRAG_NONE;
     if (!vec_op_active(&s->lv)) return;
-    (void)vec_op_end(a, &s->lv, kind == DRAG_CREATE ? VEC_EDIT_CREATE : VEC_EDIT_DRAG);
+    (void)vec_op_end(a, &s->lv,
+                     kind == DRAG_CREATE         ? VEC_EDIT_CREATE
+                     : s->op == PC_LC_OP_NUB     ? VEC_EDIT_BEND
+                     : s->op == PC_LC_OP_ROTATE  ? VEC_EDIT_ROTATE
+                     : s->op == PC_LC_OP_MOVE    ? VEC_EDIT_MOVE
+                                                 : VEC_EDIT_DRAG);
     app_status(a, NULL);
 }
 
