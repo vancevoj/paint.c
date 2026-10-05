@@ -212,6 +212,9 @@ static SDL_Cursor *cursor_for(app *a, app_cursor k)
     if (a->cv.cursors[k]) return a->cv.cursors[k];
     ds = SDL_GetWindowDisplayScale(a->win);
     size = ds > 1.4f ? 32 : 24;
+    /* lane TOOLA: the closed hand and the selection mode glyph cursors */
+    a->cv.cursors[k] = app_tool_cursor_make(a, k, size);
+    if (a->cv.cursors[k]) return a->cv.cursors[k];
     switch (k) {
     case APP_CURSOR_HAND:
     case APP_CURSOR_GRAB:

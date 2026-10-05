@@ -46,7 +46,7 @@ static layers_state *lstate(app *a)
 static void toggle_visible(app *a, app_doc *d, uint32_t layer_id)
 {
     pc_layer *l;
-    (void)app_tool_finish(a);
+    (void)app_tool_finish_as(a, APP_FINISH_LAYER_PROPS);  /* lane TOOLA: R 5.1 keeps moves */
     l = pc_doc_layer_by_id(d->doc, layer_id);
     if (!l || d->txn) return;
     if (pc_hist_set_layer_props(d->hist, l->id, l->mode, l->opacity, !l->visible, l->name,

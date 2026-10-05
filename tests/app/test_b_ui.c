@@ -251,7 +251,9 @@ static void t_settings_loaded(void)
     CHECK(a != NULL);
     if (!a) return;
     CHECK(a->ts.width == 7.5f && a->ts.spacing == 300);
-    CHECK(strcmp(app_tool_current(a)->id, "color_picker") == 0);
+    /* lane TOOLA: the start tool is the default tool (F-TOOL-DEFAULT-BRUSH) */
+    CHECK(strcmp(app_tool_current(a)->id, "paintbrush") == 0);
+    CHECK(app_tool_select(a, "color_picker"));
     d = app_doc_new_image(a, 30, 30, b_px(10, 20, 30, 255));
     CHECK(d && app_add_doc(a, d));
     at_frames(a, 2);

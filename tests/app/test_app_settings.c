@@ -129,6 +129,13 @@ static void t_app_roundtrip(void)
     pal_mkdirs(dir);
     pal_path_join(file, sizeof file, dir, "settings.ini");
     (void)pal_remove(file);
+    {
+        /* lane TOOLA: a backup left by an earlier run would be loaded in
+         * place of the missing file */
+        char bak[1100];
+        snprintf(bak, sizeof bak, "%s.bak", file);
+        (void)pal_remove(bak);
+    }
     app_opts_default(&o);
     o.headless = true;
     o.width = 1000;
@@ -161,7 +168,8 @@ static void t_app_roundtrip(void)
     CHECK(app_pixel_grid(a) && app_get_units(a) == APP_UNITS_CM);
     CHECK(px_eq(app_primary(a), 10, 20, 30, 200));
     CHECK(a->ts.width == 17.0f && !a->ts.antialias);
-    CHECK(app_tool_current(a) && strcmp(app_tool_current(a)->id, "pencil") == 0);
+    /* lane TOOLA: every start uses the default tool (F-TOOL-DEFAULT-BRUSH) */
+    CHECK(app_tool_current(a) && strcmp(app_tool_current(a)->id, "paintbrush") == 0);
     CHECK(!app_panel_open(a, "history") && app_panel_open(a, "tools"));
     CHECK(app_panel_state(a, "layers")->w == 300.0f);
     CHECK(a->nrecent == 2 && strcmp(a->recent[0], "/tmp/two.png") == 0);

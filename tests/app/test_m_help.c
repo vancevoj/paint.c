@@ -375,7 +375,8 @@ static void t_startup(void)
     CHECK(pc_par_threads(&a->par) <= 3u);
     CHECK(a->m_cv_no_shadow && a->m_pen_off);
     app_destroy(a);
-    /* without stored defaults the last toolbar is kept */
+    /* without stored defaults the last toolbar is kept; lane TOOLA: the
+     * start tool is the default tool, not the last one (F-TOOL-DEFAULT-BRUSH) */
     {
         static const char t2[] = "tool.width=5\ntool.current=zoom\n";
         CHECK(pal_write_file_atomic(ini, t2, sizeof t2 - 1u) == PC_OK);
@@ -383,7 +384,7 @@ static void t_startup(void)
         CHECK(a != NULL);
         if (a) {
             CHECK(a->ts.width == 5.0f);
-            CHECK(app_tool_current(a) && strcmp(app_tool_current(a)->id, "zoom") == 0);
+            CHECK(app_tool_current(a) && strcmp(app_tool_current(a)->id, "paintbrush") == 0);
             app_destroy(a);
         }
     }

@@ -91,28 +91,26 @@ static void zoom_deactivate(app *a, void *st)
     ((zoom_state *)st)->drag = false;
 }
 
+/* T-FW-ARROWS: arrow keys nudge the pointer (a drag rectangle follows) */
+static bool zoom_key(app *a, void *st, int32_t key, uint32_t mods, bool down)
+{
+    (void)st;
+    return down && app_tool_nudge_pointer(a, key, mods);
+}
+
 const app_tool app_tool_zoom = {
-    "zoom",
-    "Zoom",
-    "Click to zoom in, right click to zoom out, drag a rectangle to zoom to it.",
-    'Z',
-    6,
-    UI_ICON_TOOL_ZOOM,
-    APP_CURSOR_ZOOM_IN,
-    0u,
-    sizeof(zoom_state),
-    NULL,
-    NULL,
-    NULL,
-    zoom_deactivate,
-    zoom_pointer,
-    NULL,
-    NULL,
-    NULL,
-    zoom_overlay,
-    NULL,
-    NULL,
-    NULL,
-    zoom_cursor,
-    NULL
+    .id = "zoom",
+    .name = "Zoom",
+    .help = "Click to zoom in, right click to zoom out, drag a rectangle to zoom to it.",
+    .letter = 'Z',
+    .order = 6,
+    .icon = UI_ICON_TOOL_ZOOM,
+    .cursor = APP_CURSOR_ZOOM_IN,
+    .flags = 0u,
+    .state_size = sizeof(zoom_state),
+    .deactivate = zoom_deactivate,
+    .pointer = zoom_pointer,
+    .key = zoom_key,
+    .overlay = zoom_overlay,
+    .cursor_at = zoom_cursor,
 };
