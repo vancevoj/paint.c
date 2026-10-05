@@ -163,7 +163,8 @@ bool     fx_params_valid(const fx_effect *fx, const void *params);
  * later duplicates win, values are clamped like fx_param_set. Errors:
  * PC_ERR_FORMAT for syntax errors, a NUL byte, bad values or wrong custom
  * lengths; PC_ERR_LIMIT when len > FX_PRESET_MAX_LEN; PC_ERR_NOMEM. Reads
- * exactly len bytes of s, never more. Any thread on its own blob. */
+ * exactly len bytes of s, never more. Any thread on its own blob, but not
+ * concurrently with setlocale (both functions read localeconv()). */
 char     *fx_preset_save(const fx_effect *fx, const void *params);
 pc_status fx_preset_load(const fx_effect *fx, void *params, const char *s, size_t len);
 
