@@ -62,15 +62,32 @@ toolchain file and pass the dependency locations explicitly. Each sub-build
 carries its pin in its arguments, so a version bump rebuilds it. Time on
 6 cores: about 2 minutes (Linux GCC), 3 minutes (mingw-w64).
 
-CI (.github/workflows/ci.yml): linux-gcc (and its AppImage / tar.gz),
-mingw-w64 + Wine, Windows MSVC and clang-cl (NASM from Chocolatey) and both
-macOS jobs build BUNDLED; linux-clang and the ASan/UBSan job use Ubuntu
-24.04's libavif-dev and libjxl-dev (the oldest supported versions); the
-headless step of linux-gcc builds with both OFF (the "no library" path).
-Verified locally: Linux GCC and Clang (system and bundled), mingw-w64 under
-Wine (bundled), ASan/UBSan with the system libraries. Not verified locally:
-MSVC and clang-cl (no Windows machine); libaom, libavif, Brotli, Highway
-and libjxl 0.11 all build with MSVC upstream (vcpkg).
+clang-cl: the bundled libavif cannot be built (libavif 1.4.2 merges its
+static library with an ar MRI script whenever the compiler id is Clang,
+and llvm-lib does not run it; seen on the windows-clang-cl runner), so
+PC_WITH_AVIF=BUNDLED (or ON without a system libavif) stops at configure
+with that explanation. The bundled libjxl builds with clang-cl.
+
+### Status per platform (CI, ci/fix4)
+
+| Platform (CI job) | AVIF | JPEG XL | How |
+|---|---|---|---|
+| Linux GCC (linux-gcc, AppImage, tar.gz) | built | built | BUNDLED |
+| Linux Clang (linux-clang) | built | built | system: Ubuntu 24.04 libavif-dev 1.0.4, libjxl-dev 0.7.0 (ON) |
+| Linux ASan/UBSan (linux-asan-ubsan) | built | built | system, as linux-clang |
+| Linux headless step (linux-gcc) | disabled | disabled | OFF |
+| Windows mingw-w64 + Wine | built | built | BUNDLED; plus a cross AUTO configure with the host's libavif-dev/libjxl-dev installed, which must report both disabled and still build pc_codec |
+| Windows MSVC (windows-cl, zip, installer) | built | built | BUNDLED (NASM from Chocolatey) |
+| Windows clang-cl (windows-clang-cl) | disabled | disabled | AUTO, no system libraries on the runner |
+| macOS 14 arm64 (macos-14) | built | built | system: Homebrew libavif + jpeg-xl bottles (AUTO); BUNDLED on tags |
+| macOS 15 x86_64 (macos-15-intel) | disabled | disabled | AUTO without libraries; BUNDLED on tags |
+
+Release packages (tags) are all BUNDLED, so every package can load and
+save both formats; macOS runs its bundled build only on tags because its
+runners bill ten times Linux. Verified locally (Debian 13): Linux GCC and
+Clang with the system libraries, ASan/UBSan, mingw-w64 under Wine with
+BUNDLED (157/157 tests) and with OFF, and the cross AUTO detection with
+the host libraries installed (both reported disabled, pc_codec builds).
 
 ## Metadata items (pc_image_meta)
 
