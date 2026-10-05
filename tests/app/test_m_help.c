@@ -11,6 +11,10 @@
 #include "edit/m_settings.h"
 #include "edit/m_ui.h"
 
+#ifndef PC_PROJECT_PUBLIC
+#define PC_PROJECT_PUBLIC 0
+#endif
+
 static void key_ev(app *a, SDL_Keycode k, SDL_Keymod mod, bool down)
 {
     SDL_Event e;
@@ -38,25 +42,34 @@ static void t_links(void)
     if (!a) return;
     at_frames(a, 1);
     CHECK(m_last_url(a) == NULL);
+    /* lane UIB (wave 4): Documentation and Search open the guide inside
+     * paint.c (file URLs; this app has no settings folder, so the pages are
+     * only located, not written: test_uib_help covers the files) */
     tap(a, SDLK_F1, SDL_KMOD_NONE);
     u = m_last_url(a);
-    CHECK(u && strncmp(u, "https://", 8) == 0 && strstr(u, "paint.c") != NULL);
+    CHECK(u && strncmp(u, "file://", 7) == 0 && strstr(u, "/help/index.html") != NULL);
     CHECK(app_cmd_exec(a, "help.website") && m_last_url(a) && strstr(m_last_url(a), "github.com"));
     tap(a, SDLK_E, AT_KMOD_PRIMARY);
-    CHECK(m_last_url(a) && strstr(m_last_url(a), "/search") != NULL);
+    CHECK(m_last_url(a) && strstr(m_last_url(a), "/help/search.html") != NULL);
     CHECK(app_cmd_exec(a, "help.feedback"));
     u = m_last_url(a);
     CHECK(u && strstr(u, "/issues/new?body=") != NULL && strstr(u, "Diagnostics") != NULL);
     CHECK(strchr(u, ' ') == NULL && strchr(u, '\n') == NULL);      /* encoded */
-    /* Donate has no paint.c counterpart and stays hidden; Forum, Tutorials
-     * and Plugins open the project's pages (lane KEYS, F-MENU-HELP-*) */
+    /* Donate has no paint.c counterpart and stays hidden; Tutorials and
+     * Plugins open the guide's pages, Forum the issue list of a public
+     * repository only (lane UIB, wave 4 items 4 to 6) */
     CHECK(!app_cmd_exists(a, "help.donate"));
+#if PC_PROJECT_PUBLIC
     CHECK(app_cmd_exec(a, "help.forum") && m_last_url(a) &&
-          strstr(m_last_url(a), "github.com/vancevoj/paint.c/discussions") != NULL);
+          strstr(m_last_url(a), "github.com/vancevoj/paint.c/issues") != NULL);
+#else
+    CHECK(!app_cmd_exists(a, "help.forum"));
+#endif
     CHECK(app_cmd_exec(a, "help.tutorials") && m_last_url(a) &&
-          strstr(m_last_url(a), "/wiki/Tutorials") != NULL);
+          strstr(m_last_url(a), "/help/tutorials.html") != NULL);
     CHECK(app_cmd_exec(a, "help.plugins") && m_last_url(a) &&
-          strstr(m_last_url(a), "/wiki/Plugins") != NULL);
+          strstr(m_last_url(a), "/help/plugins.html") != NULL);
+    CHECK(m_last_url(a) && strchr(m_last_url(a), ' ') == NULL);         /* encoded */
     /* About opens once */
     CHECK(app_cmd_exec(a, "help.about"));
     at_frames(a, 2);

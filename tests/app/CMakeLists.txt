@@ -55,3 +55,27 @@ foreach(t ${_app_tests})
     endif()
   endif()
 endforeach()
+
+# lane UIB (wave 4 items 4 to 6): the user guide test builds the guide's
+# plugin example (docs/help/fade_plugin.c) like a user would, as a module
+# named fade<suffix>, and loads it through the real plugin loader.
+if(TARGET test_uib_help)
+  add_library(uib_fade_plugin MODULE ${PROJECT_SOURCE_DIR}/docs/help/fade_plugin.c)
+  target_include_directories(uib_fade_plugin PRIVATE ${PROJECT_SOURCE_DIR}/include/fx)
+  set_target_properties(uib_fade_plugin PROPERTIES PREFIX "" OUTPUT_NAME fade
+                        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/uib_plugin$<0:>"
+                        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/uib_plugin$<0:>")
+  if(APPLE)
+    set_target_properties(uib_fade_plugin PROPERTIES SUFFIX ".dylib")
+  endif()
+  pc_warnings(uib_fade_plugin)
+  add_dependencies(test_uib_help uib_fade_plugin)
+  target_compile_definitions(test_uib_help PRIVATE
+                             UIB_FADE_PLUGIN="$<TARGET_FILE:uib_fade_plugin>")
+endif()
+# Help > Forum exists only when PC_PROJECT_PUBLIC is on (src/app/CMakeLists.txt).
+foreach(_n test_uib_help test_m_help test_keys_menu)
+  if(TARGET ${_n})
+    target_compile_definitions(${_n} PRIVATE PC_PROJECT_PUBLIC=$<BOOL:${PC_PROJECT_PUBLIC}>)
+  endif()
+endforeach()

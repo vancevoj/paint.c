@@ -7,12 +7,17 @@
  * press focuses the menu bar (K-OS-2, K-UI-MENU-ALT) and Alt held shows the
  * underlines, Alt+H opens the Help menu (K-UI-HELPMENU) and its items have
  * access keys, Alt+T opens the tool dropdown (K-UI-TOOLDROP), shortcuts
- * are swallowed while a menu owns the keyboard, and Help > Forum,
- * Tutorials and Plugins exist. Headless, dummy video driver. */
+ * are swallowed while a menu owns the keyboard, and Help > Tutorials and
+ * Plugins open the guide inside paint.c while Forum exists only in builds
+ * of a public repository (lane UIB, wave 4). Headless, dummy video driver. */
 #include "keys_util.h"
 
 #include "edit/m_ui.h"
 #include "tools/text_font.h"
+
+#ifndef PC_PROJECT_PUBLIC
+#define PC_PROJECT_PUBLIC 0
+#endif
 
 static const pc_px32 WHITE = { 255, 255, 255, 255 };
 
@@ -196,16 +201,23 @@ static void t_help_and_tools(void)
     at_frames(a, 3);
     CHECK(ui_popup_is_open(a->ui, "##help_menu") && ui_menu_keyboard(a->ui));
     k_tap(a, SDLK_F, SDL_KMOD_NONE);                       /* Forum */
+#if PC_PROJECT_PUBLIC
     CHECK(!ui_popup_is_open(a->ui, "##help_menu"));
-    CHECK(m_last_url(a) && strstr(m_last_url(a), "/discussions") != NULL);
+    CHECK(m_last_url(a) && strstr(m_last_url(a), "/issues") != NULL);
+#else
+    /* lane UIB: hidden while the repository is private, F matches nothing */
+    CHECK(ui_popup_is_open(a->ui, "##help_menu") && m_last_url(a) == NULL);
+    k_tap(a, SDLK_ESCAPE, SDL_KMOD_NONE);
+#endif
     k_alt(a, SDLK_H);
     at_frames(a, 3);
     k_tap(a, SDLK_T, SDL_KMOD_NONE);                       /* Tutorials */
-    CHECK(m_last_url(a) && strstr(m_last_url(a), "/wiki/Tutorials") != NULL);
+    CHECK(m_last_url(a) && strncmp(m_last_url(a), "file://", 7) == 0 &&
+          strstr(m_last_url(a), "/help/tutorials.html") != NULL);
     k_alt(a, SDLK_H);
     at_frames(a, 3);
     k_tap(a, SDLK_P, SDL_KMOD_NONE);                       /* Plugins */
-    CHECK(m_last_url(a) && strstr(m_last_url(a), "/wiki/Plugins") != NULL);
+    CHECK(m_last_url(a) && strstr(m_last_url(a), "/help/plugins.html") != NULL);
     k_alt(a, SDLK_H);
     at_frames(a, 3);
     k_tap(a, SDLK_A, SDL_KMOD_NONE);                       /* About */
