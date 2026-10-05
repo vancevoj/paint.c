@@ -66,7 +66,7 @@
 #define BEVEL_PI      3.14159265358979323846
 #define BEVEL_INF     1e20f
 #define BEVEL_GAUSS_BOX_SIGMA 2.0
-#define BEVEL_MAX_CELLS ((int64_t)1 << 28)      /* 1 GiB of floats per grid */
+#define BEVEL_MAX_CELLS ((int64_t)1 << 26)      /* 256 MiB per grid, four grids */
 #define BEVEL_HARD_SIGMA 0.6                    /* blur of the hard profile */
 #define BEVEL_SOFT_SIGMA 1.0                    /* least blur of the soft profile */
 
@@ -575,7 +575,11 @@ static int bevel_prepare(const void *params, const fx_img *src, const fx_env *en
     s->g.w = bx1 - bx0 + 1 + 2 * margin;
     s->g.h = by1 - by0 + 1 + 2 * margin;
     cells = (int64_t)s->g.w * (int64_t)s->g.h;
-    if (cells <= 0 || cells > BEVEL_MAX_CELLS) return FX_ERROR;
+    if (cells <= 0 || cells > BEVEL_MAX_CELLS) {
+        report(host, job, "The object is too large to bevel. Select a smaller part of it "
+                          "and try again.");
+        return FX_OK;                              /* s->h stays NULL: dst = src */
+    }
     n = (size_t)cells;
     m = (float *)bv_alloc(host, n, sizeof(float));
     h = (float *)bv_alloc(host, n, sizeof(float));

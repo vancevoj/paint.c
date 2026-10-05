@@ -32,8 +32,10 @@ with Add drop shadow turned on.*
 Partly transparent edge pixels (antialiasing) are lit together with the
 edge, so no halo remains. When there is nothing to bevel (no visible pixel in
 the selection or on the canvas), a message says so and the image stays as it
-was. The result is one History item named "Bevel Object" and the canvas
-shows a live preview while you change the settings.
+was. The same happens, with a hint to select a part, for an object larger
+than about 64 million pixels (8000 x 8000) including the bevel's margin.
+The result is one History item named "Bevel Object" and the canvas shows a
+live preview while you change the settings.
 
 How it works, for the curious: the distance of every pixel to the object's
 edge (with subpixel accuracy from the edge's antialiasing) becomes a height

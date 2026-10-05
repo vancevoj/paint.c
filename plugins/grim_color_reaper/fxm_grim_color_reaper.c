@@ -100,7 +100,7 @@ static int gcr_prepare(const void *params, const fx_img *src, const fx_env *env,
                        const fx_host *host, const void *job, void **state)
 {
     const gcr_params *p = (const gcr_params *)params;
-    double tol = fx_clampd(p->tolerance, 0.1, 10.0);
+    double tol = isfinite(p->tolerance) ? fx_clampd(p->tolerance, 0.1, 10.0) : 1.0;
     int32_t cutoff = fx_clampi(p->cutoff, 0, 255), c, v;
     uint32_t key = gcr_key(p, env);
     gcr_state *s;
