@@ -73,4 +73,20 @@ const pc_codec *io_codec_for_path(const char *path, const pc_codec *fallback);
 void     io_params_load(app *a, const pc_codec *c, void *params);
 void     io_params_store(app *a, const pc_codec *c, const void *params);
 
+/* W4-SAVECFG: the topmost Save Configuration dialog as of its last frame
+ * (tests). false when none is open. params is the dialog's working copy
+ * (borrowed until it closes; a test that edits it calls nothing else). */
+typedef struct io_savecfg_info {
+    char            info[128];        /* "File size: computing (42%)", "File size: 1.2 KB" */
+    bool            running;          /* a preview encode is in flight */
+    bool            have_result;      /* a preview image is shown */
+    uint32_t        permille;         /* the running job's progress (0..1000) */
+    const pc_codec *codec;
+    void           *params;
+    ui_rect         dialog;           /* the dialog's content area */
+    ui_rect         options;          /* the options column (x, w; y is its top) */
+    ui_rect         preview;          /* the preview box */
+} io_savecfg_info;
+bool     io_savecfg_probe(app *a, io_savecfg_info *out);
+
 #endif /* IO_INTERNAL_H */
