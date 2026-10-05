@@ -9,7 +9,8 @@
 static void w16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 static void w32(uint8_t *p, uint32_t v)
 {
-    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
+    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
 }
 static uint32_t g32(const uint8_t *p)
 {
@@ -59,7 +60,8 @@ static void t_roundtrip(void)
     free(data);
     e = pc_zip_find(&z, "dir/r.bin");
     CHECK(e && e->method == 0);              /* deflate did not help */
-    CHECK(pc_zip_read(&z, e, &data, &len) == PC_OK && len == sizeof rd && memcmp(data, rd, len) == 0);
+    CHECK(pc_zip_read(&z, e, &data, &len) == PC_OK && len == sizeof rd &&
+          memcmp(data, rd, len) == 0);
     free(data);
     e = pc_zip_find(&z, "empty");
     CHECK(e && pc_zip_read(&z, e, &data, &len) == PC_OK && len == 0);
@@ -91,8 +93,10 @@ static void t_corrupt_directory(void)
     cd = g32(b.p + eocd + 16);
 #define MUT(expect, stmt) do { uint8_t *c = (uint8_t *)malloc(b.n); size_t cn = b.n; \
         memcpy(c, b.p, b.n); stmt; { pc_status st_ = pc_zip_open(&z, c, cn, NULL); \
-        CHECK(st_ == (expect)); if (st_ != (expect)) INFO("line %d: %s", __LINE__, pc_status_str(st_)); \
-        if (st_ == PC_OK) pc_zip_close(&z); else CHECK(z.e == NULL && z.count == 0); } free(c); } while (0)
+        CHECK(st_ == (expect)); \
+        if (st_ != (expect)) INFO("line %d: %s", __LINE__, pc_status_str(st_)); \
+        if (st_ == PC_OK) pc_zip_close(&z); \
+        else CHECK(z.e == NULL && z.count == 0); } free(c); } while (0)
     MUT(PC_OK, (void)0);
     MUT(PC_ERR_FORMAT, w32(c + eocd + 16, (uint32_t)b.n));           /* CD offset past end */
     MUT(PC_ERR_FORMAT, w32(c + eocd + 12, 0xFFFFFF));                /* CD size too large */

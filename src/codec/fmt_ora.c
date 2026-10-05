@@ -88,7 +88,10 @@ static bool is_name_char(unsigned char c)
 static size_t utf8_put(char *d, uint32_t cp)
 {
     if (cp < 0x80u) { d[0] = (char)cp; return 1; }
-    if (cp < 0x800u) { d[0] = (char)(0xC0u | (cp >> 6)); d[1] = (char)(0x80u | (cp & 63u)); return 2; }
+    if (cp < 0x800u) {
+        d[0] = (char)(0xC0u | (cp >> 6)); d[1] = (char)(0x80u | (cp & 63u));
+        return 2;
+    }
     if (cp < 0x10000u) {
         d[0] = (char)(0xE0u | (cp >> 12)); d[1] = (char)(0x80u | ((cp >> 6) & 63u));
         d[2] = (char)(0x80u | (cp & 63u));
@@ -188,7 +191,8 @@ static pc_status xml_parse(xml_doc *x, const uint8_t *text, size_t n, uint32_t m
     memcpy(x->buf, text, n);
     x->buf[n] = '\0';
     s = x->buf;
-    if (n >= 3u && (uint8_t)s[0] == 0xEFu && (uint8_t)s[1] == 0xBBu && (uint8_t)s[2] == 0xBFu) i = 3;
+    if (n >= 3u && (uint8_t)s[0] == 0xEFu && (uint8_t)s[1] == 0xBBu && (uint8_t)s[2] == 0xBFu)
+        i = 3;                                                     /* UTF-8 BOM */
     while (i < n) {
         if (s[i] != '<') {
             if (s[i] == '\0') return PC_ERR_FORMAT;
@@ -344,7 +348,8 @@ static bool parse_real(const char *s, double *out)
         char buf[8];
         size_t k = 0;
         s++;
-        while ((*s == '-' || *s == '+' || (*s >= '0' && *s <= '9')) && k < sizeof buf - 1u) buf[k++] = *s++;
+        while ((*s == '-' || *s == '+' || (*s >= '0' && *s <= '9')) && k < sizeof buf - 1u)
+            buf[k++] = *s++;
         buf[k] = '\0';
         if (!parse_int(buf, -300, 300, &ex)) return false;
         for (e10 = 0; e10 < (ex < 0 ? -ex : ex); e10++) v = ex < 0 ? v / 10.0 : v * 10.0;
@@ -386,7 +391,10 @@ static pc_status ora_png_rows(void *ud, int32_t y0, int32_t n, const pc_px32 *ro
     return lc_sink_layer(&c->sink, y0, n, rows);
 }
 
-static int64_t clamp64(int64_t v, int64_t lo, int64_t hi) { return v < lo ? lo : (v > hi ? hi : v); }
+static int64_t clamp64(int64_t v, int64_t lo, int64_t hi)
+{
+    return v < lo ? lo : (v > hi ? hi : v);
+}
 
 static bool ends_with_png(const char *s)
 {
@@ -430,7 +438,10 @@ static pc_status ora_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
     st = pc_zip_read(&z, e, &data, &len);
     if (st != PC_OK) goto done;
     while (len && is_ws((char)data[len - 1])) len--;
-    if (len != sizeof ORA_MIME - 1u || memcmp(data, ORA_MIME, len) != 0) { st = PC_ERR_FORMAT; goto done; }
+    if (len != sizeof ORA_MIME - 1u || memcmp(data, ORA_MIME, len) != 0) {
+        st = PC_ERR_FORMAT;
+        goto done;
+    }
     free(data);
     data = NULL;
     /* stack.xml */
@@ -712,7 +723,8 @@ static pc_status ora_save(const pc_doc *d, const pc_image_meta *meta, const void
         if (st == PC_OK) st = xml_put(&xml, "\" y=\"");
         if (st == PC_OK) st = xml_put_int(&xml, rects[k].y);
         if (st == PC_OK) st = xml_put(&xml, "\" composite-op=\"");
-        if (st == PC_OK) st = xml_put(&xml, k_ops[(unsigned)l->mode < PC_BLEND_COUNT ? l->mode : 0]);
+        if (st == PC_OK)
+            st = xml_put(&xml, k_ops[(unsigned)l->mode < PC_BLEND_COUNT ? l->mode : 0]);
         if (st == PC_OK) st = xml_put(&xml, "\" src=\"");
         if (st == PC_OK) st = xml_put(&xml, file);
         if (st == PC_OK) st = xml_put(&xml, "\"/>\n");

@@ -10,7 +10,7 @@
 static const pc_codec *dds(void) { return pc_codec_by_id("dds"); }
 
 typedef struct dds_params_t {
-    int32_t format, dither, bc7_speed, metric, mipmaps, mip_filter, gamma;
+    int32_t format, dither, bc7_speed, metric, cube_map, mipmaps, mip_filter, gamma;
 } dds_params_t;
 
 enum {   /* save format indices (k_formats order in fmt_dds.c) */
@@ -22,7 +22,8 @@ enum {   /* save format indices (k_formats order in fmt_dds.c) */
 /* ---- fixture builder -------------------------------------------------------------------- */
 static void put32(uint8_t *p, uint32_t v)
 {
-    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
+    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
 }
 
 static uint32_t cc(const char *s)
@@ -79,7 +80,13 @@ static uint8_t sc(uint32_t q, uint32_t bits)
 }
 
 static uint32_t popc(uint32_t v) { uint32_t c = 0; for (; v; v &= v - 1u) c++; return c; }
-static uint32_t lowbit(uint32_t v) { uint32_t s = 0; if (!v) return 0; while (!(v & 1u)) { v >>= 1; s++; } return s; }
+static uint32_t lowbit(uint32_t v)
+{
+    uint32_t s = 0;
+    if (!v) return 0;
+    while (!(v & 1u)) { v >>= 1; s++; }
+    return s;
+}
 
 /* Legacy bit-mask layouts: random words, expected colors from the masks. */
 static void t_masks(void)
@@ -149,7 +156,11 @@ static void t_masks(void)
     }
 }
 
-static uint8_t snorm_u8(int v) { if (v < -127) v = -127; return (uint8_t)(((v + 127) * 255 + 127) / 254); }
+static uint8_t snorm_u8(int v)
+{
+    if (v < -127) v = -127;
+    return (uint8_t)(((v + 127) * 255 + 127) / 254);
+}
 
 static float h2f(uint16_t h)
 {
@@ -161,7 +172,12 @@ static float h2f(uint16_t h)
     return s ? -v : v;
 }
 
-static uint8_t f2u(float f) { if (!(f > 0.0f)) return 0; if (f >= 1.0f) return 255; return (uint8_t)(f * 255.0f + 0.5f); }
+static uint8_t f2u(float f)
+{
+    if (!(f > 0.0f)) return 0;
+    if (f >= 1.0f) return 255;
+    return (uint8_t)(f * 255.0f + 0.5f);
+}
 
 /* DXGI uncompressed formats. */
 static void t_dxgi_plain(void)
@@ -191,16 +207,22 @@ static void t_dxgi_plain(void)
             case 87: e = tu_px(o[2], o[1], o[0], o[3]); break;
             case 88: e = tu_px(o[2], o[1], o[0], 255); break;
             case 24: {
-                uint32_t v = (uint32_t)o[0] | ((uint32_t)o[1] << 8) | ((uint32_t)o[2] << 16) | ((uint32_t)o[3] << 24);
-                e = tu_px(sc(v & 0x3FF, 10), sc((v >> 10) & 0x3FF, 10), sc((v >> 20) & 0x3FF, 10), sc(v >> 30, 2));
+                uint32_t v = (uint32_t)o[0] | ((uint32_t)o[1] << 8) | ((uint32_t)o[2] << 16) |
+                             ((uint32_t)o[3] << 24);
+                e = tu_px(sc(v & 0x3FF, 10), sc((v >> 10) & 0x3FF, 10), sc((v >> 20) & 0x3FF, 10),
+                          sc(v >> 30, 2));
                 break;
             }
             case 85: { uint32_t v = (uint32_t)o[0] | ((uint32_t)o[1] << 8);
                 e = tu_px(sc(v >> 11, 5), sc((v >> 5) & 63, 6), sc(v & 31, 5), 255); break; }
             case 86: { uint32_t v = (uint32_t)o[0] | ((uint32_t)o[1] << 8);
-                e = tu_px(sc((v >> 10) & 31, 5), sc((v >> 5) & 31, 5), sc(v & 31, 5), sc(v >> 15, 1)); break; }
+                e = tu_px(sc((v >> 10) & 31, 5), sc((v >> 5) & 31, 5), sc(v & 31, 5),
+                          sc(v >> 15, 1));
+                break; }
             case 115: { uint32_t v = (uint32_t)o[0] | ((uint32_t)o[1] << 8);
-                e = tu_px(sc((v >> 8) & 15, 4), sc((v >> 4) & 15, 4), sc(v & 15, 4), sc(v >> 12, 4)); break; }
+                e = tu_px(sc((v >> 8) & 15, 4), sc((v >> 4) & 15, 4), sc(v & 15, 4),
+                          sc(v >> 12, 4));
+                break; }
             case 61: e = tu_px(o[0], o[0], o[0], 255); break;
             case 65: e = tu_px(0, 0, 0, o[0]); break;
             case 49: e = tu_px(o[0], o[1], 0, 255); break;
@@ -242,11 +264,20 @@ static void t_dxgi_plain(void)
                 e = tu_px(f2u(h2f(c)), f2u(h2f(c)), f2u(h2f(c)), 255);
                 break;
             }
-            case 31: e = tu_px(snorm_u8((int8_t)o[0]), snorm_u8((int8_t)o[1]), snorm_u8((int8_t)o[2]), snorm_u8((int8_t)o[3])); break;
+            case 31:
+                e = tu_px(snorm_u8((int8_t)o[0]), snorm_u8((int8_t)o[1]), snorm_u8((int8_t)o[2]),
+                          snorm_u8((int8_t)o[3]));
+                break;
             case 51: e = tu_px(snorm_u8((int8_t)o[0]), snorm_u8((int8_t)o[1]), 0, 255); break;
-            case 56: { uint32_t v = (uint32_t)o[0] | ((uint32_t)o[1] << 8); uint8_t g = sc(v, 16); e = tu_px(g, g, g, 255); break; }
+            case 56: {
+                uint32_t v = (uint32_t)o[0] | ((uint32_t)o[1] << 8);
+                uint8_t g = sc(v, 16);
+                e = tu_px(g, g, g, 255);
+                break;
+            }
             default: { /* 35 */
-                uint32_t r = (uint32_t)o[0] | ((uint32_t)o[1] << 8), g = (uint32_t)o[2] | ((uint32_t)o[3] << 8);
+                uint32_t r = (uint32_t)o[0] | ((uint32_t)o[1] << 8);
+                uint32_t g = (uint32_t)o[2] | ((uint32_t)o[3] << 8);
                 e = tu_px(sc(r, 16), sc(g, 16), 0, 255);
                 break;
             }
@@ -311,13 +342,17 @@ static void t_blocks(void)
                     else if (kind == 3 || kind == 12 || kind == 13) bcdec_bc3(src, rgba, 16);
                     else bcdec_bc7(src, rgba, 16);
                     for (int i = 0; i < 16; i++) {
-                        pc_px32 o = tu_px(rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2], rgba[4 * i + 3]);
+                        pc_px32 o = tu_px(rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2],
+                                          rgba[4 * i + 3]);
                         if (kind == 13) { o.r = o.a; o.a = 255; }
                         if ((kind == 11 || kind == 12) && o.a) {
                             uint32_t a = o.a, v;
-                            v = ((uint32_t)o.r * 255u + a / 2u) / a; o.r = (uint8_t)(v > 255 ? 255 : v);
-                            v = ((uint32_t)o.g * 255u + a / 2u) / a; o.g = (uint8_t)(v > 255 ? 255 : v);
-                            v = ((uint32_t)o.b * 255u + a / 2u) / a; o.b = (uint8_t)(v > 255 ? 255 : v);
+                            v = ((uint32_t)o.r * 255u + a / 2u) / a;
+                            o.r = (uint8_t)(v > 255 ? 255 : v);
+                            v = ((uint32_t)o.g * 255u + a / 2u) / a;
+                            o.g = (uint8_t)(v > 255 ? 255 : v);
+                            v = ((uint32_t)o.b * 255u + a / 2u) / a;
+                            o.b = (uint8_t)(v > 255 ? 255 : v);
                         }
                         blk[i] = o;
                     }
@@ -332,12 +367,14 @@ static void t_blocks(void)
                     uint8_t rg[32];
                     bcdec_bc5(src, rg, 8, kind == 7);
                     for (int i = 0; i < 16; i++)
-                        blk[i] = kind == 7 ? tu_px(snorm_u8((int8_t)rg[2 * i]), snorm_u8((int8_t)rg[2 * i + 1]), 0, 255)
+                        blk[i] = kind == 7 ? tu_px(snorm_u8((int8_t)rg[2 * i]),
+                                                   snorm_u8((int8_t)rg[2 * i + 1]), 0, 255)
                                            : tu_px(rg[2 * i], rg[2 * i + 1], 0, 255);
                 } else {
                     float f[48];
                     bcdec_bc6h_float(src, f, 12, kind == 9);
-                    for (int i = 0; i < 16; i++) blk[i] = tu_px(f2u(f[3 * i]), f2u(f[3 * i + 1]), f2u(f[3 * i + 2]), 255);
+                    for (int i = 0; i < 16; i++)
+                        blk[i] = tu_px(f2u(f[3 * i]), f2u(f[3 * i + 1]), f2u(f[3 * i + 2]), 255);
                 }
                 for (uint32_t yy = 0; yy < 4; yy++)
                     for (uint32_t xx = 0; xx < 4; xx++)
@@ -428,10 +465,17 @@ static void t_headers(void)
         pc_buf_free(&bb);
         memset(&bb, 0, sizeof bb);
         t = s;
-        t.caps2 = 0x200 | 0xFC00;              /* legacy cube, all faces */
+        t.caps2 = 0x200 | 0xFC00;              /* legacy cube, all faces: a cross */
         build_hdr(&bb, &t);
         for (int f = 0; f < 6; f++) pc_buf_append(&bb, px, sizeof px);
         d = load_ok(&bb, &m);
+        CHECK(d && d->w == 32 && d->h == 24 && strstr(m.note, "cross") != NULL);
+        pc_doc_destroy(d);
+        pc_meta_free(&m);
+        /* faces missing from the file: falls back to the first face */
+        bb.n -= 3 * sizeof px;
+        d = load_ok(&bb, &m);
+        CHECK(d && d->w == 8 && d->h == 8);
         pc_doc_destroy(d);
         pc_meta_free(&m);
         pc_buf_free(&bb);
@@ -523,7 +567,8 @@ static void t_save_formats(void)
             }
             if (f <= F_BC7S || f >= F_ATI1) {
                 /* block formats: PSNR over the channels the format keeps */
-                pc_px32 *e = (pc_px32 *)malloc(n * sizeof *e), *g = (pc_px32 *)malloc(n * sizeof *g);
+                pc_px32 *e = (pc_px32 *)malloc(n * sizeof *e);
+                pc_px32 *g = (pc_px32 *)malloc(n * sizeof *g);
                 for (size_t i = 0; i < n; i++) {
                     pc_px32 a = photo[i];
                     g[i] = px[i];
@@ -677,7 +722,8 @@ static void t_mips_and_dither(void)
             pc_doc_destroy(gd);
         }
         CHECK(mean[1] < mean[0] * 0.5);
-        if (!(mean[1] < mean[0] * 0.5)) INFO("dither block error %.3f vs plain %.3f", mean[1], mean[0]);
+        if (!(mean[1] < mean[0] * 0.5))
+            INFO("dither block error %.3f vs plain %.3f", mean[1], mean[0]);
         free(gr);
     }
     /* BC7 speeds and both metrics */
@@ -693,13 +739,83 @@ static void t_mips_and_dither(void)
                 /* perceptual weighting trades RGB PSNR for luma accuracy */
                 double need = mt == 0 ? 30.0 : 33.0;
                 CHECK(tu_psnr(px, a, (size_t)W * H) > need);
-                if (tu_psnr(px, a, (size_t)W * H) <= need) INFO("bc7 speed %d metric %d: %.2f", sp, mt, tu_psnr(px, a, (size_t)W * H));
+                if (tu_psnr(px, a, (size_t)W * H) <= need)
+                    INFO("bc7 speed %d metric %d: %.2f", sp, mt, tu_psnr(px, a, (size_t)W * H));
                 free(px);
                 pc_doc_destroy(r);
             }
         }
     pc_doc_destroy(d);
     free(a);
+}
+
+static pc_px32 face_color(int f)
+{
+    return tu_px((uint8_t)(40 * f), (uint8_t)(200 - 30 * f), 90, 255);
+}
+
+/* Crossed images save as cube maps and load back as a horizontal cross. */
+static void t_cube_maps(void)
+{
+    static const int hx[6][2] = { { 2, 1 }, { 0, 1 }, { 1, 0 }, { 1, 2 }, { 1, 1 }, { 3, 1 } };
+    static const int vx[6][2] = { { 2, 1 }, { 0, 1 }, { 1, 0 }, { 1, 2 }, { 1, 1 }, { 1, 3 } };
+    const int S = 12;
+    for (int vert = 0; vert < 2; vert++)
+        for (int fmt = 0; fmt < 2; fmt++) {
+            uint32_t W = vert ? 3u * S : 4u * S, H = vert ? 4u * S : 3u * S;
+            pc_px32 *img = (pc_px32 *)calloc((size_t)W * H, sizeof *img);
+            pc_doc *d, *r;
+            dds_params_t p;
+            pc_buf file;
+            /* face f is a solid color with a marker pixel at its top-left */
+            for (int f = 0; f < 6; f++) {
+                const int *pos = vert ? vx[f] : hx[f];
+                for (int y = 0; y < S; y++)
+                    for (int x = 0; x < S; x++)
+                        img[(size_t)(pos[1] * S + y) * W + (size_t)(pos[0] * S + x)] =
+                            (x == 0 && y == 0) ? tu_px(255, 255, 255, 255) : face_color(f);
+            }
+            d = tu_doc_from_px(W, H, img);
+            pc_codec_default_params(dds(), &p);
+            p.format = fmt ? F_BGRA : F_BGRAS;
+            p.cube_map = 1;
+            p.mipmaps = fmt;
+            r = save_load(d, &p, &file);
+            /* caps2: cube map with all six faces */
+            CHECK(file.n > 148 && file.p[112] == 0 && file.p[113] == 0xFE);
+            if (r) {
+                pc_px32 *px = tu_layer_px(r, r->stack[0]);
+                int bad = 0;
+                CHECK(r->w == 4u * (uint32_t)S && r->h == 3u * (uint32_t)S);
+                for (int f = 0; f < 6 && r->w == 4u * (uint32_t)S; f++)
+                    for (int y = 0; y < S; y++)
+                        for (int x = 0; x < S; x++) {
+                            pc_px32 e = (x == 0 && y == 0) ? tu_px(255, 255, 255, 255)
+                                                           : face_color(f);
+                            size_t at = (size_t)(hx[f][1] * S + y) * r->w +
+                                        (size_t)(hx[f][0] * S + x);
+                            if (!tu_px_eq(px[at], e)) bad++;
+                        }
+                CHECK(bad == 0);
+                free(px);
+                pc_doc_destroy(r);
+            }
+            pc_buf_free(&file);
+            pc_doc_destroy(d);
+            free(img);
+        }
+    {   /* not a cross */
+        pc_px32 *img = tu_noise(20, 20, 0);
+        pc_doc *d = tu_doc_from_px(20, 20, img);
+        dds_params_t p;
+        pc_buf file;
+        memset(&file, 0, sizeof file);
+        pc_codec_default_params(dds(), &p);
+        p.cube_map = 1;
+        CHECK(dds()->save(d, NULL, &p, NULL, &file) == PC_ERR_ARG && file.n == 0);
+        pc_doc_destroy(d);
+        free(img);
+    }
 }
 
 static void t_fuzz(void)
@@ -735,6 +851,7 @@ int main(int argc, char **argv)
     RUN(t_headers);
     RUN(t_save_formats);
     RUN(t_mips_and_dither);
+    RUN(t_cube_maps);
     RUN(t_fuzz);
     return pc_test_finish();
 }

@@ -5,7 +5,7 @@
  * size, cube flag); mip, depth, array and face counts are bounded and the
  * size of the whole chain is computed with checked math. dwPitchOrLinear
  * Size is ignored: sizes come from the format. The top mip of the first
- * face / array element / depth slice is decoded: BC1..BC7 through bcdec
+ * array element / depth slice is decoded (all six faces of a cube map): BC1..BC7 through bcdec
  * (BC6H clamped to [0, 1], no tone curve), legacy bit-mask formats (any
  * RGB / luminance / alpha masks of 8 to 32 bits), and the common DXGI
  * formats (8-bit, 10:10:10:2, 5:6:5, 5:5:5:1, 4:4:4:4, 16-bit and float).
@@ -17,9 +17,11 @@
  * and sRGB, the uncompressed 32, 24 and 16-bit layouts, R8, R8G8, R32
  * float, and the legacy ATI1, ATI2 and RXGB variants), error diffusion
  * dithering (16-bit layouts), BC7 compression speed, error metric
- * (perceptual or uniform; BC1..BC3 index selection and BC7), and mipmap
+ * (perceptual or uniform; BC1..BC3 index selection and BC7), cube maps
+ * from a horizontal (4:3) or vertical (3:4) crossed image, and mipmap
  * generation with a choice of resampling filter and gamma correction.
- * BC6H output and cube maps from crossed images are not implemented.
+ * Complete cube maps load as a horizontal cross. BC6H output is not
+ * implemented.
  *
  * Threads: reentrant. The BC7 encoder tables are built once behind an
  * atomic flag.
@@ -104,9 +106,11 @@ typedef struct dds_fmt {
 
 typedef struct dds_info {
     uint32_t w, h, depth, mips, layers;   /* layers = array size * faces */
+    bool     cube;                        /* one complete cube map (6 faces) */
     dds_fmt  fmt;
     size_t   data_off;
-    size_t   top_size;                    /* bytes of the image decoded */
+    size_t   top_size;                    /* bytes of one top-level image */
+    size_t   chain;                       /* bytes of one layer's mip chain */
 } dds_info;
 
 static bool is_bc(dds_kind k) { return k >= K_BC1 && k <= K_BC7; }
@@ -253,6 +257,7 @@ static pc_status dds_parse(const uint8_t *p, size_t n, const pc_codec_limits *li
         else if (dim == DX10_DIM_TEX3D) { if (arr != 1u) return PC_ERR_FORMAT; }
         else return PC_ERR_FORMAT;
         in->layers = arr * ((misc & DX10_MISC_CUBE) ? 6u : 1u);
+        in->cube = (misc & DX10_MISC_CUBE) && arr == 1u && dim == DX10_DIM_TEX2D;
         if (!dxgi_fmt(dxgi, &in->fmt)) return PC_ERR_UNSUPPORTED;
     } else if (pf_flags & DDPF_FOURCC) {
         dds_fmt *f = &in->fmt;
@@ -293,6 +298,7 @@ static pc_status dds_parse(const uint8_t *p, size_t n, const pc_codec_limits *li
         if (caps2 & DDSCAPS2_CUBEMAP) {
             uint32_t faces = popcount32(caps2 & DDSCAPS2_FACES);
             in->layers = faces ? faces : 6u;
+            in->cube = in->layers == 6u;
         }
     }
     if (in->w == 0u || in->h == 0u) return PC_ERR_FORMAT;
@@ -316,6 +322,8 @@ static pc_status dds_parse(const uint8_t *p, size_t n, const pc_codec_limits *li
             return PC_ERR_LIMIT;
     }
     if (!pc_mul_size(chain, in->layers, &total)) return PC_ERR_LIMIT;
+    in->chain = chain;
+    if (in->depth > 1u) in->cube = false;
     if (in->data_off > n || n - in->data_off < in->top_size) return PC_ERR_FORMAT;
     return PC_OK;
 }
@@ -500,6 +508,50 @@ static void decode_block(const dds_fmt *f, const uint8_t *src, pc_px32 px[16])
     }
 }
 
+/* Decode one top-level w x h image at data into layer at (ox, oy). band
+ * holds w * LC_BAND pixels. */
+static pc_status decode_image(pc_doc *d, pc_layer *layer, const dds_fmt *f, const uint8_t *data,
+                              uint32_t w, uint32_t h, int32_t ox, int32_t oy, pc_px32 *band)
+{
+    pc_status st;
+    for (int32_t y0 = 0; y0 < (int32_t)h; y0 += LC_BAND) {
+        int32_t nb = (int32_t)h - y0 < LC_BAND ? (int32_t)h - y0 : LC_BAND;
+        if (is_bc(f->kind)) {
+            size_t bw = ((size_t)w + 3u) / 4u, bb = bc_block_bytes(f->kind);
+            for (int32_t by = 0; by < nb; by += 4) {
+                const uint8_t *row = data + ((size_t)(y0 + by) / 4u) * bw * bb;
+                for (size_t bx = 0; bx < bw; bx++) {
+                    pc_px32 blk[16];
+                    decode_block(f, row + bx * bb, blk);
+                    for (int32_t yy = 0; yy < 4 && by + yy < nb; yy++)
+                        for (uint32_t xx = 0; xx < 4u && bx * 4u + xx < w; xx++)
+                            band[(size_t)(by + yy) * w + bx * 4u + xx] = blk[yy * 4 + (int)xx];
+                }
+            }
+        } else {
+            size_t pitch = ((size_t)w * fmt_bpp(f) + 7u) / 8u;
+            for (int32_t r = 0; r < nb; r++)
+                decode_row_uncompressed(f, data + (size_t)(y0 + r) * pitch, band + (size_t)r * w,
+                                        w);
+        }
+        st = pc_layer_store_rect(d, layer, pc_rect_make(ox, oy + y0, (int32_t)w, nb), band, w);
+        if (st != PC_OK) return st;
+    }
+    return PC_OK;
+}
+
+/* Horizontal cross positions (in face units) of the faces in file order
+ * +X, -X, +Y, -Y, +Z, -Z:   . +Y .  .
+ *                           -X +Z +X -Z
+ *                           . -Y .  .                                    */
+static const int32_t k_hcross[6][2] = {
+    { 2, 1 }, { 0, 1 }, { 1, 0 }, { 1, 2 }, { 1, 1 }, { 3, 1 }
+};
+/* Vertical cross:  . +Y .  /  -X +Z +X  /  . -Y .  /  . -Z .            */
+static const int32_t k_vcross[6][2] = {
+    { 2, 1 }, { 0, 1 }, { 1, 0 }, { 1, 2 }, { 1, 1 }, { 1, 3 }
+};
+
 static pc_status dds_load(const uint8_t *p, size_t n, const pc_codec_limits *lim,
                           pc_doc **out, pc_image_meta *meta)
 {
@@ -509,45 +561,30 @@ static pc_status dds_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
     pc_layer *layer;
     pc_px32 *band = NULL;
     pc_status st;
-    const uint8_t *data;
+    bool cross;
+    size_t need;
     if (out) *out = NULL;
     if (!p || !out || !meta) return PC_ERR_ARG;
     memset(meta, 0, sizeof *meta);
     if (!lim) { pc_codec_limits_default(&dl); lim = &dl; }
     st = dds_parse(p, n, lim, &in);
     if (st != PC_OK) return st;
-    st = lc_doc_new(lim, in.w, in.h, 1u, &d, &layer);
+    /* A complete cube map loads as a horizontal cross (Paint.NET's DDS
+     * file type does the same); anything else loads its first image. */
+    cross = in.cube && in.w == in.h && in.w <= PC_MAX_DIM / 4u &&
+            pc_mul_size(in.chain, 5u, &need) && pc_add_size(need, in.top_size, &need) &&
+            need <= n - in.data_off;
+    if (cross) st = lc_doc_new(lim, in.w * 4u, in.h * 3u, 1u, &d, &layer);
+    else st = lc_doc_new(lim, in.w, in.h, 1u, &d, &layer);
     if (st != PC_OK) return st;
     band = (pc_px32 *)lc_alloc((size_t)in.w * (size_t)LC_BAND, sizeof *band, lim, &st);
     if (!band) goto fail;
-    data = p + in.data_off;
-    if (is_bc(in.fmt.kind)) {
-        size_t bw = ((size_t)in.w + 3u) / 4u, bb = bc_block_bytes(in.fmt.kind);
-        for (int32_t y0 = 0; y0 < (int32_t)in.h; y0 += LC_BAND) {
-            int32_t nb = (int32_t)in.h - y0 < LC_BAND ? (int32_t)in.h - y0 : LC_BAND;
-            for (int32_t by = 0; by < nb; by += 4) {
-                const uint8_t *row = data + ((size_t)(y0 + by) / 4u) * bw * bb;
-                for (size_t bx = 0; bx < bw; bx++) {
-                    pc_px32 blk[16];
-                    decode_block(&in.fmt, row + bx * bb, blk);
-                    for (int32_t yy = 0; yy < 4 && by + yy < nb; yy++)
-                        for (uint32_t xx = 0; xx < 4u && bx * 4u + xx < in.w; xx++)
-                            band[(size_t)(by + yy) * in.w + bx * 4u + xx] = blk[yy * 4 + (int)xx];
-                }
-            }
-            st = pc_layer_store_rect(d, layer, pc_rect_make(0, y0, (int32_t)in.w, nb), band, in.w);
-            if (st != PC_OK) goto fail;
-        }
-    } else {
-        size_t pitch = ((size_t)in.w * fmt_bpp(&in.fmt) + 7u) / 8u;
-        for (int32_t y0 = 0; y0 < (int32_t)in.h; y0 += LC_BAND) {
-            int32_t nb = (int32_t)in.h - y0 < LC_BAND ? (int32_t)in.h - y0 : LC_BAND;
-            for (int32_t r = 0; r < nb; r++)
-                decode_row_uncompressed(&in.fmt, data + (size_t)(y0 + r) * pitch,
-                                        band + (size_t)r * in.w, in.w);
-            st = pc_layer_store_rect(d, layer, pc_rect_make(0, y0, (int32_t)in.w, nb), band, in.w);
-            if (st != PC_OK) goto fail;
-        }
+    for (uint32_t f = 0; f < (cross ? 6u : 1u); f++) {
+        int32_t ox = cross ? k_hcross[f][0] * (int32_t)in.w : 0;
+        int32_t oy = cross ? k_hcross[f][1] * (int32_t)in.h : 0;
+        st = decode_image(d, layer, &in.fmt, p + in.data_off + (size_t)f * in.chain, in.w, in.h,
+                          ox, oy, band);
+        if (st != PC_OK) goto fail;
     }
     free(band);
     meta->src_bits = 8u;
@@ -556,7 +593,9 @@ static pc_status dds_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
                         in.fmt.kind == K_BC5S || in.fmt.kind == K_BC6HU ||
                         in.fmt.kind == K_BC6HS || in.fmt.kind == K_RG8S ||
                         in.fmt.kind == K_R16F || in.fmt.kind == K_R32F || in.fmt.rxgb);
-    if (in.layers > 1u || in.depth > 1u)
+    if (cross)
+        lc_note(meta, "Cube map loaded as a horizontal cross");
+    else if (in.layers > 1u || in.depth > 1u)
         lc_note(meta, "Only the first image of the texture array, cube map or volume was loaded");
     *out = d;
     return PC_OK;
@@ -578,6 +617,7 @@ typedef struct dds_params {
     int32_t dither;       /* bool: error diffusion (16-bit layouts) */
     int32_t bc7_speed;    /* 0 fast, 1 medium, 2 slow */
     int32_t metric;       /* 0 perceptual, 1 uniform */
+    int32_t cube_map;     /* bool: cube map from a horizontal or vertical cross */
     int32_t mipmaps;      /* bool */
     int32_t mip_filter;   /* lc_filter */
     int32_t gamma;        /* bool: gamma-corrected mip resampling */
@@ -660,6 +700,8 @@ static const fx_prop k_dds_props[] = {
       0, 2, 1, 0, k_speed, NULL, 0, 0, NULL },
     { "metric", "Error metric", FXP_CHOICE, (uint32_t)offsetof(dds_params, metric),
       0, 1, 0, 0, k_metric, NULL, 0, 0, NULL },
+    { "cube_map", "Cube map from crossed image", FXP_BOOL,
+      (uint32_t)offsetof(dds_params, cube_map), 0, 1, 0, 0, NULL, NULL, 0, 0, NULL },
     { "mipmaps", "Generate mip maps", FXP_BOOL, (uint32_t)offsetof(dds_params, mipmaps),
       0, 1, 0, 0, NULL, NULL, 0, 0, NULL },
     { "mip_filter", "Mip map resampling", FXP_CHOICE, (uint32_t)offsetof(dds_params, mip_filter),
@@ -856,7 +898,10 @@ static pc_status enc_level_bc(pc_buf *out, const pc_px32 *px, int32_t w, int32_t
             }
             case E_BC5U: {
                 uint8_t rg[32];
-                for (int i = 0; i < 16; i++) { rg[2 * i] = rgba[4 * i]; rg[2 * i + 1] = rgba[4 * i + 1]; }
+                for (int i = 0; i < 16; i++) {
+                    rg[2 * i] = rgba[4 * i];
+                    rg[2 * i + 1] = rgba[4 * i + 1];
+                }
                 stb_compress_bc5_block(blk, rg);
                 break;
             }
@@ -991,7 +1036,8 @@ static pc_status enc_level_plain(pc_buf *out, const pc_px32 *px, int32_t w, int3
 /* ---- header writer ---------------------------------------------------------------------- */
 static void put32(uint8_t *p, uint32_t v)
 {
-    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
+    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
 }
 
 static bool enc_is_bc(enc_kind k)
@@ -1001,7 +1047,7 @@ static bool enc_is_bc(enc_kind k)
 }
 
 static pc_status write_header(pc_buf *out, const dds_out_fmt *of, uint32_t w, uint32_t h,
-                              uint32_t mips)
+                              uint32_t mips, bool cube)
 {
     uint8_t hdr[4 + DDS_HDR_SIZE + DDS_DX10_SIZE];
     uint8_t *pf = hdr + 76;
@@ -1018,9 +1064,11 @@ static pc_status write_header(pc_buf *out, const dds_out_fmt *of, uint32_t w, ui
         top = bw * bh * bsz;
         flags |= DDSD_LINEARSIZE;
     } else {
-        uint32_t bpp = (of->kind == E_BGR8) ? 24u : (of->kind == E_R8 ? 8u :
-                       ((of->kind == E_B5G5R5A1 || of->kind == E_B4G4R4A4 ||
-                         of->kind == E_B5G6R5 || of->kind == E_RG8 || of->kind == E_RG8S) ? 16u : 32u));
+        uint32_t bpp = 32u;
+        if (of->kind == E_BGR8) bpp = 24u;
+        else if (of->kind == E_R8) bpp = 8u;
+        else if (of->kind == E_B5G5R5A1 || of->kind == E_B4G4R4A4 || of->kind == E_B5G6R5 ||
+                 of->kind == E_RG8 || of->kind == E_RG8S) bpp = 16u;
         top = ((size_t)w * bpp + 7u) / 8u;
         flags |= DDSD_PITCH;
     }
@@ -1031,13 +1079,15 @@ static pc_status write_header(pc_buf *out, const dds_out_fmt *of, uint32_t w, ui
     put32(hdr + 20, top > 0xFFFFFFFFu ? 0u : (uint32_t)top);
     put32(hdr + 28, mips);
     put32(pf, DDS_PF_SIZE);
-    put32(hdr + 108, DDSCAPS_TEXTURE | (mips > 1u ? DDSCAPS_COMPLEX | DDSCAPS_MIPMAP : 0u));
+    put32(hdr + 108, DDSCAPS_TEXTURE | (mips > 1u ? DDSCAPS_COMPLEX | DDSCAPS_MIPMAP : 0u) |
+                     (cube ? DDSCAPS_COMPLEX : 0u));
+    if (cube) put32(hdr + 112, DDSCAPS2_CUBEMAP | DDSCAPS2_FACES);
     if (of->dxgi) {
         put32(pf + 4, DDPF_FOURCC);
         put32(pf + 8, fourcc("DX10"));
         put32(hdr + 128, of->dxgi);
         put32(hdr + 132, DX10_DIM_TEX2D);
-        put32(hdr + 136, 0u);
+        put32(hdr + 136, cube ? DX10_MISC_CUBE : 0u);
         put32(hdr + 140, 1u);
         put32(hdr + 144, 0u);
         len += DDS_DX10_SIZE;
@@ -1065,49 +1115,85 @@ static pc_status write_header(pc_buf *out, const dds_out_fmt *of, uint32_t w, ui
 }
 
 /* ---- save --------------------------------------------------------------------------------- */
+/* Encode cur and its mip chain (mips levels). Consumes *cur. */
+static pc_status encode_chain(pc_buf *out, pc_surf *cur, uint32_t mips, const dds_out_fmt *of,
+                              const dds_params *prm)
+{
+    pc_surf next;
+    pc_status st = PC_OK;
+    for (uint32_t level = 0; level < mips && st == PC_OK; level++) {
+        if (enc_is_bc(of->kind)) st = enc_level_bc(out, cur->px, cur->w, cur->h, of, prm);
+        else st = enc_level_plain(out, cur->px, cur->w, cur->h, of, prm->dither != 0);
+        if (st != PC_OK || level + 1u == mips) break;
+        {
+            int32_t nw = cur->w > 1 ? cur->w / 2 : 1, nh = cur->h > 1 ? cur->h / 2 : 1;
+            st = pc_surf_alloc(&next, nw, nh);
+            if (st != PC_OK) break;
+            st = lc_resample(cur->w, cur->h, lc_src_surf, cur, next.px, nw, nh,
+                             (size_t)next.stride, (lc_filter)prm->mip_filter, prm->gamma != 0);
+            pc_surf_free(cur);
+            *cur = next;
+        }
+    }
+    pc_surf_free(cur);
+    return st;
+}
+
+static uint32_t mip_count(uint32_t w, uint32_t h)
+{
+    uint32_t m = w > h ? w : h, n = 1;
+    while (m > 1u) { m >>= 1; n++; }
+    return n;
+}
+
 static pc_status dds_save(const pc_doc *d, const pc_image_meta *meta, const void *params,
                           const pc_par *par, pc_buf *out)
 {
     dds_params prm;
     const dds_out_fmt *of;
-    pc_surf cur, next;
-    uint32_t mips = 1;
+    pc_surf full;
     pc_status st;
     size_t n0;
     (void)meta;
     if (!d || !out) return PC_ERR_ARG;
-    prm.format = 0; prm.dither = 0; prm.bc7_speed = 1; prm.metric = 0;
+    prm.format = 0; prm.dither = 0; prm.bc7_speed = 1; prm.metric = 0; prm.cube_map = 0;
     prm.mipmaps = 0; prm.mip_filter = LC_FILTER_FANT; prm.gamma = 1;
     if (params) memcpy(&prm, params, sizeof prm);
     if (prm.format < 0 || prm.format >= N_FORMATS) return PC_ERR_ARG;
     if (prm.bc7_speed < 0) prm.bc7_speed = 0;
     if (prm.bc7_speed > 2) prm.bc7_speed = 2;
     of = &k_formats[prm.format];
-    if (prm.mipmaps) {
-        uint32_t m = d->w > d->h ? d->w : d->h;
-        while (m > 1u) { m >>= 1; mips++; }
-    }
-    st = pc_surf_alloc(&cur, (int32_t)d->w, (int32_t)d->h);
+    if (prm.cube_map && !((d->w % 4u == 0u && d->h % 3u == 0u && d->w / 4u == d->h / 3u) ||
+                          (d->w % 3u == 0u && d->h % 4u == 0u && d->w / 3u == d->h / 4u)))
+        return PC_ERR_ARG;      /* not a 4:3 or 3:4 cross of square faces */
+    st = pc_surf_alloc(&full, (int32_t)d->w, (int32_t)d->h);
     if (st != PC_OK) return st;
-    st = pc_comp_rect(d, pc_doc_rect(d), cur.px, (size_t)cur.stride, par);
-    if (st != PC_OK) { pc_surf_free(&cur); return st; }
+    st = pc_comp_rect(d, pc_doc_rect(d), full.px, (size_t)full.stride, par);
+    if (st != PC_OK) { pc_surf_free(&full); return st; }
     n0 = out->n;
-    st = write_header(out, of, d->w, d->h, mips);
-    for (uint32_t level = 0; level < mips && st == PC_OK; level++) {
-        if (enc_is_bc(of->kind)) st = enc_level_bc(out, cur.px, cur.w, cur.h, of, &prm);
-        else st = enc_level_plain(out, cur.px, cur.w, cur.h, of, prm.dither != 0);
-        if (st != PC_OK || level + 1u == mips) break;
-        {
-            int32_t nw = cur.w > 1 ? cur.w / 2 : 1, nh = cur.h > 1 ? cur.h / 2 : 1;
-            st = pc_surf_alloc(&next, nw, nh);
+    if (!prm.cube_map) {
+        uint32_t mips = prm.mipmaps ? mip_count(d->w, d->h) : 1u;
+        st = write_header(out, of, d->w, d->h, mips, false);
+        if (st == PC_OK) st = encode_chain(out, &full, mips, of, &prm);
+        else pc_surf_free(&full);
+    } else {
+        bool horizontal = d->w / 4u * 3u == d->h && d->w % 4u == 0u;
+        int32_t fs = (int32_t)(horizontal ? d->w / 4u : d->w / 3u);
+        uint32_t mips = prm.mipmaps ? mip_count((uint32_t)fs, (uint32_t)fs) : 1u;
+        st = write_header(out, of, (uint32_t)fs, (uint32_t)fs, mips, true);
+        for (int f = 0; f < 6 && st == PC_OK; f++) {
+            const int32_t *pos = horizontal ? k_hcross[f] : k_vcross[f];
+            pc_surf face;
+            st = pc_surf_alloc(&face, fs, fs);
             if (st != PC_OK) break;
-            st = lc_resample(cur.w, cur.h, lc_src_surf, &cur, next.px, nw, nh, (size_t)next.stride,
-                             (lc_filter)prm.mip_filter, prm.gamma != 0);
-            pc_surf_free(&cur);
-            cur = next;
+            for (int32_t y = 0; y < fs; y++)
+                memcpy(pc_surf_row(&face, y),
+                       pc_surf_row(&full, pos[1] * fs + y) + (size_t)(pos[0] * fs),
+                       (size_t)fs * sizeof(pc_px32));
+            st = encode_chain(out, &face, mips, of, &prm);
         }
+        pc_surf_free(&full);
     }
-    pc_surf_free(&cur);
     if (st != PC_OK) out->n = n0;
     return st;
 }

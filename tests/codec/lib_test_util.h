@@ -67,8 +67,10 @@ static inline void tu_png_sig(pc_buf *b)
 static inline void tu_png_ihdr(pc_buf *b, uint32_t w, uint32_t h, int depth, int ct, int il)
 {
     uint8_t d[13];
-    d[0] = (uint8_t)(w >> 24); d[1] = (uint8_t)(w >> 16); d[2] = (uint8_t)(w >> 8); d[3] = (uint8_t)w;
-    d[4] = (uint8_t)(h >> 24); d[5] = (uint8_t)(h >> 16); d[6] = (uint8_t)(h >> 8); d[7] = (uint8_t)h;
+    d[0] = (uint8_t)(w >> 24); d[1] = (uint8_t)(w >> 16);
+    d[2] = (uint8_t)(w >> 8); d[3] = (uint8_t)w;
+    d[4] = (uint8_t)(h >> 24); d[5] = (uint8_t)(h >> 16);
+    d[6] = (uint8_t)(h >> 8); d[7] = (uint8_t)h;
     d[8] = (uint8_t)depth; d[9] = (uint8_t)ct; d[10] = 0; d[11] = 0; d[12] = (uint8_t)il;
     tu_png_chunk(b, "IHDR", d, 13);
 }
@@ -227,7 +229,10 @@ static inline size_t tu_mutate(const uint8_t *src, size_t n, uint8_t *dst, size_
         }
         default: {                                                  /* delete a run */
             size_t run = 1u + rndu(16);
-            if (pos + run < len) { memmove(dst + pos, dst + pos + run, len - pos - run); len -= run; }
+            if (pos + run < len) {
+                memmove(dst + pos, dst + pos + run, len - pos - run);
+                len -= run;
+            }
             break;
         }
         }

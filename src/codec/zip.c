@@ -40,7 +40,11 @@ pc_status pc_zip_open(pc_zip *z, const uint8_t *p, size_t n, const pc_zip_limits
     /* end record: last match within the final 64 KiB + 22 bytes */
     for (size_t i = n - 22u + 1u; i-- > 0;) {
         if (n - i > 22u + 65535u) break;
-        if (r32(p + i) == SIG_EOCD && i + 22u + r16(p + i + 20) <= n) { eocd = i; found = true; break; }
+        if (r32(p + i) == SIG_EOCD && i + 22u + r16(p + i + 20) <= n) {
+            eocd = i;
+            found = true;
+            break;
+        }
     }
     if (!found) return PC_ERR_FORMAT;
     if (eocd >= 20u && r32(p + eocd - 20u) == SIG_Z64LOC) return PC_ERR_UNSUPPORTED;
@@ -197,7 +201,8 @@ void pc_zipw_init(pc_zipw *w, pc_buf *out)
 static void put16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 static void put32(uint8_t *p, uint32_t v)
 {
-    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
+    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
 }
 
 static bool name_is_ascii(const char *s)

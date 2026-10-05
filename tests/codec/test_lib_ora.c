@@ -86,7 +86,8 @@ static void t_roundtrip(void)
     }
     /* the cropped layer has an offset in stack.xml; merged image and thumbnail */
     {
-        pc_doc *mg = member_png(&out, "mergedimage.png"), *th = member_png(&out, "Thumbnails/thumbnail.png");
+        pc_doc *mg = member_png(&out, "mergedimage.png");
+        pc_doc *th = member_png(&out, "Thumbnails/thumbnail.png");
         pc_doc *l2png = member_png(&out, "data/layer2.png");
         CHECK(mg && mg->w == W && mg->h == H);
         if (mg) {
@@ -331,7 +332,8 @@ static void t_fuzz(void)
     pc_buf out;
     const char *xml =
         "<?xml version='1.0'?><image w='10' h='8'><stack>"
-        "<layer name='A &amp; B' src='a.png' x='-2' y='6' composite-op='svg:multiply' opacity='0.5'/>"
+        "<layer name='A &amp; B' src='a.png' x='-2' y='6' composite-op='svg:multiply'"
+        " opacity='0.5'/>"
         "<stack opacity='0.5'><layer name='&#65;' src='a.png' visibility='hidden'/></stack>"
         "</stack></image>";
     size_t xn = strlen(xml);

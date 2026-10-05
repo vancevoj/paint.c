@@ -118,7 +118,8 @@ static void t_roundtrip_quality(void)
             if (r) {
                 pc_px32 *px = tu_layer_px(r, r->stack[0]);
                 double ps = tu_psnr(px, a, (size_t)W * H);
-                double need = qs[qi] >= 95 ? 38.0 : (qs[qi] >= 80 ? 34.0 : (qs[qi] >= 50 ? 30.0 : 24.0));
+                double need = qs[qi] >= 95 ? 38.0
+                            : (qs[qi] >= 80 ? 34.0 : (qs[qi] >= 50 ? 30.0 : 24.0));
                 CHECK(r->w == W && r->h == H);
                 CHECK(ps >= need);
                 if (ps < need) INFO("sub %d q %d psnr %.2f < %.1f", sub, qs[qi], ps, need);
@@ -139,7 +140,8 @@ static void t_roundtrip_quality(void)
         double ps[2];
         for (uint32_t y = 0; y < H; y++)
             for (uint32_t x = 0; x < W; x++)
-                c[(size_t)y * W + x] = ((x ^ y) & 1) ? tu_px(255, 0, 0, 255) : tu_px(0, 0, 255, 255);
+                c[(size_t)y * W + x] = ((x ^ y) & 1) ? tu_px(255, 0, 0, 255)
+                                                     : tu_px(0, 0, 255, 255);
         for (int k = 0; k < 2; k++) {
             pc_doc *dc = tu_doc_from_px(W, H, c), *r;
             jpeg_params_t p;
@@ -350,11 +352,14 @@ static size_t make_exif(uint8_t *out, int orientation, uint32_t xres, int unit, 
 static void t_orientation(void)
 {
     const int32_t SW = 48, SH = 32;
-    uint8_t *rgb = (uint8_t *)malloc((size_t)SW * SH * 3);
-    static const uint8_t qc[4][3] = { { 255, 0, 0 }, { 0, 255, 0 }, { 0, 0, 255 }, { 255, 255, 255 } };
+    uint8_t *rgb = (uint8_t *)malloc((size_t)SW * (size_t)SH * 3u);
+    static const uint8_t qc[4][3] = {
+        { 255, 0, 0 }, { 0, 255, 0 }, { 0, 0, 255 }, { 255, 255, 255 }
+    };
     for (int32_t y = 0; y < SH; y++)
         for (int32_t x = 0; x < SW; x++)
-            memcpy(rgb + ((size_t)y * SW + x) * 3, qc[(y >= SH / 2) * 2 + (x >= SW / 2)], 3);
+            memcpy(rgb + ((size_t)y * (size_t)SW + (size_t)x) * 3u,
+                   qc[(y >= SH / 2) * 2 + (x >= SW / 2)], 3);
     for (int o = 1; o <= 8; o++) {
         uint8_t exif[128];
         jfx f;
@@ -441,7 +446,8 @@ static void find_first_scan(const uint8_t *p, size_t n, size_t *start, size_t *e
         if (mk == 0xDA) {
             size_t j = i + 2 + len;
             *start = i;
-            while (j + 1 < n && !(p[j] == 0xFF && p[j + 1] != 0 && (p[j + 1] < 0xD0 || p[j + 1] > 0xD7)))
+            while (j + 1 < n &&
+                   !(p[j] == 0xFF && p[j + 1] != 0 && (p[j + 1] < 0xD0 || p[j + 1] > 0xD7)))
                 j++;
             *end = j;
             return;
@@ -566,14 +572,19 @@ static void t_fuzz(void)
     pc_px32 *a = tu_photo(W, H, false);
     uint8_t *rgb = (uint8_t *)malloc((size_t)W * H * 4);
     for (size_t i = 0; i < (size_t)W * H; i++) {
-        rgb[4 * i] = a[i].r; rgb[4 * i + 1] = a[i].g; rgb[4 * i + 2] = a[i].b; rgb[4 * i + 3] = a[i].a;
+        rgb[4 * i] = a[i].r; rgb[4 * i + 1] = a[i].g;
+        rgb[4 * i + 2] = a[i].b; rgb[4 * i + 3] = a[i].a;
     }
     for (int k = 0; k < 3; k++) {
         jfx f;
         unsigned long n = 0;
         uint8_t exif[128], *file;
         jfx_default(&f);
-        if (k == 1) { f.progressive = true; f.app1 = exif; f.app1_len = make_exif(exif, 6, 72, 2, true); }
+        if (k == 1) {
+            f.progressive = true;
+            f.app1 = exif;
+            f.app1_len = make_exif(exif, 6, 72, 2, true);
+        }
         if (k == 2) { f.in_cs = JCS_CMYK; f.file_cs = JCS_YCCK; f.comps = 4; f.adobe = true; }
         if (k != 2) {
             uint8_t *rgb3 = (uint8_t *)malloc((size_t)W * H * 3);

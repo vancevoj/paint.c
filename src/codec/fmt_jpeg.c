@@ -286,8 +286,8 @@ static pc_status jdec_run(jdec *j, const uint8_t *p, size_t n, const pc_codec_li
             rows[r] = cmyk ? j->cmyk + (size_t)r * (size_t)sw * 4u
                            : (JSAMPROW)(void *)(j->band + (size_t)r * (size_t)sw);
         while ((int32_t)ci->output_scanline < y0 + nb) {
-            JDIMENSION got = jpeg_read_scanlines(ci, rows + ((int32_t)ci->output_scanline - y0),
-                                                 (JDIMENSION)(y0 + nb - (int32_t)ci->output_scanline));
+            int32_t at = (int32_t)ci->output_scanline - y0;
+            JDIMENSION got = jpeg_read_scanlines(ci, rows + at, (JDIMENSION)(nb - at));
             if (got == 0) return PC_ERR_FORMAT;
         }
         if (cmyk) {

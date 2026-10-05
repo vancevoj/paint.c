@@ -22,7 +22,13 @@ typedef struct fx_png {
 
 static int ct_channels(int ct)
 {
-    switch (ct) { case 0: return 1; case 2: return 3; case 3: return 1; case 4: return 2; default: return 4; }
+    switch (ct) {
+    case 0: return 1;
+    case 2: return 3;
+    case 3: return 1;
+    case 4: return 2;
+    default: return 4;
+    }
 }
 
 static uint8_t paeth(int a, int b, int c)
@@ -130,7 +136,10 @@ static void build_png(const fx_png *f, pc_buf *out, bool with_meta, const uint8_
     if (f->trns) {
         uint8_t t[256];
         size_t tn = 0;
-        if (f->ct == 3) { memcpy(t, f->trns_pal, (size_t)f->n_trns_pal); tn = (size_t)f->n_trns_pal; }
+        if (f->ct == 3) {
+            memcpy(t, f->trns_pal, (size_t)f->n_trns_pal);
+            tn = (size_t)f->n_trns_pal;
+        }
         else {
             for (int c = 0; c < (f->ct == 0 ? 1 : 3); c++) {
                 t[tn++] = (uint8_t)(f->trns_key[c] >> 8);
@@ -477,7 +486,11 @@ static void t_save_palette(void)
             for (size_t i = 0; i < (size_t)W * H; i++) {
                 pc_px32 e = a[i];
                 if (e.a < 128) e = tu_px(0, 0, 0, 0);
-                else { pc_px32 w = tu_px(255, 255, 255, 255); pc_composite_span(&w, &e, 1, PC_BLEND_NORMAL, 255); e = w; }
+                else {
+                    pc_px32 w = tu_px(255, 255, 255, 255);
+                    pc_composite_span(&w, &e, 1, PC_BLEND_NORMAL, 255);
+                    e = w;
+                }
                 if (!tu_px_eq(px[i], e)) bad++;
             }
             CHECK(bad == 0);

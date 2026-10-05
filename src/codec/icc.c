@@ -364,7 +364,7 @@ pc_status pc_icc_meta_set_srgb(pc_image_meta *meta)
     return PC_OK;
 }
 
-/* ---- CMYK (JPEG decoder) ---------------------------------------------------------------------- */
+/* ---- CMYK (JPEG decoder) ---------------------------------------------------------------- */
 struct lc_cmyk_xf {
     cmsContext    ctx;
     cmsHTRANSFORM xf;
