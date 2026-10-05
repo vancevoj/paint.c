@@ -18,7 +18,8 @@
  *     the zoom is >= 100 %, linear filtering otherwise (mip level from
  *     gfx_view_level);
  *  3. the pixel grid at zoom >= 200 % when enabled (V-GRID-MIN).
- * Marching ants are drawn separately with gfx_draw_ants.
+ * Marching ants are drawn separately with gfx_draw_ants or, for prepared
+ * outlines of any size, gfx_ants_draw.
  *
  * Thread rules: main thread only (the thread that owns the renderer).
  * Ownership: the canvas owns its textures; the renderer, the view cache and
@@ -29,6 +30,7 @@
 
 #include "gfx_view.h"
 #include "pc/pc_mip.h"
+#include "pc/pc_par.h"
 #include "pc/pc_path.h"
 
 #ifdef __cplusplus
@@ -114,6 +116,69 @@ void        gfx_renderer_describe(struct SDL_Renderer *r, char *out, size_t cap)
  * Segments outside clip (screen rect) are skipped. */
 void        gfx_draw_ants(struct SDL_Renderer *r, const gfx_view *v, const pc_poly *p,
                           double phase, double dash, pc_rect clip);
+
+/* ---- prepared marching ants (lane TOOLS, wave 4 item 28) ---------------------------
+ * Outlines of complex selections (a global Magic Wand on a noisy image has
+ * millions of segments) are prepared once and then drawn in time that
+ * follows what is visible, not the outline length:
+ *  - gfx_ants_create takes ownership of a pc_poly and cuts its contours into
+ *    chunks of at most 64 consecutive segments with document-space bounds
+ *    and the arc length at their start, so a frame visits only the chunks
+ *    inside the view and knows each chunk's dash phase directly;
+ *  - optional coarse occupancy levels (LOD: which 2^l x 2^l document cells
+ *    an outline segment touches) for drawing zoomed out.
+ * gfx_ants_draw picks one of three ways per frame:
+ *  - VECTOR (few visible segments): white lines, black dashes along the
+ *    outline with antialiased ends (the gfx_draw_ants look), lines batched
+ *    per chunk;
+ *  - RASTER (many): the visible segments are rasterized once per view into
+ *    a screen-sized texture that keeps each pixel's arc position, recolored
+ *    when the dash phase moves a whole pixel (same dash pattern, no
+ *    per-segment draw calls);
+ *  - LOD (very many, zoomed out): the occupancy level whose cells are about
+ *    one screen pixel is sampled per screen pixel, with dashes that run
+ *    diagonally in screen space.
+ * Thread rules: gfx_ants_create and gfx_ants_free on any thread; a created
+ * gfx_ants is immutable and may be read by several threads. The cache and
+ * gfx_ants_draw belong to the renderer's (main) thread. Ownership: the
+ * gfx_ants owns the polygon given to it; the cache owns its texture and
+ * buffers (destroy it before the renderer). */
+typedef struct gfx_ants gfx_ants;
+typedef struct gfx_ants_cache gfx_ants_cache;
+
+enum { GFX_ANTS_NONE = 0, GFX_ANTS_VECTOR = 1, GFX_ANTS_RASTER = 2, GFX_ANTS_LOD = 3 };
+#define GFX_ANTS_WITH_LOD 1u      /* gfx_ants_create: build the occupancy levels */
+
+/* Prepare *p (moved in: *p is left empty and initialized, also on error).
+ * flags: GFX_ANTS_WITH_LOD. PC_ERR_NOMEM / PC_ERR_LIMIT. */
+pc_status       gfx_ants_create(pc_poly *p, uint32_t flags, gfx_ants **out);
+void            gfx_ants_free(gfx_ants *g);                 /* NULL-safe */
+const pc_poly  *gfx_ants_poly(const gfx_ants *g);          /* borrowed; never NULL for g */
+size_t          gfx_ants_segments(const gfx_ants *g);
+bool            gfx_ants_has_lod(const gfx_ants *g);
+
+gfx_ants_cache *gfx_ants_cache_create(void);               /* NULL on OOM */
+void            gfx_ants_cache_destroy(gfx_ants_cache *c); /* NULL-safe */
+
+typedef struct gfx_ants_info {
+    int    mode;              /* GFX_ANTS_* used by the last draw */
+    size_t visible;           /* segments in visible chunks */
+    bool   rebuilt;           /* RASTER / LOD: the screen raster was rebuilt */
+} gfx_ants_info;
+
+/* Draw g for view v inside clip (screen rect) with the gfx_draw_ants
+ * colors, dash length and phase. c keeps the screen raster between frames
+ * (keyed by g, the view, clip and dash); a pan by whole pixels moves it and
+ * rasterizes only the uncovered strips. par (may be NULL) spreads a raster
+ * build over worker threads in bands of rows (same result for any thread
+ * count). info may be NULL. */
+void            gfx_ants_draw(struct SDL_Renderer *r, gfx_ants_cache *c, const gfx_view *v,
+                              const gfx_ants *g, double phase, double dash, pc_rect clip,
+                              const pc_par *par, gfx_ants_info *info);
+/* Tests and tuning: the visible segment counts at which drawing switches
+ * from VECTOR to RASTER and from RASTER to LOD (0 restores the defaults).
+ * Main thread. */
+void            gfx_ants_set_limits(size_t vector_max, size_t lod_min);
 
 #ifdef __cplusplus
 }

@@ -362,7 +362,8 @@ sel_float *sel_float_lift(app *a, app_doc *d, bool copy, pc_status *st)
     f->copy = copy;
     *st = pc_sel_snap_take(d->doc, &f->lift);
     if (*st == PC_OK) *st = sel_cov_from_snap(&f->cov, &f->lift, d->doc);
-    if (*st == PC_OK) *st = pc_sel_contour(d->doc, 0.0, &f->outline);
+    /* lane TOOLS: the outline the canvas already traced (complex selections) */
+    if (*st == PC_OK) *st = app_doc_sel_outline(d, &f->outline);
     if (*st != PC_OK) {
         sel_float_free(f);
         return NULL;

@@ -20,6 +20,7 @@
  * with a battery saver pause (V-SEL-ANTS). */
 #include "app_internal.h"
 #include "shell_ext.h"
+#include "doc_ants.h"           /* lane TOOLS (wave 4): prepared outlines */
 
 #include <math.h>
 #include <stdio.h>
@@ -1280,8 +1281,10 @@ static void draw_cb(SDL_Renderer *r, ui_rect clip, void *ud)
     {
         const pc_poly *ants = app_doc_ants(d);
         if (ants && ants->n_contours) {
-            gfx_draw_ants(a->ren, &dc->v, ants, ants_phase(a), (double)ui_px(a->ui, 4.0f),
-                          pc_rect_make(clip.x, clip.y, clip.w, clip.h));
+            /* lane TOOLS (wave 4 item 28): only the visible part of the
+             * outline, a cached screen raster for complex ones */
+            app_doc_ants_draw(a, d, &dc->v, ants_phase(a), (double)ui_px(a->ui, 4.0f),
+                              pc_rect_make(clip.x, clip.y, clip.w, clip.h));
         }
     }
 }

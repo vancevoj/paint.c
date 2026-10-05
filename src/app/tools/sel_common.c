@@ -415,6 +415,55 @@ static void tint_cb(SDL_Renderer *r, ui_rect clip, void *ud)
 #define TINT_G 132u
 #define TINT_B 255u
 #define TINT_A 54u
+/* lane TOOLS (wave 4 item 28): outlines longer than this (and outlines
+ * still being traced) tint from the selection coverage, whose cost follows
+ * the screen area instead of the outline length */
+#define TINT_POLY_MAX 60000u
+
+/* Selection coverage at document pixel (x, y) straight from the tiles. */
+static uint8_t cov_px(const pc_doc *d, int32_t x, int32_t y)
+{
+    const pc_tile *t;
+    if (x < 0 || y < 0 || (uint32_t)x >= d->w || (uint32_t)y >= d->h || !d->sel_grid) return 0u;
+    t = d->sel_grid[(size_t)((uint32_t)y >> PC_TILE_SHIFT) * d->tiles_x +
+                    (size_t)((uint32_t)x >> PC_TILE_SHIFT)];
+    if (!t) return 0u;
+    return t->data[(size_t)((uint32_t)y & (PC_TILE_DIM - 1u)) * PC_TILE_DIM +
+                   (size_t)((uint32_t)x & (PC_TILE_DIM - 1u))];
+}
+
+/* Fill the w x h mask at screen (rx0, ry0) with the coverage under each
+ * screen pixel: the pixel center at 100 % and above, the mean of 2 x 2
+ * samples when zoomed out. */
+static bool tint_from_cov(const pc_doc *d, double zoom, double ox, double oy, int32_t rx0,
+                          int32_t ry0, int32_t w, int32_t h, pc_mask *m)
+{
+    int ns = zoom >= 1.0 ? 1 : 2;
+    int32_t *cx = (int32_t *)malloc((size_t)w * 2u * sizeof *cx);
+    if (!cx) return false;
+    for (int32_t x = 0; x < w; x++)
+        for (int s = 0; s < ns; s++) {
+            double sx = (double)(rx0 + x) + (ns == 1 ? 0.5 : 0.25 + 0.5 * (double)s);
+            cx[(size_t)x * 2u + (size_t)s] = (int32_t)floor((sx - ox) / zoom);
+        }
+    for (int32_t y = 0; y < h; y++) {
+        uint8_t *row = m->px + (size_t)y * (size_t)m->stride;
+        int32_t cy[2];
+        for (int s = 0; s < ns; s++) {
+            double sy = (double)(ry0 + y) + (ns == 1 ? 0.5 : 0.25 + 0.5 * (double)s);
+            cy[s] = (int32_t)floor((sy - oy) / zoom);
+        }
+        for (int32_t x = 0; x < w; x++) {
+            uint32_t sum = 0;
+            for (int j = 0; j < ns; j++)
+                for (int i = 0; i < ns; i++)
+                    sum += cov_px(d, cx[(size_t)x * 2u + (size_t)i], cy[j]);
+            row[x] = (uint8_t)(ns == 1 ? sum : (sum + 2u) / 4u);
+        }
+    }
+    free(cx);
+    return true;
+}
 
 void sel_tint_draw(app *a, app_doc *d, app_overlay *o)
 {
@@ -423,13 +472,24 @@ void sel_tint_draw(app *a, app_doc *d, app_overlay *o)
     pc_pt mn, mx;
     double ox, oy, x0, y0, x1, y1;
     int32_t rx0, ry0, rx1, ry1, w, h;
-    uint64_t key = 1469598103934665603ull;
+    uint64_t key = 1469598103934665603ull, ver;
     pc_affine m;
+    bool by_cov;
     if (!d || !a->ren) return;
     /* hidden while a dialog (Layer Properties, effects) shows colors */
     if (app_dialog_active(a)) return;
     p = app_doc_ants(d);
-    if (!p || p->n_contours == 0u || !pc_poly_bounds(p, &mn, &mx)) return;
+    if (!p) return;
+    by_cov = !app_doc_ants_is_preview(d) && pc_sel_is_active(d->doc) &&
+             (app_doc_ants_pending(d) || p->n_pts > TINT_POLY_MAX);
+    if (by_cov) {
+        pc_rect b = pc_sel_bounds(d->doc);
+        if (pc_rect_is_empty(b)) return;
+        mn = pc_pt_make((double)b.x, (double)b.y);
+        mx = pc_pt_make((double)b.x + (double)b.w, (double)b.y + (double)b.h);
+    } else if (p->n_contours == 0u || !pc_poly_bounds(p, &mn, &mx)) {
+        return;
+    }
     t = tint_get(a);
     if (!t) return;
     gfx_view_origin(&o->v, &ox, &oy);
@@ -449,11 +509,14 @@ void sel_tint_draw(app *a, app_doc *d, app_overlay *o)
     w = rx1 - rx0;
     h = ry1 - ry0;
     if (w <= 0 || h <= 0 || w > 16384 || h > 16384) return;
-    /* cache key: outline content and its screen mapping */
-    key = fnv(key, &p->n_pts, sizeof p->n_pts);
-    key = fnv(key, &p->n_contours, sizeof p->n_contours);
-    if (p->n_pts) key = fnv(key, p->pts, p->n_pts * sizeof *p->pts);
-    if (p->n_contours) key = fnv(key, p->ends, p->n_contours * sizeof *p->ends);
+    /* cache key: the outline (its version, lane TOOLS: hashing every point
+     * cost a frame on complex outlines), the selection state for coverage
+     * tints, and the screen mapping */
+    ver = app_doc_ants_version(d);
+    key = fnv(key, &ver, sizeof ver);
+    key = fnv(key, &by_cov, sizeof by_cov);
+    key = fnv(key, &d->doc->sel_gen, sizeof d->doc->sel_gen);
+    key = fnv(key, &d->id, sizeof d->id);
     key = fnv(key, &o->v.zoom, sizeof o->v.zoom);
     key = fnv(key, &ox, sizeof ox);
     key = fnv(key, &oy, sizeof oy);
@@ -487,13 +550,17 @@ void sel_tint_draw(app *a, app_doc *d, app_overlay *o)
             t->tex_w = tw;
             t->tex_h = th;
         }
-        m.a = o->v.zoom;
-        m.b = 0.0;
-        m.c = 0.0;
-        m.d = o->v.zoom;
-        m.e = ox - (double)rx0;
-        m.f = oy - (double)ry0;
-        if (pc_raster_fill_poly(p, &m, PC_FILL_NONZERO, true, &t->mask) != PC_OK) return;
+        if (by_cov) {
+            if (!tint_from_cov(d->doc, o->v.zoom, ox, oy, rx0, ry0, w, h, &t->mask)) return;
+        } else {
+            m.a = o->v.zoom;
+            m.b = 0.0;
+            m.c = 0.0;
+            m.d = o->v.zoom;
+            m.e = ox - (double)rx0;
+            m.f = oy - (double)ry0;
+            if (pc_raster_fill_poly(p, &m, PC_FILL_NONZERO, true, &t->mask) != PC_OK) return;
+        }
         for (int32_t y = 0; y < h; y++) {
             const uint8_t *src = t->mask.px + (size_t)y * (size_t)t->mask.stride;
             uint8_t *dst = (uint8_t *)(t->rgba + (size_t)y * (size_t)w);
