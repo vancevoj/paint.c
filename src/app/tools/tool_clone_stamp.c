@@ -190,6 +190,15 @@ static void clone_options(app *a, void *st)
     app_opt_sel_clip(a);
 }
 
+static app_cursor clone_cursor(app *a, void *st, double x, double y, uint32_t mods)
+{
+    (void)a;
+    (void)x;
+    (void)y;
+    (void)mods;
+    return app_stroke_cursor(&((clone_state *)st)->s);
+}
+
 const app_tool app_tool_clone_stamp = {
     "clone_stamp",
     "Clone Stamp",
@@ -213,6 +222,6 @@ const app_tool app_tool_clone_stamp = {
     clone_live,
     clone_commit,
     NULL,                     /* cancel: Esc commits the stroke */
-    NULL,                     /* cursor_at */
+    clone_cursor,     /* cursor_at: outline only (lane TOOLB) */
     NULL                      /* settings_changed */
 };

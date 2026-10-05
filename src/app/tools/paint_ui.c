@@ -30,12 +30,21 @@ typedef struct named_rect {
     uint64_t frame;
 } named_rect;
 
+/* Text of one number combo (paint_number_combo) while it is edited. */
+#define MAX_COMBOS 4
+
+typedef struct combo_state {
+    char     id[32];
+    char     buf[32];
+    bool     bad;              /* typed value outside the valid range */
+    uint64_t scroll_until;     /* the preset list opened: show the value until this frame */
+} combo_state;
+
 typedef struct paint_ui {
     named_rect    rects[MAX_RECTS];  /* widget rectangles of the last frames (tests) */
     int32_t       nrects;
-    char          wbuf[32];        /* brush size text while editing */
-    bool          wbad;            /* typed value not in 1..2000 */
-    uint64_t      scroll_presets;  /* the preset list opened: show the value until this frame */
+    combo_state   combos[MAX_COMBOS];
+    int32_t       ncombos;
     uint64_t      scroll_fill;     /* the fill list opened: show the style until this frame */
     SDL_Texture  *fill_tex;        /* pattern previews, one row per style */
     pc_px32       fill_fg, fill_bg;
@@ -578,39 +587,32 @@ bool paint_bar_slider(app *a, const char *id, const char *label, int32_t *v, int
     return true;
 }
 
-/* ---- brush size ---------------------------------------------------------------------------- */
+/* ---- number combos and the brush size ------------------------------------------------------- */
 /* Presets observed in the toolbar (OBSERVED.md section 9): 1, 2..15 by 1,
  * 20..95 by 5, 100..500 by 25, 550..1000 by 50, 1100..2000 by 100. */
-static int width_presets(float *out, int cap)
-{
-    int n = 0;
-    float v;
-    if (n < cap) out[n++] = 1.0f;
-    for (v = 2.0f; v <= 15.0f && n < cap; v += 1.0f) out[n++] = v;
-    for (v = 20.0f; v <= 95.0f && n < cap; v += 5.0f) out[n++] = v;
-    for (v = 100.0f; v <= 500.0f && n < cap; v += 25.0f) out[n++] = v;
-    for (v = 550.0f; v <= 1000.0f && n < cap; v += 50.0f) out[n++] = v;
-    for (v = 1100.0f; v <= 2000.0f && n < cap; v += 100.0f) out[n++] = v;
-    return n;
-}
+static const double k_width_presets[] = {
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65,
+    70, 75, 80, 85, 90, 95, 100, 125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 375, 400,
+    425, 450, 475, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000, 1100, 1200, 1300,
+    1400, 1500, 1600, 1700, 1800, 1900, 2000
+};
 
-static float width_step(float w, int dir)
+/* The next preset above (dir > 0) or below v, else v. */
+static double preset_step(const paint_combo *c, double v, int dir)
 {
-    float p[96];
-    int n = width_presets(p, 96);
     if (dir > 0) {
-        for (int i = 0; i < n; i++)
-            if (p[i] > w + 1e-3f) return p[i];
-        return p[n - 1];
+        for (int i = 0; i < c->n_presets; i++)
+            if (c->presets[i] > v + 1e-3) return c->presets[i];
+        return v;
     }
-    for (int i = n; i > 0; i--)
-        if (p[i - 1] < w - 1e-3f) return p[i - 1];
-    return p[0];
+    for (int i = c->n_presets; i > 0; i--)
+        if (c->presets[i - 1] < v - 1e-3) return c->presets[i - 1];
+    return v;
 }
 
-static void format_width(float w, char *out, size_t cap)
+void paint_format_num(double w, char *out, size_t cap)
 {
-    double v = floor((double)w * 100.0 + 0.5) / 100.0;
+    double v = floor(w * 100.0 + 0.5) / 100.0;
     char *e;
     snprintf(out, cap, "%.2f", v);
     e = out + strlen(out);
@@ -618,7 +620,7 @@ static void format_width(float w, char *out, size_t cap)
     if (e > out && e[-1] == '.') e[-1] = '\0';
 }
 
-static bool parse_width(const char *s, double *out)
+static bool parse_num(const char *s, double *out)
 {
     char tmp[32], *end;
     size_t n = 0;
@@ -635,57 +637,68 @@ static bool parse_width(const char *s, double *out)
     return true;
 }
 
-static void set_width(app *a, float w)
+static combo_state *combo_of(paint_ui *s, const char *id)
 {
-    if (w < 1.0f) w = 1.0f;
-    if (w > 2000.0f) w = 2000.0f;
-    if (w == a->ts.width) return;
-    a->ts.width = w;
-    app_tool_settings_changed(a);
+    combo_state *c;
+    for (int32_t i = 0; i < s->ncombos; i++)
+        if (strcmp(s->combos[i].id, id) == 0) return &s->combos[i];
+    if (s->ncombos < MAX_COMBOS) c = &s->combos[s->ncombos++];
+    else c = &s->combos[MAX_COMBOS - 1];
+    memset(c, 0, sizeof *c);
+    snprintf(c->id, sizeof c->id, "%s", id);
+    return c;
 }
 
-void paint_opt_width(app *a)
+/* Clamp to [lo, hi] and report a change. */
+static bool set_num(const paint_combo *c, double *v, double nv)
+{
+    if (nv < c->lo) nv = c->lo;
+    if (nv > c->hi) nv = c->hi;
+    if (nv == *v) return false;
+    *v = nv;
+    return true;
+}
+
+bool paint_number_combo(app *a, const paint_combo *c, double *v)
 {
     ui_ctx *ui = a->ui;
     const ui_palette *p = ui_pal(ui);
     paint_ui *s = state(a);
+    combo_state *cs;
     ui_rect r, tr, ar;
     ui_id fid, aid;
     ui_interaction ia;
-    bool focused;
+    bool changed = false;
     uint32_t er;
-    if (!s) return;
-    ui_push_id(ui, "##brush_size");
-    app_opt_label(a, "Brush size:");
-    /* -/+ change the size by 1 and keep fractions (6.5 -> 7.5), clamped to
-     * 1..2000 (observed on Paint.NET 5.2); the wheel and Up/Down step
-     * through the presets (K-TB-WIDTH-WHEEL, K-TB-WIDTH-ARROWS) */
-    if (small_button(a, "##brush_size", "##minus", UI_ICON_MINUS, "Smaller brush"))
-        set_width(a, a->ts.width - 1.0f);
-    r = opt_rect(a, WIDTH_DIP);
-    note(a, "##brush_size", NULL, r);
+    if (!s || !c || !v) return false;
+    cs = combo_of(s, c->id);
+    ui_push_id(ui, c->id);
+    if (c->label) app_opt_label(a, c->label);
+    if (small_button(a, c->id, "##minus", UI_ICON_MINUS, c->tip_minus))
+        changed |= set_num(c, v, c->step ? c->step(*v, -1) : *v - 1.0);
+    r = opt_rect(a, c->width_dip);
+    note(a, c->id, NULL, r);
     tr = r;
     ar = ui_cut_right(&tr, ui_px(ui, 18.0f));
     fid = ui_get_id(ui, "##field");
-    focused = ui_is_focused(ui, fid);
-    if (!focused) {
-        format_width(a->ts.width, s->wbuf, sizeof s->wbuf);
-        s->wbad = false;
+    if (!ui_is_focused(ui, fid)) {
+        paint_format_num(*v, cs->buf, sizeof cs->buf);
+        cs->bad = false;
     }
     ui_draw_rect(ui, r, p->field);
     ui_layout_set_next(ui, tr);
-    er = ui_text_field(ui, "##field", s->wbuf, sizeof s->wbuf,
+    er = ui_text_field(ui, "##field", cs->buf, sizeof cs->buf,
                        UI_EDIT_NUMERIC | UI_EDIT_NO_FRAME | UI_EDIT_SELECT_ALL);
     if (er & UI_EDIT_CHANGED) {
-        double v;
-        /* O-WIDTH: 1..2000, decimals allowed; other values turn the box red
-         * and are not applied (no clamping) */
-        s->wbad = !(parse_width(s->wbuf, &v) && v >= 1.0 && v <= 2000.0);
-        if (!s->wbad) set_width(a, (float)v);
+        double nv;
+        /* values outside the range turn the box red and are not applied
+         * (no clamping, observed for the brush size) */
+        cs->bad = !(parse_num(cs->buf, &nv) && nv >= c->lo && nv <= c->hi);
+        if (!cs->bad) changed |= set_num(c, v, nv);
     }
     if (er & (UI_EDIT_SUBMIT | UI_EDIT_DEACTIVATED | UI_EDIT_CANCEL)) {
-        format_width(a->ts.width, s->wbuf, sizeof s->wbuf);
-        s->wbad = false;
+        paint_format_num(*v, cs->buf, sizeof cs->buf);
+        cs->bad = false;
     }
     /* Enter or Escape hands the keyboard back to the canvas, so the next
      * Enter finishes the tool instead of editing the box again */
@@ -696,58 +709,81 @@ void paint_opt_width(app *a)
         while (ui_key_take(ui, SDLK_UP, 0)) d++;
         while (ui_key_take(ui, SDLK_DOWN, 0)) d--;
         if (d != 0) {
-            for (; d > 0; d--) set_width(a, width_step(a->ts.width, 1));
-            for (; d < 0; d++) set_width(a, width_step(a->ts.width, -1));
-            format_width(a->ts.width, s->wbuf, sizeof s->wbuf);
-            s->wbad = false;
+            for (; d > 0; d--) changed |= set_num(c, v, preset_step(c, *v, 1));
+            for (; d < 0; d++) changed |= set_num(c, v, preset_step(c, *v, -1));
+            paint_format_num(*v, cs->buf, sizeof cs->buf);
+            cs->bad = false;
         }
     }
     {
         /* K-TB-WIDTH-WHEEL */
         ui_vec2 w = ui_wheel_take(ui, r);
-        if (w.y > 0.0f) set_width(a, width_step(a->ts.width, 1));
-        if (w.y < 0.0f) set_width(a, width_step(a->ts.width, -1));
-        if (w.y != 0.0f) format_width(a->ts.width, s->wbuf, sizeof s->wbuf);
+        if (w.y > 0.0f) changed |= set_num(c, v, preset_step(c, *v, 1));
+        if (w.y < 0.0f) changed |= set_num(c, v, preset_step(c, *v, -1));
+        if (w.y != 0.0f) paint_format_num(*v, cs->buf, sizeof cs->buf);
     }
     aid = ui_get_id(ui, "##arrow");
     ia = ui_interact(ui, aid, ar, 0);
-    note(a, "##brush_size", "v", ar);
+    note(a, c->id, "v", ar);
     if (ia.hovered || ia.held) ui_draw_rect(ui, ar, p->hover);
     ui_draw_icon(ui, UI_ICON_CHEVRON_DOWN, ar, ui_px(ui, 10.0f), p->text_dim, p->text_dim);
     ui_draw_rect_outline(ui, r, ui_px_line(ui, 1.0f),
-                         s->wbad ? p->danger : (ui_is_focused(ui, fid) ? p->accent : p->border));
-    if (s->wbad) ui_draw_rect_outline(ui, ui_rect_inset(r, 1, 1), 1, p->danger);
+                         cs->bad ? p->danger : (ui_is_focused(ui, fid) ? p->accent : p->border));
+    if (cs->bad) ui_draw_rect_outline(ui, ui_rect_inset(r, 1, 1), 1, p->danger);
     if (ia.clicked) {
         ui_popup_open(ui, "##presets", r, UI_POPUP_BELOW);
-        s->scroll_presets = a->frame_no + 2u;    /* the first frame only measures */
+        cs->scroll_until = a->frame_no + 2u;     /* the first frame only measures */
     }
     if (ui_popup_begin(ui, "##presets")) {
-        float pv[96];
-        int n = width_presets(pv, 96);
         ui_rect sr;
-        popup_min_width(ui, WIDTH_DIP + 20.0f);
+        popup_min_width(ui, c->width_dip + 20.0f);
         sr = ui_layout_next(ui, r.w, ui_px(ui, ui_get_theme(ui)->m.menu_item_h) * 12);
         ui_scroll_begin(ui, "##rows", sr, UI_SCROLL_NO_BG);
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < c->n_presets; i++) {
             char t[16];
-            format_width(pv[i], t, sizeof t);
+            double pv = c->presets[i];
+            bool here = fabs(pv - *v) < 1e-3 || (pv > *v && (i == 0 || c->presets[i - 1] < *v));
+            paint_format_num(pv, t, sizeof t);
             ui_push_id_int(ui, i);
-            bool here = fabsf(pv[i] - a->ts.width) < 1e-3f ||
-                        (pv[i] > a->ts.width && (i == 0 || pv[i - 1] < a->ts.width));
-            if (paint_menu_item(a, t, fabsf(pv[i] - a->ts.width) < 1e-3f)) {
-                set_width(a, pv[i]);
-                format_width(a->ts.width, s->wbuf, sizeof s->wbuf);
+            if (paint_menu_item(a, t, fabs(pv - *v) < 1e-3)) {
+                changed |= set_num(c, v, pv);
+                paint_format_num(*v, cs->buf, sizeof cs->buf);
             }
-            if (here && a->frame_no <= s->scroll_presets) ui_scroll_to_rect(ui, ui_last_rect(ui));
+            if (here && a->frame_no <= cs->scroll_until) ui_scroll_to_rect(ui, ui_last_rect(ui));
             ui_pop_id(ui);
         }
         ui_scroll_end(ui);
         ui_popup_end(ui);
     }
-    ui_tooltip(ui, "Brush size ([ and ] change it, Ctrl for steps of 5)");
-    if (small_button(a, "##brush_size", "##plus", UI_ICON_PLUS, "Larger brush"))
-        set_width(a, a->ts.width + 1.0f);
+    if (c->tip) ui_tooltip(ui, c->tip);
+    if (small_button(a, c->id, "##plus", UI_ICON_PLUS, c->tip_plus))
+        changed |= set_num(c, v, c->step ? c->step(*v, 1) : *v + 1.0);
     ui_pop_id(ui);
+    return changed;
+}
+
+void paint_opt_width(app *a)
+{
+    paint_combo c;
+    double v = (double)a->ts.width;
+    memset(&c, 0, sizeof c);
+    c.id = "##brush_size";
+    c.label = "Brush size:";
+    c.tip = "Brush size ([ and ] change it, Ctrl for steps of 5)";
+    c.tip_minus = "Smaller brush";
+    c.tip_plus = "Larger brush";
+    /* -/+ change the size by 1 and keep fractions (6.5 -> 7.5), clamped to
+     * 1..2000 (observed on Paint.NET 5.2); the wheel and Up/Down step
+     * through the presets (K-TB-WIDTH-WHEEL, K-TB-WIDTH-ARROWS) */
+    c.lo = 1.0;
+    c.hi = 2000.0;
+    c.presets = k_width_presets;
+    c.n_presets = (int)(sizeof k_width_presets / sizeof k_width_presets[0]);
+    c.width_dip = WIDTH_DIP;
+    if (paint_number_combo(a, &c, &v) && (float)v != a->ts.width) {
+        a->ts.width = (float)v;
+        app_tool_settings_changed(a);
+    }
 }
 
 /* ---- shared options ---------------------------------------------------------------------- */

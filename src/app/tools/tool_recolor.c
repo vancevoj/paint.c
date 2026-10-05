@@ -121,6 +121,15 @@ static void recolor_options(app *a, void *st)
     app_opt_sel_clip(a);
 }
 
+static app_cursor recolor_cursor(app *a, void *st, double x, double y, uint32_t mods)
+{
+    (void)a;
+    (void)x;
+    (void)y;
+    (void)mods;
+    return app_stroke_cursor(&((recolor_state *)st)->s);
+}
+
 const app_tool app_tool_recolor = {
     "recolor",
     "Recolor",
@@ -144,6 +153,6 @@ const app_tool app_tool_recolor = {
     recolor_live,
     recolor_commit,
     NULL,                     /* cancel: Esc commits the stroke */
-    NULL,                     /* cursor_at */
+    recolor_cursor,   /* cursor_at: outline only (lane TOOLB) */
     NULL                      /* settings_changed */
 };

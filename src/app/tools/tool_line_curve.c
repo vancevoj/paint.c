@@ -12,6 +12,7 @@
  * apply live; every edit is a history step (vec_live.h). Enter, Esc,
  * Finish, a click outside the nubs' box, a new line, a tool switch or a
  * command finish it. Geometry and rendering are pc_linecurve.h. */
+#include "paint_common.h"
 #include "vec_live.h"
 #include "vec_ui.h"
 #include "../app_internal.h"
@@ -329,7 +330,7 @@ static void line_options(app *a, void *st)
     line_state *s = (line_state *)st;
     bool ch = false;
     sync(a, s);
-    app_opt_width(a);
+    paint_opt_width(a);          /* the Brush size combo (O-WIDTH, lane TOOLB) */
     app_opt_separator(a);
     ch |= vec_opt_curve(a, &s->type);
     app_opt_separator(a);

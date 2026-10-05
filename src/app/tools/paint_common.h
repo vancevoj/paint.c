@@ -114,6 +114,30 @@ void paint_opt_tolerance(app *a);    /* "Tolerance:" bar, no mouse wheel */
 void paint_opt_tol_alpha(app *a);    /* split button: Premultiplied / Straight */
 void paint_opt_sampling(app *a);     /* "Sampling:" Layer / Image */
 
+/* An editable number combo of the toolbar (lane TOOLB; the Brush size box
+ * is one, the Text tool's font size another): optional label, [-] (by the
+ * step function, default 1), a text box showing the value with up to two
+ * decimals ("12", "18.3"), a dropdown arrow with the presets, [+]. Typed
+ * values outside [lo, hi] turn the box red and are not applied; Enter or
+ * Esc hands the keyboard back; the mouse wheel and Up / Down step through
+ * the presets. Part names for paint_widget_rect: id (the box), id + "-",
+ * id + "+", id + "v" (arrow), preset rows "##menu/<value>". Returns true
+ * when *v changed (it stays within [lo, hi]). */
+typedef struct paint_combo {
+    const char   *id;            /* "##brush_size" */
+    const char   *label;         /* "Brush size:", NULL for none */
+    const char   *tip, *tip_minus, *tip_plus;
+    double        lo, hi;
+    const double *presets;       /* ascending */
+    int           n_presets;
+    float         width_dip;     /* the box with its arrow */
+    double      (*step)(double v, int dir);   /* -/+; NULL = by 1 */
+} paint_combo;
+bool paint_number_combo(app *a, const paint_combo *c, double *v);
+/* How the combos show a value: rounded to two decimals, trailing zeros
+ * dropped ("12", "18.3", "6.25"). */
+void paint_format_num(double v, char *out, size_t cap);
+
 /* Finish button (O-FINISH) enabled while live; true when clicked. Tools
  * with fine-grained history finish explicitly through it. */
 bool paint_opt_finish(app *a, bool live);

@@ -76,6 +76,11 @@ pc_brush *app_stroke_brush(app_stroke *s);
 /* Draw the brush outline of params at the hover position. */
 void      app_stroke_outline(app *a, const app_stroke *s, app_overlay *o,
                              const pc_brush_params *params);
+/* Canvas cursor of the brush tools (Paintbrush, Eraser, Clone Stamp,
+ * Recolor; lane TOOLB): once the outline is drawn the outline and its
+ * center point are the cursor (TOOLS.md 1, R 5.1.3), so the system
+ * pointer is hidden; before the first pointer event the small crosshair. */
+app_cursor app_stroke_cursor(const app_stroke *s);
 /* Free the engine (tool fini); cancels an active stroke. */
 void      app_stroke_fini(app *a, app_stroke *s);
 

@@ -15,6 +15,7 @@
  * switching tools and running commands. The view follows the caret
  * (T-TEXT-VIEW). Layout and rendering are pc_text.h; fonts text_font.h;
  * keyboard text and IME text_ime.h. */
+#include "paint_common.h"
 #include "text_font.h"
 #include "text_ime.h"
 #include "text_tool.h"
@@ -75,11 +76,22 @@ static const double k_sizes[] = { 8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 
 #define TEXT_SIZE_MIN 1.0
 #define TEXT_SIZE_MAX 2000.0
 
+/* The default size: 12 at 100% UI scale, scaled with it (TOOLS.md 3.3,
+ * R 4.0.9: 24 at 200%). Lane TOOLB. */
+static double default_size(app *a)
+{
+    ui_ctx *ui = app_ui(a);
+    double k = ui ? (double)ui_scale(ui) : 1.0, v;
+    if (!(k > 0.0) || !isfinite(k)) k = 1.0;
+    v = floor(12.0 * k * 100.0 + 0.5) / 100.0;
+    return v < TEXT_SIZE_MIN ? TEXT_SIZE_MIN : (v > TEXT_SIZE_MAX ? TEXT_SIZE_MAX : v);
+}
+
 static void load_options(app *a, text_state *s)
 {
     const char *f = app_settings_get(app_settings_of(a), KEY_FONT);
     app_copy_str(s->family, sizeof s->family, f && *f ? f : TEXT_DEFAULT_FAMILY);
-    s->size = vec_get_double(a, KEY_SIZE, 12.0, TEXT_SIZE_MIN, TEXT_SIZE_MAX);
+    s->size = vec_get_double(a, KEY_SIZE, default_size(a), TEXT_SIZE_MIN, TEXT_SIZE_MAX);
     s->unit = vec_get_int(a, KEY_UNIT, PC_TEXT_POINTS, 0, 1);
     s->align = vec_get_int(a, KEY_ALIGN, PC_TEXT_LEFT, 0, 2);
     s->mode = vec_get_int(a, KEY_MODE, PC_TEXT_SMOOTH, 0, (int32_t)PC_TEXT_MODE_COUNT - 1);
@@ -657,38 +669,25 @@ static void text_options(app *a, void *st)
     validate(a, s);
     /* Font (the button shows the family; no label, like the 5.x toolbar) */
     if (tf && font_picker(a, s, tf)) ch = true;
-    /* Size, presets, - and + (R 5.1.8) */
+    /* Size: an editable combo like the brush size, [-] [12 v] [+]
+     * (R 5.1.8), decimals kept ("18.3"), whole sizes without decimals
+     * (lane TOOLB, F-TOOL-TEXT-SIZE) */
     {
+        paint_combo c;
         double v = s->size;
-        (void)app_opt_next(a, 58.0f);
-        if (ui_number_double(ui, "##text_size", &v, TEXT_SIZE_MIN, TEXT_SIZE_MAX, 1.0, 1, 0) &&
-            v != s->size) {
+        memset(&c, 0, sizeof c);
+        c.id = "##text_size";
+        c.tip = "Font size";
+        c.tip_minus = "Smaller font size";
+        c.tip_plus = "Larger font size";
+        c.lo = TEXT_SIZE_MIN;
+        c.hi = TEXT_SIZE_MAX;
+        c.presets = k_sizes;
+        c.n_presets = (int)N_SIZES;
+        c.width_dip = 64.0f;
+        c.step = size_step;
+        if (paint_number_combo(a, &c, &v) && v != s->size) {
             s->size = v;
-            ch = true;
-        }
-        ui_tooltip(ui, "Font size");
-        (void)app_opt_next(a, 20.0f);
-        if (ui_icon_button(ui, "##text_size_presets", UI_ICON_CHEVRON_DOWN, "Font sizes"))
-            ui_popup_open(ui, "##text_size_pop", ui_last_rect(ui), UI_POPUP_BELOW);
-        if (ui_popup_begin(ui, "##text_size_pop")) {
-            for (size_t i = 0; i < N_SIZES; i++) {
-                char lbl[16];
-                (void)snprintf(lbl, sizeof lbl, "%g", k_sizes[i]);
-                if (ui_menu_radio(ui, lbl, NULL, fabs(s->size - k_sizes[i]) < 1e-6, true)) {
-                    s->size = k_sizes[i];
-                    ch = true;
-                }
-            }
-            ui_popup_end(ui);
-        }
-        (void)app_opt_next(a, 24.0f);
-        if (ui_icon_button(ui, "##text_size_dec", UI_ICON_MINUS, "Smaller font size")) {
-            s->size = size_step(s->size, -1);
-            ch = true;
-        }
-        (void)app_opt_next(a, 24.0f);
-        if (ui_icon_button(ui, "##text_size_inc", UI_ICON_PLUS, "Larger font size")) {
-            s->size = size_step(s->size, 1);
             ch = true;
         }
     }

@@ -146,6 +146,11 @@ void app_stroke_outline(app *a, const app_stroke *s, app_overlay *o,
     paint_ov_brush(o, s->hx, s->hy, pc_brush_diameter(params, p));
 }
 
+app_cursor app_stroke_cursor(const app_stroke *s)
+{
+    return s->hover ? APP_CURSOR_HIDDEN : APP_CURSOR_BRUSH;
+}
+
 void app_stroke_fini(app *a, app_stroke *s)
 {
     app_stroke_cancel(a, s);

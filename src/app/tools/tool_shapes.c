@@ -12,6 +12,7 @@
  * live. Every edit is a history step (vec_live.h). Enter, Esc, Finish, a
  * click outside the shape, a new shape, a tool switch or a command finish
  * it. Geometry, hit testing and rendering are pc_shapes.h. */
+#include "paint_common.h"
 #include "vec_custom.h"
 #include "vec_live.h"
 #include "vec_ui.h"
@@ -371,7 +372,7 @@ static void shapes_options(app *a, void *st)
     ch |= vec_opt_shape(a, &s->kind, &s->custom);
     ch |= vec_opt_draw_mode(a, &s->draw);
     app_opt_separator(a);
-    app_opt_width(a);
+    paint_opt_width(a);          /* the Brush size combo (O-WIDTH, lane TOOLB) */
     if (uses_corner(s->kind)) ch |= vec_opt_corner(a, &s->corner, true);
     app_opt_separator(a);
     app_opt_label(a, "Style:");
