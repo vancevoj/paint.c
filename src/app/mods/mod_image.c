@@ -1,9 +1,15 @@
-/* mod_image.c - Image menu commands that need no dialog (MENUS.md Image):
- * Crop to Selection, Flip, Rotate and Flatten, each one history step
- * (pc_geom.h, pc_layerops.h). Resize, Canvas Size and Color Profile need
- * dialogs and are registered by the dialogs lane (image.resize,
- * image.canvas_size, image.color_profile). */
+/* mod_image.c - Image menu commands that need no dialog (MENUS.md Image,
+ * lane M): Crop to Selection, Flip Horizontal / Vertical, Rotate 90
+ * clockwise / counter-clockwise / 180 and Flatten, each one history step
+ * (pc_geom.h, pc_layerops.h). Crop to Selection also removes the
+ * selection (as Paint.NET 3.36 did; the crop and the deselect are fused
+ * into one step), Flip and Rotate transform the selection with the
+ * pixels. Resize and Canvas Size live in mod_image_size.c, Color Profile
+ * in mod_m_profile.c.
+ *
+ * Thread rules: main thread. */
 #include "../app_internal.h"
+#include "../edit/m_hist.h"
 #include "pc/pc_geom.h"
 #include "pc/pc_layerops.h"
 
@@ -36,9 +42,15 @@ static void done(app *a, app_doc *d, pc_status st, const char *what, bool size_c
 static void cmd_crop(app *a, const app_cmd *c)
 {
     app_doc *d = app_active_doc(a);
+    pc_hist_node *base = m_hist_mark(d->hist);
+    pc_status st;
     (void)c;
-    done(a, d, pc_geom_crop_to_selection(d->hist, &a->par, "Crop to Selection"),
-         "Crop to Selection", true);
+    st = pc_geom_crop_to_selection(d->hist, &a->par, "Crop to Selection");
+    if (st == PC_OK && pc_sel_is_active(d->doc)) {
+        (void)pc_sel_deselect(d->hist, "Deselect");
+        (void)m_hist_fuse(d->hist, base, "Crop to Selection");
+    }
+    done(a, d, st, "Crop to Selection", true);
 }
 
 static void cmd_flip(app *a, const app_cmd *c)

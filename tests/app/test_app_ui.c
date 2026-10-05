@@ -292,8 +292,10 @@ static void tap(app *a, SDL_Keycode k, SDL_Keymod mod)
     at_frames(a, 2);
 }
 
-/* Image > Resize by keyboard: Tab to the percentage, type 50, Enter. Then
- * Canvas Size: Tab to the width (absolute size is preselected). */
+/* Image > Resize by keyboard: the dialog opens By absolute size with the
+ * focus in the width box (OBSERVED 3.1, O-UI-FOCUS; lane M changed this
+ * from the provisional By percentage default): type 100, Enter, the
+ * height follows the aspect ratio. Then Canvas Size: Escape cancels. */
 static void t_size_dialogs(void)
 {
     app *a = with_image(200, 120);
@@ -304,9 +306,8 @@ static void t_size_dialogs(void)
     CHECK(app_cmd_enabled(a, "image.resize") && app_cmd_exec(a, "image.resize"));
     at_frames(a, 3);
     CHECK(app_dialog_active(a));
-    tap(a, SDLK_TAB, SDL_KMOD_NONE);              /* By percentage -> the percentage */
-    tap(a, SDLK_A, SDL_KMOD_LCTRL);
-    text_ev(a, "50");
+    tap(a, SDLK_A, SDL_KMOD_LCTRL);               /* the width box has the focus */
+    text_ev(a, "100");
     tap(a, SDLK_RETURN, SDL_KMOD_NONE);
     at_frames(a, 2);
     CHECK(!app_dialog_active(a));
@@ -316,7 +317,7 @@ static void t_size_dialogs(void)
     /* Canvas Size grows around the center with transparent pixels */
     CHECK(app_cmd_exec(a, "image.canvas_size"));
     at_frames(a, 3);
-    tap(a, SDLK_TAB, SDL_KMOD_NONE);              /* By percentage radio -> percentage */
+    tap(a, SDLK_TAB, SDL_KMOD_NONE);              /* width -> height */
     tap(a, SDLK_A, SDL_KMOD_LCTRL);
     text_ev(a, "150");
     tap(a, SDLK_TAB, SDL_KMOD_NONE);              /* commit; the size follows */
