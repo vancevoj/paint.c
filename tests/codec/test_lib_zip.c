@@ -167,7 +167,7 @@ static void t_bombs(void)
     uint8_t *zeros = (uint8_t *)calloc(N, 1);
     pc_buf b;
     pc_zip z;
-    uint8_t *data;
+    uint8_t *data = NULL;
     size_t len;
     const pc_zip_entry *e;
     /* 16 MiB of zeros deflates about 1000:1: refused before allocating */

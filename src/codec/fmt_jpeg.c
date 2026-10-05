@@ -37,9 +37,11 @@
 #define JPEG_DEFAULT_DPI 96.0
 
 /* ---- error handling ---------------------------------------------------------------- */
+/* jb points at a jmp_buf local to the function that called setjmp: a
+ * jmp_buf member would force 16-byte alignment padding on MSVC x64 (C4324). */
 typedef struct jerr_mgr {
     struct jpeg_error_mgr pub;
-    jmp_buf               jb;
+    jmp_buf              *jb;
     pc_status             st;        /* reason for the longjmp */
 } jerr_mgr;
 
@@ -54,7 +56,7 @@ static void j_error_exit(j_common_ptr cinfo)
         default: e->st = PC_ERR_FORMAT; break;
         }
     }
-    longjmp(e->jb, 1);
+    longjmp(*e->jb, 1);
 }
 
 static void j_output_message(j_common_ptr cinfo) { (void)cinfo; }   /* silent */
@@ -63,7 +65,7 @@ static void j_fail(j_common_ptr cinfo, pc_status st)
 {
     jerr_mgr *e = (jerr_mgr *)(void *)cinfo->err;
     e->st = st;
-    longjmp(e->jb, 1);
+    longjmp(*e->jb, 1);
 }
 
 static void j_progress(j_common_ptr cinfo)
@@ -191,8 +193,10 @@ static pc_status jdec_run(jdec *j, const uint8_t *p, size_t n, const pc_codec_li
     int32_t sw, sh, dw, dh;
     bool cmyk;
     JSAMPROW rows[LC_BAND];
+    jmp_buf jb;
 
-    if (setjmp(j->err.jb)) return j->err.st;
+    j->err.jb = &jb;
+    if (setjmp(jb)) return j->err.st;
     jpeg_create_decompress(ci);
     j->created = true;
     ci->mem->max_memory_to_use = lim->max_mem > (uint64_t)LONG_MAX ? LONG_MAX : (long)lim->max_mem;
@@ -426,7 +430,9 @@ static pc_status jenc_run(jenc *j, const pc_doc *d, const pc_image_meta *meta,
     double dpi_x, dpi_y;
     int hs, vs;
     JSAMPROW rows[LC_BAND];
-    if (setjmp(j->err.jb)) return j->err.st;
+    jmp_buf jb;
+    j->err.jb = &jb;
+    if (setjmp(jb)) return j->err.st;
     jpeg_create_compress(ci);
     j->created = true;
     ci->dest = &j->dst.pub;

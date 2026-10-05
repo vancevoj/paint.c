@@ -59,7 +59,7 @@ pc_status lc_png_decode(const uint8_t *p, size_t n, const pc_codec_limits *lim,
                         pc_image_meta *meta)
 {
     pc_codec_limits dl;
-    struct spng_ihdr ih;
+    struct spng_ihdr ih = {0};
     struct spng_trns trns;
     spng_ctx *ctx;
     pc_status st = PC_OK;

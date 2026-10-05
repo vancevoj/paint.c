@@ -110,9 +110,9 @@ static void t_add_duplicate(void)
     {
         char nm[64];
         size_t k = 0;
-        for (int i = 0; i < 30; i++) { nm[k++] = (char)0xC3; nm[k++] = (char)0xA9; }   /* e acute */
+        for (int i = 0; i < 30; i++) { nm[k++] = '\xC3'; nm[k++] = '\xA9'; }   /* e acute */
         nm[62] = '\0';                      /* 31st char cut in half by the 63-byte limit */
-        nm[60] = (char)0xC3; nm[61] = (char)0xA9;
+        nm[60] = '\xC3'; nm[61] = '\xA9';
         pc_layer_copy_name(nm, out);
         CHECK(strlen(out) <= 63u);
         CHECK(strlen(out) >= 5u && strcmp(out + strlen(out) - 5u, " copy") == 0);

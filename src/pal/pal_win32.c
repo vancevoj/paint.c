@@ -198,7 +198,7 @@ pc_status pal_read_file(const char *path, uint64_t max_bytes, uint8_t **data, si
 {
     wchar_t *w;
     HANDLE h;
-    LARGE_INTEGER sz;
+    LARGE_INTEGER sz = {0};
     size_t cap, alloc, n = 0;
     uint8_t *buf;
     bool disk;

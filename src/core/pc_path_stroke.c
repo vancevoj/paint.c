@@ -322,7 +322,7 @@ static pc_status clean(stk *k, const pc_poly *src, size_t ci, bool closed)
     }
     if (st == PC_OK && closed)
         while (k->piece.n > 1u && near_pt(k->piece.p[k->piece.n - 1u], k->piece.p[0])) k->piece.n--;
-    if (st == PC_OK && k->piece.n) k->piece.f[0] &= (uint8_t)~PC_PT_SMOOTH;
+    if (st == PC_OK && k->piece.n) k->piece.f[0] &= (uint8_t)(0xFFu & ~PC_PT_SMOOTH);
     return st;
 }
 
@@ -341,7 +341,7 @@ static void trim(pbuf *b, double len, bool from_start)
                 memmove(b->f, b->f + 1, b->n - 1u);
             }
             b->n--;
-            if (b->n) b->f[from_start ? 0u : b->n - 1u] &= (uint8_t)~PC_PT_SMOOTH;
+            if (b->n) b->f[from_start ? 0u : b->n - 1u] &= (uint8_t)(0xFFu & ~PC_PT_SMOOTH);
         } else {
             b->p[i0] = add(b->p[i0], mul(d, len / l));
             len = 0.0;
@@ -518,7 +518,7 @@ static pc_status dash_contour(stk *k, const pc_pt *p, const uint8_t *f, size_t n
             for (size_t i = 1; i < k->first.n && st == PC_OK; i++)
                 st = pbuf_push(&k->piece, k->first.p[i], k->first.f[i]);
             if (st == PC_OK) {
-                if (k->piece.n) k->piece.f[0] &= (uint8_t)~PC_PT_SMOOTH;
+                if (k->piece.n) k->piece.f[0] &= (uint8_t)(0xFFu & ~PC_PT_SMOOTH);
                 st = flush_piece(k, dc, dc, last_dir);
             }
         } else {

@@ -35,7 +35,7 @@ static unsigned class_of(int32_t cw, int32_t ch)
 
 static bool buf_zero(const uint8_t *p)
 {
-    static const uint8_t z[PC_TILE_DIM];
+    static const uint8_t z[PC_TILE_DIM] = {0};
     for (size_t r = 0; r < PC_TILE_DIM; r++)
         if (memcmp(p + r * PC_TILE_DIM, z, PC_TILE_DIM) != 0) return false;
     return true;
@@ -66,7 +66,7 @@ static void combine_buf(uint8_t *res, const uint8_t *old, const uint8_t *src, pc
 {
     size_t i;
     if (!old) {
-        static const uint8_t zero[TPX];
+        static const uint8_t zero[TPX] = {0};
         old = zero;
     }
     switch (m) {

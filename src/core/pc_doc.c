@@ -190,7 +190,7 @@ static uint64_t fnv(uint64_t h, const void *p, size_t n)
 
 uint64_t pc_doc_fingerprint(const pc_doc *d)
 {
-    static const uint8_t zero_row[PC_TILE_DIM * 4u];
+    static const uint8_t zero_row[PC_TILE_DIM * 4u] = {0};
     uint64_t h = 1469598103934665603ull;
     h = fnv(h, &d->w, sizeof d->w);
     h = fnv(h, &d->h, sizeof d->h);
@@ -226,7 +226,7 @@ uint64_t pc_doc_fingerprint(const pc_doc *d)
         size_t n = (size_t)d->tiles_x * d->tiles_y;
         for (size_t i = 0; i < n && !any && d->sel_grid; i++) any = d->sel_grid[i] != NULL;
         if (any) {
-            static const uint8_t zero_a8[PC_TILE_DIM];
+            static const uint8_t zero_a8[PC_TILE_DIM] = {0};
             uint8_t act = d->sel_active ? 1u : 0u;
             h = fnv(h, "selection", 9u);
             h = fnv(h, &act, 1u);

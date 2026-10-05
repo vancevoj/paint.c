@@ -158,7 +158,7 @@ static void t_gauss_ref(const fx_img *src, double radius, fx_img *out)
                     s += wk[i + k] * (c == 0 ? p.b : c == 1 ? p.g : p.r);
                     ws += wk[i + k];
                 }
-                tmp[((size_t)y * (size_t)w + (size_t)x) * 3u + (size_t)c] = s / ws;
+                tmp[((size_t)y * (size_t)w + (size_t)x) * 3u + (size_t)c] = ws > 0.0 ? s / ws : 0.0;
             }
     for (y = 0; y < h; y++)
         for (x = 0; x < w; x++) {
