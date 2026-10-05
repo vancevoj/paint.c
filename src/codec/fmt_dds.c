@@ -19,7 +19,7 @@
  * ATI2 and RXGB variants), error diffusion dithering (on by default; BC1..BC3
  * color indices and BC2 alpha within each block, and the 16-bit layouts),
  * BC6H / BC7 compression speed, error metric (perceptual or uniform;
- * BC1..BC3 index selection), cube maps from a horizontal (4:3) or vertical
+ * BC1..BC3 index selection; BC6H and BC7 use uniform weights), cube maps from a horizontal (4:3) or vertical
  * (3:4) crossed image, and mipmap generation with a choice of resampling
  * filter (default Bicubic) and gamma correction. Each option is enabled
  * only for the formats it applies to (FILES.md, DDS rows). Complete cube
@@ -1027,8 +1027,8 @@ static void enc_block(const bc_job *j, size_t bx, size_t by, uint8_t blk[16])
         enc_bc4_signed(blk + 8, g);
         break;
     }
-    default:   /* E_BC7 */
-        pc_bc7enc_block(blk, rgba, j->prm->bc7_speed, j->perceptual);
+    default:   /* E_BC7: the error metric only applies to BC1..BC3 (uniform here) */
+        pc_bc7enc_block(blk, rgba, j->prm->bc7_speed, false);
         break;
     }
 }

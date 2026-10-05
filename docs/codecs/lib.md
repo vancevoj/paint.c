@@ -170,7 +170,8 @@ thread count).
   BC5: stb_dxt; BC5 signed through the unsigned encoder on shifted values.
   BC7: bc7enc (modes 1 and 6, 5, 6, 7 for alpha); speed maps to its
   partition and uber settings. Perceptual metric: BC1..BC3 indices are
-  re-selected with luma weights, BC7 uses bc7enc's perceptual mode.
+  re-selected with luma weights; BC6H and BC7 always use uniform weights
+  (the option is disabled for them).
 - BC6H unsigned (DXGI 95): src/codec/bc6h_enc.c, written from the format
   specification; every 8-bit level becomes the half float v / 255 (the
   loader maps back with a clamp, no tone curve); all 14 modes, the speed

@@ -222,6 +222,31 @@ static void t_mip_filters(void)
     free(a);
 }
 
+/* Options that are disabled for a format do not change its output. */
+static void t_disabled_options(void)
+{
+    const uint32_t W = 24, H = 16;
+    pc_px32 *a = tu_photo(W, H, true);
+    pc_doc *d = tu_doc_from_px(W, H, a);
+    static const int fmts[3] = { 9, 10, 12 };              /* BC6H, BC7, B8G8R8A8 */
+    for (int k = 0; k < 3; k++) {
+        dds_params_t p;
+        pc_buf base, other;
+        pc_codec_default_params(dds(), &p);
+        p.format = fmts[k];
+        p.bc7_speed = 0;
+        base = save(d, &p);
+        p.metric = 1;                                      /* disabled for these */
+        p.dither = 0;
+        other = save(d, &p);
+        CHECK(base.n == other.n && memcmp(base.p, other.p, base.n) == 0);
+        pc_buf_free(&base);
+        pc_buf_free(&other);
+    }
+    pc_doc_destroy(d);
+    free(a);
+}
+
 /* pc_par that runs the block rows backwards with fake worker ids. */
 static void rev_run(void *self, pc_job_fn fn, void *ud, uint32_t count)
 {
@@ -267,5 +292,6 @@ int main(int argc, char **argv)
     RUN(t_dither_bc);
     RUN(t_mip_filters);
     RUN(t_parallel);
+    RUN(t_disabled_options);
     return pc_test_finish();
 }
