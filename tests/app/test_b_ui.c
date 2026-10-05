@@ -147,7 +147,9 @@ static void t_brush_size(void)
     a->ts.width = 2000.0f;
     CHECK(b_wheel(a, "##brush_size", 1.0f));
     CHECK(a->ts.width == 2000.0f);
-    /* the preset list */
+    /* the preset list opens scrolled to the value */
+    a->ts.width = 9.0f;
+    at_frames(a, 1);
     CHECK(b_widget(a, "##brush_sizev", 0.5f, 0.5f));
     at_frames(a, 2);
     CHECK(b_widget(a, "##menu/10", 0.5f, 0.5f));

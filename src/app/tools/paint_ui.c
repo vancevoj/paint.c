@@ -35,6 +35,8 @@ typedef struct paint_ui {
     int32_t       nrects;
     char          wbuf[32];        /* brush size text while editing */
     bool          wbad;            /* typed value not in 1..2000 */
+    uint64_t      scroll_presets;  /* the preset list opened: show the value until this frame */
+    uint64_t      scroll_fill;     /* the fill list opened: show the style until this frame */
     SDL_Texture  *fill_tex;        /* pattern previews, one row per style */
     pc_px32       fill_fg, fill_bg;
     int32_t       fill_w, fill_h, fill_scale;
@@ -475,6 +477,16 @@ bool paint_menu_item(app *a, const char *label, bool selected)
     return r;
 }
 
+/* Inside a popup: make it at least dip wide (a fixed-width row widens the
+ * popup's measured content; column cells only span the current width). */
+static void popup_min_width(ui_ctx *ui, float dip)
+{
+    ui_size c = ui_size_px(dip);
+    ui_layout_row(ui, 0.0f, 1, &c);
+    (void)ui_layout_next(ui, ui_px(ui, dip), 0);
+    ui_layout_column(ui);
+}
+
 /* Opens popup pid below anchor when r says so, then begins it. */
 static bool split_menu(app *a, int r, const char *pid, ui_rect anchor)
 {
@@ -694,21 +706,28 @@ void paint_opt_width(app *a)
     ui_draw_rect_outline(ui, r, ui_px_line(ui, 1.0f),
                          s->wbad ? p->danger : (ui_is_focused(ui, fid) ? p->accent : p->border));
     if (s->wbad) ui_draw_rect_outline(ui, ui_rect_inset(r, 1, 1), 1, p->danger);
-    if (ia.clicked) ui_popup_open(ui, "##presets", r, UI_POPUP_BELOW);
+    if (ia.clicked) {
+        ui_popup_open(ui, "##presets", r, UI_POPUP_BELOW);
+        s->scroll_presets = a->frame_no + 2u;    /* the first frame only measures */
+    }
     if (ui_popup_begin(ui, "##presets")) {
         float pv[96];
         int n = width_presets(pv, 96);
-        ui_rect sr = ui_layout_next(ui, ui_px(ui, 90.0f),
-                                    ui_px(ui, ui_get_theme(ui)->m.menu_item_h) * 12);
+        ui_rect sr;
+        popup_min_width(ui, WIDTH_DIP + 20.0f);
+        sr = ui_layout_next(ui, r.w, ui_px(ui, ui_get_theme(ui)->m.menu_item_h) * 12);
         ui_scroll_begin(ui, "##rows", sr, UI_SCROLL_NO_BG);
         for (int i = 0; i < n; i++) {
             char t[16];
             format_width(pv[i], t, sizeof t);
             ui_push_id_int(ui, i);
+            bool here = fabsf(pv[i] - a->ts.width) < 1e-3f ||
+                        (pv[i] > a->ts.width && (i == 0 || pv[i - 1] < a->ts.width));
             if (paint_menu_item(a, t, fabsf(pv[i] - a->ts.width) < 1e-3f)) {
                 set_width(a, pv[i]);
                 format_width(a->ts.width, s->wbuf, sizeof s->wbuf);
             }
+            if (here && a->frame_no <= s->scroll_presets) ui_scroll_to_rect(ui, ui_last_rect(ui));
             ui_pop_id(ui);
         }
         ui_scroll_end(ui);
@@ -936,10 +955,15 @@ void paint_opt_fill(app *a)
             app_tool_settings_changed(a);
         }
     }
-    if (in.clicked) ui_popup_open(ui, "##list", r, UI_POPUP_BELOW);
+    if (in.clicked) {
+        ui_popup_open(ui, "##list", r, UI_POPUP_BELOW);
+        s->scroll_fill = a->frame_no + 2u;
+    }
     if (ui_popup_begin(ui, "##list")) {
         int32_t rh = ui_px(ui, 24.0f);
-        ui_rect sr = ui_layout_next(ui, r.w, rh * FILL_ROWS);
+        ui_rect sr;
+        popup_min_width(ui, FILL_DIP);               /* the list is as wide as the box */
+        sr = ui_layout_next(ui, r.w, rh * FILL_ROWS);
         ui_scroll_begin(ui, "##rows", sr, UI_SCROLL_NO_BG);
         for (int32_t i = 0; i < (int32_t)PC_FILL_STYLE_COUNT; i++) {
             ui_rect row = ui_layout_next(ui, r.w - ui_px(ui, 14.0f), rh), sw2, tr2;
@@ -952,6 +976,7 @@ void paint_opt_fill(app *a)
                 snprintf(rn, sizeof rn, "/row%d", (int)i);
                 note(a, "##fill", rn, ui_rect_intersect(row, sr));
             }
+            if (i == cur && a->frame_no <= s->scroll_fill) ui_scroll_to_rect(ui, row);
             if (i == cur) ui_draw_rect(ui, row, p->selection);
             else if (ri.hovered) ui_draw_rect(ui, row, p->hover);
             sw2 = ui_rect_make(row.x + ui_px(ui, 4.0f), row.y + (row.h - ui_px(ui, 16.0f)) / 2,
