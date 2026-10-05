@@ -748,6 +748,129 @@ static void t_missing_data(void)
     free(s);
 }
 
+static pc_status load_status(const pc_buf *b);
+
+/* ---- CCITT -------------------------------------------------------------------------- */
+typedef struct bitw { pc_buf *b; uint32_t acc, n; } bitw;
+
+static void bw_bits(bitw *w, const char *bits)
+{
+    for (const char *p = bits; *p; p++) {
+        if (*p == ' ') continue;
+        w->acc = (w->acc << 1) | (uint32_t)(*p == '1');
+        if (++w->n == 8u) { bb_u8(w->b, w->acc); w->acc = 0; w->n = 0; }
+    }
+}
+
+static void bw_align(bitw *w)
+{
+    if (w->n) { bb_u8(w->b, w->acc << (8u - w->n)); w->acc = 0; w->n = 0; }
+}
+
+static void t_ccitt(void)
+{
+    /* rows: W3 B2 W3 / B8 / W2 B6, photometric min-is-white (1 bits black) */
+    static const uint8_t want[3][8] = {
+        { 255, 255, 255, 0, 0, 255, 255, 255 }, { 0, 0, 0, 0, 0, 0, 0, 0 },
+        { 255, 255, 0, 0, 0, 0, 0, 0 },
+    };
+    static const char *const files[] = {
+        "tif_pil_g4.tif", "tif_pil_ccitt_rle.tif", "tif_pil_g3_1d.tif", "tif_pil_g3_2d.tif",
+        "tif_im_g4_lsb.tif", "tif_im_fax.tif",
+    };
+    for (int k = 0; k < 4; k++) {
+        pc_buf data, b;
+        bitw w;
+        tb t;
+        pc_px32 *got;
+        uint32_t comp = k == 0 ? 2u : k == 1 ? 3u : k == 2 ? 4u : 3u;
+        memset(&data, 0, sizeof data);
+        w.b = &data; w.acc = 0; w.n = 0;
+        if (k == 0) {                      /* Modified Huffman, byte-aligned rows */
+            bw_bits(&w, "1000 11 1000"); bw_align(&w);
+            bw_bits(&w, "00110101 000101"); bw_align(&w);
+            bw_bits(&w, "0111 0010"); bw_align(&w);
+        } else if (k == 1) {               /* T.4 1D with EOLs and fill bits */
+            bw_bits(&w, "0000 000000000001 1000 11 1000");
+            bw_bits(&w, "000000000001 00110101 000101");
+            bw_bits(&w, "000000000001 0111 0010 000000000001 000000000001");
+        } else if (k == 2) {               /* T.6: H, V0, VL3, P, VR2 */
+            bw_bits(&w, "001 1000 11 1");
+            bw_bits(&w, "0000010 0001");
+            bw_bits(&w, "000011 1");
+        } else {                           /* T.4 2D: tag bits pick 1D and 2D rows */
+            bw_bits(&w, "000000000001 1 1000 11 1000");
+            bw_bits(&w, "000000000001 0 0000010 0001");
+            bw_bits(&w, "000000000001 0 000011 1");
+        }
+        bw_align(&w);
+        tb_init(&t, k & 1);
+        tb_basic(&t, 8, 3, 1, 1, 0, comp, 0);
+        if (k == 3) tb_1(&t, 292, 4, 1);
+        tb_seg(&t, data.p, data.n);
+        tb_build(&b, &t);
+        got = load_px(&b, 8, 3, NULL, NULL);
+        CHECK(got != NULL);
+        for (int y = 0; got && y < 3; y++)
+            for (int x = 0; x < 8; x++) CHECK(got[y * 8 + x].r == want[y][x] && got[y * 8 + x].a == 255);
+        free(got);
+        pc_buf_free(&b);
+        /* cut the code stream: the first row survives, the rest is transparent */
+        tb_init(&t, k & 1);
+        tb_basic(&t, 8, 3, 1, 1, 0, comp, 0);
+        if (k == 3) tb_1(&t, 292, 4, 1);
+        tb_seg(&t, data.p, k == 1 ? 4u : k == 3 ? 3u : 2u);   /* first row complete */
+        tb_build(&b, &t);
+        {
+            pc_image_meta m;
+            got = load_px(&b, 8, 3, &m, NULL);
+            CHECK(got && got[0].a == 255 && got[23].a == 0);
+            CHECK(got && strstr(m.note, "incomplete") != NULL);
+            if (got) pc_meta_free(&m);
+        }
+        free(got);
+        pc_buf_free(&b);
+        pc_buf_free(&data);
+    }
+    {   /* invalid codes stop the stream; CCITT needs 1-bit samples */
+        static const uint8_t junk[4] = { 0x00, 0x00, 0x00, 0x00 };
+        tb t;
+        pc_buf b;
+        pc_px32 *got;
+        tb_init(&t, false);
+        tb_basic(&t, 8, 2, 1, 1, 0, 4, 0);
+        tb_seg(&t, junk, sizeof junk);
+        tb_build(&b, &t);
+        got = load_px(&b, 8, 2, NULL, NULL);
+        CHECK(got && got[0].a == 0 && got[15].a == 0);
+        free(got);
+        pc_buf_free(&b);
+        tb_init(&t, false);
+        tb_basic(&t, 8, 2, 8, 1, 0, 4, 0);
+        tb_seg(&t, junk, sizeof junk);
+        tb_build(&b, &t);
+        CHECK(load_status(&b) == PC_ERR_UNSUPPORTED);
+        pc_buf_free(&b);
+    }
+    for (size_t i = 0; i < sizeof files / sizeof files[0]; i++) {
+        size_t n;
+        uint8_t *p = read_fixture(files[i], &n);
+        pc_buf b;
+        pc_px32 *got;
+        bool ok = true;
+        CHECK(p != NULL);
+        if (!p) continue;
+        b.p = p; b.n = n; b.cap = n;
+        got = load_px(&b, 19, 13, NULL, NULL);
+        CHECK(got != NULL);
+        for (uint32_t y = 0; got && y < 13; y++)
+            for (uint32_t x = 0; x < 19; x++) ok = ok && px_same(got[y * 19 + x], pat_bw(x, y));
+        CHECK(ok);
+        free(got);
+        free(p);
+    }
+}
+
 static pc_status load_status(const pc_buf *b)
 {
     pc_doc *d = (pc_doc *)(uintptr_t)1;
@@ -1084,6 +1207,16 @@ static void make_seeds(seedset *ss)
         }
         free(s);
     }
+    {   /* the third-party CCITT fixtures */
+        static const char *const files[] = { "tif_pil_g4.tif", "tif_pil_g3_2d.tif",
+                                             "tif_pil_ccitt_rle.tif", "tif_im_fax.tif" };
+        for (size_t i = 0; i < sizeof files / sizeof files[0]; i++) {
+            size_t n;
+            uint8_t *p = read_fixture(files[i], &n);
+            if (p) seeds_add(ss, p, n);
+            free(p);
+        }
+    }
     pc_doc_destroy(d);
     pc_doc_destroy(f);
 }
@@ -1107,6 +1240,7 @@ static void tests(void)
     RUN(t_tiles);
     RUN(t_orientation_and_meta);
     RUN(t_missing_data);
+    RUN(t_ccitt);
     RUN(t_bad);
     RUN(t_bombs);
     RUN(t_roundtrip);

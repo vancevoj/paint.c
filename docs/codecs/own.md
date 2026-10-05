@@ -79,7 +79,7 @@ dialog for TIFF and use the defaults (Auto-detect, LZW).
 | BMP | BITMAPCOREHEADER, OS/2 2.x (16 and 64 bytes), INFO, V2, V3, V4, V5; 1/2/4/8-bit palettes (short palettes and out-of-range indices are black); 16-bit 555, bit fields (any contiguous masks, alpha too), BI_ALPHABITFIELDS; 24-bit; 32-bit bit fields with or without alpha; RLE8, RLE4 with end-of-line, end-of-bitmap and delta escapes; top-down and bottom-up; resolution; V5 embedded ICC profile; empty file opens as 800 x 600 white (Paint.NET 3.36 behavior for Explorer's "New Bitmap Image") | `PC_ERR_UNSUPPORTED`: BI_JPEG, BI_PNG, OS/2 Huffman and RLE24, 64-bit, CMYK variants. `PC_ERR_FORMAT`: bad sizes, offsets, masks, truncated pixel data, top-down RLE, RLE runs past the 32-bit padded row |
 | TGA | types 1, 2, 3, 9, 10, 11; 8/15/16/24/32-bit pixels; 8/16-bit indices into 15/16/24/32-bit maps with a first-entry offset; 16-bit gray + alpha; all four origins; RLE packets crossing rows; TGA 2.0 extension area attribute type | `PC_ERR_UNSUPPORTED`: types 32/33, interleaved rows. `PC_ERR_FORMAT`: truncated data |
 | GIF | 87a and 89a; first image only, placed on its logical screen (enlarged when the frame sticks out; outside the frame is transparent); global and local tables; transparent index from the graphic control extension before the image; interlacing; min code size 1..11; deferred clear | `PC_ERR_FORMAT`: no image, bad header or descriptor. Corrupt or truncated LZW data keeps what was decoded |
-| TIFF | classic TIFF, both byte orders; strips and tiles; planar 1 and 2; none, LZW (and the old bit-reversed LZW), PackBits, Deflate 8 and 32946; predictor 2 for 8/16/32-bit; fill order 2; min-is-white, min-is-black, RGB, palette (1..8 bit), CMYK (naive conversion, ICC dropped); 1/2/4/8/16/32-bit unsigned and 32-bit float samples, reduced to 8 bits with rounding; extra samples (associated alpha unpremultiplied, unassociated kept, unspecified ignored; RGB with 4 samples and no ExtraSamples tag is associated alpha, like libtiff); orientation 1..8; resolution (inch, cm); ICC profile; first page only (Paint.NET loads only the first page) | `PC_ERR_UNSUPPORTED`: BigTIFF, JPEG, old JPEG, CCITT, other compressions, YCbCr, CIELab and other photometrics, mixed bits per sample, signed or 16-bit float samples, floating point predictor, palettes deeper than 8 bits, more than 32 samples. `PC_ERR_FORMAT`: bad header or IFD, missing size or offsets, too few offsets |
+| TIFF | classic TIFF, both byte orders; strips and tiles; planar 1 and 2; none, LZW (and the old bit-reversed LZW), PackBits, Deflate 8 and 32946, CCITT Modified Huffman (2 and 32771), T.4 Group 3 1D and 2D with EOLs and fill bits (3), T.6 Group 4 (4); predictor 2 for 8/16/32-bit; fill order 2; min-is-white, min-is-black, RGB, palette (1..8 bit), CMYK (naive conversion, ICC dropped); 1/2/4/8/16/32-bit unsigned and 32-bit float samples, reduced to 8 bits with rounding; extra samples (associated alpha unpremultiplied, unassociated kept, unspecified ignored; RGB with 4 samples and no ExtraSamples tag is associated alpha, like libtiff); orientation 1..8; resolution (inch, cm); ICC profile; first page only (Paint.NET loads only the first page) | `PC_ERR_UNSUPPORTED`: BigTIFF, JPEG, old JPEG, CCITT uncompressed mode, other compressions, YCbCr, CIELab and other photometrics, mixed bits per sample, signed or 16-bit float samples, floating point predictor, palettes deeper than 8 bits, more than 32 samples. `PC_ERR_FORMAT`: bad header or IFD, missing size or offsets, too few offsets |
 
 `pc_image_meta`: `dpi_x/y` (0 when unknown), `src_bits` (bits per channel:
 8 for palettes, 5 or 6 for 16-bit BMP and TGA, the TIFF bits per sample),
@@ -112,6 +112,11 @@ truncated data stay transparent; GIF indices beyond the table are black.
   (at most 16384 pages), samples per pixel at most 32.
 * LZW decoders have a fixed 4096-entry table, reject codes past the next
   free entry, and decode strings without recursion.
+* CCITT decoding uses 13-bit lookup tables built once per load from the
+  ITU-T T.4 code lists; runs longer than the row, codes past the end of the
+  data and invalid codes end the segment (the remaining rows stay
+  transparent). The 2D decoder checks every changing element against the
+  row and reference bounds.
 * No recursion anywhere (P-07); size math is checked (P-08).
 
 ## Palette quantizer (quant.h)
@@ -158,6 +163,11 @@ pc_quant_destroy(q);
 * `test_own_codecs`: registry, option schemas and defaults, sniffing, and
   the Pillow and ImageMagick fixtures in `data/own` (regenerate with
   `python3 tests/codec/data/own/gen_fixtures.py`).
+* CCITT was checked against libtiff (through Pillow) for MH, Group 3 1D,
+  Group 3 2D with byte-aligned EOLs and Group 4 on random images and on
+  every run length from 0 to 2700 in both colors, and against ImageMagick
+  fax output with both fill orders and with tiles; the tests carry those
+  fixtures plus hand-assembled bit streams covering every 2D mode.
 
 Every `test_own_<fmt>` binary is also a fuzz driver:
 

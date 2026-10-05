@@ -2,10 +2,12 @@
  *
  * Reader: classic TIFF, little and big endian; strips and tiles; planar
  * configuration 1 and 2; compression none, LZW (including the old
- * bit-reversed variant), PackBits, Deflate (8 and 32946, zlib); horizontal
- * predictor 2 for 8/16/32-bit samples; fill order 2; photometric
- * min-is-white, min-is-black, RGB, palette and separated CMYK (converted to
- * RGB without color management); 1/2/4/8/16/32-bit unsigned samples and
+ * bit-reversed variant), PackBits, Deflate (8 and 32946, zlib), CCITT
+ * Modified Huffman (2, 32771), T.4 Group 3 1D/2D (3) and T.6 Group 4 (4)
+ * for 1-bit images; horizontal predictor 2 for 8/16/32-bit samples; fill
+ * order 2; photometric min-is-white, min-is-black, RGB, palette and
+ * separated CMYK (converted to RGB without color management);
+ * 1/2/4/8/16/32-bit unsigned samples and
  * 32-bit IEEE float, reduced to 8 bits with rounding; extra samples
  * (associated alpha is converted to straight alpha, unassociated alpha is
  * kept, unspecified extra samples are ignored; RGB with four samples and no
@@ -58,9 +60,15 @@
 #define T_INKSET      332u
 #define T_EXTRA       338u
 #define T_SAMPLEFMT   339u
+#define T_T4OPTIONS   292u
+#define T_T6OPTIONS   293u
 #define T_ICC         34675u
 
 #define C_NONE        1u
+#define C_CCITT_RLE   2u
+#define C_CCITT_T4    3u
+#define C_CCITT_T6    4u
+#define C_CCITT_RLEW  32771u
 #define C_LZW         5u
 #define C_ADOBE_DEFL  8u
 #define C_PACKBITS    32773u
@@ -108,7 +116,9 @@ typedef struct tif {
     bool           be;
     uint32_t       w, h, bps, spp, comp, photo, planar, pred, fill, orient, sfmt, inkset;
     uint32_t       rps, tw, th;
+    uint32_t       t4opt, t6opt;
     bool           tiled, have_photo, have_extra;
+    const int32_t *cc_tab;        /* CCITT run tables (white, black, 2D modes) */
     tarr           offs, cnts, bpsa, cmap, extra, icc, xres, yres;
     uint32_t       unit;
     uint32_t       next_ifd;
@@ -218,6 +228,8 @@ static pc_status parse_ifd(tif *t, size_t off)
         case T_INKSET:      t->inkset = v; break;
         case T_EXTRA:       t->extra = a; t->have_extra = true; break;
         case T_SAMPLEFMT:   t->sfmt = v; break;
+        case T_T4OPTIONS:   t->t4opt = v; break;
+        case T_T6OPTIONS:   t->t6opt = v; break;
         case T_ICC:         if (type == 1u || type == 7u) t->icc = a; break;
         default: break;
         }
@@ -279,6 +291,15 @@ typedef struct seg {
     /* Deflate */
     z_stream       zs;
     bool           z_init;
+    /* CCITT */
+    const int32_t *cct;
+    uint64_t       bit, nbits;    /* bit position and count */
+    uint32_t       cw;            /* row width in pixels */
+    uint32_t       t4;            /* T4Options */
+    int32_t       *ref, *cur;     /* changing elements of the previous / current row */
+    uint32_t       nref;
+    uint8_t       *crow;          /* decoded row, 1 bit per pixel, 1 = black run */
+    size_t         crow_n, crow_pos;
 } seg;
 
 static uint8_t rev8(uint8_t v)
@@ -296,6 +317,9 @@ static void seg_close(seg *s)
     free(s->suffix);
     free(s->first);
     free(s->stack);
+    free(s->ref);
+    free(s->cur);
+    free(s->crow);
     memset(s, 0, sizeof *s);
 }
 
@@ -334,6 +358,19 @@ static pc_status seg_open(seg *s, const tif *t, uint32_t index)
         s->zs.avail_in = s->len > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uInt)s->len;
         if (inflateInit(&s->zs) != Z_OK) { seg_close(s); return PC_ERR_NOMEM; }
         s->z_init = true;
+    }
+    if (s->comp == C_CCITT_RLE || s->comp == C_CCITT_T4 || s->comp == C_CCITT_T6 ||
+        s->comp == C_CCITT_RLEW) {
+        s->cct = t->cc_tab;
+        s->cw = t->tiled ? t->tw : t->w;
+        s->t4 = t->t4opt;
+        s->nbits = (uint64_t)s->len * 8u;
+        s->crow_n = ((size_t)s->cw + 7u) / 8u;
+        s->crow_pos = s->crow_n;
+        s->ref = (int32_t *)malloc(((size_t)s->cw + 4u) * sizeof *s->ref);
+        s->cur = (int32_t *)malloc(((size_t)s->cw + 4u) * sizeof *s->cur);
+        s->crow = (uint8_t *)malloc(s->crow_n);
+        if (!s->ref || !s->cur || !s->crow) { seg_close(s); return PC_ERR_NOMEM; }
     }
     return PC_OK;
 }
@@ -457,6 +494,242 @@ static size_t z_read(seg *s, uint8_t *dst, size_t n)
     return o;
 }
 
+/* ---- CCITT T.4 / T.6 (Modified Huffman, MR, MMR) ------------------------------
+ * Code tables from ITU-T T.4 (terminating, make-up and extended make-up
+ * codes); they are prefix free and complete except for the all-zero region
+ * that EOL lives in (checked by the generator). Decoding peeks 13 bits into
+ * 8192-entry tables built once per load: entry = run << 4 | length, 0 =
+ * invalid. Decoded rows hold 1 for "black" runs; photometric decides the
+ * meaning, as in libtiff. */
+typedef struct cc_code { uint16_t code; uint8_t len; uint16_t run; } cc_code;
+
+static const cc_code k_cc_white[104] = {
+    { 0x35, 8, 0 }, { 0x7, 6, 1 }, { 0x7, 4, 2 }, { 0x8, 4, 3 }, { 0xB, 4, 4 }, { 0xC, 4, 5 },
+    { 0xE, 4, 6 }, { 0xF, 4, 7 }, { 0x13, 5, 8 }, { 0x14, 5, 9 }, { 0x7, 5, 10 },
+    { 0x8, 5, 11 }, { 0x8, 6, 12 }, { 0x3, 6, 13 }, { 0x34, 6, 14 }, { 0x35, 6, 15 },
+    { 0x2A, 6, 16 }, { 0x2B, 6, 17 }, { 0x27, 7, 18 }, { 0xC, 7, 19 }, { 0x8, 7, 20 },
+    { 0x17, 7, 21 }, { 0x3, 7, 22 }, { 0x4, 7, 23 }, { 0x28, 7, 24 }, { 0x2B, 7, 25 },
+    { 0x13, 7, 26 }, { 0x24, 7, 27 }, { 0x18, 7, 28 }, { 0x2, 8, 29 }, { 0x3, 8, 30 },
+    { 0x1A, 8, 31 }, { 0x1B, 8, 32 }, { 0x12, 8, 33 }, { 0x13, 8, 34 }, { 0x14, 8, 35 },
+    { 0x15, 8, 36 }, { 0x16, 8, 37 }, { 0x17, 8, 38 }, { 0x28, 8, 39 }, { 0x29, 8, 40 },
+    { 0x2A, 8, 41 }, { 0x2B, 8, 42 }, { 0x2C, 8, 43 }, { 0x2D, 8, 44 }, { 0x4, 8, 45 },
+    { 0x5, 8, 46 }, { 0xA, 8, 47 }, { 0xB, 8, 48 }, { 0x52, 8, 49 }, { 0x53, 8, 50 },
+    { 0x54, 8, 51 }, { 0x55, 8, 52 }, { 0x24, 8, 53 }, { 0x25, 8, 54 }, { 0x58, 8, 55 },
+    { 0x59, 8, 56 }, { 0x5A, 8, 57 }, { 0x5B, 8, 58 }, { 0x4A, 8, 59 }, { 0x4B, 8, 60 },
+    { 0x32, 8, 61 }, { 0x33, 8, 62 }, { 0x34, 8, 63 }, { 0x1B, 5, 64 }, { 0x12, 5, 128 },
+    { 0x17, 6, 192 }, { 0x37, 7, 256 }, { 0x36, 8, 320 }, { 0x37, 8, 384 }, { 0x64, 8, 448 },
+    { 0x65, 8, 512 }, { 0x68, 8, 576 }, { 0x67, 8, 640 }, { 0xCC, 9, 704 }, { 0xCD, 9, 768 },
+    { 0xD2, 9, 832 }, { 0xD3, 9, 896 }, { 0xD4, 9, 960 }, { 0xD5, 9, 1024 }, { 0xD6, 9, 1088 },
+    { 0xD7, 9, 1152 }, { 0xD8, 9, 1216 }, { 0xD9, 9, 1280 }, { 0xDA, 9, 1344 },
+    { 0xDB, 9, 1408 }, { 0x98, 9, 1472 }, { 0x99, 9, 1536 }, { 0x9A, 9, 1600 },
+    { 0x18, 6, 1664 }, { 0x9B, 9, 1728 }, { 0x8, 11, 1792 }, { 0xC, 11, 1856 },
+    { 0xD, 11, 1920 }, { 0x12, 12, 1984 }, { 0x13, 12, 2048 }, { 0x14, 12, 2112 },
+    { 0x15, 12, 2176 }, { 0x16, 12, 2240 }, { 0x17, 12, 2304 }, { 0x1C, 12, 2368 },
+    { 0x1D, 12, 2432 }, { 0x1E, 12, 2496 }, { 0x1F, 12, 2560 },
+};
+static const cc_code k_cc_black[104] = {
+    { 0x37, 10, 0 }, { 0x2, 3, 1 }, { 0x3, 2, 2 }, { 0x2, 2, 3 }, { 0x3, 3, 4 }, { 0x3, 4, 5 },
+    { 0x2, 4, 6 }, { 0x3, 5, 7 }, { 0x5, 6, 8 }, { 0x4, 6, 9 }, { 0x4, 7, 10 }, { 0x5, 7, 11 },
+    { 0x7, 7, 12 }, { 0x4, 8, 13 }, { 0x7, 8, 14 }, { 0x18, 9, 15 }, { 0x17, 10, 16 },
+    { 0x18, 10, 17 }, { 0x8, 10, 18 }, { 0x67, 11, 19 }, { 0x68, 11, 20 }, { 0x6C, 11, 21 },
+    { 0x37, 11, 22 }, { 0x28, 11, 23 }, { 0x17, 11, 24 }, { 0x18, 11, 25 }, { 0xCA, 12, 26 },
+    { 0xCB, 12, 27 }, { 0xCC, 12, 28 }, { 0xCD, 12, 29 }, { 0x68, 12, 30 }, { 0x69, 12, 31 },
+    { 0x6A, 12, 32 }, { 0x6B, 12, 33 }, { 0xD2, 12, 34 }, { 0xD3, 12, 35 }, { 0xD4, 12, 36 },
+    { 0xD5, 12, 37 }, { 0xD6, 12, 38 }, { 0xD7, 12, 39 }, { 0x6C, 12, 40 }, { 0x6D, 12, 41 },
+    { 0xDA, 12, 42 }, { 0xDB, 12, 43 }, { 0x54, 12, 44 }, { 0x55, 12, 45 }, { 0x56, 12, 46 },
+    { 0x57, 12, 47 }, { 0x64, 12, 48 }, { 0x65, 12, 49 }, { 0x52, 12, 50 }, { 0x53, 12, 51 },
+    { 0x24, 12, 52 }, { 0x37, 12, 53 }, { 0x38, 12, 54 }, { 0x27, 12, 55 }, { 0x28, 12, 56 },
+    { 0x58, 12, 57 }, { 0x59, 12, 58 }, { 0x2B, 12, 59 }, { 0x2C, 12, 60 }, { 0x5A, 12, 61 },
+    { 0x66, 12, 62 }, { 0x67, 12, 63 }, { 0xF, 10, 64 }, { 0xC8, 12, 128 }, { 0xC9, 12, 192 },
+    { 0x5B, 12, 256 }, { 0x33, 12, 320 }, { 0x34, 12, 384 }, { 0x35, 12, 448 },
+    { 0x6C, 13, 512 }, { 0x6D, 13, 576 }, { 0x4A, 13, 640 }, { 0x4B, 13, 704 },
+    { 0x4C, 13, 768 }, { 0x4D, 13, 832 }, { 0x72, 13, 896 }, { 0x73, 13, 960 },
+    { 0x74, 13, 1024 }, { 0x75, 13, 1088 }, { 0x76, 13, 1152 }, { 0x77, 13, 1216 },
+    { 0x52, 13, 1280 }, { 0x53, 13, 1344 }, { 0x54, 13, 1408 }, { 0x55, 13, 1472 },
+    { 0x5A, 13, 1536 }, { 0x5B, 13, 1600 }, { 0x64, 13, 1664 }, { 0x65, 13, 1728 },
+    { 0x8, 11, 1792 }, { 0xC, 11, 1856 }, { 0xD, 11, 1920 }, { 0x12, 12, 1984 },
+    { 0x13, 12, 2048 }, { 0x14, 12, 2112 }, { 0x15, 12, 2176 }, { 0x16, 12, 2240 },
+    { 0x17, 12, 2304 }, { 0x1C, 12, 2368 }, { 0x1D, 12, 2432 }, { 0x1E, 12, 2496 },
+    { 0x1F, 12, 2560 },
+};
+
+
+#define CC_EOL      0xFFFu
+#define CC_TAB_W    0u
+#define CC_TAB_B    8192u
+#define CC_TAB_M    16384u
+#define CC_TAB_SIZE (16384u + 128u)
+enum { M_P = 1, M_H, M_V0, M_VR1, M_VR2, M_VR3, M_VL1, M_VL2, M_VL3, M_EXT };
+
+static void cc_fill(int32_t *tab, uint32_t bits, uint32_t code, uint32_t len, uint32_t val)
+{
+    uint32_t sh = bits - len;
+    for (uint32_t i = 0; i < (1u << sh); i++) tab[(code << sh) | i] = (int32_t)((val << 4) | len);
+}
+
+/* Run tables for both colors (13-bit index) and the 2D mode table (7-bit). */
+static int32_t *cc_tables(void)
+{
+    static const uint8_t modes[][3] = {     /* code, length, mode */
+        { 0x1, 4, M_P }, { 0x1, 3, M_H }, { 0x1, 1, M_V0 }, { 0x3, 3, M_VR1 }, { 0x3, 6, M_VR2 },
+        { 0x3, 7, M_VR3 }, { 0x2, 3, M_VL1 }, { 0x2, 6, M_VL2 }, { 0x2, 7, M_VL3 },
+        { 0x1, 7, M_EXT },
+    };
+    int32_t *t = (int32_t *)calloc(CC_TAB_SIZE, sizeof *t);
+    if (!t) return NULL;
+    for (size_t i = 0; i < sizeof k_cc_white / sizeof k_cc_white[0]; i++)
+        cc_fill(t + CC_TAB_W, 13, k_cc_white[i].code, k_cc_white[i].len, k_cc_white[i].run);
+    for (size_t i = 0; i < sizeof k_cc_black / sizeof k_cc_black[0]; i++)
+        cc_fill(t + CC_TAB_B, 13, k_cc_black[i].code, k_cc_black[i].len, k_cc_black[i].run);
+    cc_fill(t + CC_TAB_W, 13, 1, 12, CC_EOL);
+    cc_fill(t + CC_TAB_B, 13, 1, 12, CC_EOL);
+    for (size_t i = 0; i < sizeof modes / sizeof modes[0]; i++)
+        cc_fill(t + CC_TAB_M, 7, modes[i][0], modes[i][1], modes[i][2]);
+    return t;
+}
+
+static uint32_t cc_peek(const seg *s, uint32_t n)       /* n <= 24, zero past the end */
+{
+    uint32_t v = 0;
+    uint64_t byte = s->bit >> 3;
+    for (uint32_t k = 0; k < 4u; k++)
+        v = (v << 8) | (byte + k < s->len ? s->src[byte + k] : 0u);
+    return (v << (uint32_t)(s->bit & 7u)) >> (32u - n);
+}
+
+static bool cc_skip(seg *s, uint32_t n)
+{
+    if (n > s->nbits - s->bit) return false;
+    s->bit += n;
+    return true;
+}
+
+/* One run of the given color (make-up codes add up), or -1. */
+static int32_t cc_run(seg *s, uint32_t color)
+{
+    int32_t total = 0;
+    for (;;) {
+        int32_t e = s->cct[(color ? CC_TAB_B : CC_TAB_W) + cc_peek(s, 13)];
+        uint32_t len = (uint32_t)e & 15u, run = (uint32_t)e >> 4;
+        if (!e || run == CC_EOL || !cc_skip(s, len)) return -1;
+        total += (int32_t)run;
+        if (total > (int32_t)s->cw) return -1;
+        if (run < 64u) return total;
+    }
+}
+
+static uint32_t cc_bit_at(const seg *s, uint64_t pos)
+{
+    return ((uint32_t)s->src[pos >> 3] >> (7u - (uint32_t)(pos & 7u))) & 1u;
+}
+
+/* Consume an EOL, possibly preceded by fill zeros. True when one was found. */
+static bool cc_eol(seg *s)
+{
+    uint64_t z = 0;
+    while (z < 4096u && s->bit + z < s->nbits && !cc_bit_at(s, s->bit + z)) z++;
+    if (z >= 11u && s->bit + z < s->nbits) {
+        s->bit += z + 1u;
+        return true;
+    }
+    return false;
+}
+
+static bool cc_push(seg *s, uint32_t *n, int32_t v)
+{
+    if (*n >= s->cw + 3u) return false;
+    s->cur[(*n)++] = v;
+    return true;
+}
+
+/* Decode one row into s->crow; false on a coding error or missing data. */
+static bool cc_decode_row(seg *s)
+{
+    bool two_d = s->comp == C_CCITT_T6;
+    uint32_t nc = 0, w = s->cw;
+    int32_t a0 = -1, *swap;
+    uint32_t color = 0;
+    if (s->comp == C_CCITT_T4) {
+        (void)cc_eol(s);
+        if (s->t4 & 1u) {
+            if (s->bit >= s->nbits) return false;
+            two_d = cc_peek(s, 1) == 0u;
+            s->bit++;
+        }
+    }
+    if (s->bit >= s->nbits) return false;
+    if (!two_d) {
+        int32_t pos = 0;
+        while (pos < (int32_t)w) {
+            int32_t r = cc_run(s, color);
+            if (r < 0) return false;
+            pos += r;
+            if (pos > (int32_t)w || !cc_push(s, &nc, pos)) return false;
+            color ^= 1u;
+        }
+    } else {
+        uint32_t ri = 0;
+        while (a0 < (int32_t)w) {
+            int32_t b1, b2, e;
+            uint32_t mode;
+            while (ri < s->nref && s->ref[ri] <= a0) ri++;
+            if (ri < s->nref && (ri & 1u) != color) ri++;
+            b1 = ri < s->nref ? s->ref[ri] : (int32_t)w;
+            b2 = ri + 1u < s->nref ? s->ref[ri + 1u] : (int32_t)w;
+            e = s->cct[CC_TAB_M + cc_peek(s, 7)];
+            mode = (uint32_t)e >> 4;
+            if (!e || mode == M_EXT || !cc_skip(s, (uint32_t)e & 15u)) return false;
+            if (mode == M_P) {
+                a0 = b2;
+            } else if (mode == M_H) {
+                int32_t start = a0 < 0 ? 0 : a0, r1 = cc_run(s, color), r2;
+                if (r1 < 0) return false;
+                r2 = cc_run(s, color ^ 1u);
+                if (r2 < 0 || start + r1 + r2 > (int32_t)w) return false;
+                if (!cc_push(s, &nc, start + r1) || !cc_push(s, &nc, start + r1 + r2)) return false;
+                a0 = start + r1 + r2;
+            } else {
+                static const int32_t k_off[] = { 0, 0, 0, 0, 1, 2, 3, -1, -2, -3 };
+                int32_t a1 = b1 + k_off[mode];
+                if (a1 < 0 || a1 > (int32_t)w || (a0 >= 0 && a1 < a0)) return false;
+                if (!cc_push(s, &nc, a1)) return false;
+                a0 = a1;
+                color ^= 1u;
+            }
+            if (ri > 0u) ri--;
+        }
+    }
+    /* render the changing elements; runs alternate white, black, ... */
+    memset(s->crow, 0, s->crow_n);
+    for (uint32_t i = 0; i < nc; i += 2u) {
+        int32_t x0 = s->cur[i], x1 = i + 1u < nc ? s->cur[i + 1u] : (int32_t)w;
+        if (x1 > (int32_t)w) x1 = (int32_t)w;
+        for (int32_t x = x0; x < x1; x++)
+            s->crow[(uint32_t)x >> 3] |= (uint8_t)(0x80u >> ((uint32_t)x & 7u));
+    }
+    swap = s->ref; s->ref = s->cur; s->cur = swap;
+    s->nref = nc;
+    if (s->comp == C_CCITT_RLE) s->bit = (s->bit + 7u) & ~(uint64_t)7u;
+    if (s->comp == C_CCITT_RLEW) s->bit = (s->bit + 15u) & ~(uint64_t)15u;
+    return true;
+}
+
+static size_t cc_read(seg *s, uint8_t *dst, size_t n)
+{
+    size_t o = 0;
+    while (o < n) {
+        if (s->crow_pos < s->crow_n) {
+            size_t k = s->crow_n - s->crow_pos < n - o ? s->crow_n - s->crow_pos : n - o;
+            memcpy(dst + o, s->crow + s->crow_pos, k);
+            o += k; s->crow_pos += k;
+            continue;
+        }
+        if (s->done || !cc_decode_row(s)) { s->done = true; break; }
+        s->crow_pos = 0;
+    }
+    return o;
+}
+
 /* Read exactly n bytes; missing bytes are zero. Returns false when short. */
 static bool seg_read(seg *s, uint8_t *dst, size_t n)
 {
@@ -471,6 +744,9 @@ static bool seg_read(seg *s, uint8_t *dst, size_t n)
     }
     case C_LZW:      got = s->src ? lzw_read(s, dst, n) : 0u; break;
     case C_PACKBITS: got = s->src ? pb_read(s, dst, n) : 0u; break;
+    case C_CCITT_RLE: case C_CCITT_T4: case C_CCITT_T6: case C_CCITT_RLEW:
+        got = s->src ? cc_read(s, dst, n) : 0u;
+        break;
     default:         got = s->z_init ? z_read(s, dst, n) : 0u; break;
     }
     if (got < n) memset(dst + got, 0, n - got);
@@ -634,9 +910,13 @@ static pc_status validate(tif *t)
     if (t->bps != 1u && t->bps != 2u && t->bps != 4u && t->bps != 8u && t->bps != 16u &&
         t->bps != 32u)
         return PC_ERR_UNSUPPORTED;
-    if (t->comp != C_NONE && t->comp != C_LZW && t->comp != C_ADOBE_DEFL &&
-        t->comp != C_DEFLATE && t->comp != C_PACKBITS)
+    if (t->comp == C_CCITT_RLE || t->comp == C_CCITT_T4 || t->comp == C_CCITT_T6 ||
+        t->comp == C_CCITT_RLEW) {
+        if (t->bps != 1u || t->spp != 1u) return PC_ERR_UNSUPPORTED;
+    } else if (t->comp != C_NONE && t->comp != C_LZW && t->comp != C_ADOBE_DEFL &&
+               t->comp != C_DEFLATE && t->comp != C_PACKBITS) {
         return PC_ERR_UNSUPPORTED;
+    }
     if (!t->have_photo) {
         if (t->spp >= 3u) t->photo = 2u;
         else if (t->cmap.ok) t->photo = 3u;
@@ -820,6 +1100,7 @@ static pc_status tiff_load(const uint8_t *p, size_t n, const pc_codec_limits *li
 {
     tif *t;
     pc_rowsink rs;
+    int32_t *cct = NULL;
     size_t first;
     uint32_t pages;
     bool trunc = false;
@@ -839,9 +1120,17 @@ static pc_status tiff_load(const uint8_t *p, size_t n, const pc_codec_limits *li
     t->rps = 0xFFFFFFFFu;
     st = parse_ifd(t, first);
     if (st == PC_OK) st = validate(t);
+    if (st == PC_OK && (t->comp == C_CCITT_RLE || t->comp == C_CCITT_T4 ||
+                        t->comp == C_CCITT_T6 || t->comp == C_CCITT_RLEW)) {
+        cct = cc_tables();
+        t->cc_tab = cct;
+        if (!cct) st = PC_ERR_NOMEM;
+    }
     if (st == PC_OK) st = pc_rowsink_init(&rs, lim, t->w, t->h, t->orient);
-    if (st != PC_OK) { free(t); return st; }
+    if (st != PC_OK) { free(cct); free(t); return st; }
     st = t->tiled ? decode_tiles(t, &rs, &trunc) : decode_strips(t, &rs, &trunc);
+    free(cct);
+    t->cc_tab = NULL;
     if (st != PC_OK) { pc_rowsink_abort(&rs); free(t); return st; }
     st = pc_rowsink_finish(&rs, out);
     if (st == PC_OK) {

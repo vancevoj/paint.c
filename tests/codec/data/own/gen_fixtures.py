@@ -7,14 +7,16 @@ encoders other than our own. The patterns must match tests/codec/
 test_own_common.h. All content is generated here; no third-party images.
 
 Requires Pillow and ImageMagick (convert). Run from any directory:
-    python3 tests/codec/data/own/gen_fixtures.py
+    python3 tests/codec/data/own/gen_fixtures.py [name-prefix ...]
+With prefixes, only the matching files are rewritten.
 """
 import os
 import subprocess
+import sys
 import tempfile
 
 import numpy as np
-from PIL import Image
+from PIL import Image, TiffImagePlugin
 
 W, H = 19, 13
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -46,7 +48,13 @@ def pat(kind, w=W, h=H):
     return img.astype(np.uint8)
 
 
+ONLY = sys.argv[1:]
+SKIP = tempfile.TemporaryDirectory()        # files not selected are written here
+
+
 def out(name):
+    if ONLY and not any(name.startswith(p) for p in ONLY):
+        return os.path.join(SKIP.name, name)
     return os.path.join(HERE, name)
 
 
@@ -121,6 +129,14 @@ def main():
     pil('few', 'P', 'tif_pil_p.tif')
     pil('bw', '1', 'tif_pil_1bit.tif')
     pil('bw', '1', 'tif_pil_g4.tif', compression='group4')
+    pil('bw', '1', 'tif_pil_ccitt_rle.tif', compression='tiff_ccitt')
+    pil('bw', '1', 'tif_pil_g3_1d.tif', compression='group3')
+    t4 = TiffImagePlugin.ImageFileDirectory_v2()
+    t4[292] = 5                                     # 2D coding, EOLs byte aligned
+    pil('bw', '1', 'tif_pil_g3_2d.tif', compression='group3', tiffinfo=t4)
+    magick('bw', ['-compress', 'Group4', '-define', 'tiff:fill-order=lsb'],
+           'tif_im_g4_lsb.tif')
+    magick('bw', ['-compress', 'Fax'], 'tif_im_fax.tif')
     pil('rgb', 'RGB', 'tif_pil_jpeg.tif', compression='jpeg')
     magick('rgba', ['-define', 'tiff:tile-geometry=16x16'], 'tif_im_tiled.tif')
     magick('rgba', ['-interlace', 'plane'], 'tif_im_planar.tif')
