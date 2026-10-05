@@ -65,3 +65,9 @@ sources in packaging/licenses)
     2014-2021 Adobe, Reserved Font Name 'Source'), see tests/ui/data/README.md
 
 This software is based in part on the work of the Independent JPEG Group.
+
+Optional plugins (plugins/, separate downloads, not part of paintc):
+    plugins/gradient_mapping   Gradient Mapping, ported from the Paint.NET plugin of
+                               the same name by pyrochild (Zach Walker), MIT license,
+                               Copyright (c) 2007, 2016 Zach Walker
+                               (plugins/gradient_mapping/LICENSE-original.txt)
