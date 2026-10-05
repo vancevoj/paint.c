@@ -13,6 +13,7 @@
  *
  * Thread rules: main thread. Widget state is app extension "afx.curves". */
 #include "afx.h"
+#include "fx/fx_widgets.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -423,4 +424,5 @@ void afx_widgets_register(app *a)
 {
     (void)app_prop_widget_register(a, "curves", curves_widget, NULL);
     (void)app_prop_widget_register(a, "levels", afx_levels_widget_fn, NULL);
+    (void)app_prop_widget_register(a, FX_WIDGET_POSITION_GRID, afx_pgrid_widget_fn, NULL);
 }

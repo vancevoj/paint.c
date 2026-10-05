@@ -14,6 +14,7 @@ parameters, the Curves and Levels editors and effect plugins.
 | `src/app/propdlg.c` | The generic `fx_prop` dialog builder (`app_props_ui`, also used by Save Configuration) |
 | `src/app/fx/afx_curves.c` | The `curves` custom widget and its pointer logic; the Levels histogram helper |
 | `src/app/fx/afx_levels.c` | The `levels` custom widget |
+| `src/app/fx/afx_pgrid.c` | The `position-grid` widget (ADR-024, `include/fx/fx_widgets.h`) |
 | `src/app/fx/afx_plugins.c` | Plugin loader and the Plugin Errors list and dialog |
 | `tests/plugins/` | Sample plugin and malformed fixtures |
 
@@ -109,6 +110,11 @@ one control per `fx_prop` in schema order, like Paint.NET's property dialogs
 | SEED | a button with the prop's label ("Randomize") that draws a new seed; other values never reseed |
 | CUSTOM | the widget registered for the prop's hint, hidden otherwise |
 
+ADR-024: a CHOICE prop whose hint names a registered widget gets that widget
+instead of the drop-down (the `position-grid` below; hosts without it show
+the drop-down), and BOOL, CHOICE and SEED props with a `tip:<text>` hint
+show `<text>` as their tooltip (`include/fx/fx_widgets.h`).
+
 `enabled_if` disables and dims a control while its condition is false.
 W3B-FXCORE: after every edit the builder applies the property rules of
 `fx_run.h` (`fx_props_rules`, with the member edited last remembered per
@@ -133,6 +139,34 @@ point the drag covers comes back when the drag moves on), a right click
 removes a point, the end points at input 0 and 255 can only move
 vertically. Pointer rules: Paint.NET 3.36 CurveControl (docs/notice/f.md),
 testable on their own (`afx_curve_press/move/release`).
+
+### Position grid (`position-grid` hint, `fx_widgets.h`, ADR-024)
+
+A generic widget for plugins: the value is an int32 `FX_POS_*` index on an
+FXP_CHOICE (16 names, or 10 for the grid alone; fewer fall back to a
+drop-down) or a 4-byte FXP_CUSTOM. Header with the prop's label, a 3 x 3
+grid of 34 DIP buttons (a frame with the object block at the position), with
+16 positions two rows to the right, "Horizontal only" and "Vertical only"
+(bars lined up on a guide), then Reset position (disabled at
+`FX_POS_NONE`) and the name of the current choice. The choice is drawn
+selected; every button has its name as tooltip and is a Tab stop; arrow
+keys move and choose inside the grid and the rows (Up and Down switch rows),
+Space chooses, Enter stays OK. `afx_pgrid_rect` gives tests the button
+rectangles. First user: the Align Object plugin (docs/fx/align_object.md).
+
+### Notices and preview aids (ADR-024)
+
+An effect that leaves the image unchanged for a reason the user should know
+(Align Object: no object, a filled canvas) calls `fx_host.notice`. The
+session shows the notice of a finished preview in a message box over the
+dialog, once: the same text again (another position with the same problem)
+shows nothing until a preview without a notice came in between; the final
+render of OK, Repeat or a dialog-less run shows its notice unless the
+preview already did. `afx_session_notice`, `afx_notice_count` and
+`afx_last_notice` are the test hooks. Props flagged `FXP_F_PREVIEW_ONLY`
+(Align Object's Test) go back to their defaults when OK is pressed (the
+final job restarts if one changed) and before Repeat or a dialog-less run,
+so they never reach the image or the remembered parameters.
 
 ### Levels (`levels` hint, `fx_levels.h`)
 
@@ -179,7 +213,9 @@ running cannot be contained in-process (as in Paint.NET).
 
 `tests/plugins/sample_plugin.c` is a complete sample (Effects > Samples >
 Tint with color, int, choice and bool props); `tests/plugins/CMakeLists.txt`
-shows how to build one.
+shows how to build one. Optional plugins that ship separately live in
+`plugins/<name>/` (`pc_add_plugin`, output in `<build>/plugins/out/<name>/`),
+for example `plugins/align_object` (docs/fx/align_object.md).
 
 ## Testing
 
@@ -190,7 +226,9 @@ shows how to build one.
 | `test_f_curves`, `test_f_levels` | The editors' rules and the widgets driven by mouse events in the real dialogs; Auto equals Auto-Level |
 | `test_f_plugins` | Loader against the fixtures: valid and nested plugins, wrong ABI, short struct, invalid props, failing entry, duplicate ids, empty, not a library; plugin commands, tooltip, Repeat, Plugin Errors dialog, `--disable-plugins` |
 | `test_f_large` | 8192 x 8192: open, frame times while rendering, change, restart, cancel, commit; refusal of runs that cannot fit in memory |
+| `test_align_dialog` | ADR-024 through the optional Align Object plugin loaded by the real loader: the position grid with mouse and keyboard, live preview, Test as a preview aid, OK, undo, Repeat, selections, notices as message boxes shown once, the builder's drop-down fallback |
 
 Lane-private hooks for tests: `afx_active`, `afx_session_*`, `afx_wait_idle`,
 `afx_wait_preview`, `afx_prop_hit` (where a prop's controls are),
-`afx_curves_graph_rect`, `afx_levels_rect`, `afx_levels_axis`.
+`afx_curves_graph_rect`, `afx_levels_rect`, `afx_levels_axis`,
+`afx_pgrid_rect`, `afx_notice_count`, `afx_last_notice`.

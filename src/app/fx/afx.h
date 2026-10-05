@@ -85,6 +85,13 @@ const fx_env   *afx_session_env(const afx_session *s);
 const uint64_t *afx_session_histogram(const afx_session *s);
 /* Last error text ("" when none). Borrowed. */
 const char  *afx_session_error(const afx_session *s);
+/* ADR-024: the notice (fx_host.notice) of the session's latest finished
+ * preview that was shown ("" when none). Borrowed. */
+const char  *afx_session_notice(const afx_session *s);
+/* ADR-024: how many effect notices the app showed in message boxes, and
+ * the text of the last one ("" before the first; borrowed). Tests. */
+uint32_t     afx_notice_count(app *a);
+const char  *afx_last_notice(app *a);
 
 /* Run frames until no effect session is loading or applying (tests,
  * scripts). Returns false after max_frames. */
@@ -114,10 +121,18 @@ enum { AFX_HIT_MAIN = 0, AFX_HIT_RESET = 1, AFX_HIT_RESET2 = 2 };
 ui_rect  afx_prop_hit(app *a, const char *key, int part);
 
 /* ==== custom editors ============================================================== */
-/* Registers the "curves" and "levels" FXP_CUSTOM widgets (mod_effects). */
+/* Registers the "curves" and "levels" FXP_CUSTOM widgets and the
+ * "position-grid" widget (ADR-024, fx_widgets.h) (mod_effects). */
 void afx_widgets_register(app *a);
 /* The Levels editor (afx_levels.c), an app_prop_widget_fn for "levels". */
 bool afx_levels_widget_fn(app *a, const fx_prop *prop, void *value, void *ud);
+/* The position grid (afx_pgrid.c), an app_prop_widget_fn for FXP_CHOICE or
+ * FXP_CUSTOM props with the "position-grid" hint; value is an int32 FX_POS_*
+ * index. */
+bool afx_pgrid_widget_fn(app *a, const fx_prop *prop, void *value, void *ud);
+/* Where the position grid put the button of FX_POS_* pos in the last frame
+ * (FX_POS_NONE: the Reset position button); empty when not shown. Tests. */
+ui_rect afx_pgrid_rect(app *a, int pos);
 
 /* The curve editor's pointer logic (Paint.NET 3.36 CurveControl semantics,
  * docs/notice/f.md), separate from drawing so tests can drive it. Graph
