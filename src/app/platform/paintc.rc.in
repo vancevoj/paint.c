@@ -1,0 +1,3 @@
+/* paintc.rc - MinGW resource script (generated from paintc.rc.in): embeds
+ * the application manifest (long paths, UTF-8 code page, per-monitor DPI). */
+1 24 "@PC_APP_MANIFEST@"
