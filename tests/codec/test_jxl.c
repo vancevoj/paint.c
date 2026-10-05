@@ -434,9 +434,11 @@ static uint8_t *make_jxl(const pc_px32 *px, const uint16_t *px16, uint32_t w, ui
                     if (i % 4u != 3u) rgba[i] = (uint8_t)(255u - rgba[i]);
         }
         if (o->u16)
-            ok = ok && JxlEncoderAddImageFrame(fs, &pf, px16, (size_t)w * h * 8u) == JXL_ENC_SUCCESS;
+            ok = ok && JxlEncoderAddImageFrame(fs, &pf, px16, (size_t)w * h * 8u) ==
+                           JXL_ENC_SUCCESS;
         else
-            ok = ok && JxlEncoderAddImageFrame(fs, &pf, rgba, (size_t)w * h * 4u) == JXL_ENC_SUCCESS;
+            ok = ok && JxlEncoderAddImageFrame(fs, &pf, rgba, (size_t)w * h * 4u) ==
+                           JXL_ENC_SUCCESS;
     }
     JxlEncoderCloseInput(enc);
     outp = (uint8_t *)malloc(cap);

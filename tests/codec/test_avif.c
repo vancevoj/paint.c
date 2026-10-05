@@ -40,7 +40,8 @@ static void t_registry(void)
     CHECK(p.quality == 85 && p.lossless == 0 && p.lossless_alpha == 1 && p.preset == 0 &&
           p.chroma == 1 && p.keep_tiles == 1 && p.premultiplied == 0);
     /* Quality, alpha compression, chroma and premultiplied are disabled while Lossless */
-    CHECK(strcmp(c->props[0].key, "quality") == 0 && strcmp(c->props[0].enabled_if, "lossless=0") == 0);
+    CHECK(strcmp(c->props[0].key, "quality") == 0 &&
+          strcmp(c->props[0].enabled_if, "lossless=0") == 0);
     CHECK(strcmp(c->props[2].enabled_if, "lossless=0") == 0);
     CHECK(strcmp(c->props[4].enabled_if, "lossless=0") == 0);
     CHECK(strcmp(c->props[6].enabled_if, "lossless=0") == 0);
@@ -491,7 +492,10 @@ static void prep_xf(avifImage *im, void *ud)
         im->clap.horizOffN = (uint32_t)(2 * cx + cw - 20); im->clap.horizOffD = 2;
         im->clap.vertOffN = (uint32_t)(2 * cy + ch - 12); im->clap.vertOffD = 2;
     }
-    if (c->rot >= 0) { im->transformFlags |= AVIF_TRANSFORM_IROT; im->irot.angle = (uint8_t)c->rot; }
+    if (c->rot >= 0) {
+        im->transformFlags |= AVIF_TRANSFORM_IROT;
+        im->irot.angle = (uint8_t)c->rot;
+    }
     if (c->mir >= 0) { im->transformFlags |= AVIF_TRANSFORM_IMIR; im->imir.axis = (uint8_t)c->mir; }
 }
 
@@ -626,7 +630,7 @@ static void t_sequence(void)
     avifEncoderDestroy(enc);
 }
 
-/* ---- metadata ----------------------------------------------------------------------------------- */
+/* ---- metadata ------------------------------------------------------------------------------- */
 static uint8_t *p3_profile(size_t *len)
 {
     cmsContext ctx = cmsCreateContext(NULL, NULL);

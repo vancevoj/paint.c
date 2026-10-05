@@ -30,7 +30,7 @@
  * Save (options of the AV1 (AVIF) file type bundled with Paint.NET 5.1,
  * docs/inventory/FILES.md): Quality 0..100 (85), Lossless (off), Lossless
  * alpha compression (on), Encoder preset Fast / Medium / Slow / Very Slow
- * (Fast; libaom cpu-used 8 / 4 / 0 / 0), YUV chroma subsampling 4:2:0 /
+ * (Fast; libaom cpu-used 8 / 4 / 0 / 0), Chroma subsampling 4:2:0 /
  * 4:2:2 / 4:4:4 (4:2:2), Preserve existing tile size (on), Premultiplied
  * alpha (off). Quality q selects the AV1 quantizer 63 - round(0.63 q).
  * Lossless writes RGB with the identity matrix (4:4:4); gray images use
@@ -104,7 +104,7 @@ static const fx_prop k_avif_props[] = {
       "lossless=0" },
     { "preset", "Encoder preset", FXP_CHOICE, (uint32_t)offsetof(avif_params, preset),
       0, 3, AVIF_PRESET_FAST, 0, k_avif_presets, NULL, 0, 0, NULL },
-    { "chroma", "YUV chroma subsampling", FXP_CHOICE, (uint32_t)offsetof(avif_params, chroma),
+    { "chroma", "Chroma subsampling", FXP_CHOICE, (uint32_t)offsetof(avif_params, chroma),
       0, 2, AVIF_CHROMA_422, 0, k_avif_chroma, NULL, 0, 0, "lossless=0" },
     { "keep_tiles", "Preserve existing tile size", FXP_BOOL,
       (uint32_t)offsetof(avif_params, keep_tiles), 0, 1, 1, 0, NULL, NULL, 0, 0, NULL },
@@ -273,7 +273,10 @@ static bool bmff_grid_layout(const uint8_t *p, size_t n, avif_grid *g)
             size_t c = m.body;
             bmff_box pb;
             while (bmff_next(&r, &c, m.end, &pb)) {
-                if (pb.type == FOURCC('i', 'p', 'c', 'o')) { ipco_body = pb.body; ipco_end = pb.end; }
+                if (pb.type == FOURCC('i', 'p', 'c', 'o')) {
+                    ipco_body = pb.body;
+                    ipco_end = pb.end;
+                }
                 if (pb.type == FOURCC('i', 'p', 'm', 'a') && !ipma_end) {
                     ipma_body = pb.body;
                     ipma_end = pb.end;
@@ -662,7 +665,8 @@ static pc_status put_meta(avifDecoder *dec, pc_image_meta *meta, const uint8_t *
         memcpy(meta->icc, im->icc.data, im->icc.size);
         meta->icc_len = im->icc.size;
     }
-    if (im->exif.size > 0u && im->exif.data) st = axj_meta_put_exif(meta, im->exif.data, im->exif.size);
+    if (im->exif.size > 0u && im->exif.data)
+        st = axj_meta_put_exif(meta, im->exif.data, im->exif.size);
     if (st == PC_OK && im->xmp.size > 0u && im->xmp.data)
         st = axj_meta_put_xmp(meta, im->xmp.data, im->xmp.size);
     if (st == PC_OK && !sequence &&

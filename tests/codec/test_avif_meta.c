@@ -74,8 +74,8 @@ static void put16(uint8_t *p, bool be, uint32_t v)
 
 static void put32(uint8_t *p, bool be, uint32_t v)
 {
-    if (be) { p[0] = (uint8_t)(v >> 24); p[1] = (uint8_t)(v >> 16); p[2] = (uint8_t)(v >> 8); p[3] = (uint8_t)v; }
-    else    { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24); }
+    for (int i = 0; i < 4; i++)
+        p[i] = (uint8_t)(v >> (be ? 24 - 8 * i : 8 * i));
 }
 
 /* TIFF block: IFD0 with Orientation, XResolution, YResolution, ResolutionUnit

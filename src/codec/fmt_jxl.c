@@ -423,7 +423,10 @@ static pc_status jxl_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
         switch (ds) {
         case JXL_DEC_BASIC_INFO: {
             uint64_t need;
-            if (JxlDecoderGetBasicInfo(dec, &s.info) != JXL_DEC_SUCCESS) { st = PC_ERR_FORMAT; break; }
+            if (JxlDecoderGetBasicInfo(dec, &s.info) != JXL_DEC_SUCCESS) {
+                st = PC_ERR_FORMAT;
+                break;
+            }
             s.w = s.info.orientation > 4 ? s.info.ysize : s.info.xsize;
             s.h = s.info.orientation > 4 ? s.info.xsize : s.info.ysize;
             st = pc_codec_check_size(lim, s.w, s.h, 1u);
@@ -433,7 +436,8 @@ static pc_status jxl_load(const uint8_t *p, size_t n, const pc_codec_limits *lim
             if (need > lim->max_mem) { st = PC_ERR_LIMIT; break; }
             meta->src_bits = s.info.bits_per_sample;
             meta->had_alpha = s.info.alpha_bits > 0u;
-            if (s.info.have_animation) lc_note(meta, "Animated JPEG XL: only the first frame was loaded");
+            if (s.info.have_animation)
+                lc_note(meta, "Animated JPEG XL: only the first frame was loaded");
             break;
         }
         case JXL_DEC_COLOR_ENCODING:
@@ -632,7 +636,10 @@ static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void
         exif = axj_meta_get_exif(meta, &exif_len);
         xmp = axj_meta_get_xmp(meta, &xmp_len);
     }
-    if ((exif || xmp) && JxlEncoderUseBoxes(enc) != JXL_ENC_SUCCESS) { st = PC_ERR_STATE; goto done; }
+    if ((exif || xmp) && JxlEncoderUseBoxes(enc) != JXL_ENC_SUCCESS) {
+        st = PC_ERR_STATE;
+        goto done;
+    }
     JxlEncoderInitBasicInfo(&bi);
     bi.xsize = d->w;
     bi.ysize = d->h;
@@ -680,7 +687,10 @@ static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void
         goto done;
     }
     if (prm.lossless) {
-        if (JxlEncoderSetFrameLossless(fs, JXL_TRUE) != JXL_ENC_SUCCESS) { st = PC_ERR_ARG; goto done; }
+        if (JxlEncoderSetFrameLossless(fs, JXL_TRUE) != JXL_ENC_SUCCESS) {
+            st = PC_ERR_ARG;
+            goto done;
+        }
     } else if (JxlEncoderSetFrameDistance(fs, jxl_distance(prm.quality)) != JXL_ENC_SUCCESS) {
         st = PC_ERR_ARG;
         goto done;
@@ -689,7 +699,10 @@ static pc_status jxl_save(const pc_doc *d, const pc_image_meta *meta, const void
     pf.data_type = JXL_TYPE_UINT8;
     pf.endianness = JXL_NATIVE_ENDIAN;
     pf.align = 0;
-    if (JxlEncoderAddImageFrame(fs, &pf, px, nout) != JXL_ENC_SUCCESS) { st = PC_ERR_ARG; goto done; }
+    if (JxlEncoderAddImageFrame(fs, &pf, px, nout) != JXL_ENC_SUCCESS) {
+        st = PC_ERR_ARG;
+        goto done;
+    }
     JxlEncoderCloseInput(enc);
     free(px);
     px = NULL;
