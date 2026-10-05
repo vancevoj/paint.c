@@ -454,7 +454,10 @@ static void place(app *a, paste_job *j, bool expand)
 }
 
 /* ---- Expand Canvas prompt (CB-PASTE-LARGER) ----------------------------------------------- */
+static uint32_t g_expand_seq;     /* main thread only */
+
 typedef struct expand_dlg {
+    char         title[48];      /* unique per prompt: fresh focus and placement */
     paste_job   *job;            /* owned */
     pc_surf      thumb;          /* small preview */
     SDL_Texture *tex;            /* owned, created on first use */
@@ -516,8 +519,7 @@ static bool expand_frame(app *a, void *st)
     uint32_t r;
     bool enter;
     char text[200];
-    ui_dialog_begin(ui, "Paste##pasteexpand", 460.0f, 0.0f);
-    enter = app_dialog_take_enter(a);
+    ui_dialog_begin(ui, e->title, 460.0f, 0.0f);
     cells[0] = ui_size_px(110.0f);
     cells[1] = ui_size_fr(1.0f);
     ui_layout_row(ui, 0.0f, 2, cells);
@@ -567,6 +569,8 @@ static bool expand_frame(app *a, void *st)
     for (int i = 0; i < 3; i++)
         if (ui_button_ex(ui, labels[i], UI_ICON_NONE, i == 0 ? UI_BUTTON_PRIMARY : 0u)) pick = i;
     ui_layout_column(ui);
+    /* Enter presses Expand canvas unless a focused button took it */
+    enter = pick < 0 && app_dialog_take_enter(a);
     r = ui_dialog_end(ui);
     if (pick < 0 && enter) pick = 0;
     if (pick < 0 && r) pick = 2;               /* Escape or the close button */
@@ -612,6 +616,7 @@ static void decode_done(app *a, void *ud)
             return;
         }
         e->job = j;
+        snprintf(e->title, sizeof e->title, "Paste##pasteexpand%u", (unsigned)++g_expand_seq);
         make_thumb(a, j->img, 96, &e->thumb);
         (void)app_dialog_push(a, expand_frame, e, expand_free);
         return;

@@ -50,38 +50,12 @@ static const char *const k_anchor_names[] = { "Top Left", "Top", "Top Right", "L
 static const char *const k_res_units[] = { "Pixels/inch", "Pixels/centimeter" };
 static const char *const k_print_units[] = { "Inches", "Centimeters" };
 
-#define MEM_KEY "lane_m.size_memory"
-
-typedef struct size_memory {
-    int  resample;           /* index into k_resample_names */
-    bool gamma, keep;        /* Resize */
-    int  anchor, fill;       /* Canvas Size */
-} size_memory;
-
-static size_memory *memory(app *a)
-{
-    size_memory *m = (size_memory *)app_ext_get(a, MEM_KEY);
-    if (m) return m;
-    m = (size_memory *)calloc(1u, sizeof *m);
-    if (!m) return NULL;
-    m->resample = 0;
-    m->gamma = true;
-    m->keep = true;
-    m->anchor = PC_ANCHOR_TOP_LEFT;
-    m->fill = 0;
-    if (!app_ext_set(a, MEM_KEY, m, free)) {
-        free(m);
-        return NULL;
-    }
-    return m;
-}
-
 typedef struct size_dlg {
     bool     canvas;             /* Canvas Size (true) or Resize */
     uint32_t doc_id;
     m_size   s;
     double   dpi0;               /* resolution shown when the dialog opened */
-    bool     focused;            /* the initial focus was placed */
+    int      frames;             /* frames declared so far */
     int      resample;
     bool     gamma;
     int      anchor;             /* pc_anchor */
@@ -157,6 +131,7 @@ static bool size_frame(app *a, void *st)
     bool enter, valid;
     int by = s->by;
     if (!d) return false;
+    if (g->frames < 1000) g->frames++;
     ui_dialog_begin(ui, g->title, 440.0f, 0.0f);
     enter = app_dialog_take_enter(a);
     m_size_format_bytes(m_size_bytes(s, d->doc->n_layers), est, sizeof est);
@@ -205,20 +180,22 @@ static bool size_frame(app *a, void *st)
         cells[2] = ui_size_px(150.0f);
         ui_layout_row(ui, 0.0f, 3, cells);
         ui_label_ex(ui, "Width:", UI_LABEL_DIM | dis);
-        if (!g->focused) {
-            /* O-UI-FOCUS: the first enabled numeric box starts focused
-             * (its editor id is the widget id ^ 0xED17, ui_slider.c) */
+        if (g->frames == 2) {
+            /* O-UI-FOCUS: the first enabled numeric box starts focused (its
+             * editor id is the widget id ^ 0xED17, ui_slider.c); one frame
+             * after opening, so the box already shows the current value */
             ui_set_focus(ui, ui_get_id(ui, s->by == 0 ? "##pct" : "##w") ^ 0xED17u);
-            g->focused = true;
         }
         if (ui_number_int(ui, "##w", &w, 0, M_SIZE_MAX_EDIT, 1, dis) && !dis)
             m_size_set_w(s, (double)w);
         ui_label_ex(ui, "pixels", UI_LABEL_DIM | dis);
         ui_label_ex(ui, "Height:", UI_LABEL_DIM | dis);
+        h = m_size_px(s, true);         /* read after the width box may have changed it */
         if (ui_number_int(ui, "##h", &h, 0, M_SIZE_MAX_EDIT, 1, dis) && !dis)
             m_size_set_h(s, (double)h);
         ui_label_ex(ui, "pixels", UI_LABEL_DIM | dis);
         ui_label_ex(ui, "Resolution:", UI_LABEL_DIM);
+        res = m_size_res(s);
         if (ui_number_double(ui, "##res", &res, M_SIZE_MIN_RES, M_SIZE_MAX_RES, 1.0, 2, 0))
             m_size_set_res(s, res);
         if (ui_combo(ui, "##resu", &ru, k_res_units, 2)) m_size_set_res_unit(s, ru);
@@ -226,10 +203,12 @@ static bool size_frame(app *a, void *st)
         ui_heading(ui, "Print size");
         ui_layout_row(ui, 0.0f, 3, cells);
         ui_label_ex(ui, "Width:", UI_LABEL_DIM | dis);
+        pw = m_size_print(s, false);
         if (ui_number_double(ui, "##pw", &pw, 0.0, 1e7, 0.1, 2, dis) && !dis)
             m_size_set_print(s, false, pw);
         if (ui_combo(ui, "##pu", &pu, k_print_units, 2)) s->print_unit = pu;
         ui_label_ex(ui, "Height:", UI_LABEL_DIM | dis);
+        ph = m_size_print(s, true);
         if (ui_number_double(ui, "##ph", &ph, 0.0, 1e7, 0.1, 2, dis) && !dis)
             m_size_set_print(s, true, ph);
         ui_label_ex(ui, k_print_units[s->print_unit], UI_LABEL_DIM | dis);
@@ -278,7 +257,7 @@ static bool size_frame(app *a, void *st)
     if (r == UI_DLG_OK && !valid) r = 0;
     if (!r) return true;
     if (r == UI_DLG_OK) {
-        size_memory *m = memory(a);
+        m_size_memory *m = m_size_memory_get(a);
         if (m) {
             if (g->canvas) {
                 m->anchor = g->anchor;
@@ -297,7 +276,7 @@ static bool size_frame(app *a, void *st)
 static void open_dialog(app *a, bool canvas)
 {
     app_doc *d = app_active_doc(a);
-    size_memory *m = memory(a);
+    m_size_memory *m = m_size_memory_get(a);
     size_dlg *g;
     if (!d) return;
     g = (size_dlg *)calloc(1u, sizeof *g);

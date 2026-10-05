@@ -64,6 +64,19 @@ uint64_t m_size_bytes(const m_size *s, uint32_t layers);
 /* "1.8 MB" style text in binary units with one decimal (OBSERVED 2). */
 void    m_size_format_bytes(uint64_t bytes, char *out, size_t cap);
 
+/* Session memory of the dialogs (the last OK'd choices): Resize keeps
+ * resampling (index into the MENUS.md list, 0 = Bicubic), gamma and the
+ * aspect lock; Canvas Size keeps the anchor (pc_anchor, default Top Left)
+ * and the fill (0 Transparent, 1 Primary, 2 Secondary, 3 White, 4 Black).
+ * Borrowed, owned by the app; NULL on OOM. */
+typedef struct m_size_memory {
+    int  resample;
+    bool gamma, keep;
+    int  anchor, fill;
+} m_size_memory;
+struct app;
+m_size_memory *m_size_memory_get(struct app *a);
+
 /* Record a resolution change of d as a history step labeled label
  * (involution payload swapping d->meta.dpi_x / dpi_y). PC_ERR_STATE when
  * nothing changes or a transaction is open, PC_ERR_NOMEM. The caller runs

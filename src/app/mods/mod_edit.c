@@ -84,6 +84,66 @@ static void cmd_invert(app *a, const app_cmd *c)
     report(a, d, pc_sel_invert(d->hist, "Invert Selection"), "Invert Selection");
 }
 
+/* The selected pixels of layer_id become color with alpha 0 (Cut leaves
+ * transparent white): full coverage stores (r, g, b, 0) exactly, partial
+ * coverage k keeps the color and scales the alpha by (255 - k), the same
+ * premultiplied lerp toward transparent that Erase uses. Tiles without
+ * coverage are not touched; pixels outside the document stay zero
+ * (INV-TILE-EDGE). One transaction, committed into history directly. */
+static pc_status erase_to_color(app_doc *d, uint32_t layer_id, pc_px32 color, const char *label)
+{
+    pc_doc *doc = d->doc;
+    pc_rect r = pc_rect_intersect(pc_sel_extent(doc), pc_doc_rect(doc));
+    uint8_t *cov;
+    pc_txn *t;
+    pc_status st = PC_OK;
+    if (pc_rect_is_empty(r)) return PC_ERR_STATE;
+    cov = (uint8_t *)malloc(PC_TILE_PX);
+    t = cov ? pc_txn_begin(doc, label) : NULL;
+    if (!t) {
+        free(cov);
+        return PC_ERR_NOMEM;
+    }
+    color.a = 0;
+    for (uint32_t ty = (uint32_t)r.y >> PC_TILE_SHIFT;
+         st == PC_OK && ty <= (uint32_t)(r.y + r.h - 1) >> PC_TILE_SHIFT; ty++)
+        for (uint32_t tx = (uint32_t)r.x >> PC_TILE_SHIFT;
+             st == PC_OK && tx <= (uint32_t)(r.x + r.w - 1) >> PC_TILE_SHIFT; tx++) {
+            pc_rect tr = pc_rect_intersect(
+                r, pc_rect_make((int32_t)(tx * PC_TILE_DIM), (int32_t)(ty * PC_TILE_DIM),
+                                (int32_t)PC_TILE_DIM, (int32_t)PC_TILE_DIM));
+            bool any = false;
+            uint8_t *px;
+            if (pc_rect_is_empty(tr)) continue;
+            pc_sel_read_rect(doc, tr, cov, PC_TILE_DIM, true);
+            for (int32_t y = 0; y < tr.h && !any; y++)
+                for (int32_t x = 0; x < tr.w; x++)
+                    if (cov[(size_t)y * PC_TILE_DIM + (size_t)x]) { any = true; break; }
+            if (!any) continue;
+            px = pc_txn_tile_rw(t, layer_id, ty * doc->tiles_x + tx);
+            if (!px) {
+                st = PC_ERR_NOMEM;
+                break;
+            }
+            for (int32_t y = 0; y < tr.h; y++) {
+                uint32_t ly = (uint32_t)(tr.y + y) - ty * PC_TILE_DIM;
+                pc_px32 *row = (pc_px32 *)(void *)(px + (size_t)ly * PC_TILE_DIM * 4u);
+                for (int32_t x = 0; x < tr.w; x++) {
+                    uint8_t k = cov[(size_t)y * PC_TILE_DIM + (size_t)x];
+                    pc_px32 *p = &row[(uint32_t)(tr.x + x) - tx * PC_TILE_DIM];
+                    if (k == 255u) *p = color;
+                    else if (k) p->a = (uint8_t)pc_mul255(p->a, 255u - k);
+                }
+            }
+        }
+    free(cov);
+    if (st != PC_OK) {
+        pc_txn_cancel(t);
+        return st;
+    }
+    return pc_txn_commit(t, d->hist);
+}
+
 /* Replace the selected pixels of the active layer by color (through the
  * selection coverage; the whole layer without a selection), then drop the
  * selection; one history step named label. */
@@ -96,8 +156,7 @@ static pc_status erase_and_deselect(app *a, app_doc *d, pc_px32 color, const cha
     if (color.a == 0u && color.r == 0u && color.g == 0u && color.b == 0u)
         st = pc_layerop_clear(d->hist, l->id, pc_rect_make(0, 0, 0, 0), true, &a->par, label);
     else
-        st = pc_layerop_fill(d->hist, l->id, pc_rect_make(0, 0, 0, 0), color, true, &a->par,
-                             label);
+        st = erase_to_color(d, l->id, color, label);
     if (st == PC_OK && pc_sel_is_active(d->doc)) st = pc_sel_deselect(d->hist, "Deselect");
     (void)m_hist_fuse(d->hist, base, label);
     if (m_hist_depth_from(d->hist, base) > 0) {

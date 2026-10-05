@@ -329,8 +329,24 @@ void app_canvas_event(app *a, const SDL_Event *e)
 {
     app_canvas *c = &a->cv;
     app_qev q;
+    SDL_Event m_mouse;                   /* lane M: pen as mouse */
     memset(&q, 0, sizeof q);
     q.pressure = 1.0f;
+    /* lane M: Settings > Pen & Tablet off: pen events are ignored and the
+     * mouse events SDL synthesizes from pens are used like a mouse */
+    if (a->m_pen_off) {
+        if (e->type == SDL_EVENT_PEN_AXIS || e->type == SDL_EVENT_PEN_MOTION ||
+            e->type == SDL_EVENT_PEN_DOWN || e->type == SDL_EVENT_PEN_UP)
+            return;
+        if ((e->type == SDL_EVENT_MOUSE_MOTION && e->motion.which == SDL_PEN_MOUSEID) ||
+            ((e->type == SDL_EVENT_MOUSE_BUTTON_DOWN || e->type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+             e->button.which == SDL_PEN_MOUSEID)) {
+            m_mouse = *e;
+            if (e->type == SDL_EVENT_MOUSE_MOTION) m_mouse.motion.which = 0;
+            else m_mouse.button.which = 0;
+            e = &m_mouse;
+        }
+    }
     switch (e->type) {
     case SDL_EVENT_MOUSE_MOTION:
         c->mx = e->motion.x * ppp(a);
@@ -711,6 +727,18 @@ static void draw_cb(SDL_Renderer *r, ui_rect clip, void *ud)
     memset(&st, 0, sizeof st);
     st.checker_a = gfx_rgba_make(p->checker_a.r, p->checker_a.g, p->checker_a.b, 255);
     st.checker_b = gfx_rgba_make(p->checker_b.r, p->checker_b.g, p->checker_b.b, 255);
+    /* lane M: Settings > Canvas checkerboard brightness (0.75 = theme colors) */
+    if (a->m_cv_checker > 0.0f && (a->m_cv_checker < 0.749f || a->m_cv_checker > 0.751f)) {
+        float k = a->m_cv_checker / 0.75f;
+        float ca[3] = { (float)st.checker_a.r, (float)st.checker_a.g, (float)st.checker_a.b };
+        float cb[3] = { (float)st.checker_b.r, (float)st.checker_b.g, (float)st.checker_b.b };
+        for (int i = 0; i < 3; i++) {
+            ca[i] = ca[i] * k > 255.0f ? 255.0f : ca[i] * k;
+            cb[i] = cb[i] * k > 255.0f ? 255.0f : cb[i] * k;
+        }
+        st.checker_a = gfx_rgba_make((uint8_t)ca[0], (uint8_t)ca[1], (uint8_t)ca[2], 255);
+        st.checker_b = gfx_rgba_make((uint8_t)cb[0], (uint8_t)cb[1], (uint8_t)cb[2], 255);
+    }
     st.checker_cell = ui_px(a->ui, 8.0f);
     st.grid = a->grid;
     st.grid_color = a->dark ? gfx_rgba_make(255, 255, 255, 56) : gfx_rgba_make(0, 0, 0, 56);
@@ -780,6 +808,7 @@ void app_canvas_frame(app *a, ui_rect area)
     c->area = area;
     c->cursor_set = false;
     ui_draw_rect(ui, area, p->workspace);
+    if (a->m_cv_border_on) ui_draw_rect(ui, area, app_px_to_ui(a->m_cv_border));   /* lane M */
     layout(a, d, area);
     if (!d) {
         c->nq = 0;
@@ -850,7 +879,7 @@ void app_canvas_frame(app *a, ui_rect area)
         double x0, y0, x1, y1;
         gfx_view_doc_rect(&v, &x0, &y0, &x1, &y1);
         ui_push_clip(ui, c->view);
-        if (x1 - x0 < 1e7 && y1 - y0 < 1e7) {
+        if (x1 - x0 < 1e7 && y1 - y0 < 1e7 && !a->m_cv_no_shadow) {   /* lane M: setting */
             ui_rect ir = ui_rect_make((int32_t)x0, (int32_t)y0, (int32_t)(x1 - x0),
                                       (int32_t)(y1 - y0));
             ui_draw_shadow(ui, ir, 0.0f, (float)ui_px(ui, 14.0f),

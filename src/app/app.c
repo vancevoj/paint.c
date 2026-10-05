@@ -184,6 +184,11 @@ static bool create_window(app *a)
     SDL_WindowFlags flags =
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN;
     const char *driver = a->opts.software ? SDL_SOFTWARE_RENDERER : NULL;
+    /* lane M: Settings > Graphics (hardware acceleration, rendering device),
+     * applied at start */
+    if (!driver && app_settings_bool(s, "gfx.software", false)) driver = SDL_SOFTWARE_RENDERER;
+    if (!driver && app_settings_get(s, "gfx.renderer") && *app_settings_get(s, "gfx.renderer"))
+        driver = app_settings_get(s, "gfx.renderer");
     if (a->opts.width > 0 && !app_settings_get(s, "window.w")) w = a->opts.width;
     if (a->opts.height > 0 && !app_settings_get(s, "window.h")) h = a->opts.height;
     if (w < 640) w = 640;
@@ -206,6 +211,10 @@ static bool create_window(app *a)
     }
     if (app_settings_bool(s, "window.maximized", false)) SDL_MaximizeWindow(a->win);
     a->ren = SDL_CreateRenderer(a->win, driver);
+    if (!a->ren && driver && !a->opts.software) {   /* lane M: a stored driver failed */
+        driver = NULL;
+        a->ren = SDL_CreateRenderer(a->win, NULL);
+    }
     if (!a->ren && driver == NULL) {
         pal_log(PAL_LOG_WARN, "renderer: %s; falling back to software", SDL_GetError());
         a->ren = SDL_CreateRenderer(a->win, SDL_SOFTWARE_RENDERER);
@@ -277,6 +286,10 @@ app *app_create(const app_opts *o)
     if (!a->ui) goto fail;
     if (a->opts.headless) ui_set_zoom(a->ui, 1.0f);
     app_apply_theme(a);
+    if (a->opts.workers == 0u) {        /* lane M: Settings > Graphics worker threads */
+        int64_t wk = app_settings_int(a->settings, "gfx.workers", 0);
+        a->opts.workers = wk > 0 && wk <= 256 ? (uint32_t)wk : 0u;
+    }
     a->pool = pal_pool_create(a->opts.workers);
     if (!a->pool) goto fail;
     a->par = pal_pool_par(a->pool);

@@ -226,6 +226,14 @@ struct app {
     char            *last_effect;   /* owned id of the last effect (Repeat) */
     void            *last_effect_params;
     bool             about_open;
+
+    /* lane M (Settings dialog, mods/mod_help.c): preferences read by
+     * canvas.c; zero means the default */
+    bool             m_cv_no_shadow;   /* Canvas: no drop shadow around the image */
+    bool             m_cv_border_on;   /* Canvas: custom color around the image */
+    pc_px32          m_cv_border;
+    float            m_cv_checker;     /* Canvas: checkerboard brightness 0.25..1 (0 = 0.75) */
+    bool             m_pen_off;        /* Pen & Tablet: pens act as a mouse */
 };
 
 /* ---- cross-file internals --------------------------------------------------------- */

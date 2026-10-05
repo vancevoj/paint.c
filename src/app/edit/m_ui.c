@@ -5,6 +5,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 uint32_t m_dlg_footer(app *a, bool ok_enabled)
@@ -127,3 +128,17 @@ bool m_slider_row(app *a, const char *id, const char *label, double *v, double m
     if (*v > max) *v = max;
     return *v != old;
 }
+
+#define M_URL_KEY "lane_m.last_url"
+
+void m_open_url(app *a, const char *url)
+{
+    char *copy;
+    if (!url || !*url) return;
+    copy = app_strdup(url);
+    if (copy && !app_ext_set(a, M_URL_KEY, copy, free)) free(copy);
+    if (a->opts.headless) return;
+    if (!pal_open_url(url)) app_error(a, "Could not open \"%s\".", url);
+}
+
+const char *m_last_url(const app *a) { return (const char *)app_ext_get(a, M_URL_KEY); }

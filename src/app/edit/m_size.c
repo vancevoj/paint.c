@@ -2,6 +2,8 @@
  * the undoable resolution change (m_size.h). */
 #include "m_size.h"
 
+#include "app/app.h"
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -182,4 +184,25 @@ pc_status m_doc_set_dpi(app_doc *d, double dpi_x, double dpi_y, const char *labe
     dpi_swap(d->doc, v);                /* apply == swap */
     pc_hist_link(d->hist, n, &k_dpi_ops, v);
     return PC_OK;
+}
+
+/* ---- session memory ---------------------------------------------------------------------- */
+#define M_SIZE_MEM_KEY "lane_m.size_memory"
+
+m_size_memory *m_size_memory_get(struct app *a)
+{
+    m_size_memory *m = (m_size_memory *)app_ext_get(a, M_SIZE_MEM_KEY);
+    if (m) return m;
+    m = (m_size_memory *)calloc(1u, sizeof *m);
+    if (!m) return NULL;
+    m->resample = 0;
+    m->gamma = true;
+    m->keep = true;
+    m->anchor = 0;          /* PC_ANCHOR_TOP_LEFT (OBSERVED 3.2) */
+    m->fill = 0;
+    if (!app_ext_set(a, M_SIZE_MEM_KEY, m, free)) {
+        free(m);
+        return NULL;
+    }
+    return m;
 }

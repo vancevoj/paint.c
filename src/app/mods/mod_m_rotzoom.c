@@ -23,6 +23,7 @@
  * Thread rules: main thread. Ownership: the dialog state (and its
  * thumbnail texture) is owned by the dialog stack. */
 #include "../app_internal.h"
+#include "../edit/m_rotzoom.h"
 #include "../edit/m_ui.h"
 #include "pc/pc_layerops.h"
 
@@ -38,15 +39,7 @@
 static const char *const k_tiling[] = { "None", "Repeat", "Mirror" };
 static const char *const k_sampling[] = { "Nearest Neighbor", "Bilinear" };
 
-/* The dialog values in dialog units. */
-typedef struct rz_values {
-    double angle, roll, tilt;     /* degrees */
-    double pan_x, pan_y;          /* -10..10 */
-    double zoom;                  /* 1/16..16 */
-    double quality;               /* 1..8 */
-    int    tiling;                /* index into k_tiling */
-    int    sampling;              /* index into k_sampling */
-} rz_values;
+typedef m_rz_values rz_values;
 
 typedef struct rz_dlg {
     uint32_t     doc_id, layer_id;
@@ -59,13 +52,27 @@ typedef struct rz_dlg {
     app         *a;
 } rz_dlg;
 
-static void values_default(rz_values *v)
+void m_rz_values_default(m_rz_values *v)
 {
     memset(v, 0, sizeof *v);
     v->zoom = 1.0;
     v->quality = 1.0;
     v->tiling = 0;
     v->sampling = 1;
+}
+
+m_rz_values *m_rotzoom_memory(app *a)
+{
+    m_rz_values *mem = (m_rz_values *)app_ext_get(a, RZ_MEM_KEY);
+    if (mem) return mem;
+    mem = (m_rz_values *)malloc(sizeof *mem);
+    if (!mem) return NULL;
+    m_rz_values_default(mem);
+    if (!app_ext_set(a, RZ_MEM_KEY, mem, free)) {
+        free(mem);
+        return NULL;
+    }
+    return mem;
 }
 
 static app_doc *find_doc(app *a, uint32_t id)
@@ -75,8 +82,7 @@ static app_doc *find_doc(app *a, uint32_t id)
     return NULL;
 }
 
-/* Dialog values -> engine settings (pc_layerops.h). */
-static void to_rotzoom(const rz_values *v, pc_rotzoom *rz)
+void m_rz_to_rotzoom(const m_rz_values *v, pc_rotzoom *rz)
 {
     pc_rotzoom_default(rz);
     rz->angle = v->angle;
@@ -224,7 +230,7 @@ static void preview(app *a, rz_dlg *g, app_doc *d)
     } else if (d->txn_owner != g) {
         return;
     }
-    to_rotzoom(&g->v, &rz);
+    m_rz_to_rotzoom(&g->v, &rz);
     st = pc_layerop_rotate_zoom_txn(d->txn, g->layer_id, &rz, &a->par);
     g->failed = st != PC_OK;
     g->rendered = g->v;
@@ -319,7 +325,7 @@ static bool rz_frame(app *a, void *st)
         return true;
     }
     {
-        rz_values *mem = (rz_values *)app_ext_get(a, RZ_MEM_KEY);
+        m_rz_values *mem = m_rotzoom_memory(a);
         if (r == UI_DLG_OK) {
             preview(a, g, d);
             if (mem) *mem = g->v;
@@ -339,27 +345,17 @@ static void cmd_rotzoom(app *a, const app_cmd *c)
 {
     app_doc *d = app_active_doc(a);
     pc_layer *l = app_doc_layer(d);
-    rz_values *mem = (rz_values *)app_ext_get(a, RZ_MEM_KEY);
+    m_rz_values *mem = m_rotzoom_memory(a);
     rz_dlg *g;
     (void)c;
     if (!l || d->txn) return;
-    if (!mem) {
-        mem = (rz_values *)malloc(sizeof *mem);
-        if (mem) {
-            values_default(mem);
-            if (!app_ext_set(a, RZ_MEM_KEY, mem, free)) {
-                free(mem);
-                mem = NULL;
-            }
-        }
-    }
     g = (rz_dlg *)calloc(1u, sizeof *g);
     if (!g) return;
     g->a = a;
     g->doc_id = d->id;
     g->layer_id = l->id;
     if (mem) g->v = *mem;
-    else values_default(&g->v);
+    else m_rz_values_default(&g->v);
     make_thumb(d->doc, l, &g->thumb);
     if (!app_dialog_push(a, rz_frame, g, rz_free)) return;
     preview(a, g, d);

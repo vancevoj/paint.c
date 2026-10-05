@@ -25,6 +25,12 @@ bool     m_anchor_grid(app *a, const char *id, int *anchor, float cell_dip);
 bool     m_slider_row(app *a, const char *id, const char *label, double *v, double min,
                       double max, double def, double step, int decimals, uint32_t flags);
 
+/* Open a URL or a folder in the browser / file manager (pal_open_url).
+ * Headless apps (tests, --screenshot) only remember it: m_last_url
+ * returns the last request (borrowed, NULL before the first). */
+void        m_open_url(app *a, const char *url);
+const char *m_last_url(const app *a);
+
 /* Format a double with up to decimals digits, trailing zeros removed. */
 void     m_fmt_num(double v, int decimals, char *out, size_t cap);
 
