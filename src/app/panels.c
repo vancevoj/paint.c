@@ -1,7 +1,9 @@
 /* panels.c - floating panel registry: declaration each frame, toggles
- * ("window.<id>"), resets ("window.reset.<id>") and persistence of their
- * rectangles (app_ui.h). */
+ * ("window.<id>"), resets ("window.reset.<id>", "window.reset_all") and
+ * persistence of their rectangles plus the Colors window state (palette,
+ * More / Less) in the settings (app_ui.h, lane P). Main thread. */
 #include "app_internal.h"
+#include "panels/pnl.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,12 +91,17 @@ void app_panel_reset(app *a, const char *id)
     if (!p) return;
     p->st = p->def.def;
     p->st.open = true;
+    pnl_colors_frame(a);
     app_request_frame(a);
 }
 
 void app_panels_reset_all(app *a)
 {
-    for (int32_t i = 0; i < a->npanels; i++) a->panels[i].st = a->panels[i].def.def;
+    for (int32_t i = 0; i < a->npanels; i++) {
+        a->panels[i].st = a->panels[i].def.def;
+        a->panels[i].st.open = true;
+    }
+    pnl_colors_frame(a);          /* the Colors window keeps its mode's size */
     app_request_frame(a);
 }
 
@@ -145,6 +152,7 @@ void app_panels_load(app *a)
         p->st.anchor_y = (uint8_t)(ay ? UI_ANCHOR_END : UI_ANCHOR_START);
         p->st.open = open != 0;
     }
+    pnl_colors_load(a);
 }
 
 void app_panels_store(app *a)
@@ -158,4 +166,5 @@ void app_panels_store(app *a)
                  p->st.open ? 1 : 0);
         app_settings_set(a->settings, key, val);
     }
+    pnl_colors_store(a);
 }
