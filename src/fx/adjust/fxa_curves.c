@@ -1,8 +1,13 @@
 /* fxa_curves.c - fx_curves.h: control point editing and the natural cubic
- * spline of the Curves adjustment. The spline and the transfer tables are
- * derived from Paint.NET 3.36 (MIT): SplineInterpolator (itself adapted
- * from Numerical Recipes in C, section 3.3), CurvesEffectConfigToken.MakeUop
- * and CurveControl's point rules. See docs/notice/l5a.md. */
+ * spline of the Curves adjustment.
+ *
+ * Behavior follows Paint.NET 3.36 (MIT): CurvesEffectConfigToken.MakeUop
+ * (one spline through the sorted points per curve, sampled at 0..255 and
+ * clamped then truncated to a byte) and CurveControl's point rules (unique
+ * x, end points at 0 and 255 are never removed). The spline itself is an
+ * independent textbook implementation, deliberately not derived from the
+ * 3.36 SplineInterpolator, which says it was adapted from Numerical Recipes
+ * (not MIT licensed). See docs/notice/l5a.md. */
 #include "fx/fx_curves.h"
 #include "fxa_common.h"
 
@@ -89,12 +94,19 @@ int fx_curve_remove_point(fx_curve *c, uint8_t x)
     return 1;
 }
 
-/* SplineInterpolator.PreCompute + Interpolate over sanitized points. */
+/* Natural cubic spline through the sanitized points, written from the
+ * textbook definition: second derivatives M solve
+ *   h[i-1] M[i-1] + 2 (h[i-1] + h[i]) M[i] + h[i] M[i+1]
+ *     = 6 ((y[i+1] - y[i]) / h[i] - (y[i] - y[i-1]) / h[i-1]),  M[0] = M[n-1] = 0
+ * with the Thomas algorithm, and each segment is evaluated in the symmetric
+ * form A y[k] + B y[k+1] + ((A^3 - A) M[k] + (B^3 - B) M[k+1]) h^2 / 6, which
+ * returns control point values exactly. Inputs outside the first or last
+ * point use the end segment's cubic. Iterative, no recursion (P-07). */
 void fx_curve_eval(const fx_curve *cin, double out[256])
 {
     fx_curve c;
-    double xa[256], ya[256], y2[256], u[256];
-    int n;
+    double xs[256], ys[256], h[256], m[256], cp[256], dp[256];
+    int n, k = 0;
     if (!cin) {
         for (int i = 0; i < 256; i++) out[i] = (double)i;
         return;
@@ -110,36 +122,30 @@ void fx_curve_eval(const fx_curve *cin, double out[256])
         return;
     }
     for (int i = 0; i < n; i++) {
-        xa[i] = (double)c.pt[i].x;
-        ya[i] = (double)c.pt[i].y;
+        xs[i] = (double)c.pt[i].x;
+        ys[i] = (double)c.pt[i].y;
     }
-    u[0] = 0.0;
-    y2[0] = 0.0;
+    for (int i = 0; i + 1 < n; i++) h[i] = xs[i + 1] - xs[i];
+    m[0] = 0.0;
+    m[n - 1] = 0.0;
+    cp[0] = 0.0;
+    dp[0] = 0.0;
     for (int i = 1; i < n - 1; i++) {
-        double wx = xa[i + 1] - xa[i - 1];
-        double sig = (xa[i] - xa[i - 1]) / wx;
-        double p = sig * y2[i - 1] + 2.0;
-        double ddydx;
-        y2[i] = (sig - 1.0) / p;
-        ddydx = (ya[i + 1] - ya[i]) / (xa[i + 1] - xa[i]) -
-                (ya[i] - ya[i - 1]) / (xa[i] - xa[i - 1]);
-        u[i] = (6.0 * ddydx / wx - sig * u[i - 1]) / p;
+        double a = h[i - 1], b = 2.0 * (h[i - 1] + h[i]), cc = h[i];
+        double r = 6.0 * ((ys[i + 1] - ys[i]) / h[i] - (ys[i] - ys[i - 1]) / h[i - 1]);
+        double den = b - a * cp[i - 1];
+        cp[i] = cc / den;
+        dp[i] = (r - a * dp[i - 1]) / den;
     }
-    y2[n - 1] = 0.0;
-    for (int i = n - 2; i >= 0; --i) y2[i] = y2[i] * y2[i + 1] + u[i];
+    for (int i = n - 2; i >= 1; i--) m[i] = dp[i] - cp[i] * m[i + 1];
     for (int xi = 0; xi < 256; xi++) {
-        double x = (double)xi, h, a, b;
-        int klo = 0, khi = n - 1;
-        while (khi - klo > 1) {
-            int k = (khi + klo) >> 1;
-            if (xa[k] > x) khi = k;
-            else klo = k;
-        }
-        h = xa[khi] - xa[klo];
-        a = (xa[khi] - x) / h;
-        b = (x - xa[klo]) / h;
-        out[xi] = a * ya[klo] + b * ya[khi] +
-                  ((a * a * a - a) * y2[klo] + (b * b * b - b) * y2[khi]) * (h * h) / 6.0;
+        double x = (double)xi, hk, a, b;
+        while (k < n - 2 && x >= xs[k + 1]) k++;
+        hk = h[k];
+        a = (xs[k + 1] - x) / hk;
+        b = (x - xs[k]) / hk;
+        out[xi] = a * ys[k] + b * ys[k + 1] +
+                  ((a * a * a - a) * m[k] + (b * b * b - b) * m[k + 1]) * (hk * hk) / 6.0;
     }
 }
 

@@ -3,6 +3,7 @@
  * runner (prepare once, ROI queue, priority order, cancellation, failures,
  * the AGAIN protocol) and the fx_test_util.h detectors themselves. */
 #include "fx_test_util.h"
+#include "fx/fx_builtin.h"
 
 #include <locale.h>
 #include <math.h>
@@ -300,6 +301,34 @@ static int entry3(const fx_host *host, int (*reg)(const fx_effect *fx))
     if (reg(&bad) == 0) n++;
     if (reg(&k_fail) == 0) n++;
     return n;
+}
+
+/* Every built-in module (all lanes) must register valid descriptors. */
+static int g_builtin_calls, g_builtin_bad;
+static int validating_reg(const fx_effect *fx)
+{
+    char why[160];
+    g_builtin_calls++;
+    if (fx_effect_validate(fx, why, sizeof why) != PC_OK) {
+        g_builtin_bad++;
+        fprintf(stderr, "    built-in effect '%s' is invalid: %s\n",
+                fx && fx->id ? fx->id : "?", why);
+    }
+    return 0;
+}
+
+static void t_builtins_valid(void)
+{
+    fx_registry *r = fx_registry_create();
+    int accepted;
+    g_builtin_calls = g_builtin_bad = 0;
+    (void)fx_builtin_register(fx_run_host(), validating_reg);
+    CHECK(g_builtin_bad == 0);
+    accepted = fx_registry_add_builtins(r);
+    CHECK(accepted == g_builtin_calls);               /* also: no duplicate ids */
+    CHECK(fx_registry_count(r) == (uint32_t)accepted);
+    INFO("%d built-in effects registered", accepted);
+    fx_registry_destroy(r);
 }
 
 static void t_registry(void)
@@ -889,6 +918,7 @@ int main(int argc, char **argv)
     pc_test_init(argc, argv);
     RUN(t_validate);
     RUN(t_menu);
+    RUN(t_builtins_valid);
     RUN(t_registry);
     RUN(t_host);
     RUN(t_params);
