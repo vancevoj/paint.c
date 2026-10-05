@@ -41,6 +41,8 @@ extern const int32_t vec_caps[4];
 
 /* ---- icons ---------------------------------------------------------------------------- */
 void vec_icon_shape(ui_ctx *ui, int32_t kind, ui_rect r, ui_color c);
+struct vec_custom_shape;
+void vec_icon_custom(ui_ctx *ui, const struct vec_custom_shape *cs, ui_rect r, ui_color c);
 void vec_icon_dash(ui_ctx *ui, int32_t dash, ui_rect r, ui_color c);
 /* end: the cap is on the right end (end cap), else on the left (start cap) */
 void vec_icon_cap(ui_ctx *ui, int32_t cap, bool end, ui_rect r, ui_color c);
@@ -53,7 +55,8 @@ bool vec_opt_fill(app *a, int32_t *fill);           /* O-FILL: Solid + 53 patter
 bool vec_opt_dash(app *a, int32_t *dash);           /* dash style */
 bool vec_opt_cap(app *a, int32_t *cap, bool end);   /* start or end cap */
 bool vec_opt_curve(app *a, int32_t *type);          /* three curve type buttons */
-bool vec_opt_shape(app *a, int32_t *kind);          /* shape picker grid */
+/* Shape picker grid; PC_SHAPE_CUSTOM selects *custom (vec_custom_at index). */
+bool vec_opt_shape(app *a, int32_t *kind, int32_t *custom);
 bool vec_opt_draw_mode(app *a, int32_t *mode);      /* outline / filled / both */
 /* Corner size with magnitude dependent steps (1, 5, 25, 50, 100). */
 bool vec_opt_corner(app *a, double *corner, bool enabled);

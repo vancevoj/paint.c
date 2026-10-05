@@ -1,6 +1,7 @@
 /* vec_ui.c - toolbar widgets, icons and canvas handles of the vector and
  * text tools (lane C, see vec_ui.h). */
 #include "vec_ui.h"
+#include "vec_custom.h"
 #include "../app_internal.h"
 
 #include <math.h>
@@ -133,6 +134,35 @@ void vec_icon_shape(ui_ctx *ui, int32_t kind, ui_rect r, ui_color c)
         ui_draw_text_box(ui, ui_font_regular(ui), (float)r.h * 0.36f, r, UI_ALIGN_CENTER, 0, c,
                          digit, 1u);
     }
+}
+
+void vec_icon_custom(ui_ctx *ui, const vec_custom_shape *cs, ui_rect r, ui_color c)
+{
+    pc_shape s;
+    pc_path path;
+    pc_poly poly;
+    double pad = (double)r.h * 0.16, w = (double)r.w - 2.0 * pad, h = (double)r.h - 2.0 * pad;
+    double asp = cs && cs->aspect > 0.0 ? cs->aspect : 1.0, bw, bh, x0, y0;
+    if (!cs || w <= 1.0 || h <= 1.0) return;
+    pc_shape_init(&s, PC_SHAPE_CUSTOM, NULL);
+    s.custom = &cs->path;
+    s.custom_rule = cs->rule;
+    if (asp >= w / h) {
+        bw = w;
+        bh = w / asp;
+    } else {
+        bh = h;
+        bw = h * asp;
+    }
+    x0 = (double)r.x + ((double)r.w - bw) * 0.5;
+    y0 = (double)r.y + ((double)r.h - bh) * 0.5;
+    pc_shape_from_drag(&s, pc_pt_make(x0, y0), pc_pt_make(x0 + bw, y0 + bh), 0u);
+    pc_path_init(&path);
+    pc_poly_init(&poly);
+    if (pc_shape_path(&s, &path) == PC_OK && pc_path_flatten(&path, NULL, 0.2, &poly) == PC_OK)
+        draw_poly(ui, &poly, lw_px(ui, 1.25f), c);
+    pc_poly_free(&poly);
+    pc_path_free(&path);
 }
 
 void vec_icon_dash(ui_ctx *ui, int32_t dash, ui_rect r, ui_color c)
@@ -479,18 +509,21 @@ bool vec_opt_curve(app *a, int32_t *type)
     return changed;
 }
 
-bool vec_opt_shape(app *a, int32_t *kind)
+bool vec_opt_shape(app *a, int32_t *kind, int32_t *custom)
 {
     ui_ctx *ui = app_ui(a);
     const ui_palette *p = ui_pal(ui);
-    char tip[96];
+    char tip[1200];
     bool changed = false;
-    int32_t v = *kind;
+    int32_t v = *kind, nc = vec_custom_count(a);
+    const vec_custom_shape *cs = v == PC_SHAPE_CUSTOM ? vec_custom_at(a, *custom) : NULL;
     ui_rect face;
-    if (v < 0 || v >= (int32_t)PC_SHAPE_BUILTIN_COUNT) v = 0;
-    (void)snprintf(tip, sizeof tip, "Shape: %s (A, Shift+A)", pc_shape_name((pc_shape_kind)v));
+    if (v < 0 || (v >= (int32_t)PC_SHAPE_BUILTIN_COUNT && !cs)) v = 0;
+    (void)snprintf(tip, sizeof tip, "Shape: %s (A, Shift+A)",
+                   cs ? cs->name : pc_shape_name((pc_shape_kind)v));
     face = drop_button(a, "##vec_shape", "##vec_shape_pop", 46.0f, tip, true);
-    vec_icon_shape(ui, v, face, p->text);
+    if (cs) vec_icon_custom(ui, cs, face, p->text);
+    else vec_icon_shape(ui, v, face, p->text);
     if (ui_popup_begin(ui, "##vec_shape_pop")) {
         ui_size cells[8];
         float cd = 34.0f;
@@ -502,13 +535,33 @@ bool vec_opt_shape(app *a, int32_t *kind)
                 ui_rect r;
                 if ((int32_t)pc_shape_group_of((pc_shape_kind)i) != g) continue;
                 r = ui_layout_next(ui, ui_px(ui, cd), ui_px(ui, cd));
-                if (popup_cell(ui, 5000 + i, r, i == v, pc_shape_name((pc_shape_kind)i))) {
+                if (popup_cell(ui, 5000 + i, r, i == v && !cs,
+                               pc_shape_name((pc_shape_kind)i))) {
                     *kind = i;
                     changed = true;
                     ui_popup_close(ui);
                 }
                 vec_icon_shape(ui, i, ui_rect_inset(r, ui_px(ui, 3.0f), ui_px(ui, 3.0f)),
-                               row_text(ui, i == v));
+                               row_text(ui, i == v && !cs));
+            }
+        }
+        if (nc > 0) {
+            /* user shapes from the Shapes folder; the tooltip names the file */
+            popup_heading(ui, pc_shape_group_name(PC_SHAPE_GROUP_CUSTOM));
+            ui_layout_row(ui, cd, 8, cells);
+            for (int32_t i = 0; i < nc; i++) {
+                const vec_custom_shape *c = vec_custom_at(a, i);
+                bool sel = cs == c;
+                ui_rect r = ui_layout_next(ui, ui_px(ui, cd), ui_px(ui, cd));
+                (void)snprintf(tip, sizeof tip, "%s\n%s", c->name, c->file);
+                if (popup_cell(ui, 9000 + i, r, sel, tip)) {
+                    *kind = PC_SHAPE_CUSTOM;
+                    *custom = i;
+                    changed = true;
+                    ui_popup_close(ui);
+                }
+                vec_icon_custom(ui, c, ui_rect_inset(r, ui_px(ui, 3.0f), ui_px(ui, 3.0f)),
+                                row_text(ui, sel));
             }
         }
         ui_popup_end(ui);

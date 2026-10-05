@@ -12,6 +12,7 @@
  * live. Every edit is a history step (vec_live.h). Enter, Esc, Finish, a
  * click outside the shape, a new shape, a tool switch or a command finish
  * it. Geometry, hit testing and rendering are pc_shapes.h. */
+#include "vec_custom.h"
 #include "vec_live.h"
 #include "vec_ui.h"
 #include "../app_internal.h"
@@ -27,6 +28,7 @@ typedef struct shapes_state {
     /* toolbar options (persisted) */
     int32_t       kind, draw, dash;
     double        corner;
+    int32_t       custom;         /* vec_custom_at index when kind is PC_SHAPE_CUSTOM */
     /* pointer */
     int           drag;
     int           button;
@@ -46,6 +48,7 @@ typedef struct shapes_state {
 #define KEY_DRAW   "tool.shapes.draw"
 #define KEY_CORNER "tool.shapes.corner"
 #define KEY_DASH   "tool.dash"
+#define KEY_CUSTOM "tool.shapes.custom"
 
 static unsigned pc_mods(uint32_t ui_mods_v)
 {
@@ -58,7 +61,13 @@ static unsigned pc_mods(uint32_t ui_mods_v)
 
 static void load_options(app *a, shapes_state *s)
 {
-    s->kind = vec_get_int(a, KEY_KIND, PC_SHAPE_RECTANGLE, 0, (int32_t)PC_SHAPE_BUILTIN_COUNT - 1);
+    s->kind = vec_get_int(a, KEY_KIND, PC_SHAPE_RECTANGLE, 0, (int32_t)PC_SHAPE_CUSTOM);
+    s->custom = -1;
+    if (s->kind == PC_SHAPE_CUSTOM) {
+        /* custom shapes are remembered by name (the folder may change) */
+        s->custom = vec_custom_find(a, app_settings_get(app_settings_of(a), KEY_CUSTOM));
+        if (s->custom < 0) s->kind = PC_SHAPE_RECTANGLE;
+    }
     s->draw = vec_get_int(a, KEY_DRAW, PC_SHAPE_DRAW_OUTLINE, 0, 2);
     s->dash = vec_get_int(a, KEY_DASH, PC_DASH_SOLID, 0, (int32_t)PC_DASH_STYLE_COUNT - 1);
     /* Settings > Tools shows Corner size = 10 (OBSERVED 9 and 10) */
@@ -67,7 +76,9 @@ static void load_options(app *a, shapes_state *s)
 
 static void store_options(app *a, const shapes_state *s)
 {
+    const vec_custom_shape *cs = s->kind == PC_SHAPE_CUSTOM ? vec_custom_at(a, s->custom) : NULL;
     vec_set_int(a, KEY_KIND, s->kind);
+    if (cs) (void)app_settings_set(app_settings_of(a), KEY_CUSTOM, cs->name);
     vec_set_int(a, KEY_DRAW, s->draw);
     vec_set_int(a, KEY_DASH, s->dash);
     vec_set_double(a, KEY_CORNER, s->corner);
@@ -84,6 +95,16 @@ static void apply_settings(app *a, const shapes_state *s, vec_obj *o)
     o->shape.style.dash = (pc_dash_style)s->dash;
     o->shape.style.corner_radius = s->corner;
     o->shape.custom = NULL;
+    o->shape.custom_rule = PC_FILL_NONZERO;
+    if (s->kind == PC_SHAPE_CUSTOM) {
+        const vec_custom_shape *cs = vec_custom_at(a, s->custom);
+        if (cs) {
+            o->shape.custom = &cs->path;
+            o->shape.custom_rule = cs->rule;
+        } else {
+            o->shape.kind = PC_SHAPE_RECTANGLE;
+        }
+    }
     o->primary = app_primary(a);
     o->secondary = app_secondary(a);
     o->fill = ts->fill;
@@ -107,6 +128,12 @@ static void adopt_options(app *a, shapes_state *s, const vec_obj *o)
 {
     app_tool_settings *ts = app_tool_settings_get(a);
     s->kind = (int32_t)o->shape.kind;
+    if (s->kind == PC_SHAPE_CUSTOM) {
+        s->custom = -1;
+        for (int32_t i = 0; i < vec_custom_count(a); i++)
+            if (&vec_custom_at(a, i)->path == o->shape.custom) s->custom = i;
+        if (s->custom < 0) s->kind = PC_SHAPE_RECTANGLE;   /* the folder was reloaded */
+    }
     s->draw = (int32_t)o->shape.style.draw;
     s->dash = (int32_t)o->shape.style.dash;
     s->corner = o->shape.style.corner_radius;
@@ -179,6 +206,16 @@ static void drag_update(app *a, shapes_state *s)
     pc_pt p = pc_pt_make(s->last.x + s->key_off.x, s->last.y + s->key_off.y);
     unsigned m = pc_mods(s->mods);
     if (s->drag == DRAG_CREATE) {
+        if (s->obj.shape.kind == PC_SHAPE_CUSTOM && (m & PC_MOD_SHIFT)) {
+            /* Shift keeps a custom shape's own proportions */
+            const vec_custom_shape *cs = vec_custom_at(a, s->custom);
+            double asp = cs && cs->aspect > 0.0 ? cs->aspect : 1.0;
+            double dx = p.x - s->press.x, dy = p.y - s->press.y, w = fabs(dx), h = fabs(dy);
+            if (w > h * asp) w = h * asp;
+            else h = w / asp;
+            p = pc_pt_make(s->press.x + (dx < 0.0 ? -w : w), s->press.y + (dy < 0.0 ? -h : h));
+            m &= ~(unsigned)PC_MOD_SHIFT;
+        }
         pc_shape_from_drag(&s->obj.shape, s->press, p, m);
     } else {
         if (s->op == PC_SHAPE_OP_ROTATE) p = pc_pt_make(s->raw.x, s->raw.y);
@@ -325,7 +362,7 @@ static void shapes_options(app *a, void *st)
     bool ch = false;
     sync(a, s);
     app_opt_label(a, "Shape:");
-    ch |= vec_opt_shape(a, &s->kind);
+    ch |= vec_opt_shape(a, &s->kind, &s->custom);
     ch |= vec_opt_draw_mode(a, &s->draw);
     app_opt_separator(a);
     app_opt_width(a);
