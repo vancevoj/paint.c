@@ -94,7 +94,7 @@ static pc_status read_png_meta(spng_ctx *ctx, pc_image_meta *meta, int *orient)
         const struct spng_text *t = &txt[i];
         char *kw, *val;
         if (!t->text || !t->length) continue;
-        if (t->type == SPNG_ITXT && strcmp(t->keyword, PNG_XMP_KEYWORD) == 0) {
+        if (strcmp(t->keyword, PNG_XMP_KEYWORD) == 0) {    /* iTXt by the spec */
             st = cm_meta_load_xmp(meta, (const uint8_t *)t->text, t->length);
             continue;
         }

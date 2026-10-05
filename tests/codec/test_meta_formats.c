@@ -251,7 +251,8 @@ static void t_jpeg(void)
     CHECK(d && d->w == H && d->h == W);                /* orientation 6: turned */
     if (d) {
         /* source (x, y) lands at (H - 1 - y, x): the red ramp now runs down */
-        pc_px32 a = pc_layer_get_px(d->stack[0], H - 1u, 0), b = pc_layer_get_px(d->stack[0], H - 1u, W - 1u);
+        pc_px32 a = pc_layer_get_px(d->stack[0], H - 1u, 0);
+        pc_px32 b = pc_layer_get_px(d->stack[0], H - 1u, W - 1u);
         CHECK(a.r < 10 && b.r > 240 && a.g < 10);
         check_camera(&m, "JPEG load", true);
         CHECK(strstr(cm_meta_xmp(&m, NULL), "tiff:Orientation=\"1\"") != NULL);
@@ -452,7 +453,8 @@ static void t_png(void)
         cm_exif_free(&e);
         d = gradient_doc(4, 4);
         CHECK(save("png", d, &t, &out) == PC_OK);
-        CHECK(png_has_chunk(&out, "tEXt", "Author\0Only", 11) && !png_has_chunk(&out, "eXIf", "", 0));
+        CHECK(png_has_chunk(&out, "tEXt", "Author\0Only", 11));
+        CHECK(!png_has_chunk(&out, "eXIf", "", 0));
         pc_buf_free(&out);
         pc_doc_destroy(d);
         pc_meta_free(&t);
@@ -698,9 +700,11 @@ static void t_cross(void)
         pc_doc *r;
         CHECK(save(chain[i], d, &m, &out) == PC_OK);
         r = load(chain[i], &out, &m2);
+        pc_buf_free(&out);
         CHECK(r != NULL);
         check_camera(&m2, chain[i], true);
-        CHECK(cm_meta_xmp(&m2, NULL) && strcmp(cm_meta_xmp(&m2, NULL), cm_meta_xmp(&m, NULL)) == 0);
+        CHECK(cm_meta_xmp(&m2, NULL) &&
+              strcmp(cm_meta_xmp(&m2, NULL), cm_meta_xmp(&m, NULL)) == 0);
         if (strcmp(chain[i], "tiff") == 0 || strcmp(chain[i], "pdn") == 0 ||
             strcmp(chain[i], "jpeg") == 0)
             check_iptc(&m2);
@@ -710,7 +714,8 @@ static void t_cross(void)
         m = m2;
         if (!d) break;
         /* PNG and WebP have no IPTC: put it back for the next format */
-        if (!pc_meta_get(&m, CM_KEY_IPTC)) CHECK(cm_meta_load_iptc(&m, k_iim, sizeof k_iim) == PC_OK);
+        if (!pc_meta_get(&m, CM_KEY_IPTC))
+            CHECK(cm_meta_load_iptc(&m, k_iim, sizeof k_iim) == PC_OK);
     }
     pc_doc_destroy(d);
     pc_meta_free(&m);

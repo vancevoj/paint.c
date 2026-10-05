@@ -1065,7 +1065,10 @@ static pc_status enc_level_bc(pc_buf *out, const pc_px32 *px, int32_t w, int32_t
     j->dither = prm->dither != 0;
     if (j->perceptual) { j->wt.r = 54; j->wt.g = 183; j->wt.b = 19; }
     else { j->wt.r = j->wt.g = j->wt.b = 85; }
-    if (!pc_mul_size(j->bw * bh, j->bsz, &need) || bh > UINT32_MAX) { free(j); return PC_ERR_LIMIT; }
+    if (!pc_mul_size(j->bw * bh, j->bsz, &need) || bh > UINT32_MAX) {
+        free(j);
+        return PC_ERR_LIMIT;
+    }
     if (pc_buf_reserve(out, need) != PC_OK) { free(j); return PC_ERR_NOMEM; }
     if (of->kind == E_BC7) bc7_init_once();
     if (of->kind == E_BC6H)

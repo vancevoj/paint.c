@@ -249,7 +249,8 @@ static void t_tiff_read(void)
         cm_exif e;
         char *s;
         /* orientation 6: stored (x, y) lands at (sh - 1 - y, x) */
-        CHECK(pc_layer_get_px(d->stack[0], 1, 0).r == 10 && pc_layer_get_px(d->stack[0], 0, 2).r == 60);
+        CHECK(pc_layer_get_px(d->stack[0], 1, 0).r == 10);
+        CHECK(pc_layer_get_px(d->stack[0], 0, 2).r == 60);
         CHECK(cm_meta_get_exif(&m, &e) == PC_OK);
         s = cm_exif_get_text(&e, 271);
         CHECK(s && strcmp(s, "Fuji") == 0);
@@ -331,7 +332,8 @@ static void t_tiff_cmyk(void)
             i0[5].tag = 273; i0[5].type = 4; i0[5].count = 1;
             i0[6].tag = 277; i0[6].type = 3; i0[6].count = 1; i0[6].nums[0] = 4;
             i0[7].tag = 278; i0[7].type = 3; i0[7].count = 1; i0[7].nums[0] = H;
-            i0[8].tag = 279; i0[8].type = 4; i0[8].count = 1; i0[8].nums[0] = (uint32_t)(W * H * bpp);
+            i0[8].tag = 279; i0[8].type = 4; i0[8].count = 1;
+            i0[8].nums[0] = (uint32_t)(W * H * bpp);
             i0[9].tag = 284; i0[9].type = 3; i0[9].count = 1; i0[9].nums[0] = 1;
             i0[10].tag = 34675; i0[10].type = 7; i0[10].count = (uint32_t)pn; i0[10].bytes = prof;
             memset(&b, 0, sizeof b);
@@ -438,7 +440,10 @@ static void t_validate(void)
     size_t n;
     {
         pc_px32 g[25];
-        for (int i = 0; i < 25; i++) g[i] = tu_px((uint8_t)(i * 9), (uint8_t)(i * 9), (uint8_t)(i * 9), 255);
+        for (int i = 0; i < 25; i++) {
+            uint8_t v = (uint8_t)(i * 9);
+            g[i] = tu_px(v, v, v, 255);
+        }
         gray = tu_doc_from_px(5, 5, g);
     }
     struct { const char *name; uint8_t *(*make)(size_t *); bool drop_color, drop_gray; } cases[] = {
@@ -507,7 +512,8 @@ static void t_validate(void)
         pc_px32 p1[300], p2[300];
         CHECK(pc_icc_adobe_rgb_profile(&a, &an) == PC_OK);
         for (int i = 0; i < 300; i++)
-            p1[i] = tu_px((uint8_t)(i * 7), (uint8_t)(i * 13 + 5), (uint8_t)(255 - i), (uint8_t)(i % 4 ? 255 : 0));
+            p1[i] = tu_px((uint8_t)(i * 7), (uint8_t)(i * 13 + 5), (uint8_t)(255 - i),
+                          (uint8_t)(i % 4 ? 255 : 0));
         memcpy(p2, p1, sizeof p1);
         CHECK(pc_icc_xform_create(a, an, &x, &ident) == PC_OK && x && !ident);
         pc_icc_xform_run(x, p1, 300);
@@ -532,7 +538,7 @@ static void t_validate(void)
     pc_doc_destroy(gray);
 }
 
-/* ---- enabled_if of the indexed options --------------------------------------------------------- */
+/* ---- enabled_if of the indexed options ---------------------------------------------- */
 /* "key" or "key=N|M|...": every key names a choice/int prop and every value
  * is one of its choices. */
 static void t_enables(void)

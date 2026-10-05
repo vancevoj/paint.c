@@ -287,7 +287,8 @@ static uint32_t le32v(const uint8_t *p)
 static void put16(uint8_t *d, uint32_t v) { d[0] = (uint8_t)v; d[1] = (uint8_t)(v >> 8); }
 static void put32(uint8_t *d, uint32_t v)
 {
-    d[0] = (uint8_t)v; d[1] = (uint8_t)(v >> 8); d[2] = (uint8_t)(v >> 16); d[3] = (uint8_t)(v >> 24);
+    d[0] = (uint8_t)v; d[1] = (uint8_t)(v >> 8);
+    d[2] = (uint8_t)(v >> 16); d[3] = (uint8_t)(v >> 24);
 }
 
 int cm_exif_orientation(const cm_exif *e)

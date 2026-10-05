@@ -324,7 +324,8 @@ static void assign(const bc6_mode *m, const blk *k, fit *f)
     for (int r = 0; r < m->regions; r++)
         for (int c = 0; c < 3; c++) {
             int a = unq(f->q[2 * r][c], m->epb), b = unq(f->q[2 * r + 1][c], m->epb);
-            for (int i = 0; i < n; i++) pal[r][i][c] = bc6h_half_to_float(finish(interp(a, b, w[i])));
+            for (int i = 0; i < n; i++)
+                pal[r][i][c] = bc6h_half_to_float(finish(interp(a, b, w[i])));
         }
     for (int i = 0; i < 16; i++) {
         int r = (set1 >> i) & 1u, lim = n, bi = 0;
@@ -468,7 +469,8 @@ void bc6h_encode_block(uint8_t out[16], const uint16_t *rgb, int effort)
         int order[32], keep = effort >= 2 ? 12 : (effort == 1 ? 4 : 1);
         double score[32];
         for (int p = 0; p < 32; p++) {
-            score[p] = line_residual(&k, k_part[p]) + line_residual(&k, ~(uint32_t)k_part[p] & 0xFFFFu);
+            score[p] = line_residual(&k, k_part[p]) +
+                       line_residual(&k, ~(uint32_t)k_part[p] & 0xFFFFu);
             order[p] = p;
         }
         for (int i = 1; i < 32; i++) {             /* insertion sort, ties by index */

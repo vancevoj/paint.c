@@ -102,7 +102,8 @@ static void t_quantized_subbyte(void)
         CHECK(save_with(d, depth, 0, 7, 0, &oct) == PC_OK);
         CHECK(save_with(d, depth, 1, 7, 0, &med) == PC_OK);
         CHECK(save_with(d, depth, 0, 0, 0, &nod) == PC_OK);
-        CHECK(ihdr_type(&oct) == 3 && ihdr_depth(&oct) == (int)(cap == 256u ? 8u : (uint32_t)(depth == D_4 ? 4 : depth == D_2 ? 2 : 1)));
+        CHECK(ihdr_type(&oct) == 3);
+        CHECK(ihdr_depth(&oct) == (depth == D_8 ? 8 : depth == D_4 ? 4 : depth == D_2 ? 2 : 1));
         ro = reload_px(&oct, W, H);
         rm = reload_px(&med, W, H);
         rn = reload_px(&nod, W, H);

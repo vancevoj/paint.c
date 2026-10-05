@@ -535,7 +535,8 @@ lc_cmyk_xf *lc_cmyk_open(const uint8_t *icc, size_t len, bool inverted, const ui
     in = cmsOpenProfileFromMemTHR(x->ctx, icc, (cmsUInt32Number)size);
     out = dst ? cmsOpenProfileFromMemTHR(x->ctx, dst, (cmsUInt32Number)dsize)
               : cmsCreate_sRGBProfileTHR(x->ctx);
-    if (in && out && cmsGetColorSpace(in) == cmsSigCmykData && cmsGetColorSpace(out) == cmsSigRgbData)
+    if (in && out && cmsGetColorSpace(in) == cmsSigCmykData &&
+        cmsGetColorSpace(out) == cmsSigRgbData)
         /* unoptimized: the precalculated 8-bit tables are up to 8 codes off for
          * CMYK, the full pipeline rounds once (about 160 ns per pixel) */
         x->xf = cmsCreateTransformTHR(x->ctx, in, inverted ? TYPE_CMYK_8_REV : TYPE_CMYK_8, out,

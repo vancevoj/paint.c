@@ -40,7 +40,10 @@ static void t_gray_probe(void)
     const int lo[2] = { 0, 60 }, hi[2] = { 200, 255 };
     int want_lo = lin_mean(lo, one, 2), want_hi = lin_mean(hi, one, 2);
     pc_px32 px[64];
-    for (int i = 0; i < 64; i++) px[i] = tu_px((uint8_t)g[i % 4], (uint8_t)g[i % 4], (uint8_t)g[i % 4], 255);
+    for (int i = 0; i < 64; i++) {
+        uint8_t v = (uint8_t)g[i % 4];
+        px[i] = tu_px(v, v, v, 255);
+    }
     CHECK(want_lo == 41 && (want_hi == 229 || want_hi == 230));
     for (int a = 0; a < 2; a++) {
         pc_px32 pal[256];
@@ -65,7 +68,8 @@ static void t_exact(void)
     pc_quant *q = NULL;
     uint32_t n;
     bool all = true;
-    for (int i = 0; i < 256; i++) px[i] = tu_px((uint8_t)i, (uint8_t)(255 - i), (uint8_t)(i / 3), 255);
+    for (int i = 0; i < 256; i++)
+        px[i] = tu_px((uint8_t)i, (uint8_t)(255 - i), (uint8_t)(i / 3), 255);
     CHECK(pc_quant_create(&q) == PC_OK);
     CHECK(pc_quant_add(q, px, 256) == PC_OK);
     CHECK(pc_quant_build(q, 256, PC_QUANT_OCTREE) == PC_OK);
