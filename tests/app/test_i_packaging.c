@@ -150,16 +150,16 @@ static const type_map k_types[] = {
 static void t_associations(void)
 {
     char *nsi = slurp_text(ROOT "packaging/windows/paintc.nsi");
-    char *desk = slurp_text(ROOT "packaging/linux/org.paintc.paintc.desktop");
-    char *meta = slurp_text(ROOT "packaging/linux/org.paintc.paintc.metainfo.xml");
-    char *mime = slurp_text(ROOT "packaging/linux/org.paintc.paintc.xml");
+    char *desk = slurp_text(ROOT "packaging/linux/io.github.vancevoj.paintc.desktop");
+    char *meta = slurp_text(ROOT "packaging/linux/io.github.vancevoj.paintc.metainfo.xml");
+    char *mime = slurp_text(ROOT "packaging/linux/io.github.vancevoj.paintc.xml");
     char *plist = slurp_text(ROOT "src/app/platform/Info.plist.in");
     size_t n = 0;
     const pc_codec *const *list = pc_codec_list(&n);
     CHECK(nsi && desk && meta && mime && plist);
     if (!nsi || !desk || !meta || !mime || !plist) goto out;
-    CHECK(strstr(desk, "Icon=org.paintc.paintc\n") && strstr(desk, "Exec=paintc %F\n"));
-    CHECK(strstr(plist, "<string>org.paintc.paintc</string>") &&
+    CHECK(strstr(desk, "Icon=io.github.vancevoj.paintc\n") && strstr(desk, "Exec=paintc %F\n"));
+    CHECK(strstr(plist, "<string>io.github.vancevoj.paintc</string>") &&
           strstr(plist, "<string>paintc.icns</string>"));
     CHECK(strstr(mime, "<glob pattern=\"*.pdn\"/>") && strstr(mime, "value=\"PDN3\""));
     for (size_t i = 0; i < n; i++) {

@@ -19,7 +19,7 @@ struct SDL_Window;
 typedef struct SDL_Window pal_window;
 
 /* ---- lifecycle ---------------------------------------------------------- */
-/* After SDL_Init. app_id is reverse-DNS ("org.paintc.paintc"), org/app name
+/* After SDL_Init. app_id is reverse-DNS ("io.github.vancevoj.paintc"), org/app name
  * select the per-user directories. Main thread. */
 bool pal_init(const char *app_id, const char *org, const char *app);
 void pal_quit(void);

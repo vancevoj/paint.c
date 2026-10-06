@@ -41,10 +41,10 @@ the test until the packaging knows it.
 | Path | File |
 |---|---|
 | bin/paintc | the executable |
-| share/applications/org.paintc.paintc.desktop | desktop entry (`Exec=paintc %F`, MIME types, `StartupWMClass=org.paintc.paintc`, the SDL app id) |
-| share/mime/packages/org.paintc.paintc.xml | `image/x-paintnet` for `*.pdn` (magic `PDN3`); the other types are in freedesktop.org.xml |
-| share/metainfo/org.paintc.paintc.metainfo.xml | AppStream metadata |
-| share/icons/hicolor/{16..512}/apps/org.paintc.paintc.png, scalable/apps/org.paintc.paintc.svg | icons |
+| share/applications/io.github.vancevoj.paintc.desktop | desktop entry (`Exec=paintc %F`, MIME types, `StartupWMClass=io.github.vancevoj.paintc`, the SDL app id) |
+| share/mime/packages/io.github.vancevoj.paintc.xml | `image/x-paintnet` for `*.pdn` (magic `PDN3`); the other types are in freedesktop.org.xml |
+| share/metainfo/io.github.vancevoj.paintc.metainfo.xml | AppStream metadata |
+| share/icons/hicolor/{16..512}/apps/io.github.vancevoj.paintc.png, scalable/apps/io.github.vancevoj.paintc.svg | icons |
 | share/doc/paintc/licenses/ | licenses |
 
 Distribution packages run `update-desktop-database`, `update-mime-database`
@@ -74,14 +74,30 @@ and `gtk-update-icon-cache` as usual.
   `PC_DOCKER_CPUS`, `PC_DOCKER_CPUSET`, `PC_DOCKER_MEMORY`, `PC_JOBS` and
   `PC_NICE` limit its load. The AppImage uses the static type 2 runtime
   (needs `fusermount` or `--appimage-extract-and-run`, no libfuse2).
-* **Flatpak**: `flatpak-builder --user --install --force-clean build-flatpak
-  packaging/flatpak/org.paintc.paintc.yml`. Runtime org.freedesktop.Platform
-  24.08, Wayland with X11 fallback, DRI, home folder access (recent files
-  must stay readable across restarts, which the file chooser portal alone
-  does not give). The build is offline: the manifest lists the six
-  dependency archives of cmake/PcDeps.cmake and cmake/PcCodecDeps.cmake with
-  the same URLs and SHA-256, and passes them to CMake through
-  `PC_DOWNLOAD_CACHE`. Keep both lists in sync. Not built in CI (untested).
+* **Flatpak** (Flathub: io.github.vancevoj.paintc): `flatpak run
+  org.flatpak.Builder --user --install --force-clean build-flatpak
+  packaging/flatpak/io.github.vancevoj.paintc.yml` builds this checkout.
+  The Flathub manifest lives in github.com/flathub/io.github.vancevoj.paintc
+  and differs only in its source: a git tag and commit instead of the
+  checkout. Runtime org.freedesktop.Platform 26.08, whose SDL3 (3.4),
+  libavif and libjxl are used (`PC_VENDOR_SDL=OFF`, ADR-022 accepts SDL
+  3.4); `PC_WERROR=OFF` so a compiler update in the runtime cannot fail the
+  build. Permissions: Wayland with X11 fallback, DRI, the Pictures folder,
+  and org.freedesktop.FileManager1 for Open Containing Folder. Other files
+  go through the file chooser portal: its documents are persistent, so
+  recent files stay readable after a restart, and saving over them works
+  through the document portal. The build is offline: the manifest lists
+  the five codec dependency archives of cmake/PcDeps.cmake and
+  cmake/PcCodecDeps.cmake with the same URLs and SHA-256 and passes them to
+  CMake through `PC_DOWNLOAD_CACHE` (keep both lists in sync). The optional
+  plugins are not part of the Flatpak: their folder is
+  `~/.var/app/io.github.vancevoj.paintc/data/paintc/plugins`. Inside
+  Flatpak the single instance socket lives in
+  `$XDG_RUNTIME_DIR/app/io.github.vancevoj.paintc` and the Text tool also
+  scans the host fonts under `/run/host` (ADR-025). AppStream screenshots
+  are packaging/screenshots/*.png, made by
+  packaging/screenshots/make-screenshots.sh; the metainfo links them through
+  the release tag, so regenerate them before tagging when the UI changes.
 
 ## Windows
 

@@ -1403,6 +1403,10 @@ static int si_child(int argc, char **argv)
     bool first;
     if (argc < 4) return 3;
     if (strcmp(argv[3], "file") == 0) (void)SDL_setenv_unsafe("PAINTC_SI_FILE", "1", 1);
+    if (strncmp(argv[3], "flatpak:", 8) == 0) {     /* "flatpak:<runtime dir>" */
+        (void)SDL_setenv_unsafe("XDG_RUNTIME_DIR", argv[3] + 8, 1);
+        (void)SDL_setenv_unsafe("FLATPAK_ID", argv[2], 1);
+    }
     if (!SDL_Init(0)) return 4;
     if (!pal_init("org.paintc.test", "paintc", "paint.c")) return 5;
     first = pal_single_instance(argv[2], argc - 4, paths, NULL, NULL);
@@ -1422,10 +1426,27 @@ static void si_round(const char *variant)
     memset(&got, 0, sizeof got);
     (void)snprintf(app_id, sizeof app_id, "org.paintc.test.si%08x",
                    (unsigned)(pal__rand64() & 0xFFFFFFFFu));
+    char rt[256], sock[512];
+    bool flatpak = strncmp(variant, "flatpak:", 8) == 0;
+    rt[0] = sock[0] = '\0';
     if (strcmp(variant, "file") == 0) (void)SDL_setenv_unsafe("PAINTC_SI_FILE", "1", 1);
     else (void)SDL_unsetenv_unsafe("PAINTC_SI_FILE");
+    if (flatpak) {
+        /* Flatpak: a socket file in $XDG_RUNTIME_DIR/app/$FLATPAK_ID, the
+         * folder that every sandbox of the app shares */
+        (void)snprintf(rt, sizeof rt, "%s", variant + 8);
+        (void)snprintf(sock, sizeof sock, "%s/app/%s/%s.sock", rt, app_id, app_id);
+        {
+            char d[400];
+            (void)snprintf(d, sizeof d, "%s/app/%s", rt, app_id);
+            CHECK(pal_mkdirs(d));
+        }
+        (void)SDL_setenv_unsafe("XDG_RUNTIME_DIR", rt, 1);
+        (void)SDL_setenv_unsafe("FLATPAK_ID", app_id, 1);
+    }
     CHECK(pal_single_instance(app_id, 0, NULL, si_cb, &got));
     CHECK(pal_single_instance(app_id, 0, NULL, si_cb, &got));   /* already primary */
+    if (flatpak) CHECK(pal_file_exists(sock));
 #if defined(_WIN32)
     (void)snprintf(exe, sizeof exe, "%stest_pal.exe", pal_dir(PAL_DIR_EXE));
 #else
@@ -1462,6 +1483,7 @@ static void si_round(const char *variant)
         CHECK(l1 > 10u && strcmp(got.paths[1] + l1 - 10u, "second.pdn") == 0);
     }
 #endif
+    (void)sock;
 }
 
 static void t_single_instance(void)
@@ -1472,6 +1494,46 @@ static void t_single_instance(void)
     pal_quit();
     CHECK(pal_init("org.paintc.test", "paintc", "paint.c"));
     si_round("file");
+    {
+        char rt[300], var[320], d[400];
+        const char *old_rt = SDL_getenv("XDG_RUNTIME_DIR");
+        char *keep = old_rt ? SDL_strdup(old_rt) : NULL;
+        (void)snprintf(rt, sizeof rt, "/tmp/paintc-si-%08x",
+                       (unsigned)(pal__rand64() & 0xFFFFFFFFu));
+        (void)snprintf(var, sizeof var, "flatpak:%s", rt);
+        pal_quit();
+        CHECK(pal_init("org.paintc.test", "paintc", "paint.c"));
+        si_round(var);
+        pal_quit();                                /* removes the socket file */
+        (void)SDL_unsetenv_unsafe("FLATPAK_ID");
+        if (keep) (void)SDL_setenv_unsafe("XDG_RUNTIME_DIR", keep, 1);
+        else (void)SDL_unsetenv_unsafe("XDG_RUNTIME_DIR");
+        SDL_free(keep);
+        CHECK(pal_init("org.paintc.test", "paintc", "paint.c"));
+        /* the lock file stays (as in the file variant); remove the tree */
+        {
+            char **names = NULL;
+            int nn;
+            (void)snprintf(d, sizeof d, "%s/app", rt);
+            nn = pal_list_dir(d, NULL, &names);
+            for (int i = 0; i < nn; i++) {
+                char sub[600], **f = NULL;
+                int nf;
+                (void)snprintf(sub, sizeof sub, "%s/%s", d, names[i]);
+                nf = pal_list_dir(sub, NULL, &f);
+                for (int k = 0; k < nf; k++) {
+                    char fp[800];
+                    (void)snprintf(fp, sizeof fp, "%s/%s", sub, f[k]);
+                    (void)pal_remove(fp);
+                }
+                pal_free_names(f, nf);
+                (void)pal_remove(sub);
+            }
+            pal_free_names(names, nn);
+            (void)pal_remove(d);
+            (void)pal_remove(rt);
+        }
+    }
 #endif
     (void)SDL_unsetenv_unsafe("PAINTC_SI_FILE");
 }

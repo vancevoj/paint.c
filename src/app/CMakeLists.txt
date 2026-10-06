@@ -101,7 +101,7 @@ if(APPLE)
                  ${CMAKE_CURRENT_BINARY_DIR}/Info.plist @ONLY)
   set_target_properties(paintc PROPERTIES
     MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/Info.plist
-    MACOSX_BUNDLE_GUI_IDENTIFIER org.paintc.paintc)
+    MACOSX_BUNDLE_GUI_IDENTIFIER io.github.vancevoj.paintc)
   # ADR-001: the bundle is paint.c.app with the executable paintc inside.
   add_custom_command(TARGET paintc POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/paint.c.app
