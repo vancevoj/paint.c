@@ -170,6 +170,23 @@ the tag, which triggers release.yml; while Actions cannot start jobs that
 run fails at once, and if it does run, its publish step stops because the
 release already exists.
 
+## Optional plugins (separate downloads)
+
+The plugins of plugins/ are not part of any paintc package. They are
+released on their own as `plugins-v<version>` (the tag does not match
+release.yml's `v*`, so the app release workflow does not run for it), built
+and zipped by packaging/plugins/build-plugins.sh: Linux in the same Ubuntu
+20.04 container as the AppImage (glibc 2.31 floor checked on every
+library), Windows with the mingw-w64 toolchain (UCRT, no MinGW runtime
+DLLs). One zip per plugin and platform
+(`paintc-plugin-<name>-<version>-<platform>.zip`, a top folder `<name>/`
+with the library, README.md, screenshot.png and LICENSE-original.txt when
+present), an all-plugins zip per platform and `SHA256SUMS`. The plugin set
+version and the repository of the download links are in
+packaging/plugins/release.conf; plugin_meta.py turns the README cards of
+the plugins into the tables of README.md and docs/PLUGINS.md. Details,
+including the release command: docs/PLUGINS.md, Packaging and releasing.
+
 ## Out of scope (documented gaps)
 
 * File > Print (Paint.NET: the Windows photo printing wizard) and File >

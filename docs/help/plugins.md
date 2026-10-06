@@ -19,10 +19,15 @@ assemblies) do not work in paint.c.
 3. Restart paint.c. The plugin's effects appear in the Adjustments or Effects
    menu; their tooltip names the plugin, its author and version.
 
-The paint.c source tree has optional plugins in its `plugins` folder, for
-example Align Object (Effects > Object > Align Object). Each one builds into
-a folder of its own (`cmake --build build --target plugins`, output in
-`build/plugins/out`); copy that folder into the plugin folder.
+paint.c has official optional plugins that are separate downloads (the
+`plugins-v1.0.0` release of paint.c on GitHub, one zip per plugin or all in
+one): AA's Assistant, Align Object, Bevel Object, Content Aware Fill,
+Gradient Mapping, Grid / Checkerboard, Grim Color Reaper, Perspective,
+Shape3D and Water Reflection. Each one re-creates a popular Paint.NET plugin
+natively and its README credits the original author. Unzip the folder of a
+plugin into the plugin folder. They are also in the `plugins` folder of the
+paint.c source tree; each one builds into a folder of its own
+(`cmake --build build --target plugins`, output in `build/plugins/out`).
 
 If a plugin cannot be loaded, **Effects > Plugin Errors** lists the file and
 the reason (for example, a library built for another version of the

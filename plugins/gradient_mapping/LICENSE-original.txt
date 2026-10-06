@@ -1,0 +1,32 @@
+Gradient Mapping for paint.c is ported from the Paint.NET plugin
+"Gradient Mapping" by pyrochild (Zach Walker):
+https://github.com/bsneeze/pdn-gradientmapping (commit 95a2e4dc60e45586bc973b27d96a1dabe0da77c3).
+Its license is reproduced below, as the license requires.
+
+The upstream LICENSE file also lists the Silk icon set and the Paint.NET 3.x
+license for parts of that repository; this port uses neither (no icons, no
+resources, and none of the files carrying a dotPDN copyright).
+
+------------------------------------------------------------------------------
+
+The MIT License (MIT)
+
+Copyright (c) 2007, 2016 Zach Walker
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
