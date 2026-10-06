@@ -177,8 +177,10 @@ check_lib() {   # $1 library, $2 slug
                 *) fail "$2: imports $n (only KERNEL32 and the C runtime may be imported)" ;;
             esac
         done
+        # the rows of the export name table ("[   0] +base[   1]  0000 name"),
+        # not its header ("[Ordinal/Name Pointer] Table -- Ordinal Base 1")
         exports=$($OBJDUMP -p "$lib" | sed -n '/\[Ordinal\/Name Pointer\] Table/,/^$/p' \
-                  | awk '/^[[:space:]]*\[/ { print $NF }')
+                  | awk '/^[[:space:]]*\[ *[0-9]+\]/ { print $NF }')
         ;;
     macos-*)
         for n in $(otool -L "$lib" | tail -n +2 | awk '{ print $1 }'); do
