@@ -1,9 +1,9 @@
 # paint.c 0.1.2
 
-The Flathub release of paint.c. It changes the app id to
-`io.github.vancevoj.paintc`, which Flathub can verify, and makes paint.c
-behave inside the Flatpak sandbox. Features, platforms and known gaps are
-otherwise those of
+paint.c as a Flatpak. It changes the app id to
+`io.github.vancevoj.paintc`, makes paint.c behave inside the Flatpak
+sandbox and adds a Flatpak bundle to the downloads. Features, platforms
+and known gaps are otherwise those of
 [paint.c 0.1.1](https://github.com/vancevoj/paint.c/releases/tag/v0.1.1)
 and [0.1.0](https://github.com/vancevoj/paint.c/releases/tag/v0.1.0)
 (their notes: `packaging/RELEASE_NOTES_0.1.1.md`, `RELEASE_NOTES_0.1.0.md`).
@@ -15,16 +15,12 @@ or endorsed by dotPDN LLC**; Paint.NET is their trademark.
 
 | File | For |
 |---|---|
+| `paintc-0.1.2-linux-x86_64.flatpak` | Linux x86_64 with Flatpak: open it in GNOME Software or KDE Discover, or `flatpak install --user paintc-0.1.2-linux-x86_64.flatpak`; the runtime (org.freedesktop.Platform 26.08) comes from Flathub |
 | `paintc-0.1.2-linux-x86_64.AppImage` | Linux x86_64 with glibc 2.31 or newer (Ubuntu 20.04, Debian 11, Fedora 32 and later), Wayland or X11 |
 | `paintc-0.1.2-windows-x64-setup.exe` | Windows 10 22H2 or Windows 11, x64: installer with Start menu entry and file associations |
 | `paintc-0.1.2-windows-x64-portable.zip` | the same program without installation |
 | `paintc-0.1.2-source.tar.gz` | source code; macOS users build from it (docs/BUILDING.md, section macOS) |
 | `SHA256SUMS.txt` | SHA-256 of every file above |
-
-On Linux, paint.c is also submitted to Flathub as
-`io.github.vancevoj.paintc`. Once the submission is accepted it appears in
-GNOME Software, KDE Discover and other software centers that use Flathub,
-or installs with `flatpak install flathub io.github.vancevoj.paintc`.
 
 Installing and running otherwise work as in 0.1.0. Settings, recent files
 and plugins of earlier versions are kept: their folders are named `paintc`

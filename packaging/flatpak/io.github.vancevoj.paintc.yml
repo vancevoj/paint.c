@@ -1,7 +1,6 @@
-# Flatpak manifest of paint.c for local builds from this checkout. The
-# Flathub manifest (github.com/flathub/io.github.vancevoj.paintc) is the same
-# with a git source pinned to a release tag instead of the dir source.
-# Build and install for the user:
+# Flatpak manifest of paint.c for builds from this checkout (local installs
+# and the release bundle, packaging/flatpak/build-bundle.sh). Build and
+# install for the user:
 #   flatpak run org.flatpak.Builder --user --install --force-clean \
 #       build-flatpak packaging/flatpak/io.github.vancevoj.paintc.yml
 # The build has no network: every dependency archive of cmake/PcDeps.cmake

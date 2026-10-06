@@ -4,8 +4,9 @@
 #
 #   packaging/release-dist.sh <dist dir> [<commit>]
 #
-# <dist dir> already holds the AppImage (linux/build-appimage-docker.sh) and
-# the Windows zip and installer (windows/build-mingw-release.sh). This adds
+# <dist dir> already holds the AppImage (linux/build-appimage-docker.sh),
+# the Windows zip and installer (windows/build-mingw-release.sh) and, when
+# built, the Flatpak bundle (flatpak/build-bundle.sh). This adds
 #   paintc-<version>-source.tar.gz  git archive of <commit> (default HEAD),
 #                                   top folder paintc-<version>/
 #   SHA256SUMS.txt                  SHA-256 of every package and the source
@@ -26,6 +27,8 @@ NOTES=$SRC/packaging/RELEASE_NOTES_$V.md
 
 FILES="paintc-$V-linux-x86_64.AppImage paintc-$V-windows-x64-setup.exe
 paintc-$V-windows-x64-portable.zip paintc-$V-source.tar.gz"
+# the Flatpak bundle (flatpak/build-bundle.sh) from 0.1.2 on
+[ -s "$DIST/paintc-$V-linux-x86_64.flatpak" ] && FILES="paintc-$V-linux-x86_64.flatpak $FILES"
 
 git -C "$SRC" archive --format=tar.gz --prefix="paintc-$V/" \
     -o "$DIST/paintc-$V-source.tar.gz" "$COMMIT"

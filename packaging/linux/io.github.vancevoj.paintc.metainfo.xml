@@ -87,7 +87,7 @@
   <releases>
     <release version="0.1.2" date="2026-10-05">
       <description>
-        <p>Available on Flathub. The app id is now io.github.vancevoj.paintc. Inside Flatpak, opening a file while paint.c runs reaches the open window, and the Text tool lists the fonts installed on the system.</p>
+        <p>Flatpak support: the app id is now io.github.vancevoj.paintc, opening a file while paint.c runs in the Flatpak reaches the open window, and the Text tool lists the fonts installed on the system.</p>
       </description>
     </release>
     <release version="0.1.1" date="2026-10-05">

@@ -74,12 +74,14 @@ and `gtk-update-icon-cache` as usual.
   `PC_DOCKER_CPUS`, `PC_DOCKER_CPUSET`, `PC_DOCKER_MEMORY`, `PC_JOBS` and
   `PC_NICE` limit its load. The AppImage uses the static type 2 runtime
   (needs `fusermount` or `--appimage-extract-and-run`, no libfuse2).
-* **Flatpak** (Flathub: io.github.vancevoj.paintc): `flatpak run
+* **Flatpak** (io.github.vancevoj.paintc): `flatpak run
   org.flatpak.Builder --user --install --force-clean build-flatpak
   packaging/flatpak/io.github.vancevoj.paintc.yml` builds this checkout.
-  The Flathub manifest lives in github.com/flathub/io.github.vancevoj.paintc
-  and differs only in its source: a git tag and commit instead of the
-  checkout. Runtime org.freedesktop.Platform 26.08, whose SDL3 (3.4),
+  `packaging/flatpak/build-bundle.sh <work dir> <output dir>` builds the
+  release bundle `paintc-<version>-linux-x86_64.flatpak`, which GNOME
+  Software and KDE Discover install by opening the file (the runtime comes
+  from Flathub through `--runtime-repo`). paint.c is not on Flathub (owner's
+  decision). Runtime org.freedesktop.Platform 26.08, whose SDL3 (3.4),
   libavif and libjxl are used (`PC_VENDOR_SDL=OFF`, ADR-022 accepts SDL
   3.4); `PC_WERROR=OFF` so a compiler update in the runtime cannot fail the
   build. Permissions: Wayland with X11 fallback, DRI, the Pictures folder,
@@ -173,7 +175,9 @@ them (`gh release create --generate-notes`).
 When Actions cannot run (0.1.0: billing, ADR-021) a release is built on a
 Linux machine with Docker, mingw-w64, NSIS and Wine: the AppImage with
 build-appimage-docker.sh, the Windows zip and installer with
-build-mingw-release.sh, then `packaging/release-dist.sh <dist> <commit>`
+build-mingw-release.sh, from 0.1.2 the Flatpak bundle with
+`PC_COMMIT=<commit> packaging/flatpak/build-bundle.sh <work> <dist>`, then
+`packaging/release-dist.sh <dist> <commit>`
 adds `git archive --prefix=paintc-<v>/` of the release commit as
 `paintc-<v>-source.tar.gz` (macOS builds from it, docs/BUILDING.md),
 `SHA256SUMS.txt` over all packages and `release-notes.md`

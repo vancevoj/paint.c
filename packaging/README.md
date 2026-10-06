@@ -9,11 +9,12 @@ Lane I. How the packages are built and what they contain: docs/PACKAGING.md.
 | licenses/ | third-party license texts; every package ships them with LICENSE and NOTICE |
 | linux/io.github.vancevoj.paintc.desktop | desktop entry (app id from ADR-025), every MIME type paint.c opens |
 | linux/io.github.vancevoj.paintc.xml | shared-mime-info type for .pdn (image/x-paintnet) |
-| linux/io.github.vancevoj.paintc.metainfo.xml | AppStream metadata (Flathub listing) |
+| linux/io.github.vancevoj.paintc.metainfo.xml | AppStream metadata (software centers) |
 | screenshots/ | AppStream screenshots and make-screenshots.sh, which renders them headless |
 | linux/build-appimage.sh | AppImage from a build tree (pinned linuxdeploy) |
 | linux/build-appimage-docker.sh | release AppImage built in Ubuntu 20.04 (glibc 2.31 floor), with checks |
-| flatpak/io.github.vancevoj.paintc.yml | Flatpak manifest of this checkout (offline build, dependency archives listed); Flathub has the tagged copy |
+| flatpak/io.github.vancevoj.paintc.yml | Flatpak manifest of this checkout (offline build, dependency archives listed) |
+| flatpak/build-bundle.sh | the release `.flatpak` bundle, built and linted with org.flatpak.Builder |
 | windows/paintc.manifest | long paths, UTF-8 code page, per-monitor DPI |
 | windows/paintc.nsi | NSIS installer with file associations |
 | windows/README-portable.txt | README.txt of the portable zip |
