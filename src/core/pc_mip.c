@@ -10,6 +10,7 @@
  * Eviction runs between batches with the entries still needed pinned, so a
  * zoomed-out view of a huge document streams through bounded memory. */
 #include "pc/pc_mip.h"
+#include "pc/pc_tile.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -49,7 +50,7 @@ struct pc_view_cache {
     uint32_t     *slots;            /* entry index + 1, 0 = empty */
     size_t        nslots;
     size_t        count, bytes, budget;
-    uint64_t      tick, next_stamp, gkey;
+    uint64_t      tick, gkey;
     uint32_t      doc_w, doc_h;
     bool          have_doc;
     vc_u32s       changes;
@@ -289,6 +290,7 @@ pc_view_cache *pc_view_cache_create(size_t budget_bytes)
     if (!c) return NULL;
     c->budget = budget_bytes ? budget_bytes : VC_DEFAULT;
     c->st.epoch = 1u;
+    c->st.serial = pc_tile_next_serial();       /* fix 0.1.1: never reused */
     for (uint32_t b = 0; b < 4096u; b++) c->enc[b] = (uint8_t)enc16(b << 4);
     return c;
 }
@@ -664,7 +666,9 @@ static void commit_job(pc_view_cache *c, vc_job *j)
         if (e->px) { pc_aligned_free(e->px); c->bytes -= VC_TILE_BYTES; }
         e->px = nb;
         if (nb) c->bytes += VC_TILE_BYTES;
-        e->stamp = ++c->next_stamp;
+        /* fix 0.1.1: unique in the process, so a cache created at a
+         * destroyed cache's address never repeats its stamps */
+        e->stamp = pc_tile_next_serial();
         if (!e->change_pos) {           /* capacity reserved before the run */
             c->changes.v[c->changes.n++] = j->entry;
             e->change_pos = (uint32_t)c->changes.n;

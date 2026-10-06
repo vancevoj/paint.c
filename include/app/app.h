@@ -40,7 +40,7 @@ typedef struct pal_pool pal_pool;
 
 #define APP_NAME    "paint.c"
 #define APP_ID      "org.paintc.paintc"
-#define APP_VERSION "0.1.0"
+#define APP_VERSION "0.1.1"
 
 /* ---- creation ------------------------------------------------------------ */
 typedef enum app_theme_pref {

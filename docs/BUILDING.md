@@ -138,7 +138,7 @@ long paths and the UTF-8 code page.
 
 ## macOS
 
-paint.c 0.1.0 has no prebuilt macOS package (ADR-021): build it from the
+paint.c 0.1.0 and 0.1.1 have no prebuilt macOS package (ADR-021): build it from the
 source archive of the release (`paintc-<version>-source.tar.gz`) or from a
 checkout. macOS 13 or newer, Apple silicon or Intel.
 
@@ -157,7 +157,7 @@ and the codec sources (SHA-256 checked), so it needs network access once;
 ```sh
 # from the release: check and unpack the source archive
 grep source.tar.gz SHA256SUMS.txt | shasum -a 256 -c -
-tar -xzf paintc-0.1.0-source.tar.gz && cd paintc-0.1.0
+tar -xzf paintc-0.1.1-source.tar.gz && cd paintc-0.1.1
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPC_VENDOR_SDL=ON \
       -DPC_WITH_AVIF=BUNDLED -DPC_WITH_JXL=BUNDLED \

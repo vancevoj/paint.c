@@ -425,6 +425,63 @@ static void t_mip_oom(void)
     CHECK(tu_leak_same(t0, l0));
 }
 
+/* Fix 0.1.1: a renderer mirrors tiles by stamp and drops its copies when
+ * the cache changes. A new cache may be allocated at a destroyed cache's
+ * address (closing one image and opening another), so stamps and the
+ * cache's identity must never repeat in the process, or the renderer keeps
+ * the closed image's tiles. Several caches built from one document (same
+ * tiles, same update order) share no stamp and no serial; a clear keeps
+ * the serial, bumps the epoch, and its new stamps differ too. */
+static void t_mip_identity(void)
+{
+    pc_doc *d = tu_random_doc(300u, 200u, 2u);
+    uint64_t seen[3][32], serial[3] = { 0, 0, 0 };
+    size_t n[3] = { 0, 0, 0 }, dup = 0;
+    for (int k = 0; k < 3; k++) {
+        pc_view_cache *c = pc_view_cache_create(0u);
+        pc_view_stats st;
+        CHECK(c != NULL);
+        if (!c) break;
+        for (uint32_t L = 0; L < 3u; L++) {
+            CHECK(pc_view_cache_update(c, d, NULL, L, pc_rect_make(0, 0, 300, 200), NULL) ==
+                  PC_OK);
+            for (uint32_t ty = 0; ty < pc_view_level_tiles(200u, L); ty++)
+                for (uint32_t tx = 0; tx < pc_view_level_tiles(300u, L); tx++) {
+                    pc_view_tile t;
+                    CHECK(pc_view_cache_get(c, L, tx, ty, &t) && t.stamp != 0u);
+                    if (n[k] < 32u) seen[k][n[k]++] = t.stamp;
+                }
+        }
+        pc_view_cache_stats(c, &st);
+        serial[k] = st.serial;
+        CHECK(serial[k] != 0u);
+        for (int j = 0; j < k; j++) CHECK(serial[j] != serial[k]);
+        if (k == 2) {
+            uint64_t e0 = st.epoch;
+            pc_view_cache_clear(c);
+            CHECK(pc_view_cache_update(c, d, NULL, 0u, pc_rect_make(0, 0, 300, 200), NULL) ==
+                  PC_OK);
+            pc_view_cache_stats(c, &st);
+            CHECK(st.epoch == e0 + 1u && st.serial == serial[k]);
+            {
+                pc_view_tile t;
+                CHECK(pc_view_cache_get(c, 0u, 0u, 0u, &t));
+                for (int j = 0; j <= k; j++)
+                    for (size_t i = 0; i < n[j]; i++) dup += seen[j][i] == t.stamp;
+            }
+        }
+        pc_view_cache_destroy(c);              /* the next one may get its address */
+    }
+    CHECK(n[0] == 20u + 6u + 2u && n[1] == n[0] && n[2] == n[0]);
+    for (int k = 0; k < 3; k++)
+        for (int j = 0; j < k; j++)
+            for (size_t a = 0; a < n[k]; a++)
+                for (size_t b = 0; b < n[j]; b++) dup += seen[k][a] == seen[j][b];
+    if (dup) INFO("%u stamps repeat across caches", (unsigned)dup);
+    CHECK(dup == 0u);
+    pc_doc_destroy(d);
+}
+
 int main(int argc, char **argv)
 {
     pc_test_init(argc, argv);
@@ -435,5 +492,6 @@ int main(int argc, char **argv)
     RUN(t_mip_lru);
     RUN(t_mip_threads_and_resize);
     RUN(t_mip_oom);
+    RUN(t_mip_identity);
     return pc_test_finish();
 }

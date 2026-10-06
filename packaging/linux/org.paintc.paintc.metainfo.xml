@@ -57,6 +57,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.1" date="2026-10-05">
+      <description>
+        <p>Fixes a canvas that kept part of a closed image after opening another, prefers native Wayland on compositors without wp_fifo_v1 (KWin before 6.4) with a Display server setting, and adds the plugin host features the optional plugins use.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-10-05">
       <description>
         <p>First preview release.</p>

@@ -158,7 +158,11 @@ Helper files must not use these prefixes (for example `tools/stroke.c`).
   16 tiles), LRU-evicts pages beyond the budget (32 pages), draws the
   checkerboard in screen space aligned to the image, the pages with
   premultiplied blending (nearest at >= 100 % or exact 1:1 mip levels,
-  linear otherwise), and the pixel grid at >= 200 %.
+  linear otherwise), and the pixel grid at >= 200 %. The pages mirror one
+  cache at a time and start over when the cache's serial or epoch changes
+  (`pc_view_stats`); serials and stamps are unique in the process, so a
+  new image's cache at a closed one's address never inherits its pages
+  (fix 0.1.1, `tests/app/test_canvas_docs.c`).
 * Input: SDL pointer events are queued and replayed in the frame after the
   canvas declared its `ui_interact` region, so panels, popups and dialogs
   always win. A press on the canvas captures the pointer until all buttons

@@ -23,13 +23,27 @@
  * edge), then u = c / w + 1/2 from the offset c to the center line, and the
  * source is sampled at u, v of S. With a = b both reduce to a plain stretch.
  *
- * High quality: 2 x 2 samples per pixel (offsets +-0.25), more across the
- * row (up to 8) where the row shrinks below half the source size, each
- * bilinear in premultiplied alpha with coordinates clamped to S, samples
- * outside the quad counting as transparent, averaged in premultiplied
- * space; this also antialiases the quad's slanted edges. Off: nearest
- * neighbor at the pixel center. Horizontal modes compute exactly what the
- * vertical ones compute on the transposed image.
+ * High quality (fix 0.1.1: an exact identity at ratios 1). Two parts:
+ *  - coverage: 2 x n points per pixel at the centers of its sub-cells
+ *    (depth offsets +-0.25, n across: 2, up to 8 where the row shrinks
+ *    below half the source size); the fraction inside the quad becomes the
+ *    pixel's coverage, which antialiases the quad's slanted edges;
+ *  - color: one filtered sample at the mapped pixel center (the mapped
+ *    centroid of the covered points on the quad's edges), a separable tent
+ *    filter along the source's depth and cross axes whose radius is the
+ *    local scale (source pixels per output pixel) but at least 1: plain
+ *    bilinear where the map magnifies or keeps the size, a wider tent that
+ *    averages every source pixel under the output pixel where it shrinks.
+ *    Taps outside S are dropped and the weights renormalized; premultiplied
+ *    alpha; the result is scaled by the coverage.
+ * At ratios 1 every output pixel center maps exactly onto its own source
+ * pixel center (the maps are written to be exact there), the tent of
+ * radius 1 then has a single tap and full coverage copies that pixel, so
+ * the identity reproduces the source bit for bit (transparent pixels
+ * included). The old supersampling (2 x n bilinear samples at +-0.25 px,
+ * averaged) was a [1/8, 3/4, 1/8] blur at ratio 1. Off: nearest neighbor
+ * at the pixel center. Horizontal modes compute exactly what the vertical
+ * ones compute on the transposed image.
  *
  * Output is a pure function of (params, src, env, pixel): any ROI split and
  * thread count give the same bytes. render() polls cancellation per row.
@@ -52,6 +66,8 @@ enum { MODE_V_PERSP = 0, MODE_V_TRAP = 1, MODE_H_PERSP = 2, MODE_H_TRAP = 3 };
 #define PERSP_RMIN 0.01
 #define PERSP_RMAX 16.0
 #define PERSP_MAX_U 8
+#define PERSP_TENT_MAX 64.0      /* largest tent radius (source px) */
+#define PERSP_TAPS 132           /* taps of a tent of radius PERSP_TENT_MAX, rounded up */
 
 typedef struct persp_params {
     double  r1, r2, r3;          /* 0.01..16 */
@@ -86,6 +102,7 @@ typedef struct persp_geo {
     double a, b;                 /* edge ratios at depth 0 and depth h */
     double h;                    /* quad depth in pixels */
     double len;                  /* source length across (W vertical, H horizontal) */
+    double dlen;                 /* source length along the depth (H vertical, W horizontal) */
     int    persp;                /* projective (1) or trapezoid (0) */
 } persp_geo;
 
@@ -119,27 +136,57 @@ static int persp_map(const persp_geo *g, double d, double c, double *u, double *
     return *u >= 0.0 && *u < 1.0;
 }
 
-/* ---- sampling ------------------------------------------------------------------- */
-/* Premultiplied bilinear sample of src at continuous coordinates clamped to
- * s. The sum is ordered so that swapping x and y (and the image's axes)
- * gives bit-identical results. */
-static fx_pxf sample_bilinear(const fx_img *src, fx_rect s, double sx, double sy)
+/* High quality: the source point of output depth d and offset c, as
+ * source pixels from S's depth and cross start (sv, su), with the local
+ * scales (source px per output px) along the depth and across. The same
+ * map as persp_map, written so that ratios 1 (a = b = 1, h = dlen) give
+ * sv = d and su = c + len / 2 exactly: every product is formed before the
+ * one division, so no rounding enters. d is clamped to [0, h]. */
+static void persp_point(const persp_geo *g, double d, double c, double *sv, double *su,
+                        double *kv, double *ku)
 {
-    double x = fx_clampd(sx, s.x + 0.5, s.x + s.w - 0.5) - 0.5;
-    double y = fx_clampd(sy, s.y + 0.5, s.y + s.h - 0.5) - 0.5;
-    int32_t x0 = (int32_t)floor(x), y0 = (int32_t)floor(y);
-    int32_t x1 = x0 + 1 < s.x + s.w ? x0 + 1 : x0, y1 = y0 + 1 < s.y + s.h ? y0 + 1 : y0;
-    double tx = x - x0, ty = y - y0;
-    fx_pxf p00 = fx_premul(fx_get(src, x0, y0)), p10 = fx_premul(fx_get(src, x1, y0));
-    fx_pxf p01 = fx_premul(fx_get(src, x0, y1)), p11 = fx_premul(fx_get(src, x1, y1));
-    float w00 = (float)((1.0 - tx) * (1.0 - ty)), w11 = (float)(tx * ty);
-    float w10 = (float)(tx * (1.0 - ty)), w01 = (float)((1.0 - tx) * ty);
-    fx_pxf o;
-    o.b = (p00.b * w00 + p11.b * w11) + (p10.b * w10 + p01.b * w01);
-    o.g = (p00.g * w00 + p11.g * w11) + (p10.g * w10 + p01.g * w01);
-    o.r = (p00.r * w00 + p11.r * w11) + (p10.r * w10 + p01.r * w01);
-    o.a = (p00.a * w00 + p11.a * w11) + (p10.a * w10 + p01.a * w01);
-    return o;
+    double w;
+    if (d < 0.0) d = 0.0;
+    if (d > g->h) d = g->h;
+    if (g->persp) {
+        double den = g->a * g->h + (g->b - g->a) * d;
+        *sv = g->dlen * g->b * d / den;
+        *kv = g->dlen * g->b * g->a * g->h / (den * den);
+    } else {
+        *sv = d * g->dlen / g->h;
+        *kv = g->dlen / g->h;
+    }
+    /* the row width is linear in d in both modes (the quad is a trapezoid) */
+    w = g->len * (g->a + (g->b - g->a) * d / g->h);
+    if (!(w > 0.0)) w = g->len * PERSP_RMIN;
+    *su = c * g->len / w + g->len / 2.0;
+    *ku = g->len / w;
+}
+
+/* Tent weights of radius max(1, k) (capped) around position p (source
+ * pixels from the axis start; pixel i has its center at i + 0.5) over the
+ * axis [0, n): the first index and the count of taps with weight > 0. p is
+ * clamped to the pixel centers, so there is always at least one tap. */
+static int tent_taps(double p, double k, int32_t n, int32_t *first, double *w)
+{
+    double r = k > 1.0 ? (k < PERSP_TENT_MAX ? k : PERSP_TENT_MAX) : 1.0;
+    int32_t i0, i1, m = 0;
+    p = fx_clampd(p, 0.5, (double)n - 0.5);
+    i0 = (int32_t)floor(p - r);
+    i1 = (int32_t)ceil(p + r);
+    if (i0 < 0) i0 = 0;
+    if (i1 > n - 1) i1 = n - 1;
+    *first = -1;
+    for (int32_t i = i0; i <= i1 && m < PERSP_TAPS; i++) {
+        double t = 1.0 - fabs((double)i + 0.5 - p) / r;
+        if (!(t > 0.0)) {
+            if (*first >= 0) break;          /* past the tent */
+            continue;
+        }
+        if (*first < 0) *first = i;
+        w[m++] = t;
+    }
+    return m;
 }
 
 /* ---- render --------------------------------------------------------------------- */
@@ -169,6 +216,7 @@ static int persp_render(const void *params, const void *state, const fx_img *src
     g.b = r2;
     g.h = r3 * depth_len;
     g.len = cross_len;
+    g.dlen = depth_len;
     g.persp = mode == MODE_V_PERSP || mode == MODE_H_PERSP;
     for (y = roi.y; y < roi.y + roi.h; y++) {
         fx_px *drow = fx_row(dst, y);
@@ -192,10 +240,12 @@ static int persp_render(const void *params, const void *state, const fx_img *src
                                  : fx_get(src, s.x + iv, s.y + iu);
                 }
             } else {
-                /* 2 samples along the depth, n across (more where the row shrinks) */
-                double vc, wc;
-                int n = 2, i, k;
-                fx_pxf acc = { 0.0f, 0.0f, 0.0f, 0.0f };
+                /* coverage: 2 points along the depth, n across (more where
+                 * the row shrinks), at the centers of the pixel's sub-cells */
+                double vc, wc, sd = 0.0, sc = 0.0, sv, su, kv, ku, wv[PERSP_TAPS],
+                       wu[PERSP_TAPS];
+                int n = 2, i, k, in = 0, nv, nu;
+                int32_t fv, fu;
                 persp_row(&g, fx_clampd(d, 0.0, g.h), &vc, &wc);
                 if (wc > 0.0 && wc < cross_len / 2.0) {
                     double m = ceil(cross_len / wc);
@@ -205,26 +255,48 @@ static int persp_render(const void *params, const void *state, const fx_img *src
                     double dd = d + (i == 0 ? -0.25 : 0.25);
                     for (k = 0; k < n; k++) {
                         double cc = c + (k + 0.5) / n - 0.5;
-                        fx_pxf q;
                         if (!persp_map(&g, dd, cc, &u, &v)) continue;
-                        q = vertical ? sample_bilinear(src, s, s.x + u * cross_len,
-                                                       s.y + v * depth_len)
-                                     : sample_bilinear(src, s, s.x + v * depth_len,
-                                                       s.y + u * cross_len);
-                        acc.b += q.b;
-                        acc.g += q.g;
-                        acc.r += q.r;
-                        acc.a += q.a;
+                        sd += dd;
+                        sc += cc;
+                        in++;
                     }
                 }
-                {
-                    float inv = 1.0f / (float)(2 * n);
-                    acc.b *= inv;
-                    acc.g *= inv;
-                    acc.r *= inv;
-                    acc.a *= inv;
+                if (in > 0) {
+                    /* color: one tent-filtered sample at the mapped center
+                     * (on the quad's edges, of the covered points) */
+                    if (in == 2 * n) persp_point(&g, d, c, &sv, &su, &kv, &ku);
+                    else persp_point(&g, sd / in, sc / in, &sv, &su, &kv, &ku);
+                    nv = tent_taps(sv, kv, (int32_t)depth_len, &fv, wv);
+                    nu = tent_taps(su, ku, (int32_t)cross_len, &fu, wu);
+                    if (nv == 1 && nu == 1 && in == 2 * n) {
+                        /* one source pixel under the whole pixel: itself */
+                        o = vertical ? fx_get(src, s.x + fu, s.y + fv)
+                                     : fx_get(src, s.x + fv, s.y + fu);
+                    } else {
+                        double ab = 0.0, ag = 0.0, ar = 0.0, aa = 0.0, ws = 0.0, cov;
+                        fx_pxf q;
+                        for (int j = 0; j < nv; j++) {
+                            for (int t = 0; t < nu; t++) {
+                                double wt = wv[j] * wu[t], al;
+                                fx_px sp = vertical ? fx_get(src, s.x + fu + t, s.y + fv + j)
+                                                    : fx_get(src, s.x + fv + j, s.y + fu + t);
+                                ws += wt;
+                                if (sp.a == 0u) continue;
+                                al = wt * (double)sp.a;
+                                aa += al;
+                                ab += al * (double)sp.b;
+                                ag += al * (double)sp.g;
+                                ar += al * (double)sp.r;
+                            }
+                        }
+                        cov = (double)in / (double)(2 * n) / ws;
+                        q.b = (float)(ab * cov / 255.0);
+                        q.g = (float)(ag * cov / 255.0);
+                        q.r = (float)(ar * cov / 255.0);
+                        q.a = (float)(aa * cov);
+                        o = fx_unpremul(q);
+                    }
                 }
-                o = fx_unpremul(acc);
             }
             drow[x] = o;
         }

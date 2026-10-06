@@ -24,7 +24,7 @@ struct gfx_canvas {
     gfx_page            *pages;
     uint32_t             npages, cap, budget;
     uint64_t             frame;
-    const pc_view_cache *vc;
+    uint64_t             vc_serial;          /* cache the pages mirror (0 none) */
     uint64_t             vc_epoch;
     uint64_t             created, evicted;
     uint32_t             uploads, visible, missing;
@@ -101,7 +101,7 @@ void gfx_canvas_reset(gfx_canvas *c)
     if (c->sharp) SDL_DestroyTexture(c->sharp);
     c->sharp = NULL;
     c->sharp_failed = false;
-    c->vc = NULL;
+    c->vc_serial = 0u;
     c->fine_scale = 0.0;
 }
 
@@ -921,10 +921,14 @@ void gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
         c->xf_key = st->xf_key;
     }
     if (vc) {
+        /* fix 0.1.1: the cache is recognized by its serial, never by its
+         * address: a new image's cache may be allocated where a closed
+         * image's cache was, and the pages then kept the closed image's
+         * tiles wherever the stamps matched */
         pc_view_cache_stats(vc, &vs);
-        if (vc != c->vc || vs.epoch != c->vc_epoch) {
+        if (vs.serial != c->vc_serial || vs.epoch != c->vc_epoch) {
             for (uint32_t i = 0; i < c->npages; i++) c->pages[i].live = false;
-            c->vc = vc;
+            c->vc_serial = vs.serial;
             c->vc_epoch = vs.epoch;
         }
     }

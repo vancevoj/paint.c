@@ -35,6 +35,13 @@
  * produced them, so the budget can be exceeded by at most the visible set
  * plus one work batch (about 4 MiB).
  *
+ * Identity (fix 0.1.1): stamps and the cache serial come from the
+ * process-wide counter of pc_tile_next_serial, so no two caches ever hand
+ * out the same stamp or serial, not even when a new cache is allocated at
+ * a destroyed cache's address (closing one image and opening another). A
+ * renderer that mirrors tiles keys its copies on (serial, epoch, stamp),
+ * never on the cache pointer.
+ *
  * Thread rules: one owner thread (the renderer's, normally main) calls
  * every function; pc_view_cache_update fans its work out on par. The
  * document, transaction and overlay must not change during an update.
@@ -57,7 +64,9 @@ typedef struct pc_view_tile_id {
 typedef struct pc_view_tile {
     const uint8_t *px;      /* PC_TILE_PX premultiplied BGRA pixels, row stride
                                PC_TILE_DIM * 4 bytes; NULL = fully transparent */
-    uint64_t       stamp;   /* content version, unique per cache, never 0 */
+    uint64_t       stamp;   /* content version, unique in the process (no
+                               other cache and no earlier content of this
+                               one had it), never 0 */
 } pc_view_tile;
 
 typedef struct pc_view_stats {
@@ -69,6 +78,9 @@ typedef struct pc_view_stats {
     uint64_t evicted;        /* tiles evicted (cumulative) */
     uint64_t sig_cells;      /* level 0 signatures computed (cumulative) */
     uint64_t epoch;          /* bumps when everything was dropped */
+    uint64_t serial;         /* fix 0.1.1: this cache's identity, unique in the
+                                process and never 0; unlike the address it is
+                                never reused by a later cache */
 } pc_view_stats;
 
 /* budget_bytes 0 picks 256 MiB. NULL on OOM. */
