@@ -7,7 +7,11 @@
  * Pages live in an LRU set bounded by a page budget; pages used by the
  * current frame are never evicted, so the budget can be exceeded only by
  * the visible set. Textures are disposable caches: gfx_canvas_reset drops
- * them (document switch, cache epoch change, device reset).
+ * them (device reset, memory clean up), and a draw from another cache
+ * (document switch, close and open) or after a cache epoch change starts
+ * over. The cache is recognized by its process-unique serial
+ * (pc_view_stats), never by its address, which a new cache may reuse
+ * (fix 0.1.1).
  *
  * Drawing (gfx_canvas_draw), back to front, inside the renderer's current
  * clip rectangle intersected with the viewport:
@@ -102,8 +106,8 @@ bool        gfx_view_ready(const gfx_view *v, const pc_view_cache *vc);
 
 /* Upload changed tiles of vc and draw checkerboard, image and grid for
  * view v. Tiles missing from the cache draw as transparent. A different
- * cache (or a cache whose epoch changed) resets the pages first. stats
- * may be NULL. */
+ * cache (another serial, whatever its address) or a cache whose epoch
+ * changed resets the pages first. stats may be NULL. */
 void        gfx_canvas_draw(gfx_canvas *c, const gfx_view *v, const pc_view_cache *vc,
                             const gfx_style *st, gfx_stats *stats);
 /* Lane UIA (wave 4): zooms between two mip levels (not a power of two,
