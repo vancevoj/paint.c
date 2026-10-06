@@ -25,6 +25,9 @@ trap 'rm -rf "$WORK"' EXIT INT TERM
 APPDIR=$WORK/AppDir
 
 cmake --install "$BUILD" --prefix "$APPDIR/usr" --component paintc
+# The AppImage's own icon (.DirIcon) must be a PNG (thumbnails, AppImageHub's
+# appdir-lint); linuxdeploy prefers the scalable SVG when there is one.
+rm -rf "$APPDIR/usr/share/icons/hicolor/scalable"
 
 LD=${LINUXDEPLOY:-}
 if [ -z "$LD" ]; then

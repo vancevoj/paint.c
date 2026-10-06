@@ -1,8 +1,8 @@
 ; paintc.nsi - the paint.c installer for Windows x64 (lane I, NSIS 3).
 ;
 ; Build from an install tree (cmake --install build --prefix stage):
-;   makensis -DVERSION=0.1.2 -DSTAGE=<absolute stage path> ^
-;            -DOUTFILE=<absolute path>\paintc-0.1.2-windows-x64-setup.exe ^
+;   makensis -DVERSION=0.1.3 -DSTAGE=<absolute stage path> ^
+;            -DOUTFILE=<absolute path>\paintc-0.1.3-windows-x64-setup.exe ^
 ;            packaging\windows\paintc.nsi
 ; (makensis works in this script's folder, so pass absolute paths; ICON
 ; defaults to assets/icons/paintc.ico)
@@ -20,7 +20,7 @@ Unicode true
 !include "LogicLib.nsh"
 
 !ifndef VERSION
-  !define VERSION "0.1.2"
+  !define VERSION "0.1.3"
 !endif
 !ifndef STAGE
   !define STAGE "stage"
