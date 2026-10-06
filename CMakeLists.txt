@@ -8,7 +8,7 @@ cmake_minimum_required(VERSION 3.20)
 if(CMAKE_HOST_APPLE AND NOT CMAKE_OSX_SYSROOT AND NOT DEFINED ENV{SDKROOT})
   set(CMAKE_OSX_SYSROOT macosx CACHE STRING "macOS SDK")
 endif()
-project(paintc VERSION 0.1.1 LANGUAGES C)
+project(paintc VERSION 0.1.2 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -22,6 +22,7 @@ option(PC_HEADLESS    "Build only the headless libraries and tests (no SDL)" OFF
 option(PC_VENDOR_SDL  "Build the pinned SDL3 3.4.18 from source (default; OFF accepts a system SDL3 >= 3.4)" ON)
 option(PC_BUILD_TESTS "Build test executables" ON)
 option(PC_BUILD_PLUGINS "Build the optional effect plugins in plugins/" ON)
+option(PC_WERROR       "Treat warnings in paint.c's own code as errors (packagers with newer compilers may turn it off)" ON)
 
 include(PcCommon)     # pc_warnings(), sanitizer flags
 include(PcDeps)       # pinned third-party dependencies (FetchContent)

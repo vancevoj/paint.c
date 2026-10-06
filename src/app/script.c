@@ -22,7 +22,8 @@
  *   stroke X0 Y0 X1 Y1 [N] [left|right]  press, N motions, release
  *   sclick X Y [left|right]   click at window coordinates (menus, panels)
  *   smove X Y                 pointer motion in window coordinates
- *   zoom PERCENT | fit        view zoom
+ *   zoom PERCENT              view zoom
+ *   fit                       zoom to the window
  *   frames N                  run N frames
  *   wait                      finish background work
  *   screenshot PATH           write the frame as BMP

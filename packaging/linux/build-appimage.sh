@@ -47,7 +47,7 @@ APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 VERSION=$VERSION \
 LDAI_OUTPUT="$OUT/paintc-$VERSION-linux-x86_64.AppImage" \
     "$LD" --appdir "$APPDIR" \
           --executable "$APPDIR/usr/bin/paintc" \
-          --desktop-file "$APPDIR/usr/share/applications/org.paintc.paintc.desktop" \
-          --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/org.paintc.paintc.png" \
+          --desktop-file "$APPDIR/usr/share/applications/io.github.vancevoj.paintc.desktop" \
+          --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/io.github.vancevoj.paintc.png" \
           --output appimage
 echo "$OUT/paintc-$VERSION-linux-x86_64.AppImage"

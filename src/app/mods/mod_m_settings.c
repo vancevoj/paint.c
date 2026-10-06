@@ -1023,11 +1023,15 @@ void m_settings_diagnostics(app *a, char *out, size_t cap)
     char dir[1024];
     size_t k = 0;
     m_settings_folder(a, 1, dir, sizeof dir);
+/* Lines after the buffer is full are dropped (no snprintf into the last
+ * byte, which GCC 16 with _FORTIFY_SOURCE=3 reports as truncation). */
 #define LINE(...)                                                                   \
     do {                                                                            \
-        int w_ = snprintf(out + k, k < cap ? cap - k : 0u, __VA_ARGS__);           \
-        if (w_ > 0) k += (size_t)w_;                                                \
-        if (k >= cap) k = cap ? cap - 1u : 0u;                                      \
+        if (k + 1u < cap) {                                                         \
+            int w_ = snprintf(out + k, cap - k, __VA_ARGS__);                       \
+            if (w_ > 0) k += (size_t)w_;                                            \
+            if (k >= cap) k = cap - 1u;                                             \
+        }                                                                           \
     } while (0)
     if (cap) out[0] = '\0';
     LINE("%s %s\n", APP_NAME, APP_VERSION);

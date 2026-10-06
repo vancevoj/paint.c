@@ -20,6 +20,7 @@ arguments runs the full reference suite.
 | `PC_TSAN` | OFF | ThreadSanitizer on every target (GCC, Clang) |
 | `PC_HEADLESS` | OFF | Only the headless libraries and their tests, no SDL |
 | `PC_BUILD_TESTS` | ON | Build the test executables |
+| `PC_WERROR` | ON | Warnings in paint.c's own code are errors (`-Werror`, `/WX`). Distribution builds may turn it off so a newer compiler cannot fail them; the Flatpak does |
 | `PC_DOWNLOAD_CACHE` | empty | Folder that keeps dependency archives between builds |
 | `PC_WINEPREFIX` | see below | Wine prefix for cross-built Windows tests |
 | `PC_WITH_AVIF`, `PC_WITH_JXL` | AUTO | AVIF and JPEG XL: `AUTO` (system library if usable), `ON`, `BUNDLED` (pinned static build, needs a C++17 compiler, Perl and on x86 NASM; every release package uses it) or `OFF`; docs/codecs/avif_jxl.md |
@@ -138,7 +139,7 @@ long paths and the UTF-8 code page.
 
 ## macOS
 
-paint.c 0.1.0 and 0.1.1 have no prebuilt macOS package (ADR-021): build it from the
+paint.c 0.1.0 to 0.1.2 have no prebuilt macOS package (ADR-021): build it from the
 source archive of the release (`paintc-<version>-source.tar.gz`) or from a
 checkout. macOS 13 or newer, Apple silicon or Intel.
 
@@ -157,7 +158,7 @@ and the codec sources (SHA-256 checked), so it needs network access once;
 ```sh
 # from the release: check and unpack the source archive
 grep source.tar.gz SHA256SUMS.txt | shasum -a 256 -c -
-tar -xzf paintc-0.1.1-source.tar.gz && cd paintc-0.1.1
+tar -xzf paintc-0.1.2-source.tar.gz && cd paintc-0.1.2
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPC_VENDOR_SDL=ON \
       -DPC_WITH_AVIF=BUNDLED -DPC_WITH_JXL=BUNDLED \

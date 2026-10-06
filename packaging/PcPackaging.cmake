@@ -66,19 +66,19 @@ elseif(WIN32)
 else()
   set(_share ${CMAKE_INSTALL_DATADIR})
   install(TARGETS paintc RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT paintc)
-  install(FILES ${PC_PKG_DIR}/linux/org.paintc.paintc.desktop
+  install(FILES ${PC_PKG_DIR}/linux/io.github.vancevoj.paintc.desktop
           DESTINATION ${_share}/applications COMPONENT paintc)
-  install(FILES ${PC_PKG_DIR}/linux/org.paintc.paintc.xml
+  install(FILES ${PC_PKG_DIR}/linux/io.github.vancevoj.paintc.xml
           DESTINATION ${_share}/mime/packages COMPONENT paintc)
-  install(FILES ${PC_PKG_DIR}/linux/org.paintc.paintc.metainfo.xml
+  install(FILES ${PC_PKG_DIR}/linux/io.github.vancevoj.paintc.metainfo.xml
           DESTINATION ${_share}/metainfo COMPONENT paintc)
   foreach(_s 16 24 32 48 64 128 256 512)
     install(FILES ${PC_ICON_DIR}/png/paintc-${_s}.png
             DESTINATION ${_share}/icons/hicolor/${_s}x${_s}/apps
-            RENAME org.paintc.paintc.png COMPONENT paintc)
+            RENAME io.github.vancevoj.paintc.png COMPONENT paintc)
   endforeach()
   install(FILES ${PC_ICON_DIR}/paintc.svg DESTINATION ${_share}/icons/hicolor/scalable/apps
-          RENAME org.paintc.paintc.svg COMPONENT paintc)
+          RENAME io.github.vancevoj.paintc.svg COMPONENT paintc)
   install(FILES ${PROJECT_SOURCE_DIR}/LICENSE DESTINATION ${_share}/doc/paintc/licenses
           RENAME LICENSE.txt COMPONENT paintc)
   install(FILES ${PROJECT_SOURCE_DIR}/NOTICE DESTINATION ${_share}/doc/paintc/licenses

@@ -1248,6 +1248,10 @@ static void scan_work(void *ud)
     j->st = text_fonts_scan_dirs((const char *const *)j->dirs, j->prev, j->nprev, &j->cancel,
                                  &j->out, &j->nout);
     if (j->st == PC_OK && j->cache[0]) (void)text_fonts_cache_write(j->cache, j->out, j->nout);
+    if (j->st == PC_OK)
+        pal_log(PAL_LOG_INFO, "text: %u font faces", (unsigned)j->nout);
+    else if (j->st != PC_ERR_CANCELLED)
+        pal_log(PAL_LOG_WARN, "text: font scan failed (%d)", (int)j->st);
 }
 
 static void scan_free(scan_job *j)

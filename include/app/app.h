@@ -39,8 +39,8 @@ typedef struct fx_registry fx_registry;
 typedef struct pal_pool pal_pool;
 
 #define APP_NAME    "paint.c"
-#define APP_ID      "org.paintc.paintc"
-#define APP_VERSION "0.1.1"
+#define APP_ID      "io.github.vancevoj.paintc"
+#define APP_VERSION "0.1.2"
 
 /* ---- creation ------------------------------------------------------------ */
 typedef enum app_theme_pref {

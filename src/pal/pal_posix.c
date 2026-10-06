@@ -525,6 +525,12 @@ char **pal__os_font_dirs(void)
         font_add(&v, &n, &cap, pal__concat3(home, ".fonts/", NULL));
     }
     {
+        /* Host fonts that Flatpak exposes inside the sandbox. */
+        font_add(&v, &n, &cap, pal__strdup("/run/host/fonts/"));
+        font_add(&v, &n, &cap, pal__strdup("/run/host/local-fonts/"));
+        font_add(&v, &n, &cap, pal__strdup("/run/host/user-fonts/"));
+    }
+    {
         /* XDG_DATA_DIRS adds Flatpak, Nix and Snap font locations. */
         const char *dirs = SDL_getenv("XDG_DATA_DIRS");
         while (dirs && *dirs) {
@@ -721,9 +727,12 @@ void pal__os_pump(void)
 
 /* ---- single instance ------------------------------------------------------------- */
 /* Linux: abstract unix socket "<app_id>.si.<uid>" (vanishes with the
- * process, no files). Other POSIX systems, or Linux with PAINTC_SI_FILE=1
- * (tests): socket file plus fcntl lock file in $XDG_RUNTIME_DIR or
- * PAL_DIR_STATE, both private to the user. Peers of another uid are
+ * process, no files). Other POSIX systems, Flatpak (every sandbox has its
+ * own network namespace, so abstract sockets do not reach the running
+ * instance), or Linux with PAINTC_SI_FILE=1 (tests): socket file plus fcntl
+ * lock file in $XDG_RUNTIME_DIR (its app/$FLATPAK_ID folder, the one part
+ * shared between sandboxes of the app, under Flatpak) or PAL_DIR_STATE,
+ * both private to the user. Peers of another uid are
  * rejected in both directions where the OS reports peer credentials.
  * macOS: not used; Finder delivers opens as SDL_EVENT_DROP_FILE. */
 #if !defined(__APPLE__)
@@ -770,7 +779,8 @@ static bool si_use_abstract(void)
 {
 #if defined(__linux__)
     const char *f = SDL_getenv("PAINTC_SI_FILE");
-    return !(f && f[0] == '1');
+    const char *fp = SDL_getenv("FLATPAK_ID");
+    return !(f && f[0] == '1') && !(fp && fp[0]);
 #else
     return false;
 #endif
@@ -795,14 +805,21 @@ static bool si_address(const char *app_id, bool abstract, struct sockaddr_un *a,
         return true;
     } else {
         const char *rt = SDL_getenv("XDG_RUNTIME_DIR");
+        const char *fp = SDL_getenv("FLATPAK_ID");
         const char *dir = (rt && rt[0] == '/' && pal_is_dir(rt)) ? rt : pal_dir(PAL_DIR_STATE);
+        char *fdir = NULL;
         const char *sep;
         if (!dir) return false;
+        if (dir == rt && fp && fp[0] && !strchr(fp, '/')) {
+            fdir = pal__concat3(rt, rt[strlen(rt) - 1u] == '/' ? "app/" : "/app/", fp);
+            if (fdir && pal_is_dir(fdir)) dir = fdir;
+        }
         sep = dir[strlen(dir) - 1u] == '/' ? "" : "/";
         (void)snprintf(name, sizeof name, "%s.sock", app_id);
         *sock_path = pal__concat3(dir, sep, name);
         (void)snprintf(name, sizeof name, "%s.lock", app_id);
         *lock_path = pal__concat3(dir, sep, name);
+        free(fdir);
         if (!*sock_path || !*lock_path || strlen(*sock_path) + 1u > sizeof a->sun_path) {
             free(*sock_path);
             free(*lock_path);

@@ -10,13 +10,19 @@ if(MSVC)
   #   C4201  "nameless struct/union": used by Windows SDK headers that pal
   #          includes; MSVC flags it at /W4 in C mode.
   # /utf-8: sources and string literals are UTF-8 (labels, test names).
-  set(PC_WARN_FLAGS /W4 /WX /wd4200 /wd4201 /utf-8)
+  set(PC_WARN_FLAGS /W4 /wd4200 /wd4201 /utf-8)
+  if(PC_WERROR)
+    list(APPEND PC_WARN_FLAGS /WX)
+  endif()
   if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
     # clang-cl: /W4 means -Wall -Wextra; keep parity with the GCC flags.
     list(APPEND PC_WARN_FLAGS -Wshadow -Wstrict-prototypes)
   endif()
 else()
-  set(PC_WARN_FLAGS -Wall -Wextra -Wpedantic -Wshadow -Wstrict-prototypes -Werror)
+  set(PC_WARN_FLAGS -Wall -Wextra -Wpedantic -Wshadow -Wstrict-prototypes)
+  if(PC_WERROR)
+    list(APPEND PC_WARN_FLAGS -Werror)
+  endif()
   # Same floating-point results on every target: no fused multiply-add
   # contraction. Clang (also Apple clang) contracts a * b + c by default
   # where FMA is in the base ISA (arm64), x86-64 has no FMA in its base ISA,

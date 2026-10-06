@@ -9,7 +9,7 @@ extension owned by lane L0.
 
 | Function | Thread | Notes |
 |---|---|---|
-| `pal_init(app_id, org, app)` | main | After `SDL_Init`. Idempotent (a second call returns true). Folder names come from `app` (falls back to the last `app_id` component): Linux and Windows use it lowercased with only `[a-z0-9_-]` kept (`"paint.c"` gives `paintc`), macOS uses it as is. `org` is unused. Creates CONFIG, DATA, CACHE and STATE, opens the log file, routes SDL's log output into pal. False only when no home or profile folder can be determined. Call it as `pal_init("org.paintc.paintc", "paintc", "paint.c")`. |
+| `pal_init(app_id, org, app)` | main | After `SDL_Init`. Idempotent (a second call returns true). Folder names come from `app` (falls back to the last `app_id` component): Linux and Windows use it lowercased with only `[a-z0-9_-]` kept (`"paint.c"` gives `paintc`), macOS uses it as is. `org` is unused. Creates CONFIG, DATA, CACHE and STATE, opens the log file, routes SDL's log output into pal. False only when no home or profile folder can be determined. Call it as `pal_init("io.github.vancevoj.paintc", "paintc", "paint.c")`. |
 | `pal_quit()` | main | Stops the single-instance listener, drops undelivered dialog results and forwarded paths, restores SDL's log function, frees every string returned by `pal_dir` and `pal_font_dirs`. |
 | `pal_pump()` | main | Delivers dialog results and forwarded paths through their callbacks (in arrival order) and reaps helper processes. Call once per frame. |
 
