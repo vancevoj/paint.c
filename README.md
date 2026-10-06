@@ -10,6 +10,20 @@ paint.c is an independent clean-room project. It is not affiliated with or
 endorsed by dotPDN LLC; Paint.NET is their trademark. See NOTICE for the MIT
 attribution of the Paint.NET 3.36 blend math.
 
+## Install
+
+* **Linux, Flatpak:** [install paint.c](https://vancevoj.github.io/paintc-flatpak/io.github.vancevoj.paintc.flatpakref)
+  (open the file with GNOME Software or KDE Discover; updates arrive with
+  your other apps), or in a terminal:
+
+  ```sh
+  flatpak install --user https://vancevoj.github.io/paintc-flatpak/io.github.vancevoj.paintc.flatpakref
+  ```
+
+* **Linux, AppImage**, **Windows** (installer or portable zip) and the
+  source code: the [latest release](https://github.com/vancevoj/paint.c/releases/latest).
+* **macOS:** build from source (docs/BUILDING.md).
+
 ## Plugins (optional downloads)
 
 paint.c runs native effect plugins. The official ones below are separate

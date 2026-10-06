@@ -80,8 +80,15 @@ and `gtk-update-icon-cache` as usual.
   `packaging/flatpak/build-bundle.sh <work dir> <output dir>` builds the
   release bundle `paintc-<version>-linux-x86_64.flatpak`, which GNOME
   Software and KDE Discover install by opening the file (the runtime comes
-  from Flathub through `--runtime-repo`). paint.c is not on Flathub (owner's
-  decision). Runtime org.freedesktop.Platform 26.08, whose SDL3 (3.4),
+  from Flathub through `--runtime-repo`). The signed Flatpak repository
+  is github.com/vancevoj/paintc-flatpak, served at
+  https://vancevoj.github.io/paintc-flatpak/ (install link:
+  `io.github.vancevoj.paintc.flatpakref` there); a release goes in with
+  `packaging/flatpak/publish-repo.sh <build dir> <checkout of paintc-flatpak>`,
+  then a commit and push of that checkout. Its signing key is kept outside
+  every repository (`~/.local/share/paintc-flatpak/gnupg` on the owner's
+  machine); a new key would make every installed copy reject updates. paint.c
+  is not on Flathub (owner's decision). Runtime org.freedesktop.Platform 26.08, whose SDL3 (3.4),
   libavif and libjxl are used (`PC_VENDOR_SDL=OFF`, ADR-022 accepts SDL
   3.4); `PC_WERROR=OFF` so a compiler update in the runtime cannot fail the
   build. Permissions: Wayland with X11 fallback, DRI, the Pictures folder,

@@ -15,6 +15,7 @@ Lane I. How the packages are built and what they contain: docs/PACKAGING.md.
 | linux/build-appimage-docker.sh | release AppImage built in Ubuntu 20.04 (glibc 2.31 floor), with checks |
 | flatpak/io.github.vancevoj.paintc.yml | Flatpak manifest of this checkout (offline build, dependency archives listed) |
 | flatpak/build-bundle.sh | the release `.flatpak` bundle, built and linted with org.flatpak.Builder |
+| flatpak/publish-repo.sh | exports a build into the signed Flatpak repository (vancevoj/paintc-flatpak, GitHub Pages) |
 | windows/paintc.manifest | long paths, UTF-8 code page, per-monitor DPI |
 | windows/paintc.nsi | NSIS installer with file associations |
 | windows/README-portable.txt | README.txt of the portable zip |
