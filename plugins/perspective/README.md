@@ -38,10 +38,11 @@ Details:
   centered vertically.
 * Parts that would fall outside the selection's bounding box are cut off;
   pixels of the selection the image no longer covers become transparent.
-* Ratios of 1.00 leave the image as it is (with High quality off the
-  result is identical; High quality resamples slightly).
-* With High quality on, strongly shrunk rows are sampled more densely, so
-  fine patterns turn smooth instead of flickering.
+* Ratios of 1.00 leave the image exactly as it is, with High quality on
+  or off.
+* With High quality on, the slanted edges are antialiased, shrunk areas
+  average every source pixel they cover, so fine patterns turn smooth
+  instead of flickering, and enlarged areas are interpolated.
 
 ## Install
 

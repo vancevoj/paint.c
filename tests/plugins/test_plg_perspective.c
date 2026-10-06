@@ -4,7 +4,10 @@
  *
  * Covers: loading (one effect, no errors, author and version, menu path
  * Effects/Distort/Perspective, props, defaults and the Linked rule),
- * identity at ratios 1 in every mode, the trapezoid's narrow top row and
+ * identity at ratios 1 in every mode with both qualities (fix 0.1.1: High
+ * quality, the default, reproduces hard checkerboard edges and random noise
+ * bit for bit, and magnified areas stay interpolated), the trapezoid's
+ * narrow top row and
  * exact bottom row, perspective rows crowding toward the narrow edge
  * (source row 50 lands at y = 33) where the trapezoid keeps them evenly
  * spaced, dpy's diagram (top 1.5, bottom 0.5, height 0.8 on 200 x 200),
@@ -199,6 +202,121 @@ static void t_identity(void)
         fxt_img_free(&out);
         fx_params_free(p);
     }
+    fxt_img_free(&src);
+}
+
+/* Pixels of a and b inside r that differ, and the largest channel
+ * difference among them. */
+static uint32_t diff_in(const fx_img *a, const fx_img *b, fx_rect r, int *maxd)
+{
+    uint32_t n = 0;
+    *maxd = 0;
+    for (int32_t y = r.y; y < r.y + r.h; y++)
+        for (int32_t x = r.x; x < r.x + r.w; x++) {
+            fx_px p = pxat(a, x, y), q = pxat(b, x, y);
+            int d[4] = { p.b - q.b, p.g - q.g, p.r - q.r, p.a - q.a };
+            bool differ = false;
+            for (int k = 0; k < 4; k++) {
+                int v = d[k] < 0 ? -d[k] : d[k];
+                if (v > *maxd) *maxd = v;
+                differ |= v != 0;
+            }
+            n += differ;
+        }
+    return n;
+}
+
+static void fill_checker(fx_img *im, int32_t cell)
+{
+    for (int32_t y = im->r.y; y < im->r.y + im->r.h; y++)
+        for (int32_t x = im->r.x; x < im->r.x + im->r.w; x++)
+            fx_row(im, y)[x] = ((x / cell + y / cell) & 1) ? fx_px_make(255, 255, 255, 255)
+                                                           : fx_px_make(0, 0, 0, 255);
+}
+
+/* Fix 0.1.1: High quality (on by default) is an exact identity at ratios
+ * 1 too. Its old supersampling (2 x n bilinear samples at +-0.25 px) blurred
+ * hard edges by up to 47 levels at ratio 1 (about 7 % of a checkerboard's
+ * pixels). Checkerboards of 1 and 8 px cells and random noise (random
+ * alpha, colors under alpha 0 included) come back bit for bit in every
+ * mode, linked or not, for the whole image, a selection that does not start
+ * at 0 and one pixel wide or tall selections, and with the dialog's
+ * defaults. */
+static void t_identity_hq(void)
+{
+    static const fx_rect sels[] = { { 0, 0, 61, 47 }, { 5, 3, 40, 33 }, { 7, 9, 1, 20 },
+                                    { 3, 4, 30, 1 }, { 0, 46, 61, 1 } };
+    fx_img src = fxt_img_new(fxt_rect(0, 0, 61, 47), 4), out;
+    if (!src.px) return;
+    for (int pat = 0; pat < 3; pat++) {
+        if (pat == 0) fill_checker(&src, 1);
+        else if (pat == 1) fill_checker(&src, 8);
+        else fxt_fill_noise(&src, 77u);
+        for (int32_t m = 0; m < 4; m++)
+            for (int32_t linked = 0; linked < 2; linked++) {
+                void *p = params_of(m, 1.0, 1.0, 1.0, 1);
+                if (!p) continue;
+                CHECK(fx_param_set(g_fx, p, "linked", linked) == PC_OK);
+                for (size_t i = 0; i < sizeof sels / sizeof sels[0]; i++) {
+                    int maxd = 0;
+                    uint32_t n;
+                    out = render(p, &src, sels[i]);
+                    n = diff_in(&out, &src, sels[i], &maxd);
+                    if (n)
+                        INFO("pattern %d mode %d linked %d sel %d: %u pixels differ, up to %d",
+                             pat, (int)m, (int)linked, (int)i, (unsigned)n, maxd);
+                    CHECK(n == 0u);
+                    CHECK(fxt_canary_damage(&out, &sels[i], 1u) == 0u);
+                    fxt_img_free(&out);
+                }
+                fx_params_free(p);
+            }
+        /* the dialog's defaults: Vertical perspective, ratios 1, High quality */
+        {
+            void *p = fx_params_new(g_fx, NULL);
+            double hq = 0.0;
+            int maxd = 0;
+            CHECK(p != NULL && fx_param_get(g_fx, p, "hq", &hq) == PC_OK && hq == 1.0);
+            if (p) {
+                out = render(p, &src, src.r);
+                CHECK(diff_in(&out, &src, src.r, &maxd) == 0u);
+                fxt_img_free(&out);
+            }
+            fx_params_free(p);
+        }
+    }
+    fxt_img_free(&src);
+}
+
+/* High quality still interpolates where the map magnifies: Ratio3 2
+ * stretches the top half of horizontal stripes over the whole height, and
+ * the stripe borders come out as in-between rows (bilinear), while High
+ * quality off keeps them hard. */
+static void t_hq_magnify(void)
+{
+    fx_img src = fxt_img_new(fxt_rect(0, 0, 40, 64), 4), out;
+    void *p = params_of(1, 1.0, 1.0, 2.0, 1);
+    if (!p || !src.px) goto done;
+    for (int32_t y = 0; y < 64; y++)
+        for (int32_t x = 0; x < 40; x++)
+            fx_row(&src, y)[x] = ((y / 4) & 1) ? fx_px_make(255, 255, 255, 255)
+                                               : fx_px_make(0, 0, 0, 255);
+    for (int32_t hq = 0; hq < 2; hq++) {
+        uint32_t mid = 0, opaque = 0;
+        CHECK(fx_param_set(g_fx, p, "hq", hq) == PC_OK);
+        out = render(p, &src, src.r);
+        for (int32_t y = 0; y < 64; y++) {
+            fx_px q = pxat(&out, 20, y);
+            mid += q.r != 0u && q.r != 255u;
+            opaque += q.a == 255u;
+        }
+        CHECK(opaque == 64u);
+        if (hq) CHECK(mid >= 14u);           /* about two rows per border */
+        else CHECK(mid == 0u);
+        fxt_img_free(&out);
+    }
+done:
+    fx_params_free(p);
     fxt_img_free(&src);
 }
 
@@ -490,6 +608,8 @@ int main(int argc, char **argv)
     if (g_fx) {
         RUN(t_linked);
         RUN(t_identity);
+        RUN(t_identity_hq);
+        RUN(t_hq_magnify);
         RUN(t_vertical);
         RUN(t_diagram);
         RUN(t_transpose);
